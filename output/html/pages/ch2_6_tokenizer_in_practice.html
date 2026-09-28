@@ -1,0 +1,167 @@
+<article class="content">
+<h1>2.6 分词的实践与坑</h1>
+<p class="subtitle">本页范围：第 2 章第 6 节　|　整理时间：2026-09-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>分词器学完原理之后，真正动手用会遇到什么？为什么同一个模型做不对算术、中文比英文贵、某些字符串会让模型行为异常？</td></tr>
+      <tr><td>本节主张</td><td>分词器不是透明的管道，它的切分习惯会渗透进模型的能力与成本。用 tiktoken 亲手数一遍 token，很多流传已久的“模型怪癖”都能落到分词层面解释。</td></tr>
+      <tr><td>一句话结论</td><td>数字不按数位切、中文在老词表里更碎、空白和大小写都是不同 token、词表里还沉睡着没人训练过的 glitch token——这些坑都源于分词器与模型是两回事。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>tiktoken</span><span>cl100k_base</span><span>o200k_base</span><span>Glitch Token</span><span>多语言溢价</span><span>数字切分</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>2.6.1 上手实测：用 tiktoken 数 token</h2>
+
+<p>　　前面几节讲了 BPE、WordPiece、Unigram 的原理，这一节换个姿势：直接动手跑。OpenAI 开源的 tiktoken 是 GPT 系列模型官方分词器的 Python 实现，装好后三行代码就能看到任何一段文本的切分结果。本页所有实测数据均来自本机运行 tiktoken 0.12.0，读者可以原样复现。</p>
+
+<pre><code>import tiktoken
+
+enc = tiktoken.get_encoding("cl100k_base")
+enc.encode("Tokenization is fun.")
+# [3404, 2065, 374, 2523, 13]
+# 对应片段：['Token', 'ization', ' is', ' fun', '.']</code></pre>
+
+<p>　　把 ID 翻译回片段，能直观看到 2.1 节说的子词切分：<code>Tokenization</code> 被拆成 <code>Token</code> 和 <code>ization</code>，而 <code> is</code>、<code> fun</code> 都<strong>带着前导空格</strong>——这是 BPE 词表的常见设计，单词连同它前面的空格合并成一个 token。句尾的句号单独占一个 token。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">tiktoken</span>
+    <span class="term-en">OpenAI 官方的 BPE 分词器库，Rust 实现内核 + Python 接口</span>
+  </div>
+  <div class="term-body">
+    <p>tiktoken 里内置了几套词表编码（encoding），与本手册关系最密切的两套是：<strong>cl100k_base</strong>，GPT-3.5 / GPT-4 时代使用的词表，容量 100277；<strong>o200k_base</strong>，GPT-4o 起启用的新词表，容量 200019，对多语言（含中文）做了明显优化。词表容量翻倍，收益主要体现在非英语文本的压缩率上，下文实测表会看到差距。</p>
+    <div class="term-analogy">词表就像一本词典的词条数：词典收录的词条越多越全，一句话查词典时翻的次数就越少。o200k_base 相当于把词典加厚了一倍，中文词条收录得更整。</div>
+  </div>
+</div>
+
+<h2>2.6.2 实测对照表：同一句话，不同命运</h2>
+
+<p>　　光说原理没感觉，把几类典型输入喂给分词器，结果一目了然：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>输入文本</th><th>分词器</th><th>token 数</th><th>切分结果</th></tr></thead>
+    <tbody>
+      <tr><td><code>Tokenization is fun.</code></td><td>cl100k_base</td><td>5</td><td><code>['Token','ization',' is',' fun','.']</code>，ID <code>[3404, 2065, 374, 2523, 13]</code></td></tr>
+      <tr><td><code>分词是大语言模型的第一道工序。</code></td><td>cl100k_base</td><td>16</td><td>切得较碎，多个汉字被拆开</td></tr>
+      <tr><td><code>分词是大语言模型的第一道工序。</code></td><td>o200k_base</td><td>12</td><td>能整体识别 <code>语言</code>、<code>模型</code>、<code>第一</code> 等词组</td></tr>
+      <tr><td><code>我爱大语言模型</code></td><td>cl100k_base</td><td>8</td><td>平均每个汉字超过 1 个 token</td></tr>
+      <tr><td><code>537</code></td><td>cl100k_base</td><td>1</td><td>整体一个 token，ID <code>[19038]</code></td></tr>
+      <tr><td><code>123456789</code></td><td>cl100k_base</td><td>3</td><td><code>['123','456','789']</code></td></tr>
+      <tr><td><code>1234567890</code></td><td>cl100k_base</td><td>4</td><td><code>['123','456','789','0']</code></td></tr>
+      <tr><td><code>🚀 发射！</code></td><td>cl100k_base</td><td>7</td><td>仅 🚀 一个字符就占 3 个 token</td></tr>
+      <tr><td><code>hello  world</code>（两个空格）</td><td>cl100k_base</td><td>3</td><td><code>['hello',' ',' world']</code>，双空格被拆成 <code>' '</code> + 带空格的 <code>' world'</code></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　这张表值得逐行琢磨。英文一句话 5 个 token 干净利落；换成同信息量的中文，老词表要 16 个，新词表也要 12 个。数字的切法更是暗藏玄机，emoji 一个符号顶三个 token。下面几节把这些观察背后的坑逐个讲透。</p>
+
+<h2>2.6.3 数字切分与算术之坑</h2>
+
+<p>　　LLM 做算术经常翻车，这是出了名的现象。原因有很多，但分词层面的解释最经典：<strong>分词器切数字时不按十进制数位对齐</strong>。</p>
+
+<p>　　看实测：<code>123456789</code> 被切成 <code>123 / 456 / 789</code> 三段，每段三位，看起来很整齐。但多加一位变成 <code>1234567890</code>，切分结果就成了 <code>123 / 456 / 789 / 0</code>——分段依然从左边三位三位地切，最后一位 <code>0</code> 孤零零落单。也就是说，<strong>token 边界和数位没有固定对应关系</strong>：同一个数字 <code>789</code>，在九位数里对应“十万位到千位”那段，在十位数里对应的数位却整体偏移了。</p>
+
+<p>　　模型做加法时，列竖式要从个位开始逐位对齐、处理进位。人按数位对齐是天然的，因为数字符号本身逐位排列；而模型读到的是 <code>123</code>、<code>456</code> 这样的整块 token，它要先在内部把每个 token 拆回数位，再判断每个 token 跨了哪几位，进位时边界还可能正好卡在 token 中间。token 边界随数值长度漂移，模型就很难学出一个稳定的“个位对个位”的对齐模式。算术对位关系的输入表示不一致，是 LLM 算术能力弱的公认解释之一。</p>
+
+<div class="highlight-box warn">
+  注意一个反直觉的细节：<code>537</code> 恰好整体是一个 token（ID 19038），说明三位以内的常见数字组合在词表里大多有独立词条。麻烦出在更长数字的分段漂移上——位数一变，切分点对齐的数位就变了，模型看到的“数”不再以位为单位。
+</div>
+
+<p>　　这个坑的启示不止于算术：凡是需要字符级精确操作的任务（数单词里有几个字母、字符串反转、校验码核对），分词都在给模型制造障碍，因为模型看到的根本不是字符。</p>
+
+<h2>2.6.4 多语言的 token 溢价</h2>
+
+<p>　　实测表里另一组对比同样醒目：同一句中文 <code>分词是大语言模型的第一道工序。</code>，cl100k_base 切出 16 个 token，o200k_base 只要 12 个；<code>我爱大语言模型</code> 七个字在 cl100k 下要 8 个 token，平均每个字超过一个。换成英文，常见词基本一词一个 token。</p>
+
+<p>　　原因在于词表的训练语料构成。cl100k_base 的词表在英文占主导的语料上训练，收录了大量英文整词，而中文常用词组收录不全，很多汉字只能以单字甚至字节碎片的形式存在。o200k_base 把词表扩到约 20 万，并加强了对多语言的覆盖，所以能整体识别 <code>语言</code>、<code>模型</code>、<code>第一</code> 这类词组。</p>
+
+<p>　　token 数不是抽象指标，它直接是钱和容量：</p>
+
+<ul>
+  <li><strong>API 计费按 token 走</strong>：同一份中文内容，用对中文不友好的词表，输入输出都更贵；</li>
+  <li><strong>上下文窗口按 token 计</strong>：标称 128k 的窗口，装中文时实际能装下的字数比英文少一截；</li>
+  <li><strong>训练成本同理</strong>：同样的语料切得越碎，训练要处理的序列就越长。</li>
+</ul>
+
+<p>　　这种“说不同语言、付不同价钱”的现象，社区一般称为多语言的 token 溢价。选模型和词表时把它纳入评估，中文场景优先选 o200k 这类新词表的模型，是实打实的省钱手段。</p>
+
+<h2>2.6.5 Glitch Token：词表里的幽灵</h2>
+
+<p>　　词表容量 10 万、20 万，这些词条是怎么来的？由分词器在训练语料上跑 BPE 合并而来。这里埋着一个结构性隐患：<strong>训练分词器的语料，和训练模型的语料，不是同一份</strong>。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Glitch Token（异常 token）</span>
+    <span class="term-en">glitch token = 词表里存在、但模型几乎没训练过的 token</span>
+  </div>
+  <div class="term-body">
+    <p>GPT-2 时代的词表里混进了一批整串的罕见字符串，典型例子是 Reddit 用户名 <code>SolidGoldMagikarp</code>。这个用户名在分词器训练语料里反复出现，BPE 就把它整体合并成了一个 token；但它几乎不在模型训练语料里出现，于是这个 token 对应的 embedding 接近初始化后的随机状态，没被正经训练过。把这样的字符串输入模型，模型会给出语无伦次、复读、乱码等异常反应。这是 Rumbelow 与 Watkins 在 2023 年一系列调查博客中系统披露的现象。</p>
+    <div class="term-analogy">就像词典里收录了一个生造词，但所有编辑都没拿它造过句。真有人在文章里用上这个词，读者只能对着词条干瞪眼。</div>
+  </div>
+</div>
+
+<p>　　glitch token 是一场历史事故，它提醒我们：分词器和模型是两个独立训练的部件，词表里有某个 token，不代表模型认识它。新一代模型在构建词表与清洗语料时已经注意到这个问题，但“分词语料与模型语料一致性”至今仍是分词器工程的检查项。</p>
+
+<h2>2.6.6 空白与大小写：看不见的差异</h2>
+
+<p>　　对人是同一个词，对分词器未必是同一个 token。实测表最后一行：<code>hello  world</code>（两个空格）被切成 <code>['hello',' ',' world']</code>——一个空格单独成 token，另一个空格跟 <code>world</code> 合并。空格在 BPE 词表里是切分的参与者，不是可有可无的留白。</p>
+
+<p>　　类似的，<code>hello</code>、<code> hello</code>（带前导空格）、<code>Hello</code>（首字母大写）是三个不同的 token。这带来几个实际后果：</p>
+
+<ul>
+  <li>同一个词出现在句首（常大写、无前导空格）和句中（小写、带前导空格），模型读到的是不同 ID，它要自己学会这些变体语义相通；</li>
+  <li>行首缩进、尾部空格、换行符都会改变 token 序列。给模型喂 prompt 时多敲一个尾部空格，输入就不一样了；</li>
+  <li>做 prompt 模板拼接时，模板与变量之间的空格归属（空格留在模板尾巴还是变量开头）会影响切分，值得留意。</li>
+</ul>
+
+<div class="highlight-box info">
+  一个自查习惯：怀疑模型“莫名其妙”表现异常时，先把实际输入丢进 tiktoken 数一遍。尾部空格、全角半角混用、不可见字符，都能在这步现形。
+</div>
+
+<h2>2.6.7 实践建议清单</h2>
+
+<p>　　把本节的坑收拢成一份可执行的清单：</p>
+
+<ol>
+  <li><strong>训练与推理必须用同一个分词器</strong>。词表不同，同一文本的 ID 序列就不同，换分词器等于换了模型的输入语言，模型直接读不懂。</li>
+  <li><strong>估算成本先用 tiktoken 数 token</strong>。不要按字符数或词数估算 API 费用和上下文占用，中文场景尤其会估偏。</li>
+  <li><strong>处理中文优先选 o200k 类新词表</strong>。同一句话 16 个 token 与 12 个 token 的差距，规模化之后就是真金白银。</li>
+  <li><strong>注意尾部空格与换行</strong>。它们是 token 的一部分，拼 prompt、做数据清洗时都要当回事。</li>
+  <li><strong>对算术和字符级任务保持警惕</strong>。需要精确计算时让模型借助工具（代码执行），需要字符操作时考虑显式拆字符的提示技巧，别指望模型越过分词直接看到字符。</li>
+</ol>
+
+<p>　　至此，第 2 章关于分词的讨论收尾：从为什么分词、怎么分，到用什么工具分、实践里有哪些坑。分词器的输出是 token ID 序列，下一章要回答的问题是：这些整数 ID 如何变成模型能计算的向量——Embedding 与位置编码登场。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么数字切分会影响模型做算术？</div>
+    <div class="sc-key">分词不按十进制数位对齐：<code>123456789</code> 切成 <code>123/456/789</code>，多一位就变成 <code>123/456/789/0</code>，token 边界随数值位数漂移，模型难以学到稳定的逐位对齐与进位模式，这是 LLM 算术差的经典原因之一。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">多语言的 token 溢价指什么？</div>
+    <div class="sc-key">同一句话在不同语言下 token 数不同。老词表（cl100k）对中文收录不全，一句话要 16 个 token，新词表（o200k）只要 12 个。API 按 token 计费、上下文按 token 计容量，分词效率直接折算成钱和可用上下文。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">glitch token 是怎么产生的？</div>
+    <div class="sc-key">分词器训练语料与模型训练语料不一致：某字符串（如 Reddit 用户名 SolidGoldMagikarp）在分词器语料里高频出现、被 BPE 整体收进词表，但在模型语料里几乎不出现，其 embedding 近乎随机、未经训练，输入它就会让模型行为异常。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>OpenAI tiktoken GitHub 仓库（分词器实现与 cl100k_base / o200k_base 词表说明）：https://github.com/openai/tiktoken。</li>
+  <li>OpenAI Cookbook：How to count tokens with tiktoken（token 计数与成本估算官方指南）。</li>
+  <li>Rumbelow &amp; Watkins, 2023. SolidGoldMagikarp 系列调查博客（glitch token 现象的系统性披露与分析）。</li>
+  <li>本页全部实测数据（token 数、ID 序列、切分片段、词表容量 100277 / 200019）来自本机 Python + tiktoken 0.12.0 真实运行，读者可照 2.6.1 节代码复现。</li>
+</ul>
+
+</article>

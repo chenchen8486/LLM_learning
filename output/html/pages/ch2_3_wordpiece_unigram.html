@@ -1,0 +1,139 @@
+<article class="content">
+<h1>2.3 WordPiece 与 Unigram：另外两条子词路线</h1>
+<p class="subtitle">本页范围：第 2 章第 3 节　|　整理时间：2026-09-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>BPE 按“出现次数最多”来合并片段，这是唯一合理的标准吗？有没有别的办法构造子词词表？</td></tr>
+      <tr><td>本节主张</td><td>WordPiece 与 BPE 流程相同、标准不同：合并时追求语料似然最大而非频次最高。Unigram 则完全反过来：先准备一个大词表，再往下剪掉不重要的 token，并用概率模型挑选最优切分。</td></tr>
+      <tr><td>一句话结论</td><td>三条路线殊途同归：都得到大小可控、无 OOV 的子词词表，差别只在构造方向与挑选标准；BERT 用 WordPiece，XLNet、ALBERT、T5 用 Unigram。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>WordPiece</span><span>Unigram</span><span>似然</span><span>Viterbi</span><span>Subword Regularization</span><span>BERT</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>2.3.1 WordPiece：换一把尺子做合并</h2>
+
+<p>　　WordPiece 比 BPE 进入 NLP 还早。它出自 Schuster 与 Nakajima 2012 年的论文（发表于 ICASSP），最初是为日文和韩文的语音搜索系统解决词表问题的；2016 年 Google 的神经机器翻译系统 GNMT（Wu et al.）把它用于大规模机器翻译，2018 年 BERT（Devlin et al.，2019 年公开论文）沿用这套方案之后，它就成了 NLP 领域出镜率最高的分词算法之一。</p>
+
+<p>　　从流程上看，WordPiece 和 BPE 几乎一模一样：同样从字符级词表出发，同样每轮挑一对相邻片段合并进词表，同样迭代到词表达到目标大小。唯一的区别在<strong>挑选标准</strong>：BPE 选频次最高的 pair，WordPiece 选能让训练语料似然（likelihood）提升最多的 pair。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">似然 Likelihood</span>
+    <span class="term-en">likelihood = 给定模型参数下，观察到这批数据的概率</span>
+  </div>
+  <div class="term-body">
+    <p>可以粗略理解为“这套切分方案把整份语料解释得有多好”。假设语料中每个 token 独立出现，整份语料的概率就是所有 token 概率的连乘。一次合并会改变切分方式，也就改变这个连乘的值。WordPiece 每一轮都挑让连乘结果变得最大的那次合并，相当于在问：哪两个片段<strong>绑在一起的必要性最强</strong>？</p>
+    <div class="term-analogy">BPE 像按销量进货，哪种组合卖得多就进哪种；WordPiece 像按搭配进货，先看两件单品的关联有多强，再决定要不要把它们打包成套装卖。</div>
+  </div>
+</div>
+
+<p>　　直接计算语料似然的变化比较复杂，教学中常用一个直观的近似公式来理解它的偏好：</p>
+
+<div class="formula-card">
+  \[ \mathrm{score}(a,b)=\frac{\mathrm{freq}(ab)}{\mathrm{freq}(a)\times \mathrm{freq}(b)} \tag{1} \]
+  <div class="formula-note">公式 (1)：WordPiece 合并标准的教学近似。分子是合并后片段 ab 的频次，分母是两个单片段频次的乘积。这个比值偏爱“内部强绑定”的组合：ab 经常一起出现、但 a 和 b 各自单独出现时并不那么频繁，得分就高。</div>
+</div>
+
+<p>　　对比 BPE 只数 <code>freq(ab)</code>，WordPiece 多除了一个分母。效果是：两个各自都极其高频的片段，哪怕常一起出现，得分也会被拉低；而一对“离开对方就很少单独出现”的片段会被优先合并。比如后缀 <code>##ing</code> 几乎总是跟着动词词根出现，它和词根的绑定强度就很高，容易被合并。</p>
+
+<div class="highlight-box info">
+  公式 (1) 是帮助理解的近似写法。原始实现（GNMT 论文）按语言模型似然的实际增益来选择合并对象，两者的偏好方向一致：都偏爱互信息高的强绑定组合。
+</div>
+
+<p>　　词表构造好之后，编码阶段的做法也不同。BPE 按合并记录的顺序重放规则，WordPiece 则用<strong>贪心最长匹配</strong>（longest-match-first）：从词的开头起，在词表里找能匹配的最长片段，切下来，再对剩下的部分重复这个动作，直到切完。任何环节匹配不上，整词判为 <code>[UNK]</code>。</p>
+
+<p>　　WordPiece 还有一个标志性的书写约定：一个词被拆开之后，续接片段前面加 <code>##</code> 前缀。例如 <code>playing</code> 会被切成 <code>play + ##ing</code>，<code>unbelievable</code> 可能切成 <code>un + ##believ + ##able</code>。这样解码时看到 <code>##</code> 就知道该片段要拼回前一个片段，不需要额外记空格位置。BERT 的英文词表大小为 30522，其中绝大多数条目都是这种带 <code>##</code> 的续接片段。</p>
+
+<h2>2.3.2 Unigram：反着来，从大词表往下剪</h2>
+
+<p>　　BPE 和 WordPiece 都是自底向上：从小词表开始，一轮轮往里加。Kudo 在 2018 年提出的 Unigram 算法（发表于 ACL）走了完全相反的方向——<strong>自顶向下</strong>：先准备一个足够大的候选词表，再一轮轮往外删，删到目标大小为止。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Unigram 语言模型</span>
+    <span class="term-en">unigram language model = 假设各 token 独立出现的概率模型</span>
+  </div>
+  <div class="term-body">
+    <p>Unigram 算法给词表里每个 token 赋一个出现概率，并假设一句话的某种切分，其概率等于各 token 概率的连乘。词表的质量就用“按最优切分算出的整份语料概率（似然）”来衡量，似然越高说明这套词表把语料解释得越好。所有操作——剪掉哪个 token、保留哪个 token——都围绕这个概率展开。</p>
+    <div class="term-analogy">就像搬家装箱：先把家里所有可能用得上的东西全搬上车（大候选词表），再一趟趟往下卸，每次卸掉“扔了最不心疼”的那批，直到刚好装满后备箱。</div>
+  </div>
+</div>
+
+<p>　　完整的词表构造流程是这样的：</p>
+
+<ol>
+  <li><strong>准备候选词表</strong>：从语料中收集所有高频子串（可用 BPE 或后缀数组等办法生成），得到一个远大于目标大小的初始词表，每个 token 按频次初始化概率；</li>
+  <li><strong>迭代剪枝</strong>：用类似 EM 的流程交替优化——先固定概率，算出语料的最优切分与整体损失（负对数似然）；再对每个 token 试算“把它从词表里删掉，整体损失会上升多少”；</li>
+  <li><strong>按比例删除</strong>：每轮剪掉损失上升最小的一批 token（比如 10% 到 20%），也就是对语料解释力贡献最小的那批；</li>
+  <li><strong>单字符兜底</strong>：所有单字符永远保留，保证任何文本都拆得开，不存在 OOV；</li>
+  <li><strong>收敛停止</strong>：重复第 2、3 步，直到词表缩小到预设的目标大小。</li>
+</ol>
+
+<p>　　词表建好之后怎么用？这里体现了 Unigram 和前两者的本质差别：对一句话，Unigram 词表通常允许<strong>多种合法切分</strong>，每种切分有一个概率。编码时用 Viterbi 算法在所有可能切分里找概率最大的那一种：</p>
+
+<div class="formula-card">
+  \[ P^{*}(x)=\underset{x}{\arg\max}\ \prod_{i} p\!\left(x_i\right) \tag{2} \]
+  <div class="formula-note">公式 (2)：Unigram 的最优切分。把一句话的所有切分方案枚举出来，每种方案的概率是各 token 概率的连乘，用 Viterbi 动态规划高效找出连乘最大的方案。x 表示一种切分，\(x_i\) 是切分中的第 i 个 token。</div>
+</div>
+
+<p>　　Viterbi 算法是做这件事的标准工具：按字符位置从左往右推进，每到一个位置，只保留“以该位置结尾的最优前缀切分”，不必真的枚举指数级的全部方案。直觉上它和走迷宫时“每个路口只记到当前为止的最短路径”是同一个思路。</p>
+
+<div class="highlight-box">
+  Unigram 的概率本质带来一个 BPE 和 WordPiece 都没有的能力：<strong>subword regularization</strong>。训练时不一定用概率最大的切分，而是按概率采样一种切分——同一个词这次切成 <code>play + ##ing</code>、下次切成 <code>pl + ##ay + ##ing</code>。模型在训练时见到同一个词的不同切法，相当于免费的数据增强，鲁棒性更好。
+</div>
+
+<p>　　Unigram 的代表使用者是 XLNet、ALBERT 和 T5，三者都通过 SentencePiece 工具包的 Unigram 后端来训练分词器。SentencePiece 这套工程化封装是下一节 2.4 的主题。</p>
+
+<h2>2.3.3 三种子词算法对比</h2>
+
+<p>　　到这里，BPE、WordPiece、Unigram 三条路线都讲完了。它们的产出物是同一类东西——大小可控、无 OOV 的子词词表，但构造思路和编码方式各不相同：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>维度</th><th>BPE</th><th>WordPiece</th><th>Unigram</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>构造方向</td><td>自底向上：从字符开始合并</td><td>自底向上：从字符开始合并</td><td>自顶向下：从大候选词表开始剪枝</td></tr>
+      <tr><td>选择标准</td><td>合并频次最高的 pair</td><td>合并使语料似然提升最多的 pair</td><td>每轮删除对整体损失影响最小的 token</td></tr>
+      <tr><td>编码方式</td><td>按合并记录的顺序重放规则</td><td>贪心最长匹配（longest-match-first）</td><td>Viterbi 算法找概率最大的切分</td></tr>
+      <tr><td>概率模型</td><td>无</td><td>无（仅用似然做构造标准）</td><td>有，每个 token 带概率，支持采样切分</td></tr>
+      <tr><td>代表模型</td><td>GPT 系列、RoBERTa、Llama</td><td>BERT、DistilBERT</td><td>XLNet、ALBERT、T5</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　实际工程里三者很少从零手写，而是通过 SentencePiece、Hugging Face Tokenizers 这类工具包调用。下一节就讲 SentencePiece：它把 BPE 和 Unigram 统一封装，并且不依赖空格做预切分，对中文、日文尤其友好。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">WordPiece 与 BPE 的唯一关键差异是什么？</div>
+    <div class="sc-key">流程完全相同，都是自底向上迭代合并；差别只在挑选标准——BPE 选频次最高的 pair，WordPiece 选让语料似然提升最多的 pair，教学上近似为频次除以两个单片段频次的乘积，偏爱内部强绑定的组合。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么说 Unigram 是反向操作？</div>
+    <div class="sc-key">BPE 和 WordPiece 从小词表开始一轮轮往里加 token，Unigram 从足够大的候选词表开始，每轮剪掉对语料损失影响最小的一批 token，直到收敛到目标大小——一个做加法，一个做减法。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">subword regularization 有什么用？</div>
+    <div class="sc-key">Unigram 的每种切分都有概率，训练时可以按概率采样不同切分而不是总用最优切分。同一个词以不同切法出现，相当于免费的数据增强，让模型对切分变化更鲁棒。BPE 和 WordPiece 没有概率模型，做不到这一点。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Schuster &amp; Nakajima, 2012. Japanese and Korean Voice Search（ICASSP，WordPiece 原始出处）。</li>
+  <li>Wu et al., 2016. Google's Neural Machine Translation System: Bridging the Gap between Human and Machine Translation（GNMT，arXiv:1609.08144），WordPiece 的大规模应用出处。</li>
+  <li>Devlin et al., 2019. BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding（arXiv:1810.04805），WordPiece 词表与 <code>##</code> 约定的出处。</li>
+  <li>Kudo, 2018. Subword Regularization: Improving Neural Network Translation Models with Multiple Subword Candidates（ACL，arXiv:1804.10959），Unigram 算法与 subword regularization 的原始论文。</li>
+  <li>Hugging Face LLM Course, Chapter 6: Tokenization（WordPiece 与 Unigram 的流程对比、最长匹配编码方式）。</li>
+</ul>
+
+</article>

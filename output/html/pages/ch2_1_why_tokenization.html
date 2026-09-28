@@ -1,0 +1,161 @@
+<article class="content">
+<h1>2.1 为什么需要分词</h1>
+<p class="subtitle">本页范围：第 2 章第 1 节　|　整理时间：2026-09-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>语言模型只认识数字，而人类给它的是文字。文字如何变成模型能处理的数字序列？</td></tr>
+      <tr><td>本节主张</td><td>分词（Tokenization）是文本与模型之间的第一道翻译工序：把字符流切成一个个 token，再映射为整数 ID。切分的粒度直接决定模型的词表大小、序列长度与泛化能力。</td></tr>
+      <tr><td>一句话结论</td><td>词级切分词表爆炸、字符级切分序列过长，现代 LLM 普遍采用两者折中的子词（subword）切分。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>Token</span><span>分词器</span><span>OOV</span><span>词表</span><span>子词</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>2.1.1 模型只认识数字</h2>
+
+<p>　　大语言模型是一个数学函数：输入一串数字，输出一串数字。它不认识汉字，也不认识英文字母。所以任何一段文字送进模型之前，必须先经过两步转换：</p>
+
+<ol>
+  <li><strong>切分</strong>：把连续的字符流切成一个个离散单元，每个单元称为一个 token；</li>
+  <li><strong>编号</strong>：查一张固定的对照表（词表 Vocabulary），把每个 token 换成它的整数编号（token ID）。</li>
+</ol>
+
+<p>　　模型实际读到的是类似 <code>[15339, 1917, 0]</code> 这样的整数序列。等到模型输出答案时，再按同一张词表把数字翻译回文字。分词器（Tokenizer）就是干这件事的部件，它是整个 LLM 流水线的第一道关卡。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Token（词元）</span>
+    <span class="term-en">token = 分词器切出来的最小处理单位</span>
+  </div>
+  <div class="term-body">
+    <p>token 是模型眼中的<strong>最小语义积木</strong>。它不一定等于语言学上的词：常见单词可能整体是一个 token，罕见词会被拆成几个 token，标点、空格、数字也都各自占据 token。一个汉字在主流多语言模型里通常是 1 到 2 个 token。</p>
+    <div class="term-analogy">就像乐高积木：说明书上的“一座桥”在积木盒里不存在，你要用若干块标准积木拼出来。token 就是那些标准积木块，词表就是积木盒的零件清单。</div>
+  </div>
+</div>
+
+<h2>2.1.2 三种切分粒度：都不完美</h2>
+
+<p>　　切分粒度的选择是一个经典的权衡问题。以英文句子 <code>Tokenization is fun.</code> 为例（下面的切法为示意，不同分词器结果不同）：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>词级（Word-level）</h4><p><code>["Tokenization", "is", "fun", "."]</code><br>4 个单元，语义完整，但词表要收录所有可能出现的词。</p></div>
+  <div class="concept-card"><h4>字符级（Char-level）</h4><p><code>["T","o","k","e","n","i","z","a","t","i","o","n",...]</code><br>约 18 个单元，词表极小，但序列被拉得很长。</p></div>
+  <div class="concept-card"><h4>子词级（Subword）</h4><p><code>["Token", "ization", "Ġis", "Ġfun", "."]</code><br>5 个单元，常见词保留整词，长词拆成有意义的片段。</p></div>
+</div>
+
+<h3>词级切分的问题：词表爆炸与 OOV</h3>
+
+<p>　　如果按词切分，词表必须收录所有可能出现的词。英语的形态变化让这个词表急剧膨胀：<code>look</code>、<code>looks</code>、<code>looked</code>、<code>looking</code> 是 4 个不同的词条，再乘上几十万单词和各种拼写变体，词表动辄上百万。更麻烦的是，只要遇到一个词表没收的词，模型就不认识它。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">OOV（未登录词）</span>
+    <span class="term-en">Out-of-Vocabulary = 词表之外的词</span>
+  </div>
+  <div class="term-body">
+    <p>词级分词器遇到词表里没有的词（新词、人名、拼写错误、外语词），只能用一个特殊的 <code>[UNK]</code>（Unknown）符号代替。这个代替是<strong>有损</strong>的：模型完全无法区分两个不同的未登录词，信息永久丢失。</p>
+    <div class="term-analogy">就像一本字典查不到某个生僻字，只好统统记成“某字”。一句话里出现三个“某字”，读者根本分不清它们谁是谁。</div>
+  </div>
+</div>
+
+<h3>字符级切分的问题：序列过长</h3>
+
+<p>　　按字符切分就没有 OOV：任何词总能拆成字母。词表也极小，英文只需一百来个字符。但代价是<strong>序列长度爆炸</strong>：一个 10 字母的单词变成 10 个单元。对 Transformer 来说，注意力计算量随序列长度平方增长（第 4 章会讲），序列每拉长一倍，计算量翻两番。而且单个字符几乎不承载语义，模型要自己从字母拼出词义，学习负担更重。</p>
+
+<h3>子词切分：工程上的最优解</h3>
+
+<p>　　子词（subword）切分在两者之间取折中：</p>
+
+<ul>
+  <li>高频词保持完整，享受词级切分的语义完整性；</li>
+  <li>低频词拆成更小的有意义片段，比如 <code>unbelievable</code> 拆成 <code>un + believ + able</code>，即使没见过这个词，模型也能从片段拼出大意；</li>
+  <li>词表大小可控，主流 LLM 的词表在 3 万到 25 万之间；</li>
+  <li>任何文本都能被表示，没有 OOV。</li>
+</ul>
+
+<div class="highlight-box">
+  子词切分让模型获得了一种“见字知意”的泛化能力：哪怕遇到训练时从未出现过的新词，只要它的片段在词表里，模型就能处理。这是 2016 年 Sennrich 等人把 BPE 引入神经机器翻译时解决的核心痛点。
+</div>
+
+<h2>2.1.3 中文的特殊处境</h2>
+
+<p>　　中文没有空格，词边界本身就需要判断，“词级切分”对中文从一开始就不适用。好在子词算法大多不依赖空格（第 2.4 节的 SentencePiece 尤其如此），直接把汉字当字符流处理：常用汉字和词组各自成为 token，生僻字被拆开。这也是主流多语言模型里一个汉字通常占 1 个 token、生僻字占 2 个以上 token 的原因。分词不均带来的代价差异，留到 2.6 节细说。</p>
+
+<h2>2.1.4 分词在流水线中的位置</h2>
+
+<p>　　把视野拉回整条流水线，分词处于最前端，它的输出直接喂给下一章要讲的 Embedding 层：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 步骤框 -->
+    <rect x="10" y="60" width="150" height="90" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="85" y="95" text-anchor="middle" font-size="15" fill="#333">原始文本</text>
+    <text x="85" y="118" text-anchor="middle" font-size="12" fill="#666">我爱大语言模型</text>
+    <rect x="200" y="60" width="150" height="90" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="95" text-anchor="middle" font-size="15" fill="#333">分词器切分</text>
+    <text x="275" y="118" text-anchor="middle" font-size="12" fill="#666">我 | 爱 | 大语言 | 模型</text>
+    <rect x="390" y="60" width="150" height="90" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="465" y="95" text-anchor="middle" font-size="15" fill="#333">查词表编号</text>
+    <text x="465" y="118" text-anchor="middle" font-size="12" fill="#666">[721, 3345, 8819, 220]</text>
+    <rect x="580" y="60" width="130" height="90" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="645" y="95" text-anchor="middle" font-size="15" fill="#333">Embedding 层</text>
+    <text x="645" y="118" text-anchor="middle" font-size="12" fill="#666">第 3 章</text>
+    <!-- 箭头 -->
+    <line x1="160" y1="105" x2="200" y2="105" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="350" y1="105" x2="390" y2="105" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="540" y1="105" x2="580" y2="105" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <!-- 底部说明 -->
+    <text x="360" y="200" text-anchor="middle" font-size="13" fill="#666">本节内容：前两步。token ID 如何变成向量，是第 3 章的主题。</text>
+  </svg>
+  <div class="diagram-caption">图示：分词在 LLM 流水线最前端，负责“文本 → token → 整数 ID”的转换，ID 序列随后进入 Embedding 层。</div>
+</div>
+
+<h2>2.1.5 分词为什么值得单独一章</h2>
+
+<p>　　分词看起来只是预处理，实际影响贯穿模型的整个生命周期：</p>
+
+<ul>
+  <li><strong>训练成本</strong>：同样一段文本，切得越碎序列越长，训练要处理的 token 数就越多；</li>
+  <li><strong>模型能力</strong>：数字被切成 <code>5</code>、<code>3</code>、<code>7</code> 还是 <code>537</code>，直接影响模型做算术的表现；</li>
+  <li><strong>使用成本</strong>：API 按 token 计费，上下文窗口按 token 计数；</li>
+  <li><strong>多语言公平性</strong>：同一句话在不同语言下 token 数可能相差数倍。</li>
+</ul>
+
+<p>　　接下来三节逐一讲透主流的子词算法：2.2 节的 BPE 是当前 GPT 系模型的标准选择，2.3 节的 WordPiece 和 Unigram 是另外两条技术路线，2.4 节的 SentencePiece 是把它们工程化落地的代表工具。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么模型不能直接把文字当输入？</div>
+    <div class="sc-key">模型是数学函数，只接受数字序列。分词器先把文本切成 token，再查词表映射成整数 ID，这才是模型真正读到的输入。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">词级和字符级切分各自的致命伤是什么？</div>
+    <div class="sc-key">词级会让词表爆炸且无法处理未登录词（OOV），字符级会让序列长度爆炸、计算量平方级增长，且单字符不承载语义。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">子词切分凭什么成为主流？</div>
+    <div class="sc-key">高频词保持完整、低频词拆成有意义片段，词表大小可控、无 OOV，还能让模型对没见过的词举一反三。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Sennrich, Haddow &amp; Birch, 2016. Neural Machine Translation of Rare Words with Subword Units（BPE 引入 NLP 的原始论文，arXiv:1508.07909），OOV 痛点与子词动机出自该文。</li>
+  <li>Hugging Face LLM Course, Chapter 6: Tokenization（三种粒度对比与词表权衡）。</li>
+  <li>Jurafsky &amp; Martin, Speech and Language Processing (3rd ed. draft), Tokenization 章节（词级/字符级/子词粒度的经典论述）。</li>
+  <li>Radford et al., 2019. Language Models are Unsupervised Multitask Learners（GPT-2 报告，byte-level BPE 的出处，2.2 节详述）。</li>
+</ul>
+
+</article>

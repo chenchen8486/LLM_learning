@@ -1,0 +1,154 @@
+﻿<article class="content">
+<h1>2.5 词表与特殊 Token</h1>
+<p class="subtitle">本页范围：第 2 章第 5 节　|　整理时间：2026-09-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>词表应该建多大？词表里除了普通 token，为什么还有一批不对应任何文字的“特殊 token”？</td></tr>
+      <tr><td>本节主张</td><td>词表大小是一场参数量与序列长度的交换；特殊 token 是词表里的“控制字符”，负责标记句首句尾、补齐对齐、承载对话结构，是分词器与模型协作的暗号。</td></tr>
+      <tr><td>一句话结论</td><td>词表越大序列越短但 Embedding 越重，主流 LLM 词表在 3 万到 20 万之间；用错特殊 token 或对话模板，是微调与推理中最常见的低级 bug。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>词表大小</span><span>Embedding</span><span>BOS / EOS / PAD</span><span>Chat Template</span><span>ChatML</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>2.5.1 词表大小的权衡</h2>
+
+<p>　　前面几节讲了怎么切分，这一节回答一个更实际的问题：词表里到底收多少个 token 才算合适？先给直觉：词表像一本字典。字典收词越多，查任何一句话用的词条越少，每个词条的含义也越完整；但字典本身更厚，印字典、搬字典的成本更高。词表的权衡完全同理。</p>
+
+<h3>大词表的好处</h3>
+
+<ul>
+  <li><strong>序列更短</strong>：同一个词更可能整体命中一个词表条目，不必拆成碎片，同样一段文本切出来的 token 数更少，训练和推理都更省；</li>
+  <li><strong>语义单元更完整</strong>：常见词、常用汉字词组整体成为一个 token，模型不必从碎片里拼词义，学习负担更小；</li>
+  <li><strong>多语言覆盖更好</strong>：词表大了，才有余量给中文、日文、阿拉伯文等语言的常见片段分配独立条目，避免非英语文本被切得过碎。</li>
+</ul>
+
+<h3>大词表的代价：Embedding 层膨胀</h3>
+
+<p>　　词表里的每个 token 都要在 Embedding 层占一行向量（第 3 章详述）。词表有 \(V\) 个条目、模型维度为 \(d_{\text{model}}\) 时，仅 Embedding 层就要占用：</p>
+
+<div class="formula-card">
+  \[ N_{\text{embed}} = V \times d_{\text{model}} \tag{1} \]
+  <div class="formula-note">公式 (1)：Embedding 层参数量 = 词表大小 × 模型维度。词表每翻一倍，这层参数就翻一倍。</div>
+</div>
+
+<p>　　代入一组真实数字感受一下：取 \(V = 32000\)（LLaMA 的词表规模）、\(d_{\text{model}} = 4096\)，则</p>
+
+<div class="formula-card">
+  \[ N_{\text{embed}} = 32000 \times 4096 = 131\,072\,000 \approx 1.31 \text{ 亿} \tag{2} \]
+  <div class="formula-note">公式 (2)：仅 Embedding 一层就是 1.31 亿参数。对 7B 级模型来说，词表相关参数已是不可忽略的一块。</div>
+</div>
+
+<p>　　这还没完。模型每生成一个 token，输出层都要对整个词表算一次 softmax，从 \(V\) 个候选里挑一个。这一步的计算量随词表大小<strong>线性增长</strong>，词表翻倍，每步解码的开销也跟着涨。小词表则恰好反过来：Embedding 轻、输出便宜，但序列被拉长，语义被打碎。</p>
+
+<h3>主流模型的词表规模</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型 / 分词器</th><th>词表大小</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>GPT-2</td><td>50257</td><td>byte-level BPE，2019 年的代表性规模</td></tr>
+      <tr><td>LLaMA</td><td>32000</td><td>SentencePiece（BPE），词表偏小，多语言文本切得偏碎</td></tr>
+      <tr><td>OpenAI cl100k_base</td><td>100277</td><td>GPT-3.5 / GPT-4 使用的分词器</td></tr>
+      <tr><td>OpenAI o200k_base</td><td>200019</td><td>GPT-4o 使用的分词器，非英语语言明显受益</td></tr>
+      <tr><td>Qwen2.5</td><td>约 15 万</td><td>面向多语言的大词表，中文覆盖充分</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box">
+  从 GPT-2 的 5 万到 o200k_base 的 20 万，主流词表的整体趋势是越来越大。背后的驱动力有两个：一是模型本身变大，Embedding 多占的参数相对不再显眼；二是多语言与代码场景要求更完整的语义单元。词表大小没有标准答案，它是模型设计者在序列长度与参数量之间做的一次显式交换。
+</div>
+
+<h2>2.5.2 特殊 Token：词表里的控制字符</h2>
+
+<p>　　打开任何一个主流分词器的词表，都会发现里面有一批条目不对应任何真实文字：<code>&lt;|begin_of_text|&gt;</code>、<code>&lt;|end_of_text|&gt;</code>、<code>[PAD]</code> 之类。它们是<strong>特殊 token</strong>（special token），作用类似电报里的控制信号：不承载内容，负责告诉模型“这段话从哪开始、到哪结束、哪里是占位”。</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>BOS（Begin of Sequence）</h4><p>句首标记。放在每条训练样本的最前面，告诉模型“一段新文本从这里开始”。</p></div>
+  <div class="concept-card"><h4>EOS（End of Sequence）</h4><p>句尾标记。训练时标在样本末尾，推理时模型一旦生成它，解码器就停止。</p></div>
+  <div class="concept-card"><h4>PAD（Padding）</h4><p>补齐占位。一个 batch 里的句子长短不一，短的用 PAD 补到同样长度，便于并行计算。</p></div>
+  <div class="concept-card"><h4>UNK（Unknown）</h4><p>未登录词占位。遇到词表外的内容时兜底；byte-level 分词器已能做到任何文本都有表示，不再需要它。</p></div>
+  <div class="concept-card"><h4>MASK</h4><p>掩码占位。BERT 类模型的掩码训练专用：盖住原词，让模型根据上下文猜回来。GPT 类生成模型一般不用。</p></div>
+</div>
+
+<h3>训练与推理中的角色</h3>
+
+<p>　　这批控制信号在训练和推理两个阶段各司其职。训练时，BOS 划清样本边界，EOS 教会模型“话说到这里就该收尾”，PAD 让长短不一的句子能装进同一个 batch 并行计算，算 loss 时再把 PAD 位置忽略掉。推理时，EOS 的角色最关键：它是<strong>停止信号</strong>。模型是自回归的，理论上可以无限往下生成，只有看到 EOS（或达到长度上限）才知道该停。解码策略与停止条件的完整讨论在第 12 章，这里只需记住：EOS 不是可有可无的装饰，它是生成过程的刹车。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">EOS（句尾标记）</span>
+    <span class="term-en">End of Sequence = 告诉解码器“到这里停止”</span>
+  </div>
+  <div class="term-body">
+    <p>训练语料里每段文本的末尾都会放上 EOS，模型在这个过程中学会“内容讲完就该输出 EOS”。推理时解码器逐个生成 token，一旦模型吐出 EOS，就停止生成、把已有内容返回给用户。如果模型没学会在合适的位置输出 EOS，就会喋喋不休地说下去，直到撞上长度上限被强行截断。</p>
+    <div class="term-analogy">就像电话里的“完毕”：对讲机通话双方约定说完一句加一句“完毕”，对方才知道轮到自己说话。EOS 就是模型那句“完毕”。</div>
+  </div>
+</div>
+
+<h2>2.5.3 Chat Template：把对话拼成一段文本</h2>
+
+<p>　　语言模型本身只认一串 token，不懂什么叫“多轮对话”。但聊天产品里用户和模型你来我往，还带着 system 提示词，这些信息怎么塞进一串文本？答案是再定义一批特殊 token 充当<strong>角色与轮次的分隔标记</strong>，按固定格式把整段对话拼成一条字符串，这套拼法就叫 Chat Template（对话模板）。</p>
+
+<p>　　以 ChatML 风格为例（OpenAI 提出、Qwen 等系列沿用），一轮对话拼出来长这样：</p>
+
+<pre><code>&lt;|im_start|&gt;system
+你是一个有帮助的助手。&lt;|im_end|&gt;
+&lt;|im_start|&gt;user
+什么是 BPE？&lt;|im_end|&gt;
+&lt;|im_start|&gt;assistant
+</code></pre>
+
+<p>　　<code>&lt;|im_start|&gt;</code> 后面紧跟角色名（system / user / assistant），<code>&lt;|im_end|&gt;</code> 标记这一轮发言结束。推理时拼到最后一行的 <code>&lt;|im_start|&gt;assistant</code> 为止，让模型接着往下写，写到 <code>&lt;|im_end|&gt;</code>（它同时充当 EOS 角色）就停。</p>
+
+<p>　　LLaMA-3 用的是另一套标记，格式不同、思路相同：</p>
+
+<pre><code>&lt;|begin_of_text|&gt;&lt;|start_header_id|&gt;system&lt;|end_header_id|&gt;
+
+你是一个有帮助的助手。&lt;|eot_id|&gt;&lt;|start_header_id|&gt;user&lt;|end_header_id|&gt;
+
+什么是 BPE？&lt;|eot_id|&gt;&lt;|start_header_id|&gt;assistant&lt;|end_header_id|&gt;
+
+</code></pre>
+
+<p>　　<code>&lt;|begin_of_text|&gt;</code> 相当于 BOS，<code>&lt;|start_header_id|&gt;</code> 与 <code>&lt;|end_header_id|&gt;</code> 包住角色名，<code>&lt;|eot_id|&gt;</code> 标记一轮结束。模型在微调时见过成千上万条按这个格式拼好的样本，于是学会了只在 assistant 段落里生成回答、说完就输出结束标记。</p>
+
+<div class="highlight-box warn">
+  微调或推理时用错模板是常见 bug：训练用 ChatML、推理却按 LLaMA-3 格式拼，或者漏了结尾的 assistant 起始标记，模型就会答非所问、把用户的下一句也编出来，或者干脆不会停止。模板必须与模型训练时见过的格式严格一致，一个字符都不能差。稳妥做法是直接使用分词器自带的 apply_chat_template 接口，不要手工拼字符串。
+</div>
+
+<div class="highlight-box">
+  Chat Template 的本质是一次“协议约定”：特殊 token 本身没有魔力，是训练数据里成千上万次按同一格式出现，让模型把这套标记和“角色”“轮次”“该谁说话”绑定在了一起。换一套模型没见过的标记，等于对它说了一门没学过的方言。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">词表做大做小，各自付出的代价是什么？</div>
+    <div class="sc-key">大词表换来序列更短、语义更完整、多语言覆盖更好，代价是 Embedding 层参数 \(V \times d_{\text{model}}\) 膨胀、输出层 softmax 开销随词表线性增长；小词表恰好相反。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">EOS 为什么这么重要？</div>
+    <div class="sc-key">自回归模型本身没有停止机制，EOS 是它在训练中学到的停止信号。推理时模型生成 EOS 才停；没有它，生成会一路跑到长度上限被强行截断。它与第 12 章的解码停止条件直接相关。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Chat Template 的本质是什么？</div>
+    <div class="sc-key">一套把多轮对话拼成单串文本的格式协议：用特殊 token 标记角色与轮次边界。模型通过训练数据学会这套约定，用错模板就等于说错方言，会直接导致答非所问或不会停止。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Radford et al., 2019. Language Models are Unsupervised Multitask Learners（GPT-2 技术报告，50257 词表与 byte-level BPE 的出处）。</li>
+  <li>Touvron et al., 2023. LLaMA: Open and Efficient Foundation Language Models（arXiv:2302.13971），32000 词表规模出自该文。</li>
+  <li>Qwen Team, 2024. Qwen2.5 Technical Report（arXiv:2412.15115），Qwen2.5 词表规模与 ChatML 风格模板的出处。</li>
+  <li>Hugging Face 文档：Chat Templates（<a href="https://huggingface.co/docs/transformers/main/chat_templating">https://huggingface.co/docs/transformers/main/chat_templating</a>），模板拼接机制与 apply_chat_template 用法。</li>
+</ul>
+
+</article>

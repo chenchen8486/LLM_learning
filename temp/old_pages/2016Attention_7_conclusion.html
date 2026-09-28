@@ -1,0 +1,56 @@
+﻿<article class="content">
+<h1>7 结论</h1>
+<p class="subtitle">对应论文：第 7 节 结论　|　整理时间：2026-06-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>本文的核心贡献是什么？未来有哪些研究方向？</td></tr>
+      <tr><td>本文主张</td><td>Transformer 是首个完全基于注意力的序列转换模型，训练更快、质量更高、泛化良好。</td></tr>
+      <tr><td>一句话结论</td><td>Transformer 用多头自注意力取代循环层，开创了序列建模的新范式。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>完全基于注意力</span><span>序列转换</span><span>未来方向</span><span>多模态</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>在这项工作中，我们提出了 Transformer——首个完全基于注意力的序列转换模型，用多头自注意力机制取代了编码器-解码器架构中最常用的循环层。</p>
+
+<p>在翻译任务中，Transformer 的训练速度显著快于基于循环层或卷积层的架构。在 WMT 2014 英德翻译和 WMT 2014 英法翻译任务中，我们均取得了新的最优结果。在前一项任务中，我们最好的模型甚至超越了所有此前报告的集成模型。</p>
+
+<div class="highlight-box">
+  <strong>结论核心</strong>：Transformer 同时实现了<strong>训练速度</strong>、<strong>翻译质量</strong>和<strong>模型泛化</strong>三方面的突破。
+</div>
+
+<h2>未来方向</h2>
+
+<p>我们对基于注意力的模型的未来充满期待，并计划将其应用于其他任务：</p>
+
+<ul>
+  <li>将 Transformer 扩展到涉及<strong>文本以外输入和输出模态</strong>的问题。</li>
+  <li>研究<strong>局部受限注意力机制</strong>，以高效处理图像、音频和视频等大规模输入和输出。</li>
+  <li>使<strong>生成过程减少序列化</strong>，进一步降低解码时的顺序依赖。</li>
+</ul>
+
+<div class="highlight-box info">
+  <strong>前瞻性</strong>：论文结尾提到的"局部受限注意力"和"多模态扩展"，后来分别演变为 Swin Transformer、ViT、DINO、MAE 等视觉 Transformer 工作，印证了该方向的巨大潜力。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">Transformer 的核心创新是什么？</div>
+    <div class="sc-key">首个完全基于注意力、完全摒弃循环层的序列转换模型。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">论文提到的三个未来方向是什么？</div>
+    <div class="sc-key">多模态扩展、局部受限注意力、减少生成过程的序列化。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">这些方向后来在哪些论文中得到了延续？</div>
+    <div class="sc-key">ViT、Swin Transformer、DINO、MAE 等视觉 Transformer 工作可视为这些方向的延伸。</div>
+  </div>
+</div>
+</article>

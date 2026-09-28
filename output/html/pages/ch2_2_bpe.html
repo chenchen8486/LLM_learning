@@ -1,0 +1,204 @@
+<article class="content">
+<h1>2.2 BPE：从数据压缩到子词词表</h1>
+<p class="subtitle">本页范围：第 2 章第 2 节　|　整理时间：2026-09-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>子词词表不是人工制定的，而是从语料里学出来的。BPE 用什么规则、按什么顺序把字符一步步合并成子词？</td></tr>
+      <tr><td>本节主张</td><td>BPE 分两个阶段：训练阶段统计语料中最高频的相邻符号对并反复合并，学出一个词表和一串有序的合并规则；编码阶段对新文本按同样的顺序贪心应用这些规则。</td></tr>
+      <tr><td>一句话结论</td><td>BPE 用“高频片段合并成词、低频词退回字符（或字节）”的策略，在词表大小与序列长度之间取得平衡；byte-level BPE 把基础词表定为 256 个字节，从根上消灭了 OOV。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>BPE</span><span>合并规则</span><span>词表</span><span>Byte-level BPE</span><span>GPT-2</span><span>tiktoken</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>2.2.1 起源：从数据压缩到神经机器翻译</h2>
+
+<p>　　BPE 的全称是 Byte Pair Encoding（字节对编码）。它本来是 1994 年 Philip Gage 发表在 C Users Journal 上的一种<strong>数据压缩算法</strong>，思路朴素：反复把数据里出现次数最多的相邻字节对替换成一个没用过的新字节，一份数据就能用更少的符号写下来。</p>
+
+<p>　　2016 年，Sennrich、Haddow 和 Birch 在 ACL 论文《Neural Machine Translation of Rare Words with Subword Units》中把这个压缩算法搬到了神经机器翻译里。他们的动机正是 2.1 节讲的 OOV 痛点：翻译系统的词表再大，也总会遇到没收录的稀有词、人名、外来词。BPE 给出的解法是让词表自己从语料中长出来：常见词整块留下，稀有词拆成高频片段，任何词都有出路。此后 BPE 成为神经机器翻译的标配，又被 GPT 系列沿用，成了今天主流 LLM 分词器的基底算法。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">BPE（字节对编码）</span>
+    <span class="term-en">Byte Pair Encoding = 反复合并最高频相邻符号对</span>
+  </div>
+  <div class="term-body">
+    <p>BPE 的核心动作只有一个：<strong>数数，然后合并</strong>。统计当前所有相邻符号对的出现频次，把最高的那一对捏成一个新符号，再数、再捏，直到词表长到目标大小。学出来的词表天然是高频片段优先。</p>
+    <div class="term-analogy">就像整理一间办公室：你总是把最常一起使用的两件文具（比如笔和笔帽）装进同一个笔袋，用得越频繁的组合越早被收编，最后桌面上剩下的都是成套的高频组合和零散的低频单件。</div>
+  </div>
+</div>
+
+<h2>2.2.2 训练阶段：手工演算一遍</h2>
+
+<p>　　训练 BPE 的目标是学出两样东西：一个<strong>词表</strong>，和一串<strong>有先后顺序的合并规则</strong>。算法从字符级开始：先把语料中每个词拆成单个字符，词表初始化为所有出现过的字符；然后进入“统计、合并、更新”的循环。</p>
+
+<p>　　用 Hugging Face LLM Course 第 6 章的经典小例子完整走一遍。假设训练语料只有 5 个词，词频如下：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>词</th><th>hug</th><th>pug</th><th>pun</th><th>bun</th><th>hugs</th></tr></thead>
+    <tbody>
+      <tr><td>出现次数</td><td>10</td><td>5</td><td>12</td><td>4</td><td>5</td></tr>
+      <tr><td>字符拆分</td><td>h u g</td><td>p u g</td><td>p u n</td><td>b u n</td><td>h u g s</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　初始词表是 7 个字符：<code>[b, g, h, n, p, s, u]</code>。接下来逐轮合并：</p>
+
+<ol>
+  <li><strong>第 1 轮</strong>：统计所有相邻符号对，按词频加权。u-g 出现在 hug（10 次）、pug（5 次）、hugs（5 次）中，共 20 次，全场最高。合并 u + g 得到新符号 ug，加入词表。</li>
+  <li><strong>第 2 轮</strong>：更新拆分后重新统计。u-n 出现在 pun（12 次）、bun（4 次）中，共 16 次，最高。合并 u + n 得到 un。</li>
+  <li><strong>第 3 轮</strong>：h-ug 出现在 hug（10 次）、hugs（5 次）中，共 15 次，最高。合并 h + ug 得到 hug。</li>
+</ol>
+
+<p>　　此时假设词表达到了目标大小，训练停止。最终词表为 <code>[b, g, h, n, p, s, u, ug, un, hug]</code>，合并规则按学习顺序记录为 <code>(u,g)→ug</code>、<code>(u,n)→un</code>、<code>(h,ug)→hug</code>。注意规则的<strong>顺序本身就是训练产物</strong>，编码时要严格按这个顺序应用。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 第 1 轮 -->
+    <text x="20" y="65" font-size="15" fill="#333">第 1 轮</text>
+    <rect x="110" y="42" width="44" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="132" y="66" text-anchor="middle" font-size="16" fill="#333">u</text>
+    <text x="164" y="66" text-anchor="middle" font-size="16" fill="#666">+</text>
+    <rect x="178" y="42" width="44" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="200" y="66" text-anchor="middle" font-size="16" fill="#333">g</text>
+    <text x="240" y="66" font-size="13" fill="#666">共 20 次，最高频</text>
+    <line x1="420" y1="60" x2="460" y2="60" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="470" y="42" width="60" height="36" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="500" y="66" text-anchor="middle" font-size="16" fill="#333">ug</text>
+    <text x="548" y="66" font-size="13" fill="#666">加入词表</text>
+    <!-- 第 2 轮 -->
+    <text x="20" y="155" font-size="15" fill="#333">第 2 轮</text>
+    <rect x="110" y="132" width="44" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="132" y="156" text-anchor="middle" font-size="16" fill="#333">u</text>
+    <text x="164" y="156" text-anchor="middle" font-size="16" fill="#666">+</text>
+    <rect x="178" y="132" width="44" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="200" y="156" text-anchor="middle" font-size="16" fill="#333">n</text>
+    <text x="240" y="156" font-size="13" fill="#666">共 16 次，最高频</text>
+    <line x1="420" y1="150" x2="460" y2="150" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="470" y="132" width="60" height="36" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="500" y="156" text-anchor="middle" font-size="16" fill="#333">un</text>
+    <text x="548" y="156" font-size="13" fill="#666">加入词表</text>
+    <!-- 第 3 轮 -->
+    <text x="20" y="245" font-size="15" fill="#333">第 3 轮</text>
+    <rect x="110" y="222" width="44" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="132" y="246" text-anchor="middle" font-size="16" fill="#333">h</text>
+    <text x="164" y="246" text-anchor="middle" font-size="16" fill="#666">+</text>
+    <rect x="178" y="222" width="54" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="205" y="246" text-anchor="middle" font-size="16" fill="#333">ug</text>
+    <text x="240" y="246" font-size="13" fill="#666">共 15 次，最高频</text>
+    <line x1="420" y1="240" x2="460" y2="240" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="470" y="222" width="60" height="36" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="500" y="246" text-anchor="middle" font-size="16" fill="#333">hug</text>
+    <text x="548" y="246" font-size="13" fill="#666">加入词表</text>
+    <!-- 最终词表 -->
+    <rect x="20" y="295" width="680" height="46" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="360" y="324" text-anchor="middle" font-size="14" fill="#333">最终词表：[b, g, h, n, p, s, u, ug, un, hug]</text>
+  </svg>
+  <div class="diagram-caption">图示：在 hug×10、pug×5、pun×12、bun×4、hugs×5 的玩具语料上，BPE 三轮合并依次产出 ug、un、hug 三个新符号。</div>
+</div>
+
+<div class="highlight-box">
+  BPE 学到的词表是频率驱动的：出现得越多的片段越早成为独立 token。这意味着训练语料的构成直接决定词表的长相，换一批语料就要重新训练分词器，不能拿来即用。
+</div>
+
+<h2>2.2.3 编码阶段：按合并顺序贪心应用</h2>
+
+<p>　　词表和合并规则学好后，编码一个新词的方法是先把它拆成字符，再<strong>按训练时学到的先后顺序</strong>逐条尝试合并规则，能合就合，不能合就跳过：</p>
+
+<ul>
+  <li><code>bug</code>：拆成 b、u、g。第 1 条规则 (u,g)→ug 适用，得到 b、ug；后两条规则不适用。最终切分为 <code>b + ug</code>。bug 这个词从未在训练语料里出现，但借助 ug 这个片段被顺利表示，这正是子词泛化能力的体现。</li>
+  <li><code>hugs</code>：拆成 h、u、g、s。应用 (u,g)→ug 得 h、ug、s；再应用 (h,ug)→hug 得 hug、s。最终切分为 <code>hug + s</code>。</li>
+  <li>没参与任何合并的字符<strong>保留原样</strong>，落回基础词表里的单字符 token。</li>
+</ul>
+
+<p>　　因为基础词表覆盖了语料中所有字符，这个例子里不存在编码失败的词。真实分词器还会先做预切分（比如按空格和标点把句子切成词），再在每个片段内部跑上述合并流程。</p>
+
+<h2>2.2.4 训练算法伪代码</h2>
+
+<p>　　把上面的过程写成算法，就是下面这个循环：</p>
+
+<pre><code>function 训练BPE(语料, 目标词表大小):
+    词频表 ← 统计语料中每个词的出现次数
+    拆分表 ← 每个词拆成字符序列
+    词表   ← 所有出现过的字符
+    合并规则 ← 空列表
+    while 词表大小 &lt; 目标词表大小:
+        频次表 ← 按词频加权，统计拆分表中所有相邻符号对的频次
+        (A, B) ← 频次最高的符号对
+        词表   ← 词表 ∪ {AB}          # 新符号入词表
+        合并规则 ← 合并规则 + [(A, B)]  # 顺序即优先级
+        拆分表 ← 所有 (A, B) 替换为 AB  # 更新拆分，进入下一轮
+    return 词表, 合并规则</code></pre>
+
+<p>　　编码函数同样简单：把输入拆成字符后，从合并规则列表的第一条开始扫描，凡是能应用的就应用，直到没有规则可匹配。两份产物合在一起就是一个完整的 BPE 分词器。</p>
+
+<h2>2.2.5 Byte-level BPE：GPT-2 的选择</h2>
+
+<p>　　字符级 BPE 有一个隐蔽的漏洞：基础词表是“语料里出现过的字符”。多语言场景下字符集极大，汉字、 emoji、各种变音符号加起来数以万计，基础词表还没开始合并就已经很臃肿，而且语料里没出现过的字符依然会 OOV。</p>
+
+<p>　　GPT-2（Radford et al., 2019）给出的解法是把 BPE 直接跑在 <strong>UTF-8 字节</strong>上，称为 byte-level BPE：</p>
+
+<ul>
+  <li>任何文本按 UTF-8 编码后都是一串字节，字节只有 256 种取值，所以<strong>基础词表固定为 256 个字节</strong>，与语料无关；</li>
+  <li>汉字、emoji、乱码、罕见符号都能拆成字节表示，<strong>从机制上杜绝了 OOV</strong>；</li>
+  <li>GPT-2 的词表大小为 50257：256 个字节 + 50000 条合并规则学出的符号 + 1 个特殊 token。</li>
+</ul>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Byte-level BPE</span>
+    <span class="term-en">在 UTF-8 字节序列上运行的 BPE</span>
+  </div>
+  <div class="term-body">
+    <p>合并的对象从字符换成字节，其余逻辑一字不改。好处是基础词表恒定 256 且对任意文本封闭：一个汉字在 UTF-8 下占 3 个字节，即使词表里没有这个汉字本身，也总能用字节把它拼出来。</p>
+    <div class="term-analogy">就像快递公司不保证认识每个收件人，但保证认识所有门牌号的数字。只要地址能写成数字（字节），包裹（文本）就永远送得到。</div>
+  </div>
+</div>
+
+<p>　　工程实现上，OpenAI 开源的 <code>tiktoken</code> 是 GPT 系列模型的官方 byte-level BPE 分词器，用 Rust 实现、速度极快；想读一份短小清晰的教学实现，可以看 Andrej Karpathy 的 <code>minbpe</code>，几百行 Python 完整复现了训练与编码两条路径。</p>
+
+<div class="highlight-box info">
+  词表大小是一个超参数，由人在训练分词器前指定，不是算法学出来的。BPE 学到的是“在这个预算下选哪些合并”。词表越大，平均序列越短、语义越完整，但 Embedding 层参数越多、稀有 token 训练越不充分；主流 LLM 的取值从 3 万到 25 万不等。GPT-2 选了 5 万条合并，只是一个具体的工程取值。
+</div>
+
+<p>　　BPE 的故事到这里就完整了：一个压缩算法被改造成词表学习器，又在字节层面补上了最后的 OOV 缺口。下一节看另外两条子词路线：WordPiece 和 Unigram，它们换了合并（或剪枝）的评分标准，思路各有千秋。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">BPE 为什么要先训练学规则，再谈编码？</div>
+    <div class="sc-key">词表和合并顺序是从语料频率中学出来的，编码只是按学到的顺序贪心重放。没有这个顺序，同一串字符可能有多种合并不确定性，切分结果就不唯一，模型输入也就不稳定。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">byte-level BPE 为什么能彻底杜绝 OOV？</div>
+    <div class="sc-key">任何文本按 UTF-8 编码后都是字节序列，而字节只有 256 种，全部收进基础词表。再罕见的字符、再新的词都能拆成字节兜底，不存在词表之外的输入。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">词表大小由什么决定？</div>
+    <div class="sc-key">它是人工设定的超参数：训练时合并到目标大小就停（如 GPT-2 的 50000 条合并加 256 字节加 1 个特殊 token）。取值要在序列长度、Embedding 参数量和稀有 token 训练充分性之间权衡。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Gage, 1994. A New Algorithm for Data Compression（C Users Journal，BPE 压缩算法的原始出处）。</li>
+  <li>Sennrich, Haddow &amp; Birch, 2016. Neural Machine Translation of Rare Words with Subword Units（ACL，arXiv:1508.07909，BPE 引入神经机器翻译的原始论文）。</li>
+  <li>Radford et al., 2019. Language Models are Unsupervised Multitask Learners（GPT-2 报告，byte-level BPE 与词表大小 50257 的出处）。</li>
+  <li>Hugging Face LLM Course, Chapter 6: Tokenization（hug/pug/pun/bun/hugs 手工演算例子与训练伪代码）。</li>
+  <li>Karpathy, minbpe（github.com/karpathy/minbpe，byte-level BPE 教学实现）；OpenAI tiktoken（GPT 系列官方分词器）。</li>
+</ul>
+
+</article>

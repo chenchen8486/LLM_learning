@@ -1,0 +1,396 @@
+# LLM 机制学习手册 — HTML 编写规范
+
+> 本文档完整记录手册所有页面的结构格式约定，作为编写新章节片段的硬性参照。
+> 与 `1_开发方案.md` 第 6 节互为补充：本文件更细、含可直接复制的代码骨架。
+> 创建时间：2026-09-22　|　基线版本：沿用旧第 1 章定稿组件库，适配 LLM 主线命名
+
+---
+
+## 0. 速查：一节页面的标准骨架
+
+```html
+<article class="content">
+  <h1>2.1 BPE：从字节到词表的合并艺术</h1>
+  <p class="subtitle">本页范围：第 2 章第 1 节　|　整理时间：2026-09-22</p>
+
+  <!-- ① 快速浏览卡片 -->
+  <div class="doc-meta-card"> … </div>
+
+  <!-- ② 分级讲解：h2 / h3 用阿拉伯数字编号，如 2.1.1 -->
+  <h2>2.1.1 …</h2>
+  <p>…</p>
+
+  <!-- ③ 公式 / 配图 / 表格 / 重点框 按需穿插 -->
+
+  <!-- ④ 末尾要点回顾卡片 -->
+  <div class="socratic-card"> … </div>
+
+  <!-- ⑤ 参考来源 -->
+  <h2>参考来源</h2>
+  <ul><li>…</li></ul>
+</article>
+```
+
+　　页面的导航侧边栏、面包屑、上下节翻页、`<head>`（含 KaTeX/字体/全局 CSS）均由 `build.py` 自动注入，片段中不要手写。
+
+---
+
+## 1. 文件与命名约定
+
+### 1.1 章节组织原则
+
+- 每章对应若干 HTML 页面，一节一个文件。节的划分按内容逻辑自定，单页篇幅以讲透一个主题为准，过长就拆节。
+- 页面 `<h1>` 标题采用“节号 + 主题”形式（如 `2.1 BPE：从字节到词表的合并艺术`），主题名可自拟，要求准确具体。
+
+### 1.2 文件名格式
+
+　　文件名统一采用：
+
+```
+ch{章号}_{节序号}_{英文短名}.html
+```
+
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| `{章号}` | 对应开发方案第 3 节的章号，0 到 16，附录为 90 | `2`、`4`、`90` |
+| `{节序号}` | 章内页面序号，从 1 开始连续编号 | `1`、`2`、`3` |
+| `{英文短名}` | 该节内容的英文短标识，小写下划线 | `bpe`、`rope`、`scaling_law` |
+
+　　示例：
+
+- `ch0_1_pipeline.html`：第 0 章第 1 节，LLM 流水线总览
+- `ch2_1_bpe.html`：第 2 章第 1 节，BPE 分词
+- `ch4_2_multihead_attention.html`：第 4 章第 2 节，多头注意力
+
+### 1.3 其他约定
+
+| 项目 | 约定 |
+|------|------|
+| 片段存放目录 | `output/html/pages/` |
+| 文件编码 | `utf-8-sig`（带 BOM，跨平台兼容） |
+| 唯一 h1 | 每个片段必须且只有一个 `<h1>`，build 据此提取页面标题 |
+| 四级格式 | `ch{章}_{节}_{子节}_{短名}.html` 仍被 build.py 解析为分组，除非确有需要否则不用 |
+
+---
+
+## 2. 顶部固定结构
+
+### 2.1 标题与副标题
+
+```html
+<h1>2.1 BPE：从字节到词表的合并艺术</h1>
+<p class="subtitle">本页范围：第 2 章第 1 节　|　整理时间：2026-09-22</p>
+```
+
+- subtitle 用于溯源，统一格式“本页范围：<章与节> | 整理时间：<日期>”。
+
+### 2.2 快速浏览卡片 `.doc-meta-card`
+
+　　每节开头必备，给出本节的电梯概览。固定用一个 `.doc-meta` 表格，最后一行放关键词标签。
+
+```html
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>……</td></tr>
+      <tr><td>本节主张</td><td>……</td></tr>
+      <tr><td>一句话结论</td><td>……</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>标签A</span><span>标签B</span><span>标签C</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+```
+
+- 左列为固定宽度的标签名（如 核心问题/本节主张/关键词），右列为内容。
+- 行数不固定，按内容增减。`.keywords` 内每个 `<span>` 渲染为一枚胶囊标签。
+
+---
+
+## 3. 正文排版约定
+
+| 元素 | 用法 |
+|------|------|
+| `<h2>` | 节内二级标题，用阿拉伯数字编号，如 `2.1.1 BPE 的合并过程` |
+| `<h3>` | 三级标题，同样用阿拉伯数字，如 `2.1.2 词表大小的权衡` |
+| `<h4>` | 四级描述性小标题（大写灰色小标题，少用），不编号 |
+| `<p>` | 普通段落 |
+| `<ul>/<ol>` | 列表，关键步骤用有序列表 |
+| `<blockquote>` | 引用资料原话 / 举例句子 |
+| `<strong>` | 关键术语、结论加粗强调 |
+| `<code>` | 行内代码 / 变量名（非数学公式） |
+| `<pre><code>` | 代码块 / 数据流示意（深色背景） |
+
+- 编号规则：本手册不再绑定论文编号。`<h1>` 用“章.节”两级（如 2.1），`<h2>` 用三级（如 2.1.1），`<h3>` 用四级（如 2.1.1.1 较少用）。同一章内编号连续，全手册风格一致。描述性小标题用 `<h4>`，不编号。
+- 段落缩进：正文每个自然段（`<p>`）开头空两格，写两个全角空格（U+3000），遵循中文书写习惯。卡片内部、表格、列表内的文字不缩进。
+- 讲解风格：对标斯坦福等高校公开课水平，再高深的主题也要让非本专业读者听懂并感兴趣。深入浅出，先给直觉或类比，再上公式。恰当的例子贯穿全篇。重要结论用重点框（见 §5）突出。
+- 承上启下：适当点出与前后章节的关系，呼应生命周期主线（如分词章末尾指向 Embedding 章）。
+
+---
+
+## 4. 公式（KaTeX）
+
+| 类型 | 定界符 | 示例 |
+|------|--------|------|
+| 行内公式 | `\( … \)` | 维度 `\(d_k\)`、序列长度 `\(n\)` |
+| 行间公式 | `\[ … \]` | 居中独立成行 |
+
+- 引用资料中的 `$…$` / `$$…$$` 必须转换为上述定界符，不要直接用 `$`（KaTeX 未配置美元定界符）。
+- 公式卡片 `.formula-card`：行间公式的推荐容器，公式下方用 `.formula-note` 写一句话解读。
+
+```html
+<div class="formula-card">
+  \[ \mathrm{Attention}(Q,K,V)=\mathrm{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V \tag{1} \]
+  <div class="formula-note">公式 (1)：Transformer 的心脏。</div>
+</div>
+```
+
+- 多行公式可在一个 `.formula-card` 内连写多个 `\[ … \]`。
+- 编号用 `\tag{n}`，同一页面内编号连续。
+
+> 注意：KaTeX 定界符在 `template.html` 中写作 `'\\('`（HTML 源码两个反斜杠），不可多写转义。此为模板维护项，编写片段时无需关心。
+
+---
+
+## 5. 重点框 `.highlight-box`
+
+　　四种语义色，通过附加 class 切换：
+
+```html
+<div class="highlight-box">……</div>            <!-- 绿色：核心要点 / 正面结论 -->
+<div class="highlight-box info">……</div>        <!-- 蓝色：补充说明 / 背景 -->
+<div class="highlight-box warn">……</div>        <!-- 黄色：注意 / 矛盾点 -->
+<div class="highlight-box danger">……</div>      <!-- 红色：易错 / 关键约束 -->
+```
+
+| 变体 | 颜色 | 适用 |
+|------|------|------|
+| （默认） | 绿 | 核心要点、正面结论、关键直觉 |
+| `info` | 蓝 | 背景补充、定义解释 |
+| `warn` | 黄 | 注意事项、问题所在、矛盾 |
+| `danger` | 红 | 易错点、强约束（如掩码、维度限制） |
+
+---
+
+## 6. 概念卡片网格 `.concept-grid`
+
+　　并列展示同级概念（如 Query / Key / Value），自适应换行。
+
+```html
+<div class="concept-grid">
+  <div class="concept-card"><h4>Query（查询）</h4><p>当前位置想找什么。</p></div>
+  <div class="concept-card"><h4>Key（键）</h4><p>每个位置能提供什么标签。</p></div>
+  <div class="concept-card"><h4>Value（值）</h4><p>每个位置真正的内容。</p></div>
+</div>
+```
+
+---
+
+## 6A. 术语详解卡片 `.term-card`（初学者友好）
+
+> 面向初学者，把专业词汇掰开揉碎：中文名 + 英文词源 + 通俗解释 + 生活化类比。每出现一个对初学者陌生的关键术语，优先用此卡片讲透。
+
+```html
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">分词器 Tokenizer</span>
+    <span class="term-en">tokenize = 把文本切分成模型能处理的最小单位</span>
+  </div>
+  <div class="term-body">
+    <p>分词器负责把原始文本<strong>切成一串 token</strong>……</p>
+    <div class="term-analogy">就像切菜，把一整根黄瓜切成大小均匀的片，每一片就是锅铲（模型）一次能处理的分量。</div>
+  </div>
+</div>
+```
+
+- `.term-zh`：中文术语名（橙色加粗）。`.term-en`：英文原词 / 词源解释（灰斜体）。
+- `.term-body`：通俗讲解段落。
+- `.term-analogy`：生活化类比，自动加前缀“打个比方”。强烈建议每个术语卡片都配一个类比。
+
+---
+
+## 6B. 原创示意图 `.diagram`（自制 SVG）
+
+> 当引用原图过于学术、或某流程/结构需要更直观呈现时，用内联 SVG 手绘示意图。必须明确标注“原创示意图 · 非论文原图”以区别于引用配图。
+
+```html
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <!-- 用 rect / text / line / path + marker 绘制流程 -->
+  </svg>
+  <div class="diagram-caption">图示：……一句话说明这张图在讲什么。</div>
+</div>
+```
+
+- `.diagram-tag`：左上角紫色胶囊标签，固定写“原创示意图 · 非论文原图”。
+- SVG 用 `viewBox` 自适应缩放，`font-family` 设为 `Noto Sans SC` 保持中文一致。
+- 配色沿用主题：主结构用紫 `#6d28d9`，对比用青 `#0891b2`，强调/警示用红 `#dc2626`，语义数据用琥珀 `#fef3c7`。
+- 箭头用 `<defs><marker>` 定义复用。
+- `.diagram-caption`：图下说明。
+
+---
+
+## 7. 配图（引用原图）
+
+> 图片名照抄 `ref_paper/<论文>/images/` 中的原始文件名；`src` 统一写 `images/ch{章}/<图片名>`，build.py 会自动从 ref_paper 复制同名图片到 `output/html/images/ch{章}/`。引用网络资料的图片，先下载到本地再按同样规则引用，并在图注或参考来源中注明出处。
+
+### 7.1 单图 `.img-block`
+
+```html
+<div class="img-block">
+  <img src="images/ch4/f7896a22….jpg" alt="Transformer 模型架构图">
+  <div class="img-caption">图 1：Transformer 整体架构（来源：Attention Is All You Need）。</div>
+</div>
+```
+
+- 所有 `.img-block img` 支持点击放大（滚轮缩放 / 拖拽平移 / 点击关闭），由模板全局脚本处理。
+
+### 7.2 多图并排 `.img-row`
+
+```html
+<div class="img-row">          <!-- 默认两列；三列加 .cols-3 -->
+  <div class="img-block"> … </div>
+  <div class="img-block"> … </div>
+</div>
+```
+
+- `.img-row` 默认 2 列，`.img-row.cols-3` 为 3 列。窄屏自动单列。
+
+---
+
+## 8. 表格 `.table-wrap`
+
+　　所有 `<table>` 用 `.table-wrap` 包裹，支持窄屏横向滚动。表头深紫渐变，悬停行高亮。
+
+```html
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>层类型</th><th>每层复杂度</th><th>顺序操作数</th></tr></thead>
+    <tbody>
+      <tr><td>自注意力</td><td>\(O(n^2\cdot d)\)</td><td>\(O(1)\)</td></tr>
+    </tbody>
+  </table>
+</div>
+```
+
+- 表格单元格内可写 KaTeX 行内公式。
+
+---
+
+## 9. 要点回顾卡片 `.socratic-card`
+
+　　每节末尾必备，用 3 组“问题 + 关键补充”做轻量小结（自问自答，非互动）。
+
+```html
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么 RNN 难以并行？</div>
+    <div class="sc-key">因为 \(h_t\) 依赖 \(h_{t-1}\)，计算被强制串行……</div>
+  </div>
+  <!-- 重复 2-3 组 socratic-qa -->
+</div>
+```
+
+- `.sc-q` 自动加前缀“问 ”。`.sc-key` 自动加前缀“关键补充 · ”。
+- 另有 `.sc-mine`（前缀“我的理解 · ”）为预留样式，当前模式下一般不用。
+
+---
+
+## 9A. 参考来源区块（每页必备）
+
+> LLM 主线章节没有统一的原文可绑定，为落实防幻觉红线，每个页面末尾必须设参考来源区块，列明本节内容依据的一手资料。
+
+```html
+<h2>参考来源</h2>
+<ul>
+  <li>Sennrich et al., 2016. Neural Machine Translation of Rare Words with Subword Units（BPE 原始论文，arXiv:1508.07909）。</li>
+  <li>Hugging Face Tokenizers 文档：Summary of the tokenizers。</li>
+</ul>
+```
+
+- 位置：页面最末尾。若页面有“动手验证”区块（见 §9B），参考来源在其后。
+- 内容：原始论文给作者、年份、标题与 arXiv 编号。网络资料给名称与链接。教材给书名与章节。
+- 拿不准、未能核实的说法，在正文对应位置标注（待查证），并在本节列出待核实事项。
+
+---
+
+## 9B. 动手验证区块（机制类页面建议加）
+
+> 工程根目录的 `minimind-master/` 是可运行的 64M 小模型实现。涉及模型机制、训练流程的页面，在要点回顾之后、参考来源之前加动手验证区块，指引读者读对应代码或跑脚本，把纸面知识变成手感。
+
+```html
+<h2>动手验证</h2>
+<p>　　本节机制在 minimind 中的对应实现：<code>model/model_minimind.py</code> 的 Attention 类。读代码时对照本节的 Q/K/V 投影与因果掩码……</p>
+<pre><code>cd minimind-master
+python eval_llm.py</code></pre>
+```
+
+- 指明文件路径与类/函数名，说明读代码时对照本节的哪个概念。
+- 需要跑脚本时，给出可直接复制的命令，并说明预期看到什么。
+- 引用 minimind 代码片段须注明出处（Apache 2.0 协议）。
+- 纯概念页面（不涉及具体实现）可省略本区块。
+
+---
+
+## 10. 不要手写的部分（由 build.py 注入）
+
+| 部分 | 说明 |
+|------|------|
+| `<!DOCTYPE>` / `<head>` / `<body>` | 模板提供 |
+| KaTeX / 字体 / Mermaid 引用 | 模板 `<head>` 注入 |
+| 全局 CSS | `static/global.css` 注入 |
+| 侧边栏导航 `.sidebar` | 按文件名自动生成 |
+| 面包屑 `.breadcrumb` | 自动生成 |
+| 上下节翻页 `.footer-nav` | 自动生成 |
+| 图片放大脚本 | 模板全局脚本 |
+
+> 片段只需写 `<article class="content"> … </article>`，外加可选的页面级 `<style>`、`<script>`（会被 build 提取注入）。
+
+---
+
+## 11. 完整性验证（强制红线）
+
+> 最高质量红线：每编写完一章，必须对照内容来源逐项核对，关键公式、图表、数据不得缺失或失真。LLM 主线章节的核对基准是第 9A 节列出的一手资料；第 4 章（架构精讲）额外对照 `ref_paper` 原文逐项核对。
+
+### 11.1 验证范围
+
+| 核对项 | 标准 |
+|--------|------|
+| 公式 | 来源资料中的核心公式必须全部转写为 `\[ … \]` 出现在对应小节，编号用 `\tag{n}` |
+| 数据表 | 来源资料中的关键数据表（结果表、消融表、复杂度表）不得遗漏 |
+| 引用图 | 引用的图片必须实际被 build.py 复制到 `images/ch{章}/` 目录下 |
+| 行内变量 | 正文涉及的关键变量/符号（如 \(d_k, n, h\)）应以公式形式呈现，不丢信息 |
+| 参考来源 | 每页末尾的参考来源区块不得为空，列出的资料必须是实际查证过的 |
+
+### 11.2 第 4 章专项验证（对照 ref_paper）
+
+1. 清点原始引用：
+   ```bash
+   cd ref_paper/2016_attention_is_all_you_need
+   grep -oE '!\[\]\(images/[^)]+\)' *_zh.md     # 列出所有图片
+   grep -c '^\$\$' *_zh.md                        # 行间公式块计数
+   grep -oE '\\tag\{[0-9]+\}' *_zh.md             # 编号公式
+   ```
+2. 核对 html 产出：对上一步每个图片名 / 公式，在第 4 章 `ch4_*.html` 中 `grep -l` 确认存在。
+3. 核对复制落地：`ls output/html/images/ch4/ | wc -l` 应与引用图片数一致。
+4. 发现缺失立即补全，再重新构建。
+5. 只有图片数一致、公式逐条命中后，该章才算可交付。
+
+### 11.3 其余章节验证
+
+1. 逐页检查参考来源区块是否存在且非空。
+2. 抽查核心公式与数据，对照所列来源原文核实。
+3. 检查所有标注（待查证）的位置是否已在参考来源中说明。
+
+---
+
+## 12. 变更记录
+
+| 时间 | 内容 |
+|------|------|
+| 2026-09-22 | 推倒重构版：沿用旧组件库（doc-meta-card、term-card、diagram、highlight-box、concept-grid、formula-card、img-block、img-row、table-wrap、socratic-card），适配 LLM 主线：命名改为 ch{章}_{节}_{短名}.html，编号规则改为手册自定阿拉伯数字，新增 §9A 参考来源区块约定，§11 完整性验证改为一手资料核对加第 4 章 ref_paper 专项核对。 |
+| 2026-09-28 | §3 讲解风格升级为公开课级标准（非本专业读者能听懂并感兴趣），新增 §9B 动手验证区块约定（指向 minimind-master/ 代码），§9A 参考来源位置说明同步调整。 |

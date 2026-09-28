@@ -1,0 +1,191 @@
+<article class="content">
+<h1>2.4 SentencePiece：扔掉预分词的分词工具</h1>
+<p class="subtitle">本页范围：第 2 章第 4 节　|　整理时间：2026-09-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>BPE 和 Unigram 的原始实现都假设文本已被预分词（切成词）后才输入。对中文、日文这类没有空格的语言，这一步本身就做不到位，怎么办？</td></tr>
+      <tr><td>本节主张</td><td>SentencePiece 把输入当作原始 Unicode 字符流，连空格也转义成普通字符 <code>▁</code>（U+2581）一起参与切分，彻底取消预分词环节，并且分词过程可逆无损。</td></tr>
+      <tr><td>一句话结论</td><td>SentencePiece 是一个语言无关、端到端的分词工具，同一个框架支持 BPE 和 Unigram 两种算法后端，T5、ALBERT、XLNet 和 LLaMA 系模型都用它训练分词器。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>SentencePiece</span><span>预分词</span><span>▁ U+2581</span><span>可逆分词</span><span>字符覆盖率</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>2.4.1 预分词：一个被默认的隐藏假设</h2>
+
+<p>　　前两节讲 BPE 和 Unigram 时，有一个细节被悄悄跳过了：这些算法的经典实现并不是直接对原始文本运行的，它们假设输入<strong>已经按某种规则预分词</strong>（pre-tokenization）——对英文通常是按空格和标点切开，或者走 Moses 这类机器翻译界的标准分词器。切出来的每个词再独立地做子词切分，合并操作不允许跨越词边界。</p>
+
+<p>　　这个假设带来两个实际麻烦：</p>
+
+<ul>
+  <li><strong>对无空格语言不友好</strong>。中文、日文、泰文的文字是连续书写的，没有空格标出词边界。“先按空格切词”对它们根本不成立，必须额外接一个语言相关的分词模块（比如中文要用 jieba 这类工具先切词），而这个模块本身的错误会带进下游。</li>
+  <li><strong>预分词不可逆</strong>。预分词阶段会丢弃原始的空白信息：两个空格被压成一个、制表符和换行的区别被抹掉。分词之后再想还原原文，已经做不到了。对代码、格式化文本这类空白本身就携带信息的场景，这是实打实的数据损失。</li>
+</ul>
+
+<div class="highlight-box warn">
+  预分词不是一个无害的工程细节，它把“什么是词”这个语言学判断硬塞进了分词器，而这个判断对很多语言要么不成立、要么代价高昂。SentencePiece 的出发点就是把这个环节整个拿掉。
+</div>
+
+<h2>2.4.2 核心设计：把空格变成普通字符</h2>
+
+<p>　　SentencePiece 的做法朴素而彻底：<strong>不做任何预分词，直接把输入当作原始 Unicode 字符流</strong>。唯一需要处理的问题是空格——空格在子词算法里本来承担“词边界”的角色，拿掉预分词后，这个角色得换个方式表达。</p>
+
+<p>　　它的答案是把空格<strong>转义成一个普通可见字符</strong> <code>▁</code>（U+2581，LOWER ONE EIGHTH BLOCK）。转义之后，空格和其他字符地位完全平等，一起进入 BPE 或 Unigram 的训练与切分流程。例如句子 <code>Hello world</code> 会先变成：</p>
+
+<pre><code>原始文本：  Hello world
+转义后：    ▁Hello▁world
+切分示例：  [▁He][llo][▁world]      # 示意，实际结果取决于词表</code></pre>
+
+<p>　　每个以 <code>▁</code> 开头的 token 天然标记了“这里原本有一个空格”，词边界信息没有丢，只是换了一种编码方式。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">可逆分词（Lossless Tokenization）</span>
+    <span class="term-en">detokenize 能逐字节还原原文</span>
+  </div>
+  <div class="term-body">
+    <p>由于所有空白都被转义成 <code>▁</code> 保留在 token 序列里，SentencePiece 的分词是<strong>完全可逆</strong>的：把 token 序列拼起来、把 <code>▁</code> 换回空格，就能逐字节还原原始文本。连续多个空格、换行、制表符都不会丢。这个性质叫 lossless tokenization，是 SentencePiece 论文明确提出的设计目标。</p>
+    <div class="term-analogy">传统预分词像把一封信撕成碎片后扔掉了信封，拼回内容却拼不回原样；SentencePiece 把信封上的每道折痕都编了号，撕碎后还能原样复原。</div>
+  </div>
+</div>
+
+<h2>2.4.3 一个工具，两种算法后端</h2>
+
+<p>　　SentencePiece 不是一种新的切分算法，而是一个<strong>训练与切分的工程框架</strong>。它在同一个工具里实现了两种子词算法后端，训练时通过参数选择：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>BPE 后端</h4><p>2.2 节讲过的合并式算法：从字符出发，按频次贪心合并，直到词表大小达标。LLaMA 系模型选择这一路。</p></div>
+  <div class="concept-card"><h4>Unigram 后端</h4><p>2.3 节讲过的概率式算法：从大词表出发，按语言模型损失逐条删减。T5、ALBERT、XLNet 选择这一路。</p></div>
+</div>
+
+<p>　　除算法外，训练时还有两个常用配置项值得记住：</p>
+
+<ul>
+  <li><strong>词表大小</strong>（<code>vocab_size</code>）：词表包含多少个子词，主流模型在数万量级。词表越大平均序列越短，但 Embedding 层参数越多，权衡逻辑见 2.2 节。</li>
+  <li><strong>字符覆盖率</strong>（<code>character_coverage</code>）：词表要覆盖训练语料中多大比例的字符，默认 <code>0.9995</code>。没被覆盖的极端罕见字符不进词表，切分时退化为 byte 或未知符号处理，避免长尾字符把词表撑得过大。</li>
+</ul>
+
+<p>　　整个流程不需要任何语言相关的规则：不分中英文、不看空格、不依赖 Moses 或 jieba。给它任何语言的原始文本，它用同一套流程训练出分词器。这正是“SentencePiece”这个名字的含义——输入是句子（sentence），输出是片段（piece），中间不需要先知道“词”在哪里。</p>
+
+<h2>2.4.4 谁在用 SentencePiece</h2>
+
+<p>　　SentencePiece 由 Kudo 与 Richardson 在 2018 年发布（EMNLP 系统演示论文），Google 开源。此后它成了许多代表性模型的分词器训练工具：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型</th><th>算法后端</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>T5</td><td>Unigram</td><td>Google 的 text-to-text 统一框架模型</td></tr>
+      <tr><td>ALBERT</td><td>Unigram</td><td>BERT 的轻量化改进版</td></tr>
+      <tr><td>XLNet</td><td>Unigram</td><td>排列语言模型，论文中明确使用 SentencePiece</td></tr>
+      <tr><td>LLaMA 系</td><td>BPE</td><td>词表大小 32000，开源大模型的事实标准之一</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　LLaMA 的选择值得一提：Touvron 等人 2023 年的 LLaMA 论文明确写道，分词器用 SentencePiece 的 BPE 后端训练，词表大小 32000。此后 LLaMA 系及其衍生模型沿用这一配置，SentencePiece 也成了开源社区训练自定义分词器的默认工具之一。</p>
+
+<h2>2.4.5 与 tiktoken 的另一条工程路线</h2>
+
+<p>　　GPT 系模型走了另一条路。GPT-2 的分词器（后来封装为 OpenAI 的 tiktoken 库）不用 SentencePiece，而是采用 <strong>byte-level BPE</strong>：先把文本按 UTF-8 编码成字节序列，在字节级别上做 BPE，这样任何字符都能落到 256 个基础字节上，天然没有 OOV。但注意，byte-level 解决的是“字符覆盖面”问题，并没有取消预分词——GPT-2 仍然先用一段正则表达式把文本预切成若干片段（单词、数字、标点各自成段），合并不允许跨越这些片段边界，比如字母和标点不会合并成同一个 token。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>维度</th><th>SentencePiece 路线</th><th>byte-level + tiktoken 路线</th></tr></thead>
+    <tbody>
+      <tr><td>输入视角</td><td>原始 Unicode 字符流</td><td>UTF-8 字节序列</td></tr>
+      <tr><td>预分词</td><td>完全不需要</td><td>需要，用正则按类别预切片段</td></tr>
+      <tr><td>空格处理</td><td>转义为普通字符 ▁，参与合并</td><td>通常并入后随单词（如 <code>Ġworld</code>），由正则规则决定</td></tr>
+      <tr><td>跨片段合并</td><td>无此概念（没有片段边界）</td><td>禁止，字母与标点不互相合并</td></tr>
+      <tr><td>可逆性</td><td>可逆无损</td><td>可逆（字节级天然无损）</td></tr>
+      <tr><td>代表用户</td><td>T5、ALBERT、XLNet、LLaMA</td><td>GPT-2 及之后的 GPT 系</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box info">
+  两条路线都解决了 OOV 问题，分歧只在工程哲学：SentencePiece 选择“取消预分词，把一切交给字符流”，tiktoken 选择“保留预分词，但把兜底粒度降到字节”。实践中两者都被大规模验证过，选哪个更多取决于生态与训练管线习惯。
+</div>
+
+<h2>2.4.6 图示：两条处理路线对比</h2>
+
+<p>　　下图把传统预分词路线和 SentencePiece 路线并排画出，注意左侧多出来的“按空格切词”环节，以及右侧空格转义后与其他字符平等参与切分的方式：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 左侧：传统预分词路线 -->
+    <text x="180" y="28" text-anchor="middle" font-size="15" font-weight="bold" fill="#dc2626">传统路线：先预分词</text>
+    <rect x="60" y="45" width="240" height="46" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="180" y="73" text-anchor="middle" font-size="13" fill="#333">原始文本：I love NLP</text>
+    <line x1="180" y1="91" x2="180" y2="115" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="60" y="118" width="240" height="46" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="180" y="137" text-anchor="middle" font-size="13" fill="#333">按空格切词（预分词）</text>
+    <text x="180" y="154" text-anchor="middle" font-size="12" fill="#666">I | love | NLP　← 中文无空格可用</text>
+    <line x1="180" y1="164" x2="180" y2="188" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="60" y="191" width="240" height="46" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="180" y="210" text-anchor="middle" font-size="13" fill="#333">词内做子词切分</text>
+    <text x="180" y="227" text-anchor="middle" font-size="12" fill="#666">合并不许跨词边界</text>
+    <line x1="180" y1="237" x2="180" y2="261" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="60" y="264" width="240" height="46" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="180" y="283" text-anchor="middle" font-size="13" fill="#333">空白信息已丢失</text>
+    <text x="180" y="300" text-anchor="middle" font-size="12" fill="#666">无法逐字节还原原文</text>
+    <!-- 右侧：SentencePiece 路线 -->
+    <text x="540" y="28" text-anchor="middle" font-size="15" font-weight="bold" fill="#0891b2">SentencePiece：直接字符流</text>
+    <rect x="420" y="45" width="240" height="46" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="540" y="73" text-anchor="middle" font-size="13" fill="#333">原始文本：I love NLP</text>
+    <line x1="540" y1="91" x2="540" y2="115" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="420" y="118" width="240" height="46" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="540" y="137" text-anchor="middle" font-size="13" fill="#333">空格转义为 ▁（U+2581）</text>
+    <text x="540" y="154" text-anchor="middle" font-size="12" fill="#666">▁I▁love▁NLP　← 与语言无关</text>
+    <line x1="540" y1="164" x2="540" y2="188" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="420" y="191" width="240" height="46" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="540" y="210" text-anchor="middle" font-size="13" fill="#333">整流做子词切分（BPE/Unigram）</text>
+    <text x="540" y="227" text-anchor="middle" font-size="12" fill="#666">▁ 与其他字符平等参与合并</text>
+    <line x1="540" y1="237" x2="540" y2="261" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="420" y="264" width="240" height="46" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+    <text x="540" y="283" text-anchor="middle" font-size="13" fill="#333">空白完整保留在 token 中</text>
+    <text x="540" y="300" text-anchor="middle" font-size="12" fill="#666">detokenize 可逆无损</text>
+  </svg>
+  <div class="diagram-caption">图示：传统路线先做语言相关的预分词，空白信息在此丢失；SentencePiece 把空格转义为 ▁ 后直接对字符流切分，全程无预分词且可逆。</div>
+</div>
+
+<h2>2.4.7 小结与去向</h2>
+
+<p>　　SentencePiece 的贡献不在算法创新，而在工程抽象：它把“分词”这件事从语言相关的预处理中解放出来，变成对任意语言都成立的字符流处理，并用 ▁ 转义保住了可逆性。一个框架同时支持 BPE 与 Unigram，也让模型作者可以只换参数、不换工具。至此第 2 章的主流算法与工具都讲完了，后面几节会看分词在多语言、代码等场景下的实际表现与代价。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">BPE / Unigram 的经典实现所依赖的预分词有什么问题？</div>
+    <div class="sc-key">两个硬伤：一是假设文本能按空格或语言规则切成词，对中文、日文、泰文等无空格语言不成立，得额外接语言相关的分词模块；二是预分词不可逆，原始空白信息（多空格、制表符等）被丢弃，无法还原原文。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">▁（U+2581）这个符号解决了什么？</div>
+    <div class="sc-key">它把空格从特殊的“词边界标记”转义成一个普通字符，与其他字符平等参与子词合并。词边界信息被保留在 token 内部，于是预分词环节可以整个取消，且 detokenize 能逐字节还原原文，实现无损可逆分词。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么 LLaMA 选 BPE 后端而 T5 选 Unigram 后端？</div>
+    <div class="sc-key">两者算法路线不同：BPE 是确定性的贪心合并，实现简单、切分稳定；Unigram 是概率模型，支持对同一段文本采样多种切分，训练时能起到正则化作用。这是模型作者的工程偏好，没有绝对优劣，SentencePiece 的价值正在于同一框架同时支持两者，换后端只需换参数。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Kudo &amp; Richardson, 2018. SentencePiece: A simple and language independent subword tokenizer and detokenizer for Neural Text Processing（EMNLP System Demonstrations，arXiv:1808.06226）。无预分词设计、▁ 转义、可逆性与双算法后端均出自该文。</li>
+  <li>SentencePiece GitHub 仓库（google/sentencepiece）：训练参数 vocab_size、character_coverage（默认 0.9995）等配置项以仓库文档为准。</li>
+  <li>Touvron et al., 2023. LLaMA: Open and Efficient Foundation Language Models（arXiv:2302.13971）：使用 SentencePiece BPE 后端、词表 32000 出自该文。</li>
+  <li>Radford et al., 2019. Language Models are Unsupervised Multitask Learners（GPT-2 报告）：byte-level BPE 与正则预切片段路线的出处。</li>
+</ul>
+
+</article>

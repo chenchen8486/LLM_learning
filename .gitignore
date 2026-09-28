@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+
+# 构建产物（可由 output/html/build.py 重新生成）
+output/html/ch*.html
+output/html/images/
+
+# 系统
+.DS_Store
+Thumbs.db

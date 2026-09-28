@@ -1,0 +1,85 @@
+﻿<article class="content">
+<h1>注意力可视化</h1>
+<p class="subtitle">对应论文：注意力可视化附录　|　整理时间：2026-06-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>Transformer 学得的注意力分布是否具有可解释性？能否捕捉到长距离依赖和句法结构？</td></tr>
+      <tr><td>本文主张</td><td>单个注意力头学会执行不同任务；多个头表现出与句法、语义结构相关的行为。</td></tr>
+      <tr><td>一句话结论</td><td>注意力可视化证明 Transformer 不仅性能强，其内部机制也具备语言学意义。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>注意力头</span><span>长距离依赖</span><span>指代消解</span><span>句法结构</span><span>可解释性</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>输入-输入层注意力</h2>
+
+<p>以下可视化均来自编码器自注意力第 5 层（共 6 层）。不同颜色代表不同注意力头。</p>
+
+<h3>图 3：长距离依赖</h3>
+
+<div class="img-block">
+  <img src="images/2016Attention/57e3ad00e7c57fe0dc66b468b013f2fcf447ef78a7d2ee01be8b434fe6ef0669.jpg" alt="长距离依赖注意力可视化">
+  <div class="img-caption">图 3：注意力机制在编码器自注意力第 5 层中遵循长距离依赖关系的示例。多个注意力头关注动词"making"的远距离依赖，完成短语"making...more difficult"。此处仅显示单词"making"的注意力分布。不同颜色代表不同注意力头。建议彩色查看。</div>
+</div>
+
+<p>图 3 显示，多个注意力头同时关注动词 <strong>making</strong> 的远距离依赖，从而补全整个短语 <strong>making ... more difficult</strong>。这说明自注意力能够直接建模跨越多个词的长距离语义关系，而无需像 RNN 那样逐层传递。</p>
+
+<h3>图 4：指代消解</h3>
+
+<div class="img-block">
+  <img src="images/2016Attention/1678a839f4e6f07663c6d0c31aa1125d433138f2e6617aae82d039d1529967ea.jpg" alt="指代消解注意力可视化">
+  <div class="img-caption">图 4：同样在第 5 层（共 6 层）的两个注意力头，似乎参与了指代消解。上图：第 5 个注意力头的完整注意力分布。下图：仅针对单词"its"的第 5 和第 6 注意力头的孤立注意力分布。注意该单词的注意力分布非常集中。</div>
+</div>
+
+<p>图 4 展示了注意力头在指代消解上的行为。针对单词 <strong>its</strong>，第 5 和第 6 注意力头的分布非常集中，表明模型学会了将代词与其先行词建立直接联系。这种能力在没有显式句法监督的情况下自发涌现。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">指代消解 Anaphora Resolution</span>
+    <span class="term-en">确定代词（如 its）指代的是哪个前文名词</span>
+  </div>
+  <div class="term-body">
+    <p>指代消解是自然语言理解中的经典难题。图 4 表明，Transformer 的某些注意力头自发学会了把代词"its"的注意力集中在它的先行词上。</p>
+    <div class="term-analogy">就像读句子"这只猫舔了它的爪子"时，你会自动知道"它"指的是"猫"——注意力头也学会了这种"往回找"的能力。</div>
+  </div>
+</div>
+
+<h3>图 5：句子结构</h3>
+
+<div class="img-block">
+  <img src="images/2016Attention/b616696f63c30ad27de5f095b0cac5975742209d1231c70057510010187c1512.jpg" alt="句子结构注意力可视化">
+  <div class="img-caption">图 5：许多注意力头表现出与句子结构相关的行为。以上给出两个示例，分别来自编码器自注意力第 5 层（共 6 层）的两个不同注意力头。这些注意力头显然学会了执行不同的任务。</div>
+</div>
+
+<p>图 5 展示了两个不同的注意力头，它们表现出与句子句法结构相关的行为。这进一步验证了多头注意力的价值：不同的头可以分工学习不同类型的语言学关系。</p>
+
+<div class="highlight-box">
+  <strong>可视化的启示</strong>：
+  <ul>
+    <li>注意力头能直接捕捉<strong>长距离依赖</strong>（图 3）。</li>
+    <li>注意力头能参与<strong>指代消解</strong>等语义任务（图 4）。</li>
+    <li>不同注意力头学习不同功能，与<strong>句子结构</strong>相关（图 5）。</li>
+  </ul>
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">图 3 说明了注意力的什么能力？</div>
+    <div class="sc-key">能直接关注远距离词，捕捉长距离依赖关系，如 making ... more difficult。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">图 4 中注意力头对 its 的行为说明了什么？</div>
+    <div class="sc-key">说明某些头自发学会了指代消解，把代词与先行词建立直接联系。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">多头注意力为何能学到不同功能？</div>
+    <div class="sc-key">不同头在不同表示子空间中独立学习，使模型能同时关注句法、语义、长距离等多种关系。</div>
+  </div>
+</div>
+</article>

@@ -1,0 +1,105 @@
+﻿<article class="content">
+<h1>5 训练</h1>
+<p class="subtitle">对应论文：第 5 节 训练（含 5.1–5.4）　|　整理时间：2026-06-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>如何训练 Transformer 基础模型与大型模型，使其在翻译任务上达到最优？</td></tr>
+      <tr><td>本文主张</td><td>使用 Adam + 自定义学习率 warm-up + 残差丢弃 + 标签平滑，在 8×P100 上训练 12 小时（基础）或 3.5 天（大型）。</td></tr>
+      <tr><td>一句话结论</td><td>合理的优化器、学习率调度与正则化策略共同支撑了 Transformer 的高效训练与优异泛化。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>WMT 2014</span><span>Adam</span><span>学习率 warm-up</span><span>Dropout</span><span>标签平滑</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>5.1 训练数据与批处理</h2>
+
+<p>我们在标准的 WMT 2014 英德数据集上进行了训练，该数据集包含约 <strong>450 万个句子对</strong>。句子采用字节对编码（BPE）进行编码，共享的源-目标词汇表包含约 <strong>37000 个词元</strong>。</p>
+
+<p>对于英法翻译，我们使用了规模更大的 WMT 2014 英法数据集，包含 <strong>3600 万个句子</strong>，并将词元分割为 <strong>32000 个词片词汇表</strong>。</p>
+
+<p>句子对按近似序列长度进行批处理。每个训练批次包含一组句子对，其中包含约 <strong>25000 个源语言词元</strong> 和 <strong>25000 个目标语言词元</strong>。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">字节对编码 BPE</span>
+    <span class="term-en">Byte Pair Encoding：从字符开始合并最频繁子词对，构建子词词汇表</span>
+  </div>
+  <div class="term-body">
+    <p>BPE 是一种子词分词方法，能同时处理罕见词（拆成子词）和常见词（保留完整词），在机器翻译中广泛使用。</p>
+    <div class="term-analogy">就像用有限的积木块拼出任意复杂形状：常见词用大块积木，罕见词用小块拼。</div>
+  </div>
+</div>
+
+<h2>5.2 硬件与时间安排</h2>
+
+<p>我们在配备 <strong>8 块 NVIDIA P100 GPU</strong> 的单台机器上训练模型。对于使用本文所述超参数的基础模型，每个训练步骤大约需要 <strong>0.4 秒</strong>。我们总共训练了基础模型 <strong>100,000 步</strong>，即 <strong>12 小时</strong>。</p>
+
+<p>对于大型模型（如表 3 底行所述），每个步骤耗时 <strong>1.0 秒</strong>。大型模型训练了 <strong>300,000 步</strong>（<strong>3.5 天</strong>）。</p>
+
+<div class="highlight-box info">
+  <strong>训练效率</strong>：基础模型在 8×P100 上仅需 12 小时，这是 Transformer 相比循环/卷积架构并行化优势的直接体现。
+</div>
+
+<h2>5.3 优化器</h2>
+
+<p>我们使用了 Adam 优化器，参数设置为 <code>β₁ = 0.9</code>、<code>β₂ = 0.98</code>、<code>ε = 10⁻⁹</code>。在训练过程中，我们根据以下公式调整学习率：</p>
+
+<div class="formula-card">
+  \[ \mathrm{lrate} = d_{\mathrm{model}}^{-0.5} \cdot \min(\mathrm{step\_num}^{-0.5}, \mathrm{step\_num} \cdot \mathrm{warmup\_steps}^{-1.5}) \tag{3} \]
+  <div class="formula-note">公式 (3)：Transformer 的学习率调度。先线性 warm-up，再按步数平方根倒数衰减。</div>
+</div>
+
+<p>这对应于在前 <code>warmup_steps</code> 个训练步骤中线性增加学习率，之后按步数的平方根倒数成比例减小学习率。我们使用的 <code>warmup_steps = 4000</code>。</p>
+
+<div class="highlight-box warn">
+  <strong>warm-up 的作用</strong>：Transformer 早期训练不稳定，先线性增大学习率可避免大梯度破坏随机初始化的注意力权重；warm-up 结束后再衰减。
+</div>
+
+<h2>5.4 正则化</h2>
+
+<p>我们在训练过程中采用了三种正则化方法：</p>
+
+<h3>残差丢弃</h3>
+
+<p>我们在每个子层输出上应用丢弃法，在将其添加到子层输入并进行归一化之前。此外，我们在编码器和解码器堆栈中对嵌入和位置编码的总和也应用了丢弃法。对于基础模型，我们使用的丢弃率为 <code>P_drop = 0.1</code>。</p>
+
+<h3>标签平滑</h3>
+
+<p>在训练过程中，我们采用了值为 <code>ε_ls = 0.1</code> 的标签平滑。这会降低困惑度，因为模型学会了更加不确定，但提高了准确率和 BLEU 分数。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">标签平滑 Label Smoothing</span>
+    <span class="term-en">把 one-hot 目标分布稍微"软化"，防止模型过度自信</span>
+  </div>
+  <div class="term-body">
+    <p>标签平滑将真实标签的概率从 1 稍微减小（如 0.9），其余概率均分给其他类别。它降低过拟合风险，常能带来更好的泛化和 BLEU。</p>
+    <div class="term-analogy">就像老师批改作业时，不仅说"这道题完全正确"，还会提醒"其他答案也有一点点道理"，让学生不要过度自信。</div>
+  </div>
+</div>
+
+<div class="highlight-box">
+  <strong>训练方案核心</strong>：WMT 2014 数据 + 8×P100 + Adam + 学习率 warm-up + Dropout + 标签平滑。具体 BLEU 结果见第 6 节表 2。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">基础模型与大型模型各训练多久？</div>
+    <div class="sc-key">基础模型 100K 步 / 12 小时；大型模型 300K 步 / 3.5 天，均在 8×P100 上。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">学习率如何调度？</div>
+    <div class="sc-key">前 4000 步线性 warm-up，之后按步数平方根倒数衰减，并与 <code>d_model^(-0.5)</code> 成正比。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">使用了哪些正则化？</div>
+    <div class="sc-key">残差丢弃（P_drop=0.1）和标签平滑（ε_ls=0.1）。</div>
+  </div>
+</div>
+</article>

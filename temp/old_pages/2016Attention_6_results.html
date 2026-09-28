@@ -1,0 +1,149 @@
+﻿<article class="content">
+<h1>6 结果</h1>
+<p class="subtitle">对应论文：第 6 节 结果（含 6.1–6.3）　|　整理时间：2026-06-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>Transformer 在机器翻译和英语句法分析上的实际表现如何？各组件对性能的贡献有多大？</td></tr>
+      <tr><td>本文主张</td><td>Transformer 在 WMT 2014 英德/英法任务上取得新的单模型 SOTA，且训练成本远低于竞品；关键组件消融验证了设计选择。</td></tr>
+      <tr><td>一句话结论</td><td>Transformer 不仅翻译质量更高、训练更快，还能良好泛化到句法分析等其他任务。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>BLEU</span><span>WMT 2014</span><span>消融实验</span><span>句法分析</span><span>泛化</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>6.1 机器翻译</h2>
+
+<p>在 WMT 2014 英德翻译任务中，大型 Transformer 模型比之前最佳报告模型（包括集成模型）高出超过 <strong>2.0 BLEU</strong>，建立了新的最先进 BLEU 分数 <strong>28.4</strong>。该模型的配置列在表 3 的最后一行。训练在 8 块 P100 GPU 上耗时 3.5 天。即使是我们的基础模型，也以远低于任何竞争模型的训练成本，超越了所有先前发布的模型和集成模型。</p>
+
+<p>在 WMT 2014 英法翻译任务中，我们的大型模型取得了 <strong>41.0 BLEU</strong> 分数，超越了所有此前发布的单一模型，且训练成本不到此前最优模型的四分之一。用于英法翻译的 Transformer（大型）模型采用了 0.1 的丢弃率，而非 0.3。</p>
+
+<p>对于基础模型，我们使用了最后 5 个检查点的平均结果（这些检查点每 10 分钟保存一次）。对于大型模型，我们平均了最后 20 个检查点。我们采用波束大小为 4 的波束搜索，并设置长度惩罚系数 <code>α = 0.6</code>。这些超参数是在开发集上经过实验后选定的。推理时，我们将最大输出长度设为输入长度 + 50，并在可能时提前终止。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th rowspan="2">模型</th>
+        <th colspan="2">BLEU</th>
+        <th colspan="2">训练成本（FLOPs）</th>
+      </tr>
+      <tr>
+        <th>英-德</th><th>英-法</th>
+        <th>英-德</th><th>英-法</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>ByteNet</td><td>23.75</td><td>—</td><td>—</td><td>—</td></tr>
+      <tr><td>Deep-Att + PosUnk</td><td>—</td><td>39.2</td><td>—</td><td>\(1.0 \times 10^{20}\)</td></tr>
+      <tr><td>GNMT + RL</td><td>24.6</td><td>39.92</td><td>\(2.3 \times 10^{19}\)</td><td>\(1.4 \times 10^{20}\)</td></tr>
+      <tr><td>ConvS2S</td><td>25.16</td><td>40.46</td><td>\(9.6 \times 10^{18}\)</td><td>\(1.5 \times 10^{20}\)</td></tr>
+      <tr><td>MoE</td><td>26.03</td><td>40.56</td><td>\(2.0 \times 10^{19}\)</td><td>\(1.2 \times 10^{20}\)</td></tr>
+      <tr><td>Deep-Att + PosUnk 集成</td><td>—</td><td>40.4</td><td>—</td><td>\(8.0 \times 10^{20}\)</td></tr>
+      <tr><td>GNMT + RL 集成</td><td>26.30</td><td>41.16</td><td>\(1.8 \times 10^{20}\)</td><td>\(1.1 \times 10^{21}\)</td></tr>
+      <tr><td>ConvS2S 集成</td><td>26.36</td><td>41.29</td><td>\(7.7 \times 10^{19}\)</td><td>\(1.2 \times 10^{21}\)</td></tr>
+      <tr style="background: var(--primary-light);"><td><strong>Transformer（基础模型）</strong></td><td><strong>27.3</strong></td><td><strong>38.1</strong></td><td>\(\mathbf{3.3 \times 10^{18}}\)</td><td>—</td></tr>
+      <tr style="background: var(--primary-light);"><td><strong>Transformer（大型）</strong></td><td><strong>28.4</strong></td><td><strong>41.8</strong></td><td>\(2.3 \times 10^{19}\)</td><td>—</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="img-caption" style="text-align:center; color: var(--text-secondary); font-size: 13px;">表 2：Transformer 在英德和英法 newstest2014 测试集上以更低的训练成本取得了优于先前最先进模型的 BLEU 分数。</p>
+
+<div class="highlight-box">
+  <strong>核心结果</strong>：Transformer（大型）英德 28.4 BLEU、英法 41.8 BLEU；基础模型训练成本仅 \(\mathbf{3.3 \times 10^{18}}\) FLOPs，却超越所有先前单模型与集成模型。
+</div>
+
+<h2>6.2 模型变体</h2>
+
+<p>为评估 Transformer 不同组件的重要性，我们以不同方式调整基础模型，并在开发集 newstest2013 上衡量英德翻译性能的变化。我们采用上一节所述的波束搜索，但未使用检查点平均。这些结果展示在表 3 中。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>配置</th>
+        <th>\(N\)</th>
+        <th>\(d_{\mathrm{model}}\)</th>
+        <th>\(d_{\mathrm{ff}}\)</th>
+        <th>\(h\)</th>
+        <th>\(d_k\)</th>
+        <th>\(d_v\)</th>
+        <th>\(P_{\mathrm{drop}}\)</th>
+        <th>\(\epsilon_{\mathrm{ls}}\)</th>
+        <th>训练步数</th>
+        <th>困惑度</th>
+        <th>BLEU</th>
+        <th>参数 (M)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="background: var(--primary-light);"><td><strong>基础</strong></td><td>6</td><td>512</td><td>2048</td><td>8</td><td>64</td><td>64</td><td>0.1</td><td>0.1</td><td>100K</td><td>4.92</td><td>25.8</td><td>65</td></tr>
+      <tr><td>(A) 单头 / 头过大</td><td>6</td><td>512</td><td>2048</td><td>1 / 16</td><td>512 / 32</td><td>512 / 32</td><td>0.1</td><td>0.1</td><td>100K</td><td>5.29 / 5.01</td><td>24.9 / 25.4</td><td>—</td></tr>
+      <tr><td>(B) 减小 \(d_k\)</td><td>6</td><td>512</td><td>2048</td><td>8</td><td>16 / 32</td><td>16 / 32</td><td>0.1</td><td>0.1</td><td>100K</td><td>5.16 / 5.01</td><td>25.1 / 25.4</td><td>58 / 60</td></tr>
+      <tr><td>(C) 改变模型尺寸</td><td>2 / 4 / 8 / 1024</td><td>128 / 256 / 512 / 1024</td><td>—</td><td>—</td><td>—</td><td>—</td><td>0.1</td><td>0.1</td><td>—</td><td>4.66–6.11</td><td>23.7–26.0</td><td>28–168</td></tr>
+      <tr><td>(D) 改变 dropout</td><td>6</td><td>512</td><td>2048</td><td>8</td><td>64</td><td>64</td><td>0.0 / 0.2</td><td>0.1</td><td>100K</td><td>4.75 / 5.77</td><td>26.2 / 24.6</td><td>90</td></tr>
+      <tr><td>(E) 位置嵌入替代正弦</td><td>6</td><td>512</td><td>2048</td><td>8</td><td>64</td><td>64</td><td>0.1</td><td>0.1</td><td>100K</td><td>4.67 / 5.47</td><td>25.7</td><td>—</td></tr>
+      <tr style="background: var(--primary-light);"><td><strong>大型</strong></td><td>6</td><td>1024</td><td>4096</td><td>16</td><td>64</td><td>64</td><td>0.3</td><td>0.1</td><td>300K</td><td>4.33</td><td>26.4</td><td>213</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="img-caption" style="text-align:center; color: var(--text-secondary); font-size: 13px;">表 3：Transformer 架构的变体。所有指标均基于英德翻译开发集 newstest2013。</p>
+
+<p>在表 3 的 (A) 行中，我们改变了注意力头的数量以及注意力键和值的维度，同时保持计算量不变。虽然单头注意力比最佳设置低了 0.9 个 BLEU 值，但注意力头过多时质量也会下降。</p>
+
+<p>在表 3 的 (B) 行中，我们观察到减小注意力键大小 <code>d_k</code> 会损害模型质量。这表明确定兼容性并非易事，且比点积更复杂的兼容性函数可能更有益。</p>
+
+<p>我们进一步在 (C) 和 (D) 行中观察到，正如预期，更大的模型效果更好，而 dropout 在避免过拟合方面非常有效。在 (E) 行中，我们将正弦位置编码替换为学习得到的位置嵌入，并观察到与基础模型几乎相同的结果。</p>
+
+<h2>6.3 英语成分句法分析</h2>
+
+<p>为了评估 Transformer 能否泛化到其他任务，我们进行了英语成分句法分析实验。该任务面临特定挑战：输出受强结构约束，且长度显著长于输入。此外，RNN 序列到序列模型在小数据场景下未能达到最先进水平。</p>
+
+<p>我们在华尔街日报（WSJ）部分的宾州树库（约 4 万训练句子）上训练了一个 4 层 Transformer，其中 <code>d_model = 1024</code>。我们还采用半监督设置进行训练，使用了包含约 1700 万句子的更大规模高置信度语料库和 BerkleyParser 语料库。在仅使用 WSJ 的设置中，我们使用了 16K 词元的词汇表；在半监督设置中，则使用了 32K 词元的词汇表。</p>
+
+<p>我们仅进行了少量实验，在 Section 22 开发集上选择了 dropout（包括注意力和残差 dropout，见第 5.4 节）、学习率和束搜索大小，所有其他参数均与英语到德语基础翻译模型保持一致。推理时，我们将最大输出长度增加到输入长度 + 300。对于仅使用 WSJ 和半监督设置，我们均使用束搜索大小为 21，<code>α = 0.3</code>。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>解析器</th><th>训练方式</th><th>WSJ 23 F1 值</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Vinyals & Kaiser 等 (2014)</td><td>仅 WSJ，判别式</td><td>88.3</td></tr>
+      <tr><td>Petrov 等 (2006)</td><td>仅 WSJ，判别式</td><td>90.4</td></tr>
+      <tr><td>Zhu 等 (2013)</td><td>仅 WSJ，判别式</td><td>90.4</td></tr>
+      <tr><td>Dyer 等 (2016)</td><td>仅 WSJ，判别式</td><td>91.7</td></tr>
+      <tr style="background: var(--primary-light);"><td><strong>Transformer（4 层）</strong></td><td>仅 WSJ，判别式</td><td><strong>91.3</strong></td></tr>
+      <tr><td>Zhu 等 (2013)</td><td>半监督</td><td>91.3</td></tr>
+      <tr><td>Huang & Harper (2009)</td><td>半监督</td><td>91.3</td></tr>
+      <tr><td>McClosky 等 (2006)</td><td>半监督</td><td>92.1</td></tr>
+      <tr style="background: var(--primary-light);"><td><strong>Transformer（4 层）</strong></td><td>半监督</td><td><strong>92.1</strong></td></tr>
+      <tr><td>Luong 等 (2015)</td><td>半监督多任务</td><td>92.7</td></tr>
+      <tr><td>Dyer 等 (2016)</td><td>生成式</td><td>93.3</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="img-caption" style="text-align:center; color: var(--text-secondary); font-size: 13px;">表 4：Transformer 在英语成分句法分析中的良好泛化能力（结果基于 WSJ 第 23 节）。</p>
+
+<p>我们在表 4 中的结果表明，尽管缺乏针对特定任务的调优，我们的模型表现依然出人意料地好，超越了除循环神经网络语法之外所有先前报告的模型。与 RNN 序列到序列模型相比，即使仅在包含 4 万句子的 WSJ 训练集上进行训练，Transformer 的表现也优于 Berkeley 解析器。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">Transformer 在 WMT 2014 上的最佳 BLEU 是多少？</div>
+    <div class="sc-key">英德 28.4，英法 41.8；大型模型均达到新的单模型最先进水平。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">表 3 的消融实验说明了什么？</div>
+    <div class="sc-key">8 头、64 维、dropout 0.1 是合理默认；模型越大越好；正弦位置编码与可学习位置嵌入效果相当。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">句法分析实验说明了什么？</div>
+    <div class="sc-key">Transformer 能泛化到非翻译任务，在极少任务调优下取得有竞争力的 F1。</div>
+  </div>
+</div>
+</article>

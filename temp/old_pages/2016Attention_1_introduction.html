@@ -1,0 +1,80 @@
+﻿<article class="content">
+<h1>1 引言</h1>
+<p class="subtitle">对应论文：第 1 节 引言　|　整理时间：2026-06-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>RNN/LSTM 按位置顺序计算，训练难以并行；长序列时长距离依赖难以学习。</td></tr>
+      <tr><td>本文主张</td><td>完全摒弃循环结构，仅用注意力机制捕捉输入与输出之间的全局依赖关系。</td></tr>
+      <tr><td>一句话结论</td><td>Transformer 在八块 P100 GPU 上仅需训练十二小时，即可在翻译质量上达到新的最优水平。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>RNN</span><span>LSTM</span><span>顺序计算</span><span>注意力机制</span><span>并行化</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>循环模型的统治与困境</h2>
+
+<p>循环神经网络，特别是长短期记忆网络（LSTM）和门控循环神经网络（GRU），已被牢固确立为序列建模和转换问题（如语言建模和机器翻译）的最先进方法。此后，众多研究不断推动循环语言模型和编码器-解码器架构的边界。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">循环神经网络 RNN</span>
+    <span class="term-en">Recurrent = 循环 / 反复作用于自身</span>
+  </div>
+  <div class="term-body">
+    <p>RNN 按顺序逐个处理序列符号，每步生成隐藏状态 <code>hₜ</code>，该状态同时依赖当前输入和上一时刻状态 <code>hₜ₋₁</code>。LSTM 与 GRU 通过门控机制缓解了梯度消失，是 2017 年之前序列建模的主力。</p>
+    <div class="term-analogy">就像一个人逐字读句子，边读边在心里默默更新"到目前为止讲了什么"，读完最后一个词才形成完整理解。</div>
+  </div>
+</div>
+
+<p>循环模型通常沿着输入和输出序列的符号位置进行因子化计算。通过将位置与计算时间步对齐，它们生成一系列隐藏状态 <code>hₜ</code>，作为前一个隐藏状态 <code>hₜ₋₁</code> 和位置 <code>t</code> 输入的函数。这种固有的顺序性质阻碍了训练样本内的并行化，这在序列长度较长时变得至关重要，因为内存限制限制了跨样本的批处理。</p>
+
+<div class="highlight-box warn">
+  <strong>顺序计算的根本约束</strong>：即使 LSTM/GRU 缓解了梯度消失，<code>hₜ</code> 仍必须等待 <code>hₜ₋₁</code> 计算完成，导致训练时无法像 CNN/FFN 那样大规模并行。
+</div>
+
+<p>最近的工作通过因子化技巧和条件计算在计算效率上取得了显著改进，同时在后一种情况下还提升了模型性能。然而，顺序计算的根本约束仍然存在。</p>
+
+<h2>注意力机制的崛起</h2>
+
+<p>注意力机制已成为各类任务中序列建模和转换模型不可或缺的组成部分，它能够建模输入或输出序列中任意距离的依赖关系。然而，除少数情况外，这类注意力机制通常与循环网络结合使用。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">注意力机制 Attention</span>
+    <span class="term-en">Attention = 把注意力放到最相关的部分</span>
+  </div>
+  <div class="term-body">
+    <p>注意力机制允许模型在生成某个表示时，动态地"看"到输入序列中的任意位置，并给不同位置分配不同权重。它天然适合建模长距离依赖。</p>
+    <div class="term-analogy">就像阅读时眼睛会跳回前文寻找指代词——注意力让模型也能随时"回看"任意位置。</div>
+  </div>
+</div>
+
+<h2>本文贡献：Transformer</h2>
+
+<p>在本工作中，我们提出 Transformer 模型架构，该架构摒弃循环结构，完全依赖注意力机制来捕捉输入与输出之间的全局依赖关系。Transformer 实现了显著的并行化能力，在八块 P100 GPU 上仅需训练十二小时，即可在翻译质量上达到新的最优水平。</p>
+
+<div class="highlight-box">
+  <strong>引言的核心论点</strong>：RNN 的顺序性是不可并行的根源；注意力机制虽已普及，但大多仍依附于 RNN；Transformer 首次<strong>完全用注意力替代循环</strong>，同时解决并行化与全局依赖两个问题。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么 RNN 难以并行训练？</div>
+    <div class="sc-key">因为隐藏状态 <code>hₜ</code> 依赖 <code>hₜ₋₁</code>，计算必须沿时间步顺序进行。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Transformer 与之前"RNN + 注意力"模型有何本质不同？</div>
+    <div class="sc-key">它完全摒弃循环，仅依靠注意力机制建模全局依赖。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">论文用哪个训练效率数字来支撑 Transformer 的优势？</div>
+    <div class="sc-key">八块 P100 GPU 上训练 12 小时即可达到新的翻译质量最优。</div>
+  </div>
+</div>
+</article>
