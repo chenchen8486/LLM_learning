@@ -1,4 +1,4 @@
-<article class="content">
+﻿<article class="content">
 <h1>2.2 BPE：从数据压缩到子词词表</h1>
 <p class="subtitle">本页范围：第 2 章第 2 节　|　整理时间：2026-09-22</p>
 
@@ -20,95 +20,75 @@
 
 <p>　　BPE 的全称是 Byte Pair Encoding（字节对编码）。它本来是 1994 年 Philip Gage 发表在 C Users Journal 上的一种<strong>数据压缩算法</strong>，思路朴素：反复把数据里出现次数最多的相邻字节对替换成一个没用过的新字节，一份数据就能用更少的符号写下来。</p>
 
-<p>　　2016 年，Sennrich、Haddow 和 Birch 在 ACL 论文《Neural Machine Translation of Rare Words with Subword Units》中把这个压缩算法搬到了神经机器翻译里。他们的动机正是 2.1 节讲的 OOV 痛点：翻译系统的词表再大，也总会遇到没收录的稀有词、人名、外来词。BPE 给出的解法是让词表自己从语料中长出来：常见词整块留下，稀有词拆成高频片段，任何词都有出路。此后 BPE 成为神经机器翻译的标配，又被 GPT 系列沿用，成了今天主流 LLM 分词器的基底算法。</p>
-
-<div class="term-card">
-  <div class="term-name">
-    <span class="term-zh">BPE（字节对编码）</span>
-    <span class="term-en">Byte Pair Encoding = 反复合并最高频相邻符号对</span>
-  </div>
-  <div class="term-body">
-    <p>BPE 的核心动作只有一个：<strong>数数，然后合并</strong>。具体数的是：把<strong>整个训练语料</strong>按目前的拆分方式逐词摆开，从头数出<strong>所有相邻符号对</strong>各出现了多少次（每个词还要乘上它在语料中的出现次数），把频次最高的那一对捏成一个新符号。这一捏会改变语料的拆分方式，有些原本相邻的符号被吸进了新符号里，相邻关系跟着变了，所以要<strong>基于新的拆分再数一遍、再捏一次</strong>，如此反复，直到词表长到目标大小。学出来的词表天然是高频片段优先。</p>
-    <div class="term-analogy">就像整理一间办公室：你总是把最常一起使用的两件文具（比如笔和笔帽）装进同一个笔袋，用得越频繁的组合越早被收编，最后桌面上剩下的都是成套的高频组合和零散的低频单件。</div>
-  </div>
-</div>
+<p>　　2016 年，Sennrich、Haddow 和 Birch 在 ACL 论文《Neural Machine Translation of Rare Words with Subword Units》中把这个压缩算法搬到了神经机器翻译里。他们的动机正是 2.1 节讲的 OOV 痛点：翻译系统的词表再大，也总会遇到没收录的稀有词、人名、外来词。BPE 给出的解法是让词表自己从语料中长出来：核心动作只有一个——<strong>数数，然后合并</strong>，统计语料里最高频的相邻符号对，捏成一个新符号，反复进行，直到词表长到目标大小。这样常见词整块留下，稀有词拆成高频片段，任何词都有出路。此后 BPE 成为神经机器翻译的标配，又被 GPT 系列沿用，成了今天主流 LLM 分词器的基底算法。</p>
 
 <h2>2.2.2 训练阶段：手工演算一遍</h2>
 
-<p>　　训练 BPE 的目标是学出两样东西：一个<strong>词表</strong>，和一串<strong>有先后顺序的合并规则</strong>。算法从字符级开始：先把语料中每个词拆成单个字符，词表初始化为所有出现过的字符；然后进入“统计、合并、更新”的循环。</p>
+<p>　　训练 BPE 的目标是学出两样东西：一个<strong>词表</strong>，和一串<strong>有先后顺序的合并规则</strong>。下面用一个出自 Hugging Face LLM Course 第 6 章的经典小例子，从零开始完整走一遍。先把本节要用到的几个词立清楚，后面每一步都会用到：</p>
 
-<p>　　用 Hugging Face LLM Course 第 6 章的经典小例子完整走一遍。假设训练语料只有 5 个词，词频如下：</p>
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>术语</th><th>含义</th><th>在本例中是什么</th></tr></thead>
+    <tbody>
+      <tr><td>语料（corpus）</td><td>用来训练分词器的全部文本，真实场景是几十亿条人能看懂的完整句子。句子要先预切成词、统计词频，才轮到 BPE 登场</td><td>极度简化：整个语料只有 5 个词——hug、pug、pun、bun、hugs，连同各自词频</td></tr>
+      <tr><td>词频</td><td>每个词在语料中出现的次数。统计相邻对时要按词频加权，出现 10 次的词里的相邻对要算 10 次</td><td>hug 出现 10 次，pun 出现 12 次，依此类推</td></tr>
+      <tr><td>拆分表</td><td>算法的<strong>内部工作区</strong>：记录每个词此刻被切成了哪些符号。它会随每轮合并不断变化。注意它是加工中间产物，不是语料的原貌</td><td>一开始每个词被拆成单字符，如 hug → h u g</td></tr>
+      <tr><td>相邻符号对</td><td>拆分表里紧挨着的两个符号，是统计和合并的对象</td><td>h u g 里有 (h,u) 和 (u,g) 两对</td></tr>
+      <tr><td>词表（vocabulary）</td><td>训练结束时所有合法符号的清单，从单字符开始，随合并不断增长</td><td>初始 7 个字符，最终 10 个符号</td></tr>
+      <tr><td>合并规则</td><td>每轮合并留下的一条记录 (A, B)→AB。规则的<strong>先后顺序</strong>本身就是训练产物，编码时要严格按序应用</td><td>(u,g)→ug 是第 1 条，(u,n)→un 是第 2 条</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　术语就位后，整个训练流程是五步：<strong>语料 → 词频统计 → 初始拆分 → 反复合并 → 收敛产出</strong>。逐步来看。</p>
+
+<h3>第 0 步：准备语料，统计词频</h3>
+
+<p>　　BPE 不直接吃句子。真实场景里，语料是一个超长的句子清单，可以想象成一个几百 GB 的 txt 文件，一行一句话，几十亿行。先要按空格和标点把句子预切成词，统计每个词出现过多少次，得到一张<strong>词频表</strong>，BPE 从这张表起步。</p>
+
+<p>　　为了让每一步都能手算，本例把语料极度简化：<strong>假设全部语料只有 5 个拼写相近的词</strong>，不多也不少。它们共享字母组合，正好适合观察合并过程。词频表如下：</p>
 
 <div class="table-wrap">
   <table>
     <thead><tr><th>词</th><th>hug</th><th>pug</th><th>pun</th><th>bun</th><th>hugs</th></tr></thead>
     <tbody>
-      <tr><td>出现次数</td><td>10</td><td>5</td><td>12</td><td>4</td><td>5</td></tr>
-      <tr><td>字符拆分</td><td>h u g</td><td>p u g</td><td>p u n</td><td>b u n</td><td>h u g s</td></tr>
+      <tr><td>词频</td><td>10</td><td>5</td><td>12</td><td>4</td><td>5</td></tr>
     </tbody>
   </table>
 </div>
 
-<p>　　初始词表是 7 个字符：<code>[b, g, h, n, p, s, u]</code>。接下来逐轮合并：</p>
+<h3>第 1 步：把每个词拆成单字符，得到初始拆分表</h3>
+
+<p>　　BPE 的思路是从小往大长：一开始假装不认识任何多字母组合，只认识单个字符，把每个词打散成字符序列，再从统计中逐步发现哪些字符老粘在一起。「打散」这个动作逐词展示如下——第一行是拆分前的原词，第二行是拆分后的字符序列，整张表就是初始拆分表：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>拆分前（原词）</th><th>hug</th><th>pug</th><th>pun</th><th>bun</th><th>hugs</th></tr></thead>
+    <tbody>
+      <tr><td>拆分后（字符序列）</td><td>h u g</td><td>p u g</td><td>p u n</td><td>b u n</td><td>h u g s</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　再强调一次：这张表是算法的<strong>内部表示</strong>，语料本身一直是那些完整句子和单词，拆散只发生在这张内部工作表里。拆散只是为了让合并有一个最小的起点——如果不先拆成字符，算法连第一对「相邻符号」都找不到。</p>
+
+<h3>第 2 步：初始化词表</h3>
+
+<p>　　把拆分表里出现过的所有字符收进词表，共 7 个：<code>[b, g, h, n, p, s, u]</code>。这是词表的起点，接下来每合并出一个新符号，词表就长一格。</p>
+
+<h3>第 3 步：进入「统计 → 合并 → 更新」循环</h3>
+
+<p>　　每一轮做三件事：数出拆分表里所有相邻符号对的频次（按词频加权），把最高的那一对合并成新符号，再用新符号更新拆分表。逐轮演算：</p>
 
 <ol>
-  <li><strong>第 1 轮</strong>：统计所有相邻符号对，按词频加权。u-g 出现在 hug（10 次）、pug（5 次）、hugs（5 次）中，共 20 次，全场最高。合并 u + g 得到新符号 ug，加入词表。</li>
-  <li><strong>第 2 轮</strong>：更新拆分后重新统计。u-n 出现在 pun（12 次）、bun（4 次）中，共 16 次，最高。合并 u + n 得到 un。</li>
-  <li><strong>第 3 轮</strong>：h-ug 出现在 hug（10 次）、hugs（5 次）中，共 15 次，最高。合并 h + ug 得到 hug。</li>
+  <li><strong>第 1 轮</strong>：统计所有相邻符号对，按词频加权。u-g 出现在 hug（10 次）、pug（5 次）、hugs（5 次）中，共 20 次，全场最高。合并 u + g 得到新符号 ug，加入词表。拆分表更新：hug → h ug，pug → p ug，hugs → h ug s。</li>
+  <li><strong>第 2 轮</strong>：基于新拆分重新统计。u-n 出现在 pun（12 次）、bun（4 次）中，共 16 次，最高。合并 u + n 得到 un。拆分表更新：pun → p un，bun → b un。</li>
+  <li><strong>第 3 轮</strong>：h-ug 出现在 hug（10 次）、hugs（5 次）中，共 15 次，最高。合并 h + ug 得到 hug。拆分表更新：hug → hug（整词），hugs → hug s。</li>
 </ol>
 
-<p>　　此时假设词表达到了目标大小，训练停止。最终词表为 <code>[b, g, h, n, p, s, u, ug, un, hug]</code>，合并规则按学习顺序记录为 <code>(u,g)→ug</code>、<code>(u,n)→un</code>、<code>(h,ug)→hug</code>。注意规则的<strong>顺序本身就是训练产物</strong>，编码时要严格按这个顺序应用。</p>
+<h3>第 4 步：达到目标大小，收敛产出</h3>
 
-<div class="diagram">
-  <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
-    <defs>
-      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
-      </marker>
-    </defs>
-    <!-- 第 1 轮 -->
-    <text x="20" y="65" font-size="15" fill="#333">第 1 轮</text>
-    <rect x="110" y="42" width="44" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="132" y="66" text-anchor="middle" font-size="16" fill="#333">u</text>
-    <text x="164" y="66" text-anchor="middle" font-size="16" fill="#666">+</text>
-    <rect x="178" y="42" width="44" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="200" y="66" text-anchor="middle" font-size="16" fill="#333">g</text>
-    <text x="240" y="66" font-size="13" fill="#666">共 20 次，最高频</text>
-    <line x1="420" y1="60" x2="460" y2="60" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
-    <rect x="470" y="42" width="60" height="36" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-    <text x="500" y="66" text-anchor="middle" font-size="16" fill="#333">ug</text>
-    <text x="548" y="66" font-size="13" fill="#666">加入词表</text>
-    <!-- 第 2 轮 -->
-    <text x="20" y="155" font-size="15" fill="#333">第 2 轮</text>
-    <rect x="110" y="132" width="44" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="132" y="156" text-anchor="middle" font-size="16" fill="#333">u</text>
-    <text x="164" y="156" text-anchor="middle" font-size="16" fill="#666">+</text>
-    <rect x="178" y="132" width="44" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="200" y="156" text-anchor="middle" font-size="16" fill="#333">n</text>
-    <text x="240" y="156" font-size="13" fill="#666">共 16 次，最高频</text>
-    <line x1="420" y1="150" x2="460" y2="150" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
-    <rect x="470" y="132" width="60" height="36" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-    <text x="500" y="156" text-anchor="middle" font-size="16" fill="#333">un</text>
-    <text x="548" y="156" font-size="13" fill="#666">加入词表</text>
-    <!-- 第 3 轮 -->
-    <text x="20" y="245" font-size="15" fill="#333">第 3 轮</text>
-    <rect x="110" y="222" width="44" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="132" y="246" text-anchor="middle" font-size="16" fill="#333">h</text>
-    <text x="164" y="246" text-anchor="middle" font-size="16" fill="#666">+</text>
-    <rect x="178" y="222" width="54" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="205" y="246" text-anchor="middle" font-size="16" fill="#333">ug</text>
-    <text x="240" y="246" font-size="13" fill="#666">共 15 次，最高频</text>
-    <line x1="420" y1="240" x2="460" y2="240" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
-    <rect x="470" y="222" width="60" height="36" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-    <text x="500" y="246" text-anchor="middle" font-size="16" fill="#333">hug</text>
-    <text x="548" y="246" font-size="13" fill="#666">加入词表</text>
-    <!-- 最终词表 -->
-    <rect x="20" y="295" width="680" height="46" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="360" y="324" text-anchor="middle" font-size="14" fill="#333">最终词表：[b, g, h, n, p, s, u, ug, un, hug]</text>
-  </svg>
-  <div class="diagram-caption">图示：在 hug×10、pug×5、pun×12、bun×4、hugs×5 的玩具语料上，BPE 三轮合并依次产出 ug、un、hug 三个新符号。</div>
-</div>
+<p>　　假设此时词表达到了预设的目标大小，训练停止。最终词表为 <code>[b, g, h, n, p, s, u, ug, un, hug]</code>，合并规则按学习顺序记录为 <code>(u,g)→ug</code>、<code>(u,n)→un</code>、<code>(h,ug)→hug</code>。注意规则的<strong>顺序本身就是训练产物</strong>，编码时要严格按这个顺序应用。</p>
 
 <div class="highlight-box">
   BPE 学到的词表是频率驱动的：出现得越多的片段越早成为独立 token。这意味着训练语料的构成直接决定词表的长相，换一批语料就要重新训练分词器，不能拿来即用。
@@ -125,6 +105,10 @@
 </ul>
 
 <p>　　因为基础词表覆盖了语料中所有字符，这个例子里不存在编码失败的词。真实分词器还会先做预切分（比如按空格和标点把句子切成词），再在每个片段内部跑上述合并流程。</p>
+
+<div class="highlight-box">
+  把 2.2.2 和 2.2.3 合起来看，整条流水线是：分词器训练一次并封存，产出词表和有序合并规则；之后模型训练和推理阶段的所有文本，都按这套冻结的规则切词查 ID，模型只认这套词表。新词永远进不了词表，只是被词表里已有的零件拼出来——词表有限，能表示的词无限。也正因如此，词表一旦封盘就不能换：换词表等于 Embedding 矩阵行数对不上，整个模型要重训。
+</div>
 
 <h2>2.2.4 训练算法伪代码</h2>
 
