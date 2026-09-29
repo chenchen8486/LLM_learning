@@ -16,6 +16,17 @@
   </table>
 </div>
 
+<p>　　4.1 节留下过一个悬念：原论文明明是编码器-解码器双塔，今天的 GPT 系模型为什么只剩一座解码器塔？本节正式回答这个问题。答案分两步：先看 2017 到 2019 年三条架构路线如何分家，再看 decoder-only 凭什么赢下生成赛道：</p>
+
+<ol>
+  <li><strong>2017—2019：同一副骨架，三条路线分家</strong>（4.5.1）：Transformer、GPT-1、BERT 三个模型给出三种答案，任务需要看哪边，就留哪座塔；</li>
+  <li><strong>为什么 decoder-only 赢下了生成赛道</strong>（4.5.2）：自回归的天性、编码器的失业、极简结构的 scaling 红利、Prompt 范式的通吃，四条理由合流；</li>
+  <li><strong>零件对照：原论文 decoder 层 → 现代 LLM block</strong>（4.5.3）：删掉交叉注意力，归一化、位置编码、FFN、注意力头逐件换代，骨架原样保留；</li>
+  <li><strong>骨架没变：本页通往第 5 章</strong>（4.5.4）：用 minimind 的真实结构印证定型后的形态，并把零件清单交给第 5 章逐件拆解。</li>
+</ol>
+
+<p>　　读完本节，你应该能记住一句话：现代 LLM 的一层 block = 掩码多头自注意力 + FFN + 残差 + 归一化，它就是 2017 年 decoder 层的直系后代。</p>
+
 <h2>4.5.1 2017—2019：同一副骨架，三条路线分家</h2>
 
 <p>　　回顾 4.1 节的整体结构：原论文的 Transformer 是标准的<strong>编码器-解码器（Encoder-Decoder）</strong>双塔结构，这是为它要解决的机器翻译问题量身定做的。翻译天然分两步：先把整句原文读进去、消化成表示，再一个词一个词把译文写出来。前一半交给编码器，后一半交给解码器。两座塔各堆 6 层，\(d_{\mathrm{model}}=512\)；编码器每层 2 个子层（自注意力 + FFN），解码器每层 3 个子层，多出来的那一个专门负责「回头看原文」，叫交叉注意力（原论文 3.1 节）。</p>
@@ -61,7 +72,7 @@
 
 <div class="formula-card">
   \[ P(x_1,\ldots,x_n)=\prod_{t=1}^{n}P(x_t\mid x_1,\ldots,x_{t-1}) \tag{1} \]
-  <div class="formula-note">公式 (1)：自回归生成的定义。右边每一项的条件里只有「过去」，没有「未来」。</div>
+  <div class="formula-note">公式 (1)：自回归生成的定义。右边每一项的条件里只有「过去」，没有「未来」。符号说明：\(x_1,\dots,x_n\) 是一段文本的 \(n\) 个 token；\(\prod_{t=1}^{n}\) 表示把 \(t\) 从 1 到 \(n\) 的条件概率连乘；\(P(x_t\mid x_1,\dots,x_{t-1})\) 是在已知前 \(t-1\) 个 token 的条件下，第 \(t\) 个 token 出现的概率——生成第 \(t\) 个词时只能依赖它之前的内容。</div>
 </div>
 
 <div class="term-card">
@@ -71,7 +82,6 @@
   </div>
   <div class="term-body">
     <p>自回归生成像词语接龙：每一步都把<strong>自己已经写下的全部内容</strong>当作已知条件，预测下一个词，把它接在末尾，再以此为基础预测再下一个。解码器的因果掩码（4.2 节）做的正是这件事：在结构层面焊死「只看左侧」的约束，训练和生成遵守同一个规则。</p>
-    <div class="term-analogy">就像写作文：你每写一句，都会回头读一遍自己写过的部分，但永远读不到还没写出来的后半篇。</div>
   </div>
 </div>
 
@@ -88,7 +98,6 @@
   </div>
   <div class="term-body">
     <p>交叉注意力和自注意力的计算公式完全一样，区别只在原料来源：Query 来自解码器自己，Key 和 Value 来自<strong>编码器的输出</strong>。于是解码器每写一个词，都能按当前需要「回头看一眼」原文的每个位置。它只存在于 encoder-decoder 结构里，是连接两座塔的桥。</p>
-    <div class="term-analogy">就像同声传译时手边摊着原文稿：每开口译一句，眼睛都回稿子上扫一遍，而不是凭记忆硬背。</div>
   </div>
 </div>
 
@@ -113,7 +122,7 @@
 
 <div class="formula-card">
   \[ \underbrace{\mathrm{LayerNorm}\bigl(x+\mathrm{Sublayer}(x)\bigr)}_{\text{原论文：Post-Norm}} \qquad \underbrace{x+\mathrm{Sublayer}\bigl(\mathrm{RMSNorm}(x)\bigr)}_{\text{现代：Pre-Norm}} \tag{2} \]
-  <div class="formula-note">公式 (2)：每个子层的「包装方式」对比。左边逐字出自原论文 3.1 节；右边以 minimind 的 MiniMindBlock 代码为证，先归一化再进子层，残差原样加回。</div>
+  <div class="formula-note">公式 (2)：每个子层的「包装方式」对比。左边逐字出自原论文 3.1 节；右边以 minimind 的 MiniMindBlock 代码为证，先归一化再进子层，残差原样加回。符号说明：\(x\) 是子层输入；\(\mathrm{Sublayer}\) 是子层本身（掩码多头自注意力或 FFN）；\(\mathrm{LayerNorm}\) 是层归一化（4.4 节公式 (3) 给出定义）；\(\mathrm{RMSNorm}\) 是它的现代简化版（4.6 节公式 (1)，第 5 章细讲）；左右两式的差别只在归一化的位置。</div>
 </div>
 
 <div class="diagram">

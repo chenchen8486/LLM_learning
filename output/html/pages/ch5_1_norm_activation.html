@@ -16,20 +16,31 @@
   </table>
 </div>
 
+<p>　　本节要回答一个承上启下的问题：第 4 章逐层拆完了 2017 年的原版 Transformer，配方是 LayerNorm 加 ReLU 前馈；可今天打开 Llama、Qwen、minimind 任何一个主流模型的源码，看到的却是 RMSNorm、Pre-LN 和 SwiGLU。为什么要换？换成了什么？本节沿"三处精准改造"的主线逐个拆解，每一处改动对应一种设计哲学：</p>
+
+<ol>
+  <li><strong>从 LayerNorm 到 RMSNorm：一次成功的化简</strong>（5.1.1）：砍掉减均值这一步统计，只保留统一"音量"，效果持平还更快；</li>
+  <li><strong>从 Post-LN 到 Pre-LN：归一化挪个位置，深层训练就稳了</strong>（5.1.2）：不改公式改位置，残差主干变成不设卡的高速公路，几十层不要 warmup 也训得稳；</li>
+  <li><strong>SwiGLU：给前馈网络装一道闸门</strong>（5.1.3）：一半通道算"开度"、一半通道当"货物"，多出的第三个矩阵靠缩维三分之二把参数账做平；</li>
+  <li><strong>为什么这套组合成为标配</strong>（5.1.4）：做减法、改位置、加门控三笔账合起来，看 Llama 到 minimind 的工程共识是怎么收敛出来的。</li>
+</ol>
+
+<p>　　读完全节，你应该能打开任意一个现代模型的源码，说清它的残差块为什么长这样：三处改动都不加参数量，却换来更稳的深层训练和更好的效果。5.1.4 的收尾还会把话头递给注意力侧的改造，那是 5.2 节的内容。</p>
+
 <h2>5.1.1 从 LayerNorm 到 RMSNorm：一次成功的化简</h2>
 
 <p>　　先回顾第 4 章见过的 LayerNorm。它对一个 token 的特征向量 \(x\)（维度为 \(d\)）做两件事：先减均值、再除以标准差，最后用可学习的缩放 \(\gamma\) 和平移 \(\beta\) 把表达能力还回去：</p>
 
 <div class="formula-card">
   \[ \mathrm{LayerNorm}(x)=\frac{x-\mu}{\sqrt{\sigma^{2}+\epsilon}}\odot\gamma+\beta,\qquad \mu=\frac{1}{d}\sum_{i=1}^{d}x_i,\qquad \sigma^{2}=\frac{1}{d}\sum_{i=1}^{d}(x_i-\mu)^{2} \tag{1} \]
-  <div class="formula-note">公式 (1)：LayerNorm 的两步统计——先算均值 \(\mu\) 对中，再算方差 \(\sigma^{2}\) 缩放，\(\epsilon\) 防止除零。</div>
+  <div class="formula-note">公式 (1)：LayerNorm 的两步统计——先算均值 \(\mu\) 对中，再算方差 \(\sigma^{2}\) 缩放，\(\epsilon\) 防止除零。符号说明：\(x\) 是一个 token 的特征向量，\(x_i\) 是它的第 \(i\) 维分量，\(d\) 是特征维度；\(\mu\) 与 \(\sigma^{2}\) 分别是这 \(d\) 个分量的均值与方差，由 \(x\) 自身逐 token 算出；\(\epsilon\) 是防止除零的小常数；\(\gamma\) 与 \(\beta\) 是可学习的缩放与平移参数，随训练更新；\(\odot\) 表示逐元素相乘。</div>
 </div>
 
-<p>　　打个比方，LayerNorm 像调音师处理一路人声：先纠正跑调（减均值，把音准拉回基准线），再统一音量（除以标准差），最后按需要推一点增益（\(\gamma,\beta\)）。2019 年，Zhang 和 Sennrich 问了一个大胆的问题：<strong>纠正跑调这步真的必要吗？</strong>他们假设 LayerNorm 里的对中（re-centering）性质可有可无，真正起作用的是控制尺度（re-scaling）。于是他们砍掉了减均值和平移 \(\beta\)，只保留一步缩放，得到 RMSNorm：</p>
+<p>　　2019 年，Zhang 和 Sennrich 问了一个大胆的问题：<strong>减均值这步真的必要吗？</strong>他们假设 LayerNorm 里的对中（re-centering）性质可有可无，真正起作用的是控制尺度（re-scaling）。于是他们砍掉了减均值和平移 \(\beta\)，只保留一步缩放，得到 RMSNorm：</p>
 
 <div class="formula-card">
   \[ \mathrm{RMSNorm}(x)=\frac{x}{\mathrm{RMS}(x)}\odot g,\qquad \mathrm{RMS}(x)=\sqrt{\frac{1}{d}\sum_{i=1}^{d}x_i^{2}+\epsilon} \tag{2} \]
-  <div class="formula-note">公式 (2)：RMSNorm 只做一次统计——平方、取平均、开根号（均方根 RMS），再除过去、乘上可学习的 \(g\)。没有减均值，没有平移。</div>
+  <div class="formula-note">公式 (2)：RMSNorm 只做一次统计——平方、取平均、开根号（均方根 RMS），再除过去、乘上可学习的 \(g\)。没有减均值，没有平移。符号说明：\(\mathrm{RMS}(x)\) 是 \(x\) 的均方根，由各分量的平方平均再开根号得来；\(g\) 是可学习的缩放向量，作用与 LayerNorm 的 \(\gamma\) 相同；\(\epsilon\) 同公式 (1)，防止除零。</div>
 </div>
 
 <p>　　落到具体数字上看两者的差别。取一个 4 维向量 \(x=(1,\,2,\,2,\,1)\)，暂不看 \(\epsilon\) 与可学习参数：</p>
@@ -64,7 +75,6 @@
   </div>
   <div class="term-body">
     <p>神经网络每层输出的数值范围飘忽不定，有的通道动辄几十，有的只有零点零几，下一层很难稳定处理。归一化就是在层与层之间设一个"安检门"，把每个特征向量的尺度拧回标准范围，让训练不因为数值忽大忽小而震荡。Transformer 里归一化沿特征维度 \(d\) 独立地对每个 token 做，与批次大小无关。</p>
-    <div class="term-analogy">就像 KTV 包厢里每个人话筒音量各不相同，调音台先把每一路音量拧到同一条基准线，混音出来才不会忽大忽小。LayerNorm 顺带帮你修音准，RMSNorm 只管音量。</div>
   </div>
 </div>
 
@@ -77,7 +87,7 @@
 <div class="formula-card">
   \[ \text{Post-LN：}\quad x_{l+1}=\mathrm{LayerNorm}\bigl(x_l+\mathrm{Sublayer}(x_l)\bigr) \tag{3} \]
   \[ \text{Pre-LN：}\quad x_{l+1}=x_l+\mathrm{Sublayer}\bigl(\mathrm{Norm}(x_l)\bigr) \tag{4} \]
-  <div class="formula-note">公式 (3)(4)：同一个子层、同一个归一化，区别只在归一化的位置——Post-LN 卡在残差相加之后，Pre-LN 挪到子层输入侧，残差主干不再经过归一化。</div>
+  <div class="formula-note">公式 (3)(4)：同一个子层、同一个归一化，区别只在归一化的位置——Post-LN 卡在残差相加之后，Pre-LN 挪到子层输入侧，残差主干不再经过归一化。符号说明：\(x_l\) 是第 \(l\) 层的输入（即上一层的输出），\(x_{l+1}\) 是该层的输出；\(\mathrm{Sublayer}(\cdot)\) 是注意力或前馈子层；\(\mathrm{Norm}\) 泛指任一种归一化算子（LayerNorm 或 RMSNorm）。</div>
 </div>
 
 <p>　　Xiong 等人在 2020 年的论文里用均场理论（mean field theory）把这件事分析透了：Post-LN 在初始化时，<strong>靠近输出层的参数梯度期望很大</strong>，一上来就用大学习率会直接训崩，所以必须配一段学习率慢慢爬坡的 warmup 热身阶段；而 Pre-LN 初始化时梯度表现良好，<strong>不要 warmup 也能稳定训练</strong>，省下大量训练时间与调参成本。</p>
@@ -154,7 +164,7 @@
 
 <div class="formula-card">
   \[ \mathrm{FFN}_{\mathrm{ReLU}}(x)=\max(0,\;xW_1+b_1)\,W_2+b_2 \tag{5} \]
-  <div class="formula-note">公式 (5)：原论文的 FFN。升维—ReLU—压回，现代实现一般去掉偏置 \(b_1,b_2\)。FFN 占了稠密模型约三分之二的参数，是模型的"记忆仓库"。</div>
+  <div class="formula-note">公式 (5)：原论文的 FFN。升维—ReLU—压回，现代实现一般去掉偏置 \(b_1,b_2\)。FFN 占了稠密模型约三分之二的参数，是模型的"记忆仓库"。符号说明：\(W_1\) 是升维矩阵，把 \(d\) 维升到约 \(4d\)；\(W_2\) 是压回矩阵，把升维结果压回 \(d\) 维；\(b_1,b_2\) 是对应的偏置向量；\(\max(0,\cdot)\) 就是 ReLU，负数归零、正数原样保留。</div>
 </div>
 
 <p>　　2020 年 Shazeer 把 GLU（门控线性单元，Dauphin 等人 2016 年提出）家族引进了 FFN。GLU 的想法是把一路线性投影拆成两路，一路过 sigmoid 当"开度"，两路逐元素相乘：</p>
@@ -163,7 +173,7 @@
   \[ \mathrm{GLU}(x)=\sigma(xW)\otimes xV \tag{6} \]
   \[ \mathrm{Swish}_{\beta}(x)=x\cdot\sigma(\beta x) \tag{7} \]
   \[ \mathrm{FFN}_{\mathrm{SwiGLU}}(x)=\bigl(\mathrm{Swish}_{1}(xW)\otimes xV\bigr)W_2 \tag{8} \]
-  <div class="formula-note">公式 (6)(7)(8)：GLU 的门控结构、Swish 激活（\(\beta=1\) 时也叫 SiLU）、以及二者合成的 SwiGLU 前馈。Swish 比 ReLU 平滑：负半轴不一刀切到 0，允许小的负值漏过去。</div>
+  <div class="formula-note">公式 (6)(7)(8)：GLU 的门控结构、Swish 激活（\(\beta=1\) 时也叫 SiLU）、以及二者合成的 SwiGLU 前馈。Swish 比 ReLU 平滑：负半轴不一刀切到 0，允许小的负值漏过去。符号说明：\(\sigma(\cdot)\) 是 sigmoid 函数，把任意实数压到 0~1；\(W,V\) 是两个并行的投影矩阵，分别算「开度」与「内容」；\(\otimes\) 表示逐元素相乘；\(\beta\) 是 Swish 的陡峭度参数，取 1 时即 SiLU；\(W_2\) 是把门控结果压回 \(d\) 维的输出矩阵。</div>
 </div>
 
 <p>　　门控的直觉用<strong>安检门 + 传送带</strong>来理解：\(xV\) 是传送带上的货物（信息内容），\(\mathrm{Swish}_1(xW)\) 是每件货物面前的闸口开度（0 到 1 之间平滑变化），两者相乘决定这件货物放行多少。对比 ReLU 的"非开即关"（要么全挡、要么全放），Swish 闸门能开一条缝，放行比例随输入连续可调——而且闸口开度本身也是同一个输入算出来的，等于让数据自己决定自己的通过率。</p>
@@ -175,7 +185,6 @@
   </div>
   <div class="term-body">
     <p>门控是深度学习里反复出现的结构：一路信号算"内容"，另一路信号算"开度"，逐元素相乘。LSTM 的遗忘门、GLU 家族、SwiGLU 都是这个思路。它的妙处在于<strong>开度是学出来的、且随输入变化</strong>：模型可以针对不同 token 动态决定哪些特征通道放行、哪些压掉，信息过滤从"一刀切"变成"精细化分拣"。</p>
-    <div class="term-analogy">就像水库闸门的开度决定下游水量：开多大不看心情，看上游水情。闸门（\(xW\) 这一路）自己也是根据来水（输入 \(x\)）算出来的。</div>
   </div>
 </div>
 

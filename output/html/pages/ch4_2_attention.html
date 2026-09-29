@@ -16,6 +16,19 @@
   </table>
 </div>
 
+<p>　　4.1 节搭起了两塔骨架，注意力是骨架里最关键的引擎，这一节把它拆到底。要回答的问题很具体：一个 token 更新自己的表示时，该听句子里哪些 token 的、各听多少？本节按"先直觉、再公式、后手算"的主线推进：</p>
+
+<ol>
+  <li><strong>注意力在解决什么问题：每个 token 该听谁的</strong>（4.2.1）：静态词向量装不下语境，RNN 的接力传话又慢又丢信息，注意力让每个 token 直接环顾全句；</li>
+  <li><strong>Query、Key、Value：三个角色各司其职</strong>（4.2.2）：同一个向量乘三个投影矩阵，分出"需求、名片、内容"三种身份；</li>
+  <li><strong>公式拆解：四步完成一次注意力</strong>（4.2.3）：匹配打分、缩放、softmax、加权求和，并讲清为什么要除以 √d_k；</li>
+  <li><strong>手算一遍：3 个 token、4 维向量的完整推演</strong>（4.2.4）：用能跟着算的小数字把四步走完，看清注意力权重这张分配表；</li>
+  <li><strong>同一个公式，三种用法</strong>（4.2.5）：编码器自注意力、解码器掩码自注意力、编码器-解码器注意力，区别只在 Q、K、V 从哪里来；</li>
+  <li><strong>为什么注意力取代了循环</strong>（4.2.6）：用原论文的复杂度对比表收账——换来 O(1) 的顺序操作与信息路径，代价是 O(n²) 的计算量。</li>
+</ol>
+
+<p>　　读完全节，softmax(QKᵀ/√d_k)V 这个公式对你来说应该不再是一串符号，而是"先算谁和谁相关，再按相关程度取内容"这四步的速写。</p>
+
 <h2>4.2.1 注意力在解决什么问题：每个 token 该听谁的</h2>
 
 <p>　　第 3 章讲过，Embedding 层给每个 token 查出一个静态向量：只要 token 相同，查出来的向量就相同。但语言的意思高度依赖语境。"苹果"在"我吃了一个苹果"和"苹果发布了新手机"里指的东西完全不同；"小猫追蝴蝶，因为它饿了"里的"它"指谁，也必须看了上下文才能确定。静态向量装不下这些信息，模型还缺一层机制：让每个 token 看一眼整句话，再决定自己的新表示要融入谁的信息。</p>
@@ -45,7 +58,6 @@
   </div>
   <div class="term-body">
     <p>点积是最常用的向量相似度度量：两个向量方向越一致，点积越大；方向越无关（接近垂直），点积越接近 0。注意力机制正是用 Query 和 Key 的点积来衡量"需求"和"名片"有多匹配。</p>
-    <div class="term-analogy">就像拿两份答卷对答案：逐题比对（分量相乘），答成一样的题越多，总分（点积）越高，说明两份答卷越合拍。</div>
   </div>
 </div>
 
@@ -63,7 +75,7 @@
 
 <div class="formula-card">
   \[ \mathrm{Attention}(Q, K, V) = \mathrm{softmax}\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V \tag{1} \]
-  <div class="formula-note">公式 (1)：缩放点积注意力（原论文公式 (1)，逐字核对）。\(Q\)、\(K\)、\(V\) 是把所有 token 的 Query、Key、Value 分别堆成的矩阵，输出同样是每个 token 一行的新矩阵。</div>
+  <div class="formula-note">公式 (1)：缩放点积注意力（原论文公式 (1)，逐字核对）。\(Q\)、\(K\)、\(V\) 是把所有 token 的 Query、Key、Value 分别堆成的矩阵，输出同样是每个 token 一行的新矩阵。符号说明：\(Q,K,V\) 由输入向量乘投影矩阵 \(W^Q,W^K,W^V\) 得来（4.2.2 节），每行对应一个 token；\(K^{\top}\) 是 \(K\) 的转置，\(QK^{\top}\) 算出所有 token 两两之间的匹配分；\(d_k\) 是 Key 向量的维度，\(\sqrt{d_k}\) 是缩放因子，防止点积过大把 softmax 推进梯度极小的区域；softmax 把每行分数归一化成和为 1 的权重；最后乘 \(V\) 即按权重对 Value 加权求和。</div>
 </div>
 
 <p>　　从右往左读会晕，按计算顺序拆成四步就清楚了：</p>
@@ -77,14 +89,14 @@
 
 <div class="formula-card">
   \[ \mathrm{softmax}(z_i) = \frac{e^{z_i}}{\sum_{j} e^{z_j}} \]
-  <div class="formula-note">softmax 把任意一行实数变成和为 1 的比例：指数运算放大分数之间的差距，分母负责归一化。原始分数差一点，权重可能差出好几倍。</div>
+  <div class="formula-note">softmax 把任意一行实数变成和为 1 的比例：指数运算放大分数之间的差距，分母负责归一化。原始分数差一点，权重可能差出好几倍。符号说明：\(z_i\) 是这一行第 \(i\) 个原始分数；\(e^{z_i}\) 是它的指数（\(e\) 是自然常数）；\(\sum_j e^{z_j}\) 是对整行所有分数的指数求和，作分母把结果归一化。</div>
 </div>
 
 <p>　　配上张量形状看得更清楚。设序列有 \(n\) 个 token，Query 和 Key 是 \(d_k\) 维，Value 是 \(d_v\) 维：</p>
 
 <div class="formula-card">
   \[ \underset{n \times d_k}{Q}\;\cdot\;\underset{d_k \times n}{K^{\top}}\;=\;\underset{n \times n}{S}\;\xrightarrow{\;\div \sqrt{d_k},\ \mathrm{softmax}\;}\;\underset{n \times n}{W}\;\cdot\;\underset{n \times d_v}{V}\;=\;\underset{n \times d_v}{\text{输出}} \]
-  <div class="formula-note">中间那个 \(n \times n\) 矩阵是注意力的指挥表：每一行是一个 token 对所有 token 的注意力分配。</div>
+  <div class="formula-note">中间那个 \(n \times n\) 矩阵是注意力的指挥表：每一行是一个 token 对所有 token 的注意力分配。符号说明：\(n,d_k,d_v\) 的含义见上一段（token 数、Key 维度、Value 维度）；\(S\) 是缩放前的分数矩阵；\(W\) 是 softmax 之后每行和为 1 的注意力权重矩阵；矩阵下方的标注是各自的形状。</div>
 </div>
 
 <h3>为什么要除以 √d_k</h3>

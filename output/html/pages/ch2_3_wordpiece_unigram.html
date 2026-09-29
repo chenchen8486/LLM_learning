@@ -1,4 +1,4 @@
-<article class="content">
+﻿<article class="content">
 <h1>2.3 WordPiece 与 Unigram：另外两条子词路线</h1>
 <p class="subtitle">本页范围：第 2 章第 3 节　|　整理时间：2026-09-22</p>
 
@@ -16,6 +16,16 @@
   </table>
 </div>
 
+<p>　　2.2 节的 BPE 用「频次最高」当合并标准，直白有效，但它是唯一合理的尺子吗？本节看另外两条子词路线：WordPiece 把尺子换掉，Unigram 则把构造方向整个反过来。三条路线都有代表性模型在用，本节逐条拆开：</p>
+
+<ol>
+  <li><strong>WordPiece：换一把尺子做合并</strong>（2.3.1）：流程与 BPE 相同，挑选标准从频次换成语料似然，偏爱内部强绑定的片段组合；</li>
+  <li><strong>Unigram：反着来，从大词表往下剪</strong>（2.3.2）：自顶向下剪枝，每个 token 带概率，编码靠 Viterbi 找最优切分，还顺带解锁 subword regularization；</li>
+  <li><strong>三种子词算法对比</strong>（2.3.3）：一张表收拢三条路线的构造方向、选择标准、编码方式与代表模型。</li>
+</ol>
+
+<p>　　读完本节，你应该能一句话说清三条路线的差别：一个数频次，一个算似然，一个做减法。这也为下一节备好问题：SentencePiece 如何把 BPE 和 Unigram 装进同一个工程框架。</p>
+
 <h2>2.3.1 WordPiece：换一把尺子做合并</h2>
 
 <p>　　WordPiece 比 BPE 进入 NLP 还早。它出自 Schuster 与 Nakajima 2012 年的论文（发表于 ICASSP），最初是为日文和韩文的语音搜索系统解决词表问题的；2016 年 Google 的神经机器翻译系统 GNMT（Wu et al.）把它用于大规模机器翻译，2018 年 BERT（Devlin et al.，2019 年公开论文）沿用这套方案之后，它就成了 NLP 领域出镜率最高的分词算法之一。</p>
@@ -29,7 +39,6 @@
   </div>
   <div class="term-body">
     <p>可以粗略理解为“这套切分方案把整份语料解释得有多好”。假设语料中每个 token 独立出现，整份语料的概率就是所有 token 概率的连乘。一次合并会改变切分方式，也就改变这个连乘的值。WordPiece 每一轮都挑让连乘结果变得最大的那次合并，相当于在问：哪两个片段<strong>绑在一起的必要性最强</strong>？</p>
-    <div class="term-analogy">BPE 像按销量进货，哪种组合卖得多就进哪种；WordPiece 像按搭配进货，先看两件单品的关联有多强，再决定要不要把它们打包成套装卖。</div>
   </div>
 </div>
 
@@ -37,7 +46,7 @@
 
 <div class="formula-card">
   \[ \mathrm{score}(a,b)=\frac{\mathrm{freq}(ab)}{\mathrm{freq}(a)\times \mathrm{freq}(b)} \tag{1} \]
-  <div class="formula-note">公式 (1)：WordPiece 合并标准的教学近似。分子是合并后片段 ab 的频次，分母是两个单片段频次的乘积。这个比值偏爱“内部强绑定”的组合：ab 经常一起出现、但 a 和 b 各自单独出现时并不那么频繁，得分就高。</div>
+  <div class="formula-note">公式 (1)：WordPiece 合并标准的教学近似。分子是合并后片段 ab 的频次，分母是两个单片段频次的乘积。这个比值偏爱“内部强绑定”的组合：ab 经常一起出现、但 a 和 b 各自单独出现时并不那么频繁，得分就高。符号说明：\(a\)、\(b\) 是拆分表中相邻的两个片段，即本轮待考察的合并对；\(\mathrm{freq}(ab)\) 是片段 ab 在语料中出现的频次（按词频加权统计，与 2.2 节口径一致）；\(\mathrm{freq}(a)\)、\(\mathrm{freq}(b)\) 是两个片段各自出现的频次；\(\mathrm{score}(a,b)\) 是这次合并的得分，每轮选得分最高的一对合并。</div>
 </div>
 
 <p>　　对比 BPE 只数 <code>freq(ab)</code>，WordPiece 多除了一个分母。效果是：两个各自都极其高频的片段，哪怕常一起出现，得分也会被拉低；而一对“离开对方就很少单独出现”的片段会被优先合并。比如后缀 <code>##ing</code> 几乎总是跟着动词词根出现，它和词根的绑定强度就很高，容易被合并。</p>
@@ -61,7 +70,6 @@
   </div>
   <div class="term-body">
     <p>Unigram 算法给词表里每个 token 赋一个出现概率，并假设一句话的某种切分，其概率等于各 token 概率的连乘。词表的质量就用“按最优切分算出的整份语料概率（似然）”来衡量，似然越高说明这套词表把语料解释得越好。所有操作——剪掉哪个 token、保留哪个 token——都围绕这个概率展开。</p>
-    <div class="term-analogy">就像搬家装箱：先把家里所有可能用得上的东西全搬上车（大候选词表），再一趟趟往下卸，每次卸掉“扔了最不心疼”的那批，直到刚好装满后备箱。</div>
   </div>
 </div>
 
@@ -79,7 +87,7 @@
 
 <div class="formula-card">
   \[ P^{*}(x)=\underset{x}{\arg\max}\ \prod_{i} p\!\left(x_i\right) \tag{2} \]
-  <div class="formula-note">公式 (2)：Unigram 的最优切分。把一句话的所有切分方案枚举出来，每种方案的概率是各 token 概率的连乘，用 Viterbi 动态规划高效找出连乘最大的方案。x 表示一种切分，\(x_i\) 是切分中的第 i 个 token。</div>
+  <div class="formula-note">公式 (2)：Unigram 的最优切分。把一句话的所有切分方案枚举出来，每种方案的概率是各 token 概率的连乘，用 Viterbi 动态规划高效找出连乘最大的方案。x 表示一种切分，\(x_i\) 是切分中的第 i 个 token。符号说明：\(x\) 是句子的一种合法切分方案；\(x_i\) 是切分中的第 \(i\) 个 token；\(p(x_i)\) 是 token \(x_i\) 的出现概率，由词表训练时的 EM 迭代估出；\(\prod_i\) 表示把切分中所有 token 的概率连乘；\(\underset{x}{\arg\max}\) 表示在所有合法切分中找出使连乘最大的那个；\(P^{*}(x)\) 是最优切分对应的概率值。</div>
 </div>
 
 <p>　　Viterbi 算法是做这件事的标准工具：按字符位置从左往右推进，每到一个位置，只保留“以该位置结尾的最优前缀切分”，不必真的枚举指数级的全部方案。直觉上它和走迷宫时“每个路口只记到当前为止的最短路径”是同一个思路。</p>

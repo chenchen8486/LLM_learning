@@ -16,6 +16,19 @@
   </table>
 </div>
 
+<p>　　本章前四节把现代 LLM 的新零件逐个拆了一遍：RMSNorm 与 SwiGLU、GQA、MLA、MoE。本节是收官，要把镜头拉远，回答一个更大的问题：从 2017 年原论文到今天服务器上跑的开源大模型，架构上到底改了什么，又是什么七年没人换得动？本节按「先看全景、再算总账、装回图纸、最后叩问不变的部分」的顺序走：</p>
+
+<ol>
+  <li><strong>七年演化一图速览</strong>（5.5.1）：从 2017 的 Transformer 到 2024 的 MLA 与 MoE，五个节点看清骨架不变、零件常新；</li>
+  <li><strong>零件替换总账表</strong>（5.5.2）：原论文与 Llama 3、Qwen2.5、DeepSeek-V3 摆到同一张表上，换了什么一目了然；</li>
+  <li><strong>四处替换，各自为什么换</strong>（5.5.3）：归一化、激活、位置编码、注意力四笔账，指向训练更稳、推理更省、更能 scaling；</li>
+  <li><strong>现代 LLM 的一层长什么样</strong>（5.5.4）：把换好的零件装回原版图纸，和第 4 章那张原版图对照着看；</li>
+  <li><strong>没换的部分为什么屹立不倒</strong>（5.5.5）：缩放点积、多头、残差、逐位置 FFN、自回归，它们在三件事上同时拿高分；</li>
+  <li><strong>与后续章节的衔接</strong>（5.5.6）：架构图纸讲完，预训练、长上下文扩展与推理系统分别接到第 6、8、13 章。</li>
+</ol>
+
+<p>　　读完本节，「模型长什么样」这条线就完整了：你应该能给任意一个现代开源模型开出一张零件清单，说清每样零件的来历，也知道骨架为什么不动。</p>
+
 <h2>5.5.1 七年演化一图速览</h2>
 
 <p>　　第 4 章逐层拆解了 2017 年的原版 Transformer，本章前几节又分别讲了 RMSNorm、SwiGLU、GQA、MLA 与 MoE 这些新零件。收官之前，先把七年的演化拉到同一条时间线上看一眼：</p>
@@ -120,7 +133,7 @@
 <div class="formula-card">
   \[ \text{Post-LN（2017 原版）：}\quad \mathrm{LayerNorm}\big(x+\mathrm{Sublayer}(x)\big) \tag{1} \]
   \[ \text{Pre-LN（现代主流）：}\quad x+\mathrm{Sublayer}\big(\mathrm{RMSNorm}(x)\big) \tag{2} \]
-  <div class="formula-note">公式 (1)(2)：归一化的位置之差。Pre-LN 里主路上的 \(x\) 原样直通到层尾，梯度可以无衰减地传回浅层。</div>
+  <div class="formula-note">公式 (1)(2)：归一化的位置之差。Pre-LN 里主路上的 \(x\) 原样直通到层尾，梯度可以无衰减地传回浅层。符号说明：\(x\) 是本层输入的隐藏向量；\(\mathrm{Sublayer}(\cdot)\) 是注意力或前馈子层；\(\mathrm{LayerNorm}\) 与 \(\mathrm{RMSNorm}\) 是两种归一化算子，完整公式见 5.1 节。</div>
 </div>
 
 <p>　　RMSNorm 换的是归一化本身：LayerNorm 先减均值、再除以标准差，RMSNorm 跳过减均值这一步，直接除以均方根再缩放。少一步计算，开销更小，效果与 LayerNorm 相当（Zhang 与 Sennrich，2019）。<strong>所以这步在干嘛：把收费站从主路挪到岔路入口，让梯度一路直通，再把收费站的流程砍掉一半。</strong></p>
@@ -131,7 +144,7 @@
 
 <div class="formula-card">
   \[ \mathrm{FFN}_{\mathrm{SwiGLU}}(x)=\big(\mathrm{Swish}(xW_1)\odot xV\big)\,W_2, \qquad \mathrm{Swish}(x)=x\cdot\sigma(x) \tag{3} \]
-  <div class="formula-note">公式 (3)：门控 FFN。\(xW_1\) 过 Swish 当「门」，\(xV\) 当「内容」，\(\odot\) 是逐元素相乘。模型可以学到对每个维度连续地调节放行比例，而不是 ReLU 的 0 或 1。</div>
+  <div class="formula-note">公式 (3)：门控 FFN。符号说明：\(W_1,V\) 是两个并行的投影矩阵，\(xW_1\) 过 Swish 当「门」、\(xV\) 当「内容」；\(\sigma\) 是 sigmoid 函数，把任意实数压到 0~1；\(\odot\) 是逐元素相乘；\(W_2\) 是把门控结果压回原维度的输出矩阵。模型可以学到对每个维度连续地调节放行比例，而不是 ReLU 的 0 或 1。</div>
 </div>
 
 <p>　　Shazeer 在 2020 年系统比较了 GLU 家族的多个变体，SwiGLU 综合表现最好，此后被 LLaMA 带成了行业标准。门控结构多一个投影矩阵，为了总参数量不超标，论文给出的办法是把 FFN 中间维度按三分之二的系数折算，实际各家再按硬件取整。<strong>所以这步在干嘛：ReLU 是保安，负数直接赶走；SwiGLU 是双岗门卫，一个判断放行几成，一个递上内容，表达更细腻，scaling 的性价比更高。</strong></p>
@@ -159,7 +172,6 @@
   </div>
   <div class="term-body">
     <p>推理时每生成一个 token，都要拿它的 Q 去和<strong>之前所有位置</strong>的 K、V 算注意力。这些 K、V 在生成它们时已经算过一遍，存下来就不用重算。代价是显存：缓存量等于「层数 × 序列长度 × KV 头数 × 每头维度 × 2（K 和 V）」，上下文一拉长，显存先被它吃光。</p>
-    <div class="term-analogy">就像开卷考试时每做一道新题都要翻一遍之前的笔记。笔记（K、V）越厚翻得越慢，GQA 和 MLA 干的事就是把笔记做薄。</div>
   </div>
 </div>
 

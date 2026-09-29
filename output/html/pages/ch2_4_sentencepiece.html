@@ -1,4 +1,4 @@
-<article class="content">
+﻿<article class="content">
 <h1>2.4 SentencePiece：扔掉预分词的分词工具</h1>
 <p class="subtitle">本页范围：第 2 章第 4 节　|　整理时间：2026-09-22</p>
 
@@ -15,6 +15,20 @@
     </tbody>
   </table>
 </div>
+
+<p>　　前面三节讲算法时，有一个前提被悄悄跳过了：BPE 和 Unigram 的经典实现都假设输入已经预分词，切成词之后才轮到子词合并。对英文这一步几乎免费，对中文、日文这类没有空格的语言，「先切词」本身就是难题。本节的主角 SentencePiece 干脆把这个环节整个拿掉。它不是一种新的切分算法，而是一套工程框架，本节沿「问题 → 设计 → 生态 → 对比」的顺序展开：</p>
+
+<ol>
+  <li><strong>预分词：一个被默认的隐藏假设</strong>（2.4.1）：无空格语言不适用、空白信息丢失，两个硬伤摆上台面；</li>
+  <li><strong>核心设计：把空格变成普通字符</strong>（2.4.2）：空格转义为 ▁（U+2581），与其他字符平等参与切分，换来完全可逆；</li>
+  <li><strong>一个工具，两种算法后端</strong>（2.4.3）：BPE 与 Unigram 共存于同一框架，换后端只换参数；</li>
+  <li><strong>谁在用 SentencePiece</strong>（2.4.4）：T5、ALBERT、XLNet、LLaMA 的实际配置一览；</li>
+  <li><strong>与 tiktoken 的另一条工程路线</strong>（2.4.5）：取消预分词对字节兜底，两种工程哲学逐项对照；</li>
+  <li><strong>图示：两条处理路线对比</strong>（2.4.6）：一张图并排看传统路线与 SentencePiece 路线的差别；</li>
+  <li><strong>小结与去向</strong>（2.4.7）：SentencePiece 的贡献在工程抽象，不在算法创新。</li>
+</ol>
+
+<p>　　读完本节，你应该能判断一个分词需求该走哪条路线，也明白 LLaMA 系模型的分词器为什么都出自这套工具。</p>
 
 <h2>2.4.1 预分词：一个被默认的隐藏假设</h2>
 
@@ -50,7 +64,6 @@
   </div>
   <div class="term-body">
     <p>由于所有空白都被转义成 <code>▁</code> 保留在 token 序列里，SentencePiece 的分词是<strong>完全可逆</strong>的：把 token 序列拼起来、把 <code>▁</code> 换回空格，就能逐字节还原原始文本。连续多个空格、换行、制表符都不会丢。这个性质叫 lossless tokenization，是 SentencePiece 论文明确提出的设计目标。</p>
-    <div class="term-analogy">传统预分词像把一封信撕成碎片后扔掉了信封，拼回内容却拼不回原样；SentencePiece 把信封上的每道折痕都编了号，撕碎后还能原样复原。</div>
   </div>
 </div>
 

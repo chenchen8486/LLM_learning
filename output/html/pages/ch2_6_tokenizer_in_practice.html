@@ -1,4 +1,4 @@
-<article class="content">
+﻿<article class="content">
 <h1>2.6 分词的实践与坑</h1>
 <p class="subtitle">本页范围：第 2 章第 6 节　|　整理时间：2026-09-22</p>
 
@@ -15,6 +15,20 @@
     </tbody>
   </table>
 </div>
+
+<p>　　原理讲完了，本节换个姿势：直接动手跑。OpenAI 开源的 tiktoken 三行代码就能看到任何文本的切分结果，本页所有数据都来自本机实测。围绕这些实测，本节把一批流传已久的「模型怪癖」逐个落到分词层面解释：</p>
+
+<ol>
+  <li><strong>上手实测：用 tiktoken 数 token</strong>（2.6.1）：三行代码跑通，cl100k_base 与 o200k_base 两套词表登场；</li>
+  <li><strong>实测对照表：同一句话，不同命运</strong>（2.6.2）：英文、中文、数字、emoji 在同一张表里对比 token 数；</li>
+  <li><strong>数字切分与算术之坑</strong>（2.6.3）：token 边界不按十进制数位对齐，这是算术翻车的分词层解释；</li>
+  <li><strong>多语言的 token 溢价</strong>（2.6.4）：同一句话 token 数不同，直接折算成 API 费用和上下文容量；</li>
+  <li><strong>Glitch Token：词表里的幽灵</strong>（2.6.5）：词表里存在、模型却没训练过的 token 是怎么产生的；</li>
+  <li><strong>空白与大小写：看不见的差异</strong>（2.6.6）：一个空格之差，模型读到的就是另一个序列；</li>
+  <li><strong>实践建议清单</strong>（2.6.7）：五条可执行的避坑守则，收拢全节。</li>
+</ol>
+
+<p>　　读完全节，「分词器和模型是两回事」这句话会落到实处。本节也是第 2 章的收尾，下一章进入 Embedding，看 token ID 如何变成向量。</p>
 
 <h2>2.6.1 上手实测：用 tiktoken 数 token</h2>
 
@@ -36,7 +50,6 @@ enc.encode("Tokenization is fun.")
   </div>
   <div class="term-body">
     <p>tiktoken 里内置了几套词表编码（encoding），与本手册关系最密切的两套是：<strong>cl100k_base</strong>，GPT-3.5 / GPT-4 时代使用的词表，容量 100277；<strong>o200k_base</strong>，GPT-4o 起启用的新词表，容量 200019，对多语言（含中文）做了明显优化。词表容量翻倍，收益主要体现在非英语文本的压缩率上，下文实测表会看到差距。</p>
-    <div class="term-analogy">词表就像一本词典的词条数：词典收录的词条越多越全，一句话查词典时翻的次数就越少。o200k_base 相当于把词典加厚了一倍，中文词条收录得更整。</div>
   </div>
 </div>
 
@@ -104,7 +117,6 @@ enc.encode("Tokenization is fun.")
   </div>
   <div class="term-body">
     <p>GPT-2 时代的词表里混进了一批整串的罕见字符串，典型例子是 Reddit 用户名 <code>SolidGoldMagikarp</code>。这个用户名在分词器训练语料里反复出现，BPE 就把它整体合并成了一个 token；但它几乎不在模型训练语料里出现，于是这个 token 对应的 embedding 接近初始化后的随机状态，没被正经训练过。把这样的字符串输入模型，模型会给出语无伦次、复读、乱码等异常反应。这是 Rumbelow 与 Watkins 在 2023 年一系列调查博客中系统披露的现象。</p>
-    <div class="term-analogy">就像词典里收录了一个生造词，但所有编辑都没拿它造过句。真有人在文章里用上这个词，读者只能对着词条干瞪眼。</div>
   </div>
 </div>
 
