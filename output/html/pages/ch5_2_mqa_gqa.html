@@ -1,0 +1,262 @@
+﻿<article class="content">
+<h1>5.2 注意力的省显存之路：MHA、MQA 与 GQA</h1>
+<p class="subtitle">本页范围：第 5 章第 2 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>逐 token 生成时，注意力的 KV 缓存随层数、头数、序列长线性膨胀，成为显存占用与显存带宽的双重瓶颈。能否不改注意力的数学形式，只把「存几份 K/V」减下来？</td></tr>
+      <tr><td>本节主张</td><td>MHA、MQA、GQA 是同一种注意力的三种存储档位：MQA 让所有查询头共享 1 组 K/V，缓存砍到 1/h 但质量有损；GQA 分组共享，用很小的质量代价换数倍的缓存与速度收益。</td></tr>
+      <tr><td>一句话结论</td><td>GQA 把「省不省缓存」变成「省多少」的连续旋钮（GQA-1=MQA，GQA-h=MHA），实测 GQA-8 质量接近 MHA、速度接近 MQA，成为现代开源大模型的主流配置。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>KV Cache</span><span>MHA</span><span>MQA</span><span>GQA</span><span>repeat_kv</span><span>显存带宽</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>5.2.1 显存瓶颈从哪来：KV 缓存账本</h2>
+
+<p>　　第 4 章讲过，多头注意力（MHA）给每个头配一套独立的 Q、K、V 投影：8 个头就有 8 组 K、V。训练时整段序列一次性算完，K、V 用完即弃，没有存储问题。但推理阶段模型是一个 token 一个 token 往外蹦的：生成第 100 个 token 时，它要「回头看」前面 99 个 token 的 K、V；生成第 101 个时，又要看前 100 个。若每生成一个 token 都把历史 K、V 重算一遍，计算量将随序列长度平方级浪费。</p>
+
+<p>　　工程上的做法很直接：把算过的 K、V 存起来，后续位置直接复用。这份存下来的数据就是 KV 缓存（KV Cache），它是推理提速的关键，也是本节所有优化的靶子。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">KV 缓存（KV Cache）</span>
+    <span class="term-en">Key-Value Cache = 把历史 token 的 K、V 向量存起来反复查阅</span>
+  </div>
+  <div class="term-body">
+    <p>自回归生成时，每个历史 token 在每一层都算出过一组 K、V。把它们全部缓存，新 token 只需算自己的 Q（顺带把新的一份 K、V 追加进缓存），就能对全部历史做注意力，不必让历史 token 重跑一遍网络。缓存随四个量线性增长：层数、K/V 头数、头维度、已生成的 token 数。</p>
+    <div class="term-analogy">像一场长会的会议纪要：每来一位新发言者，不用把会议从头重开，翻之前的纪要就能接上话。但会开得越久纪要越厚，每翻一次花的时间也越长。</div>
+  </div>
+</div>
+
+<p>　　缓存到底有多大？以「每生成一个 token 要往缓存追加多少字节」为单位，算一笔细账：</p>
+
+<div class="formula-card">
+  \[ B = 2 \times L \times h_{kv} \times d_{\text{head}} \times s \tag{1} \]
+  <div class="formula-note">公式 (1)：每 token 的 KV 缓存增量。2 表示 K、V 各存一份；\(L\) 是层数；\(h_{kv}\) 是 K/V 头数（MHA 中等于查询头数）；\(d_{\text{head}}\) 是每个头的维度；\(s\) 是每个数值的字节数（bf16/fp16 为 2 字节）。</div>
+</div>
+
+<p>　　代入一个具体配置：8 个头、头维度 96、16 层、bf16 精度（每个数占 2 字节）的 MHA 模型：</p>
+
+<div class="formula-card">
+  \[ B_{\text{MHA}} = 2 \times 16 \times 8 \times 96 \times 2 = 49{,}152\ \text{B} = 48\ \text{KB} \tag{2} \]
+  <div class="formula-note">公式 (2)：每多生成一个 token，就要多写 48 KB 进显存。一段 4096 token 的对话，仅 KV 缓存就占 48 KB × 4096 ≈ 192 MiB，而这只是个中小尺寸的模型。</div>
+</div>
+
+<p>　　注意公式 (1) 中 \(B\) 与 \(h_{kv}\) 成正比：层数、头维度、精度一时半会动不了，想省缓存，最顺手的下刀处就是 K/V 头数。后面两节正是在这个因子上做文章。</p>
+
+<div class="highlight-box info">
+  为什么省缓存等于提速？逐 token 解码时，每生成一个 token 都要把整个 KV 缓存从显存通读一遍，而矩阵计算本身相对快：解码阶段的瓶颈在显存带宽（数据搬运速度）而非算力。缓存越小，每步搬运的数据越少，出字越快。所以 MQA/GQA 的收益是双份的：显存占用下降，解码速度上升。KV Cache 与带宽的系统级展开见第 13 章。
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>推理时模型靠「翻旧账」（读缓存的历史 K、V）避免重复计算，而缓存大小与 K/V 头数成正比。想省显存、提速度，就得在头数上动刀。</p>
+
+<h2>5.2.2 MQA：一刀砍到 1 组</h2>
+
+<p>　　既然账单与 K/V 头数成正比，最狠的省法是让所有查询头共用 1 组 K、V。这就是 Shazeer 2019 年提出的多查询注意力（Multi-Query Attention，MQA）：查询侧保持多头不变，每个头有自己的 Q 投影，照样各问各的问题；但 K、V 只剩一份，全体共享。同一配置代入公式 (1)：</p>
+
+<div class="formula-card">
+  \[ B_{\text{MQA}} = 2 \times 16 \times 1 \times 96 \times 2 = 6{,}144\ \text{B} = 6\ \text{KB} \tag{3} \]
+  <div class="formula-note">公式 (3)：缓存缩到 MHA 的 1/8（一般地为 1/h）。同样 4096 token 的对话，缓存从 192 MiB 降到 24 MiB。</div>
+</div>
+
+<p>　　代价在哪？多头设计的初衷是让不同的头学会关注不同表示子空间的信息（第 4 章）：有的头盯语法搭配，有的头盯指代关系。MHA 里每个头有独立的 K、V，「用什么标签索引信息、读出什么内容」可以各不相同；MQA 里大家挤在同一份 K、V 上各取所需，头的表达多样性打了折扣。沿用会议纪要的比方：MHA 是每人各带一名秘书记笔记，MQA 是 8 个人合雇一名秘书，工资省了 8 倍，但这份笔记不再为任何人量身定做。Shazeer 的实验与后来的工程实践都表明：MQA 的速度收益巨大，质量却会出现可测的下降。</p>
+
+<div class="highlight-box warn">
+  MQA 的收益与代价都很直白：缓存与带宽省到 1/h，解码显著加快；但所有查询头共享一份 K/V，模型质量有可测损失。头数越多，共享带来的挤压感越强。
+</div>
+
+<p>　　MQA 最著名的应用是 Google 的 PaLM（2022，540B），它证明了 MQA 在超大模型上的工程价值。但对质量更敏感的开源社区没有全盘接受这一刀，而是走向了下一节的折中方案。</p>
+
+<p>　　<strong>所以这步在干嘛：</strong>让 8 个查询头合看同一份笔记。笔记瞬间薄了 8 倍，翻笔记快得多，但每个头读到的内容不再是为它单独准备的。</p>
+
+<h2>5.2.3 GQA：折中的分组艺术</h2>
+
+<p>　　一刀砍到底（MQA）和完全不动（MHA）之间其实是一整个连续谱。Ainslie 等人 2023 年提出的分组查询注意力（Grouped-Query Attention，GQA）把这个谱做成了旋钮：把 \(h\) 个查询头分成 \(g\) 组，组内共享一组 K、V，组数 \(g\) 就是 K/V 头数。</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>GQA-1（g=1）</h4><p>全部查询头共享 1 组 K/V，就是 MQA：缓存最省，质量损失最大。</p></div>
+  <div class="concept-card"><h4>GQA-g（中间档位）</h4><p>查询头分成 g 组，组内共享一组 K/V：g 越大越接近 MHA，越小越接近 MQA。</p></div>
+  <div class="concept-card"><h4>GQA-h（g=h）</h4><p>每个头独占一组 K/V，就是 MHA：质量上限，缓存最贵。</p></div>
+</div>
+
+<p>　　同一套配置（8 个查询头、头维度 96、16 层、bf16）拧到 g=2 这一档，即 GQA-2（每 4 个查询头合看一组 K/V）：</p>
+
+<div class="formula-card">
+  \[ B_{\text{GQA-2}} = 2 \times 16 \times 2 \times 96 \times 2 = 12{,}288\ \text{B} = 12\ \text{KB} \tag{4} \]
+  <div class="formula-note">公式 (4)：缓存是 MHA 的 1/4、MQA 的 4 倍。旋钮拧到哪，账就算到哪，这就是「分组」的全部含义。</div>
+</div>
+
+<p>　　GQA 论文的关键实验结论是：GQA-8 这一档的质量非常接近 MHA，推理速度接近 MQA，两头的好处几乎全拿到。论文还顺手解决了一个工程问题：已训好的 MHA 检查点可以通过少量继续训练转换成 GQA，不必从头预训练（论文标题里 from Multi-Head Checkpoints 说的就是这件事）。落地方面，Llama 2 最大的 70B 模型采用 GQA-8（64 个查询头分 8 组），Llama 3 全系沿用 8 组 K/V；教学工程 minimind 同样使用 GQA（8 个查询头分 4 组，即 GQA-4），动手验证一节会逐行对照它的代码。</p>
+
+<div class="highlight-box danger">
+  「GQA-8」里的数字是 K/V 组数，不是每组的头数：Llama 2 70B 的 GQA-8 是 64 个查询头分 8 组，每组 8 个头共享一组 K/V。实现上还要求查询头数能被组数整除，h/g 就是每组 K/V 要服务的查询头数。
+</div>
+
+<div class="highlight-box info">
+  实现上有个直观细节：计算注意力前，会把每组 K、V 复制 h/g 份，「拼」回与查询头相同的数量再照常计算（minimind 里的 <code>repeat_kv</code> 函数干的就是这件事）。所以 MQA/GQA 不改变注意力公式本身，省的是存储与带宽，注意力分数的计算量并没有减少。
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>不再问「要不要共享」，而是问「几个头合看一份」，省显存从一道是非题变成了可微调的挡位题。秘书的比方说到这，折中方案自然是每 4 人合雇一名：笔记薄了 4 倍，读起来却和一人一秘差别不大。</p>
+
+<h2>5.2.4 三者对照：一张表看清</h2>
+
+<p>　　把三种机制放在同一套配置（8 个查询头、头维度 96、16 层、bf16）下对照：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>方案</th><th>K/V 组数</th><th>每 token 缓存</th><th>相对 MHA</th><th>质量</th><th>代表模型</th></tr></thead>
+    <tbody>
+      <tr><td>MHA</td><td>8</td><td>48 KB</td><td>1×（基准）</td><td>基准上限</td><td>原始 Transformer、GPT-2</td></tr>
+      <tr><td>GQA-4</td><td>4</td><td>24 KB</td><td>1/2</td><td>接近 MHA</td><td>minimind（8 查询头分 4 组）</td></tr>
+      <tr><td>GQA-2</td><td>2</td><td>12 KB</td><td>1/4</td><td>接近 MHA</td><td>演示档位</td></tr>
+      <tr><td>MQA</td><td>1</td><td>6 KB</td><td>1/8</td><td>有可测损失</td><td>PaLM</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　Llama 2 70B 的 GQA-8 是同一旋钮上的另一档：64 个查询头分 8 组，缓存同样降到 1/8，而实测质量与 MHA 基本持平。组数越少缓存越小、质量损失越大，这就是三者关系的全部。三者的接线方式看下图更直观：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 780 344" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <!-- ===== 面板 1：MHA ===== -->
+    <rect x="2" y="8" width="236" height="300" rx="12" fill="#fafafa" stroke="#e5e3ef"/>
+    <text x="120" y="34" text-anchor="middle" font-size="15" fill="#333">MHA（多头注意力）</text>
+    <text x="120" y="54" text-anchor="middle" font-size="12" fill="#666">8 组 K/V，缓存基准 1×</text>
+    <rect x="20" y="70" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="37" y="85" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q1</text>
+    <rect x="20" y="96" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="37" y="111" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q2</text>
+    <rect x="20" y="122" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="37" y="137" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q3</text>
+    <rect x="20" y="148" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="37" y="163" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q4</text>
+    <rect x="20" y="174" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="37" y="189" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q5</text>
+    <rect x="20" y="200" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="37" y="215" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q6</text>
+    <rect x="20" y="226" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="37" y="241" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q7</text>
+    <rect x="20" y="252" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="37" y="267" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q8</text>
+    <rect x="174" y="70" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="191" y="85" text-anchor="middle" font-size="9.5" fill="#155e75">KV1</text>
+    <rect x="174" y="96" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="191" y="111" text-anchor="middle" font-size="9.5" fill="#155e75">KV2</text>
+    <rect x="174" y="122" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="191" y="137" text-anchor="middle" font-size="9.5" fill="#155e75">KV3</text>
+    <rect x="174" y="148" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="191" y="163" text-anchor="middle" font-size="9.5" fill="#155e75">KV4</text>
+    <rect x="174" y="174" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="191" y="189" text-anchor="middle" font-size="9.5" fill="#155e75">KV5</text>
+    <rect x="174" y="200" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="191" y="215" text-anchor="middle" font-size="9.5" fill="#155e75">KV6</text>
+    <rect x="174" y="226" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="191" y="241" text-anchor="middle" font-size="9.5" fill="#155e75">KV7</text>
+    <rect x="174" y="252" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="191" y="267" text-anchor="middle" font-size="9.5" fill="#155e75">KV8</text>
+    <line x1="54" y1="81" x2="174" y2="81" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="54" y1="107" x2="174" y2="107" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="54" y1="133" x2="174" y2="133" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="54" y1="159" x2="174" y2="159" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="54" y1="185" x2="174" y2="185" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="54" y1="211" x2="174" y2="211" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="54" y1="237" x2="174" y2="237" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="54" y1="263" x2="174" y2="263" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <text x="120" y="294" text-anchor="middle" font-size="12" fill="#444">每 token 存 8 组 K/V</text>
+    <!-- ===== 面板 2：MQA ===== -->
+    <rect x="262" y="8" width="236" height="300" rx="12" fill="#fffbeb" stroke="#e5e3ef"/>
+    <text x="380" y="34" text-anchor="middle" font-size="15" fill="#333">MQA（多查询注意力）</text>
+    <text x="380" y="54" text-anchor="middle" font-size="12" fill="#666">1 组 K/V，缓存 ÷8</text>
+    <rect x="280" y="70" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="297" y="85" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q1</text>
+    <rect x="280" y="96" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="297" y="111" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q2</text>
+    <rect x="280" y="122" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="297" y="137" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q3</text>
+    <rect x="280" y="148" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="297" y="163" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q4</text>
+    <rect x="280" y="174" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="297" y="189" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q5</text>
+    <rect x="280" y="200" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="297" y="215" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q6</text>
+    <rect x="280" y="226" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="297" y="241" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q7</text>
+    <rect x="280" y="252" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="297" y="267" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q8</text>
+    <rect x="434" y="161" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="451" y="176" text-anchor="middle" font-size="9.5" fill="#155e75">KV</text>
+    <line x1="314" y1="81" x2="434" y2="172" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="314" y1="107" x2="434" y2="172" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="314" y1="133" x2="434" y2="172" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="314" y1="159" x2="434" y2="172" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="314" y1="185" x2="434" y2="172" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="314" y1="211" x2="434" y2="172" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="314" y1="237" x2="434" y2="172" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="314" y1="263" x2="434" y2="172" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <text x="380" y="294" text-anchor="middle" font-size="12" fill="#444">存 1 组：最省，<tspan fill="#dc2626">质量有损</tspan></text>
+    <!-- ===== 面板 3：GQA-4 ===== -->
+    <rect x="522" y="8" width="236" height="300" rx="12" fill="#f0fdfa" stroke="#e5e3ef"/>
+    <text x="640" y="34" text-anchor="middle" font-size="15" fill="#333">GQA-4（分组查询注意力）</text>
+    <text x="640" y="54" text-anchor="middle" font-size="12" fill="#666">4 组 K/V，缓存 ÷2</text>
+    <rect x="540" y="70" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="557" y="85" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q1</text>
+    <rect x="540" y="96" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="557" y="111" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q2</text>
+    <rect x="540" y="122" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="557" y="137" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q3</text>
+    <rect x="540" y="148" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="557" y="163" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q4</text>
+    <rect x="540" y="174" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="557" y="189" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q5</text>
+    <rect x="540" y="200" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="557" y="215" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q6</text>
+    <rect x="540" y="226" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="557" y="241" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q7</text>
+    <rect x="540" y="252" width="34" height="22" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/><text x="557" y="267" text-anchor="middle" font-size="10.5" fill="#4c1d95">Q8</text>
+    <rect x="694" y="83" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="711" y="98" text-anchor="middle" font-size="9.5" fill="#155e75">KV1</text>
+    <rect x="694" y="135" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="711" y="150" text-anchor="middle" font-size="9.5" fill="#155e75">KV2</text>
+    <rect x="694" y="187" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="711" y="202" text-anchor="middle" font-size="9.5" fill="#155e75">KV3</text>
+    <rect x="694" y="239" width="34" height="22" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/><text x="711" y="254" text-anchor="middle" font-size="9.5" fill="#155e75">KV4</text>
+    <line x1="574" y1="81" x2="694" y2="94" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="574" y1="107" x2="694" y2="94" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="574" y1="133" x2="694" y2="146" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="574" y1="159" x2="694" y2="146" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="574" y1="185" x2="694" y2="198" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="574" y1="211" x2="694" y2="198" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="574" y1="237" x2="694" y2="250" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <line x1="574" y1="263" x2="694" y2="250" stroke="#7c3aed" stroke-width="1.2" opacity="0.55"/>
+    <text x="640" y="294" text-anchor="middle" font-size="12" fill="#444">存 4 组：质量接近 MHA</text>
+    <!-- ===== 图例 ===== -->
+    <rect x="182" y="321" width="12" height="12" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="200" y="331" font-size="12" fill="#555">查询头（8 个，算完不存）</text>
+    <rect x="392" y="321" width="12" height="12" fill="#ecfeff" stroke="#0891b2"/>
+    <text x="410" y="331" font-size="12" fill="#555">K/V 组（每个 token 都要存）</text>
+  </svg>
+  <div class="diagram-caption">图示：三种注意力中查询头与 K/V 组的连接关系（以 8 个查询头为例）。K/V 组数就是每个 token 要存进 KV 缓存的份数：MHA 存 8 份，GQA-4 存 4 份，MQA 只存 1 份。右图的 GQA-4 正是 minimind 的实际配置。</div>
+</div>
+
+<div class="highlight-box">
+  MHA、MQA、GQA 是同一种注意力的三种存储档位：KV 缓存与 K/V 组数成正比，质量与组数同向变化。GQA 用约 1/8 的缓存换到接近 MHA 的质量，2023 年以来被 Llama 2/3、minimind 等模型采用，成为主流配置。想继续往下压缓存，就得改变注意力的结构本身：下一节 5.3 的 MLA 走的正是这条路。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">推理阶段的显存瓶颈具体卡在哪？</div>
+    <div class="sc-key">每生成一个 token，每层都要把它的 K、V 追加进 KV 缓存，缓存随层数、K/V 组数、头维度、序列长线性增长。解码每步都要通读整个缓存，瓶颈在显存带宽：缓存越小，出字越快。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">MQA 把缓存砍到 1/h，为什么没成为最终答案？</div>
+    <div class="sc-key">它让全体查询头共享同一份 K、V，多头「各看一类信息」的表达多样性被压缩，质量有可测损失。PaLM 证明了它的工程价值，但对质量敏感的场景需要更稳的折中。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">GQA 凭什么成为主流？</div>
+    <div class="sc-key">它把「是否共享 K/V」变成「分几组」的旋钮：GQA-1=MQA、GQA-h=MHA，中间档位连续可调。实测 GQA-8 质量接近 MHA、速度接近 MQA，Llama 2 70B、Llama 3 与 minimind 都采用。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　minimind 的注意力就是一套 GQA 实现（minimind 工程，Apache 2.0），对照本节概念读 <code>model/model_minimind.py</code> 的这几处：</p>
+
+<ul>
+  <li>第 22–23 行：<code>MiniMindConfig</code> 默认 <code>num_attention_heads=8</code>、<code>num_key_value_heads=4</code>，8 个查询头分 4 组，正是本页示意图右图的 GQA-4；</li>
+  <li>第 94–97 行：<code>Attention</code> 类算出 <code>n_rep = 8 ÷ 4 = 2</code>，即每组 K/V 要服务 2 个查询头；</li>
+  <li>第 100–102 行：<code>k_proj</code>、<code>v_proj</code> 的输出宽度按 <code>num_key_value_heads</code> 计算，参数量与缓存量天然就是 4 组的规模；</li>
+  <li>第 86–89 行的 <code>repeat_kv</code> 与第 124 行的调用：计算注意力前把每组 K、V 复制 <code>n_rep</code> 份拼回 8 个头，与 5.2.3 讲的实现细节一一对应；</li>
+  <li>第 120–123 行：<code>past_key_value</code> 的拼接，就是公式 (1) 那份缓存每步追加一个 token 的样子。</li>
+</ul>
+
+<p>　　再用一行命令亲手拧一下「组数」旋钮（按 minimind 默认的 8 层、4 组 K/V、头维度 96，以 bf16 每数 2 字节估算）：</p>
+
+<pre><code>cd minimind-master
+python -c "print('minimind 每 token KV 缓存：', 2*8*4*96*2, '字节')"</code></pre>
+
+<p>　　预期输出 12288 字节（12 KB）。把式子里的 4 改成 8 就退回 MHA，缓存立刻翻倍；改成 1 就是 MQA，只剩 3 KB。组数这个旋钮的手感，一试便知。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（MHA 出处，arXiv:1706.03762；§3.2.2 给出 h=8 与多头的子空间动机）。</li>
+  <li>Shazeer, 2019. Fast Transformer Decoding: One Write-Head is All You Need（MQA 原始论文，arXiv:1911.02150）。</li>
+  <li>Ainslie et al., 2023. GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints（GQA 原始论文，arXiv:2305.13245；GQA-8 质量接近 MHA、速度接近 MQA 的结论与 MHA 检查点转换方法出自该文）。</li>
+  <li>Touvron et al., 2023. Llama 2: Open Foundation and Fine-Tuned Chat Models（arXiv:2307.09288；70B 采用 GQA-8，即 64 查询头 / 8 组 K/V）。</li>
+  <li>Grattafiori et al., 2024. The Llama 3 Herd of Models（arXiv:2407.21783；全系使用 8 组 K/V 的 GQA）。</li>
+  <li>Chowdhery et al., 2022. PaLM: Scaling Language Modeling with Pathways（arXiv:2204.02311；采用 MQA 的代表模型）。</li>
+  <li>minimind 工程源码 <code>model/model_minimind.py</code>（Apache 2.0）：GQA 配置（num_attention_heads / num_key_value_heads）与 repeat_kv 实现。</li>
+</ul>
+
+</article>

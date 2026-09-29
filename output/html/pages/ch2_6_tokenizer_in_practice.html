@@ -55,7 +55,7 @@ enc.encode("Tokenization is fun.")
       <tr><td><code>537</code></td><td>cl100k_base</td><td>1</td><td>整体一个 token，ID <code>[19038]</code></td></tr>
       <tr><td><code>123456789</code></td><td>cl100k_base</td><td>3</td><td><code>['123','456','789']</code></td></tr>
       <tr><td><code>1234567890</code></td><td>cl100k_base</td><td>4</td><td><code>['123','456','789','0']</code></td></tr>
-      <tr><td><code>🚀 发射！</code></td><td>cl100k_base</td><td>7</td><td>仅 🚀 一个字符就占 3 个 token</td></tr>
+      <tr><td><code>🚀 发射！</code></td><td>cl100k_base</td><td>7</td><td>仅 🚀 一个字符就占 3 个 token（注：🚀 的 UTF-8 编码是 4 字节 f0 9f 9a 80，cl100k 切成 f09f|9a|80 三段；o200k 词表多一条合并，只占 2 个）</td></tr>
       <tr><td><code>hello  world</code>（两个空格）</td><td>cl100k_base</td><td>3</td><td><code>['hello',' ',' world']</code>，双空格被拆成 <code>' '</code> + 带空格的 <code>' world'</code></td></tr>
     </tbody>
   </table>
@@ -155,6 +155,27 @@ enc.encode("Tokenization is fun.")
     <div class="sc-key">分词器训练语料与模型训练语料不一致：某字符串（如 Reddit 用户名 SolidGoldMagikarp）在分词器语料里高频出现、被 BPE 整体收进词表，但在模型语料里几乎不出现，其 embedding 近乎随机、未经训练，输入它就会让模型行为异常。</div>
   </div>
 </div>
+
+<h2>动手验证</h2>
+
+<p>　　本页的 tiktoken 演示可直接复现（需 <code>pip install tiktoken</code>）：</p>
+
+<pre><code>import tiktoken
+enc = tiktoken.get_encoding("cl100k_base")
+print(enc.encode("Tokenization is fun."))   # [3404, 2065, 374, 2523, 13]</code></pre>
+
+<p>　　再对比 minimind 自带的 6400 词表分词器（需 <code>pip install tokenizers</code>），对同一句话分词，观察两套词表的差异：</p>
+
+<pre><code>from tokenizers import Tokenizer
+tok = Tokenizer.from_file('minimind-master/model/tokenizer.json')
+enc = tok.encode("我爱大语言模型")
+print(enc.ids, tok.decode(enc.ids))
+# [463, 2043, 565, 1282, 1135] → 5 个 token（我/爱/大/语言/模型），词表小但中文覆盖好
+enc2 = tok.encode("Tokenization is fun.")
+print(enc2.ids, tok.decode(enc2.ids))
+# [1671, 110, 327, 4070, 395, 341, 651, 49] → 8 个 token（To/k/en/ization/ is/ f/un/.），英文比 cl100k 碎</code></pre>
+
+<p>　　说明：若打印 <code>.tokens</code> 而非 <code>.ids</code>，会看到 byte-level 映射后的“乱码”字符（如“我”显示为 æĪĳ），那是字节到可见字符的映射表所致，不是 bug；用 <code>decode</code> 还原即得原文。这组对比直观说明 2.5 节的权衡：词表越小，英文序列切得越碎；minimind 的词表为中文语料定制，中文切分反而高效。</p>
 
 <h2>参考来源</h2>
 <ul>

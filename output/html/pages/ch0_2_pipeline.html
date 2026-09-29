@@ -1,0 +1,236 @@
+<article class="content">
+<h1>0.2 全景流水线：一张地图看懂 LLM 的一生</h1>
+<p class="subtitle">本页范围：第 0 章第 2 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>一个 LLM 从原始文本变成能对话、会推理的产品，要走过哪些环节？本手册的每一章分别对应流水线上的哪一段？</td></tr>
+      <tr><td>本节主张</td><td>LLM 是一条多阶段流水线的产物：先备数据、搭架构，再依次经过预训练、中间训练、SFT、强化学习四个训练阶段逐步成形，最后经解码、部署走向应用与评测。模型的形态也随阶段演进：base model → instruct model → reasoning model。</td></tr>
+      <tr><td>一句话结论</td><td>记住一张蛇形地图和一条形态演进链，就拿到了全手册的目录。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>生命周期</span><span>预训练</span><span>中间训练</span><span>SFT</span><span>RLVR</span><span>Base / Instruct / Reasoning</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>0.2.1 一张地图：LLM 的完整生命周期</h2>
+
+<p>　　一个能和你讨论问题的语言模型，出厂前要经历十几道工序：先把互联网上的文本收集起来洗干净，切成 token，送进一个叫 Transformer 的架构里反复训练，再经过几轮"精修"，最后打包部署成你手机里的聊天助手。每一道工序都对应本手册的一章。下面这张图把整条流水线画在一起，它是全手册的地图，后面每学一章，都可以回到这里看看自己站在哪儿。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 940 375" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+
+    <!-- 第一行：数据与训练前半段（从左到右） -->
+    <rect x="5" y="30" width="140" height="70" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="75" y="58" text-anchor="middle" font-size="14" fill="#333">数据收集与清洗</text>
+    <text x="75" y="80" text-anchor="middle" font-size="11" fill="#666">第 1 章</text>
+
+    <rect x="163" y="30" width="140" height="70" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="233" y="58" text-anchor="middle" font-size="14" fill="#333">分词</text>
+    <text x="233" y="80" text-anchor="middle" font-size="11" fill="#666">第 2 章</text>
+
+    <rect x="321" y="30" width="140" height="70" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="391" y="58" text-anchor="middle" font-size="12.5" fill="#333">Embedding 与位置编码</text>
+    <text x="391" y="80" text-anchor="middle" font-size="11" fill="#666">第 3 章</text>
+
+    <rect x="479" y="30" width="140" height="70" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="549" y="58" text-anchor="middle" font-size="14" fill="#333">Transformer 架构</text>
+    <text x="549" y="80" text-anchor="middle" font-size="11" fill="#666">第 4-5 章</text>
+
+    <rect x="637" y="30" width="140" height="70" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="707" y="58" text-anchor="middle" font-size="14" fill="#333">预训练</text>
+    <text x="707" y="80" text-anchor="middle" font-size="11" fill="#666">第 6-7 章</text>
+
+    <rect x="795" y="30" width="140" height="70" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="865" y="58" text-anchor="middle" font-size="14" fill="#333">中间训练</text>
+    <text x="865" y="80" text-anchor="middle" font-size="11" fill="#666">第 8 章</text>
+
+    <!-- 第一行箭头 -->
+    <line x1="145" y1="65" x2="163" y2="65" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="303" y1="65" x2="321" y2="65" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="461" y1="65" x2="479" y2="65" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="619" y1="65" x2="637" y2="65" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="777" y1="65" x2="795" y2="65" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+
+    <!-- 换行衔接箭头 -->
+    <line x1="865" y1="100" x2="865" y2="222" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+
+    <!-- 第二行：训练后半段与推理应用（从右到左） -->
+    <rect x="765" y="230" width="170" height="70" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="850" y="252" text-anchor="middle" font-size="14" fill="#333">后训练</text>
+    <text x="850" y="272" text-anchor="middle" font-size="11" fill="#333">SFT · 偏好对齐 · RLVR</text>
+    <text x="850" y="290" text-anchor="middle" font-size="11" fill="#666">第 9-11 章</text>
+
+    <rect x="575" y="230" width="170" height="70" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+    <text x="660" y="258" text-anchor="middle" font-size="14" fill="#333">推理解码与后处理</text>
+    <text x="660" y="280" text-anchor="middle" font-size="11" fill="#666">第 12 章</text>
+
+    <rect x="385" y="230" width="170" height="70" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+    <text x="470" y="258" text-anchor="middle" font-size="14" fill="#333">推理系统与部署</text>
+    <text x="470" y="280" text-anchor="middle" font-size="11" fill="#666">第 13 章</text>
+
+    <rect x="195" y="230" width="170" height="70" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+    <text x="280" y="258" text-anchor="middle" font-size="14" fill="#333">应用范式</text>
+    <text x="280" y="280" text-anchor="middle" font-size="11" fill="#666">第 14 章</text>
+
+    <rect x="5" y="230" width="170" height="70" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+    <text x="90" y="258" text-anchor="middle" font-size="14" fill="#333">评测</text>
+    <text x="90" y="280" text-anchor="middle" font-size="11" fill="#666">第 15 章</text>
+
+    <!-- 第二行箭头（从右向左） -->
+    <line x1="765" y1="265" x2="745" y2="265" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="575" y1="265" x2="555" y2="265" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="385" y1="265" x2="365" y2="265" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="195" y1="265" x2="175" y2="265" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+
+    <!-- 图例 -->
+    <rect x="15" y="322" width="14" height="14" rx="3" fill="#fef3c7" stroke="#d97706"/>
+    <text x="35" y="334" font-size="12" fill="#92400e">数据与文本（第 1-2 章）</text>
+    <rect x="230" y="322" width="14" height="14" rx="3" fill="#ecfeff" stroke="#0891b2"/>
+    <text x="250" y="334" font-size="12" fill="#0e7490">表示与架构（第 3-5 章）</text>
+    <rect x="445" y="322" width="14" height="14" rx="3" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="465" y="334" font-size="12" fill="#6d28d9">训练（第 6-11 章）</text>
+    <rect x="625" y="322" width="14" height="14" rx="3" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="645" y="334" font-size="12" fill="#475569">推理与应用（第 12-15 章）</text>
+
+    <text x="470" y="362" text-anchor="middle" font-size="12.5" fill="#666">阅读顺序：第一行从左到右，第二行从右到左（蛇形衔接）</text>
+  </svg>
+  <div class="diagram-caption">图示：LLM 完整生命周期全景。每个框是流水线上的一环，框内标注本手册对应章号；颜色区分四大段落——数据与文本（琥珀）、表示与架构（青）、训练（紫）、推理与应用（灰）。</div>
+</div>
+
+<p>　　读这张图时抓住三个分段就够了：左边四个框解决"拿什么喂模型、用什么骨架"的问题；中间紫色一段是模型的成长史，从预训练到后训练，占去绝大多数算力和工期；右边灰色一段回答"训完之后怎么用、怎么衡量好不好"。第 16 章的前沿趋势不在这张图上，它是对整条流水线下一步演化的展望。</p>
+
+<div class="highlight-box">
+  核心结论：LLM 没有单一的一次"炼成"时刻，它是多阶段流水线的产物，每个阶段只解决一类问题。本手册的章节与这张图上的框一一对应，学任何一章时都可以回到这里定位。
+</div>
+
+<h2>0.2.2 训练四阶段：学什么，产出什么</h2>
+
+<p>　　地图中间这一段（第 6-11 章）是整条流水线的主线，值得拉近单独看。现代 LLM 的训练可以分成四个阶段，每个阶段的数据、目标和产物都不同：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>阶段</th><th>对应章</th><th>学什么</th><th>产出什么</th></tr></thead>
+    <tbody>
+      <tr><td>预训练</td><td>第 6-7 章</td><td>在海量无标注文本上反复做"预测下一个 token"，把语言规律和世界知识压进参数</td><td>base model：知识广博，但只会续写，不会对话</td></tr>
+      <tr><td>中间训练</td><td>第 8 章</td><td>不换骨架、换数据接着训：拉长上下文窗口，加重代码、数学等领域数据配比</td><td>增强版 base model：能读长文，补齐领域短板</td></tr>
+      <tr><td>SFT（监督微调）</td><td>第 9 章</td><td>在人工编写的"指令—回答"样例上模仿，学会听懂指令并照做</td><td>instruct model：会对话、能干活</td></tr>
+      <tr><td>强化学习</td><td>第 10-11 章</td><td>对齐人类偏好（RLHF / DPO，第 10 章）；在可自动判对错的任务上试错练推理（RLVR，第 11 章）</td><td>更听话、更安全的模型；reasoning model：会先想后答</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　其中两个名字对初学者比较陌生，值得先讲透。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">中间训练 Mid-training</span>
+    <span class="term-en">mid-training = 预训练与后训练之间的过渡训练</span>
+  </div>
+  <div class="term-body">
+    <p>预训练结束后、正式"上岗培训"前，先再补一段针对性训练：把上下文长度从几千 token 拉长到几十万（长上下文扩展），或临时调整数据配比、加强某个领域（领域适配）。它不改模型结构，只是换一批数据继续训，2024 年前后被主流厂商普遍采纳为独立阶段。</p>
+    <div class="term-analogy">就像医学生毕业后的住院医师规范化培训：基础课都上完了（预训练），正式坐诊前，还要到具体科室轮转过一遍，把某方面的本领练扎实。</div>
+  </div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">RLVR（基于可验证奖励的强化学习）</span>
+    <span class="term-en">Reinforcement Learning from Verifiable Rewards</span>
+  </div>
+  <div class="term-body">
+    <p>在数学、代码这类<strong>答案能被程序自动判对错</strong>的任务上，让模型自己生成解答：对了给奖励，错了不给，反复试错。奖励来自程序而不是人，所以便宜、量大、客观，模型可以成百万次地练习。2025 年，它成为训练推理能力的标准做法，Andrej Karpathy 在年度总结中把它列为继预训练、SFT、RLHF 之后的第四个训练阶段。</p>
+    <div class="term-analogy">就像刷一本带标准答案的题库：写完立刻知道对错，错得多了自然会调整解题策略，全程不需要老师逐题批改。</div>
+  </div>
+</div>
+
+<div class="highlight-box info">
+  关于"第几阶段"的口径：Karpathy 的总结按"预训练 → SFT → RLHF → RLVR"把 RLVR 称为第四阶段；本手册按数据流把中间训练单独成章（第 8 章），于是强化学习整体排在第四。两种口径说的是同一条流水线，差别只在中间训练是否单独计数。
+</div>
+
+<div class="highlight-box">
+  核心结论：前三个阶段的本质都是"模仿"——模仿语料、模仿指令样例；只有第四阶段让模型在奖励信号下自己探索。推理能力能被训出来，关键就在这一步从模仿到试错的切换。
+</div>
+
+<h2>0.2.3 模型形态演进链：base → instruct → reasoning</h2>
+
+<p>　　流水线不同阶段的产出物，是三种不同形态的"模型"。平时听到的各种叫法，对应的就是这条演进链：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>Base Model（基座模型）</h4><p>预训练（加中间训练）的产物。本质是一台文本续写机：给个开头就往下编。知识都在参数里，但它没有"对话"的概念，你问它问题，它可能把问题当试卷接着出题。</p></div>
+  <div class="concept-card"><h4>Instruct Model（指令模型）</h4><p>再经 SFT（通常叠加偏好对齐）的产物。学会了"指令 → 回答"的交互格式，能理解意图、按要求作答，是日常聊天框背后的形态。</p></div>
+  <div class="concept-card"><h4>Reasoning Model（推理模型）</h4><p>再经 RLVR 强化的产物。面对复杂问题会先生成一长串内部推理过程（长思维链），再给出答案，数学、代码、逻辑类任务明显更强。</p></div>
+</div>
+
+<p>　　同一个输入，三种形态的反应截然不同。以"小明有 3 个苹果，又买来 5 个，吃掉 2 个，还剩几个？"为例（以下为示意）：</p>
+
+<blockquote>
+  base model 可能续写：……答：6 个。下一题：小红有 10 块糖……（它把你当一张试卷）<br>
+  instruct model 直接回答：还剩 6 个。<br>
+  reasoning model 先输出一段思考："3 加 5 等于 8，8 减 2 等于 6，所以……"，然后给出答案。
+</blockquote>
+
+<p>　　三种形态是同一套参数在流水线上不同站点的快照，不是三个孤立的模型。它们各自的强项和短板，以及对应的评测方式差异，留到第 15 章细说。</p>
+
+<h2>0.2.4 带着这张地图读手册</h2>
+
+<p>　　本手册的章节与地图上的框一一对应，建议按顺序阅读：第 1-2 章备料，第 3-5 章搭骨架，第 6-11 章走完四个训练阶段，第 12-15 章讲推理、部署、应用与评测。学到任何一章时，都可以回到本页确认自己在流水线中的位置。机制类页面末尾附有"动手验证"区块，指向配套小工程的对应代码，把纸面知识变成手感。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">现代 LLM 的训练分哪几个阶段？</div>
+    <div class="sc-key">预训练、中间训练、SFT、强化学习四个阶段。前两个阶段造出 base model，SFT 教会对话，强化学习负责对齐偏好与练推理；RLVR 作为独立的第四阶段在 2025 年确立。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">每个阶段各产出什么？</div>
+    <div class="sc-key">预训练产出 base model；中间训练产出上下文更长、领域更强的增强版 base model；SFT 产出 instruct model；RLVR 等强化学习训练产出 reasoning model。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么推理训练是后来才加上的第四阶段？</div>
+    <div class="sc-key">前三个阶段都在"模仿"已有文本，模仿不出没见过题目的多步推演。RLVR 用程序自动判对错来提供奖励，让模型自己试错练出推理策略，这条路线随推理模型的兴起在 2025 年成为标配。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本手册配套的 <code>minimind-master/</code> 是一个 64M 参数的小模型工程（Apache 2.0 协议），把整条流水线压缩进一个可以读完的代码库。建议按流水线顺序对照阅读：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>流水线环节</th><th>对应代码</th><th>对照章节</th></tr></thead>
+    <tbody>
+      <tr><td>数据</td><td><code>dataset/</code></td><td>第 1 章</td></tr>
+      <tr><td>分词</td><td><code>trainer/train_tokenizer.py</code></td><td>第 2 章</td></tr>
+      <tr><td>架构</td><td><code>model/model_minimind.py</code></td><td>第 4-5 章</td></tr>
+      <tr><td>预训练</td><td><code>trainer/train_pretrain.py</code></td><td>第 6 章</td></tr>
+      <tr><td>SFT</td><td><code>trainer/train_full_sft.py</code></td><td>第 9 章</td></tr>
+      <tr><td>对齐与强化学习</td><td><code>trainer/train_dpo.py</code>、<code>trainer/train_grpo.py</code></td><td>第 10-11 章</td></tr>
+      <tr><td>推理与评测</td><td><code>eval_llm.py</code></td><td>第 12、15 章</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<pre><code>cd minimind-master
+python eval_llm.py</code></pre>
+
+<p>　　运行后会加载小模型并进入交互对话。64M 参数的回答质量不代表大模型水平，重点是亲手把"训练 → 推理"这条流水线跑通一遍。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Andrej Karpathy, 2025 LLM Year in Review（karpathy.bearblog.dev/year-in-review-2025/）：RLVR 成为预训练、SFT、RLHF 之后的第四训练阶段，本页四阶段划分的依据之一。</li>
+  <li>Nathan Lambert, The RLHF Book, Chapter 7: Reasoning（rlhfbook.com/c/07-reasoning）：RLVR 与推理能力训练的机制讲解。</li>
+  <li>Tu et al., 2025. A Survey on LLM Mid-training（arXiv:2510.23081）：中间训练的正式定义与分类，第 8 章设置与本页阶段划分的依据。</li>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：Transformer 架构原始论文，地图中第 4-5 章环节的骨干素材。</li>
+</ul>
+
+</article>

@@ -1,0 +1,198 @@
+﻿<article class="content">
+<h1>1.3 去重：同一段话训十遍有用吗</h1>
+<p class="subtitle">本页范围：第 1 章第 3 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>网络语料里藏着海量重复内容。同一段话让模型学十遍，是加深印象，还是白烧算力、埋下隐患？</td></tr>
+      <tr><td>本节主张</td><td>重复数据放大记忆化、助攻隐私攻击、污染评测结果，去重（Deduplication）是数据工程的标配工序：精确去重抓逐字相同，近似去重抓改头换面，去污染守住评测公平。</td></tr>
+      <tr><td>一句话结论</td><td>同一段话训十遍，模型背下它的概率可能高出上千倍；去掉重复后，模型性能不降反升。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>去重</span><span>记忆化</span><span>后缀数组</span><span>MinHash</span><span>LSH</span><span>去污染</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>1.3.1 重复的代价：背书、泄密与假高分</h2>
+
+<p>　　先想一个生活场景：背课文。一段话读一遍，你学到的是里面的知识；读十遍，你开始逐字逐句背诵原文。老师抽查时你能一字不差默写出来，但这不代表你理解了它。语言模型面对重复数据时，处境一模一样。</p>
+
+<p>　　网络爬取的语料重复程度远超直觉。Lee 等人在 2022 年的经典研究中发现，C4 语料里有一句 61 个词的英文句子，竟然重复出现了超过 6 万次；训练数据里还有大量论坛模板、版权声明、转载文章这类成片的近似重复。用这样的数据训出来的模型，<strong>超过 1% 的无提示生成内容是逐字照抄训练集</strong>。</p>
+
+<p>　　更麻烦的是，重复对记忆化的放大是超线性的。Kandpal 等人同年给出的量级结论很扎眼：一条序列在训练集里出现 10 次，模型生成它的概率比只出现 1 次的序列平均<strong>高出约 1000 倍</strong>。重复 10 次换来的不是 10 倍印象，而是 1000 倍的背诵倾向。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">记忆化 Memorization</span>
+    <span class="term-en">memorize = 模型把训练数据原文背进参数里</span>
+  </div>
+  <div class="term-body">
+    <p>记忆化指模型在生成时<strong>逐字复现训练数据</strong>，而不是基于理解重新组织语言。少量记忆化无法避免，但重复数据会让它急剧恶化：模型遇到相似上下文时倾向于整段照抄。如果背下来的是个人隐私、版权文本，麻烦就从学术问题变成法律问题。</p>
+    <div class="term-analogy">就像考前拿到往年真题的学生：他不是学会了这门课，而是背下了答案。考题稍微变一变就露馅，原题照搬却满分。</div>
+  </div>
+</div>
+
+<p>　　重复数据的账单可以算成三笔：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>记忆化与泄密</h4><p>模型把原文背下来，生成时可能整段照抄。Kandpal 等人进一步发现，针对训练数据的隐私攻击，成功率几乎全部来自重复样本；去重后模型对这类攻击显著更安全。</p></div>
+  <div class="concept-card"><h4>评测失真</h4><p>Lee 等人发现，标准数据集的验证集里有超过 4% 的样本与训练集重叠。模型在“见过的题”上拿高分，基准成绩虚高，对比实验失去意义。</p></div>
+  <div class="concept-card"><h4>算力浪费</h4><p>重复 token 消耗训练算力却不带来新信息。Lee 等人的实验显示，去重后的模型达到同等甚至更好精度所需的训练步数反而更少。</p></div>
+</div>
+
+<div class="highlight-box">
+  Lee 等人 2022 年的核心结论：对训练数据去重后，模型逐字复现训练数据的频率降低约 10 倍，下游性能不降反升。去重是少有的“删数据反而让模型更好”的工序。
+</div>
+
+<h2>1.3.2 精确去重：让重复者自动排到一起</h2>
+
+<p>　　先说最简单的目标：找出整个语料库里<strong>逐字相同</strong>的段落。笨办法是两两比较，但几万亿 token 的语料两两比到天荒地老也比不完。需要一个让重复内容自动现身的结构。</p>
+
+<p>　　答案是一个经典的字符串工具：<strong>后缀数组（Suffix Array）</strong>。思路很妙——把全部语料拼成一个超长字符串，然后给每个位置建立一条“从该位置一直到结尾”的条目（称为后缀），再把这些条目按字典序排序。排序之后，凡是开头相同的条目必然相邻，重复段落会自己排到一起，一眼就能揪出来。</p>
+
+<div class="highlight-box info">
+  打个比方：把图书馆里每本书的每一页都复印一份“从本页到全书末尾”的长纸条，全部纸条按内容字母序上架。内容相同的两段文字，它们的纸条在架子上必然紧挨着——不用逐页翻书对比，巡视一遍书架就能发现重复。
+</div>
+
+<p>　　Lee 等人提出的 <strong>ExactSubstr</strong> 就是这条路线的工程实现：拼接语料、建后缀数组，凡是重复出现且长度超过阈值（论文用 50 个 token）的子串全部标记删除。那句在 C4 里重复 6 万次的 61 词句子，正是被这套工具抓出来的。后缀数组的构造有成熟的高效算法，配套实现也已开源，足以处理工业级语料。这里只需记住排序带来的直觉，算法细节点到为止。</p>
+
+<h2>1.3.3 近似去重：MinHash 签名与 LSH 分桶</h2>
+
+<p>　　精确匹配抓得住逐字照抄，却抓不住改头换面：转载文章换了个标题、网页套用了同一个模板、AI 洗稿改了几个词。这些内容字符不完全相同，但语义上就是同一份。要抓它们，先得定义什么叫“像”。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Jaccard 相似度</span>
+    <span class="term-en">Jaccard similarity = 交集大小 ÷ 并集大小</span>
+  </div>
+  <div class="term-body">
+    <p>把每篇文档拆成一组片段（shingle，例如连续 5 个词算一个片段），文档就变成集合。两个集合的<strong>交集大小除以并集大小</strong>就是 Jaccard 相似度：取值 0 到 1，越接近 1 越像。它天然容忍少量改动——换标题只动几个片段，相似度依然很高。</p>
+    <div class="term-analogy">像比较两张歌单：重合的歌除以两张单子去重后的总歌数。重合度 90% 的歌单，基本可以断定出自同一个人。</div>
+  </div>
+</div>
+
+<p>　　定义了相似度，直接算还是要两两比较集合，规模一大就崩。<strong>MinHash</strong> 用一个概率技巧绕开了全文比较：对集合施加一个随机哈希函数，取所有片段中哈希值最小的那个，作为签名的一位。重复几十个不同的随机哈希函数，就得到一小串数字——这篇文档的“指纹”。它的灵魂性质是：</p>
+
+<div class="formula-card">
+  \[ J(A,B)=\frac{|A\cap B|}{|A\cup B|} \tag{1} \]
+  \[ \Pr\!\left[h_{\min}(A)=h_{\min}(B)\right]=J(A,B) \tag{2} \]
+  <div class="formula-note">公式 (1)：Jaccard 相似度定义。公式 (2)：MinHash 的核心性质——两篇文档在同一位签名上相同的概率，恰好等于它们的 Jaccard 相似度。文档越像，指纹越一致。</div>
+</div>
+
+<p>　　签名把“比较两篇全文”压缩成“比较两小串数字”，但还剩最后一个问题：语料有上亿篇文档，两两比签名依然是平方级。这时 <strong>LSH（Locality-Sensitive Hashing，局部敏感哈希）</strong>登场：把签名切成若干段，逐段再哈希进桶。只要两篇文档签名足够像，就大概率在某一段上落进同一个桶。于是只需比较<strong>同桶的候选对</strong>，最后再对候选对做一次精确复核，把误报筛掉。比较总次数从平方级降到近似线性。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="72" y="30" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">文档集合</text>
+    <text x="222" y="30" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">MinHash 签名</text>
+    <text x="392" y="30" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">LSH 分桶</text>
+    <text x="600" y="30" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">候选对复核</text>
+    <rect x="15" y="55" width="115" height="44" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="72" y="74" text-anchor="middle" font-size="13" fill="#333">文档 A</text>
+    <text x="72" y="91" text-anchor="middle" font-size="11" fill="#666">新闻原文</text>
+    <rect x="15" y="112" width="115" height="44" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="72" y="131" text-anchor="middle" font-size="13" fill="#333">文档 B</text>
+    <text x="72" y="148" text-anchor="middle" font-size="11" fill="#666">转载并改标题</text>
+    <rect x="15" y="169" width="115" height="44" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="72" y="188" text-anchor="middle" font-size="13" fill="#333">文档 C</text>
+    <text x="72" y="205" text-anchor="middle" font-size="11" fill="#666">无关内容</text>
+    <line x1="132" y1="77" x2="162" y2="77" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="132" y1="134" x2="162" y2="134" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="132" y1="191" x2="162" y2="191" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="168" y="64" width="27" height="26" rx="3" fill="#6d28d9"/><text x="181" y="82" text-anchor="middle" font-size="12" fill="#fff">3</text>
+    <rect x="197" y="64" width="27" height="26" rx="3" fill="#6d28d9"/><text x="210" y="82" text-anchor="middle" font-size="12" fill="#fff">7</text>
+    <rect x="226" y="64" width="27" height="26" rx="3" fill="#6d28d9"/><text x="239" y="82" text-anchor="middle" font-size="12" fill="#fff">1</text>
+    <rect x="255" y="64" width="27" height="26" rx="3" fill="#6d28d9"/><text x="268" y="82" text-anchor="middle" font-size="12" fill="#fff">9</text>
+    <rect x="168" y="121" width="27" height="26" rx="3" fill="#6d28d9"/><text x="181" y="139" text-anchor="middle" font-size="12" fill="#fff">3</text>
+    <rect x="197" y="121" width="27" height="26" rx="3" fill="#6d28d9"/><text x="210" y="139" text-anchor="middle" font-size="12" fill="#fff">7</text>
+    <rect x="226" y="121" width="27" height="26" rx="3" fill="#6d28d9"/><text x="239" y="139" text-anchor="middle" font-size="12" fill="#fff">1</text>
+    <rect x="255" y="121" width="27" height="26" rx="3" fill="#6d28d9"/><text x="268" y="139" text-anchor="middle" font-size="12" fill="#fff">9</text>
+    <rect x="168" y="178" width="27" height="26" rx="3" fill="#0891b2"/><text x="181" y="196" text-anchor="middle" font-size="12" fill="#fff">8</text>
+    <rect x="197" y="178" width="27" height="26" rx="3" fill="#0891b2"/><text x="210" y="196" text-anchor="middle" font-size="12" fill="#fff">2</text>
+    <rect x="226" y="178" width="27" height="26" rx="3" fill="#0891b2"/><text x="239" y="196" text-anchor="middle" font-size="12" fill="#fff">5</text>
+    <rect x="255" y="178" width="27" height="26" rx="3" fill="#0891b2"/><text x="268" y="196" text-anchor="middle" font-size="12" fill="#fff">4</text>
+    <line x1="286" y1="77" x2="316" y2="77" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="286" y1="134" x2="316" y2="134" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="286" y1="191" x2="316" y2="191" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="322" y="52" width="140" height="104" rx="8" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="392" y="72" text-anchor="middle" font-size="13" fill="#333">桶 ①</text>
+    <rect x="340" y="84" width="46" height="24" rx="12" fill="#6d28d9"/><text x="363" y="101" text-anchor="middle" font-size="12" fill="#fff">A</text>
+    <rect x="398" y="84" width="46" height="24" rx="12" fill="#6d28d9"/><text x="421" y="101" text-anchor="middle" font-size="12" fill="#fff">B</text>
+    <text x="392" y="132" text-anchor="middle" font-size="11" fill="#666">签名一致落同桶</text>
+    <text x="392" y="148" text-anchor="middle" font-size="11" fill="#666">成为候选对</text>
+    <rect x="322" y="168" width="140" height="52" rx="8" fill="#f0fdfa" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="392" y="188" text-anchor="middle" font-size="13" fill="#333">桶 ②</text>
+    <rect x="368" y="194" width="46" height="22" rx="11" fill="#0891b2"/><text x="391" y="209" text-anchor="middle" font-size="12" fill="#fff">C</text>
+    <line x1="464" y1="104" x2="496" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="464" y1="194" x2="496" y2="194" stroke="#0891b2" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="500" y="55" width="205" height="40" rx="6" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="602" y="80" text-anchor="middle" font-size="13" fill="#333">候选对 (A, B) 逐字复核</text>
+    <rect x="500" y="108" width="205" height="40" rx="6" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="602" y="132" text-anchor="middle" font-size="13" fill="#333">判定近重复：删 B 留 A</text>
+    <rect x="500" y="174" width="205" height="40" rx="6" fill="#f0fdfa" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="602" y="191" text-anchor="middle" font-size="13" fill="#333">C 在桶内无伙伴</text>
+    <text x="602" y="207" text-anchor="middle" font-size="11" fill="#666">直接保留，无需比较</text>
+    <text x="360" y="262" text-anchor="middle" font-size="12" fill="#666">签名的每一位来自一个随机哈希：两篇文档越相似，对应位相同的概率越大。</text>
+    <text x="360" y="284" text-anchor="middle" font-size="12" fill="#666">分桶把“两两比较”变成“只比同桶”，比较次数从平方级降到近似线性。</text>
+  </svg>
+  <div class="diagram-caption">图示：近似去重流水线。文档先浓缩为 MinHash 签名，LSH 按签名分桶，只有同桶文档才进入复核，无需全量两两比较。</div>
+</div>
+
+<p>　　Lee 等人的 <strong>NearDup</strong> 就是 MinHash 路线在整文档级去近重复的落地。MinHash 本身比 LLM 年长得多：它由 Broder 在 1997 年提出，最初用于 AltaVista 搜索引擎的网页近重复检测，如今是数据工程的教科书工具。从原始网页到候选数据，这两节讲的正是大多数语料管线里实际跑着的去重环节。</p>
+
+<h2>1.3.4 去污染：把考题从题库里抽走</h2>
+
+<p>　　去重管的是训练集<strong>内部</strong>，还有一类重叠发生在训练集与测试集<strong>之间</strong>：基准测试的题目混进了训练语料，模型考的是自己背过的题。专门清除这类重叠的工序叫<strong>去污染（Decontamination）</strong>。</p>
+
+<p>　　GPT-3 的做法是代表性案例：对训练语料做 <strong>13-gram 重叠检测</strong>，凡是与评测集出现 13 个连续词重叠的训练文档，一律剔除，防止基准成绩失真。这套思路和去重一脉相承，只是枪口对准的是题库。后续主流模型的技术报告里，去污染已成为数据管线的固定一站；第 15 章讲评测时还会回到污染检测这个话题。</p>
+
+<div class="highlight-box">
+  一句话收束全节：精确去重抓逐字相同，近似去重抓改头换面，去污染守住考试公平。三道工序做完，数据才算备好——下一章就看这些干净的文本如何被切成 token。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">同一段话训十遍为什么反而有害？</div>
+    <div class="sc-key">记忆化被超线性放大：出现 10 次的序列生成概率约高 1000 倍；隐私攻击的成功率几乎全部来自重复样本；训练集与测试集重叠还会让评测成绩虚高，重复 token 同时白烧训练算力。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">精确去重与近似去重各抓什么？</div>
+    <div class="sc-key">ExactSubstr 用后缀数组抓逐字重复的长子串（排序让重复者相邻）；NearDup 用 MinHash 在整文档级抓换标题、套模板这类改头换面的近重复。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">MinHash 加 LSH 凭什么把平方级比较降下来？</div>
+    <div class="sc-key">MinHash 签名的碰撞概率恰好等于 Jaccard 相似度，小串数字代替全文比较；LSH 把签名分段分桶，只需比较同桶候选对，比较次数降到近似线性。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　去重发生在数据生产阶段，训练代码里反而看不到它——这一点在 minimind 工程（Apache 2.0 协议）里可以直接印证。打开 <code>dataset/lm_dataset.py</code> 的 <code>PretrainDataset.__getitem__</code>（第 50 行附近）：每条样本分词后原样进入训练，管线里没有任何去重逻辑。minimind 的 README 说明，主线数据在发布前已完成清洗与去重，是发布方替读者做过的离线工序。</p>
+
+<p>　　可以亲手验证这份数据确实被去过重。下载官方预训练数据 <code>pretrain_t2t_mini.jsonl</code> 放到 <code>dataset/</code> 目录后运行：</p>
+
+<pre><code>cd minimind-master
+python -c "import json,collections; c=collections.Counter(json.loads(l)['text'].strip() for l in open('dataset/pretrain_t2t_mini.jsonl',encoding='utf-8')); n=sum(c.values()); d=sum(v-1 for v in c.values()); print(f'总样本 {n}，完全重复 {d} 条（{d/n:.2%}）')"</code></pre>
+
+<p>　　预期看到完全重复的占比接近 0，这正是发布方去重后的结果。想体验 Lee 等人面对的情形，可以把某一行复制 100 遍追加到文件末尾再跑一遍，重复统计会立刻飙升——网络爬取的原始语料，去重前就是这个状态。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Lee et al., 2022. Deduplicating Training Data Makes Language Models Better（ACL 2022，arXiv:2107.06499）：ExactSubstr 与 NearDup、C4 中 61 词句子重复超 6 万次、超 1% 无提示输出逐字复制、去重后复现频率降约 10 倍、验证集重叠超 4%，均出自该文。</li>
+  <li>Kandpal, Wallace &amp; Raffel, 2022. Deduplicating Training Data Mitigates Privacy Risks in Language Models（ICML 2022，arXiv:2202.06539）：出现 10 次的序列生成概率约高 1000 倍、隐私攻击成功率集中于重复样本。</li>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3 技术报告，arXiv:2005.14165）：13-gram 重叠检测的基准去污染做法。</li>
+  <li>Broder, 1997. On the Resemblance and Containment of Documents（MinHash 原始论文，SEQUENCES 1997）。</li>
+  <li>Rajaraman &amp; Ullman, Mining of Massive Datasets, 第 3 章 Finding Similar Items（Jaccard 相似度、MinHash 与 LSH 的教材级讲解，http://www.mmds.org）。</li>
+</ul>
+
+</article>

@@ -1,0 +1,330 @@
+﻿<article class="content">
+<h1>4.2 注意力机制：Query、Key、Value 的分工</h1>
+<p class="subtitle">本页范围：第 4 章第 2 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>一个 token 更新自己的表示时，应该听句子里哪些 token 的、各听多少？</td></tr>
+      <tr><td>本节主张</td><td>注意力机制让每个 token 用 Query 主动报出需求，用 Key 亮出名片供人匹配，用 Value 提供真正的内容；按"匹配打分 → 缩放 → softmax → 加权求和"四步，把相关 token 的信息按比例搬进自己的新表示。</td></tr>
+      <tr><td>一句话结论</td><td>Attention(Q,K,V) = softmax(QKᵀ/√d_k)V：先算谁和谁相关，再按相关程度把内容加权取回来。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>Query / Key / Value</span><span>缩放点积注意力</span><span>softmax 权重</span><span>加权求和</span><span>掩码</span><span>并行计算</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>4.2.1 注意力在解决什么问题：每个 token 该听谁的</h2>
+
+<p>　　第 3 章讲过，Embedding 层给每个 token 查出一个静态向量：只要 token 相同，查出来的向量就相同。但语言的意思高度依赖语境。"苹果"在"我吃了一个苹果"和"苹果发布了新手机"里指的东西完全不同；"小猫追蝴蝶，因为它饿了"里的"它"指谁，也必须看了上下文才能确定。静态向量装不下这些信息，模型还缺一层机制：让每个 token 看一眼整句话，再决定自己的新表示要融入谁的信息。</p>
+
+<p>　　在 Transformer 之前，这个活儿主要靠循环神经网络（RNN）干：从头到尾逐个读词，每读一个词更新一次记忆，靠记忆把前文的信息带到现在。这种做法有两个硬伤：信息必须一站一站往后传，隔得越远越容易丢失；而且必须按顺序计算，第 100 个词要等前 99 个算完才能开工，GPU 的并行能力用不上。原论文第 1 节正是从这两个痛点出发，提出完全抛弃循环结构。</p>
+
+<p>　　注意力机制换了一条路：不搞接力传话，让每个 token 直接环顾全句。它主动向所有 token（包括自己）发出询问：你和我关系有多紧密？然后按紧密程度把对方的信息按比例搬过来，融合成自己的新表示。隔得再远的两个 token 也能一步到位直接对话，而且所有 token 的询问可以同时进行。</p>
+
+<p>　　<strong>所以这步在干嘛</strong>：注意力给每个 token 一次"向全句提问并收集答案"的机会，把静态的词向量升级为结合上下文的新表示。这一步怎么做，就是本节的主题。</p>
+
+<h2>4.2.2 Query、Key、Value：三个角色各司其职</h2>
+
+<p>　　注意力机制把一次"提问"拆成三个角色，每个 token 都会同时扮演这三个角色：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>Query（查询）</h4><p>这个 token 想找什么。由它主动发出，拿去和所有 token 的 Key 做匹配。</p></div>
+  <div class="concept-card"><h4>Key（键）</h4><p>这个 token 的名片，标注自己能提供什么信息，用来被别人的 Query 匹配。</p></div>
+  <div class="concept-card"><h4>Value（值）</h4><p>这个 token 真正提供的内容。名片一旦被看中，被取走的就是它。</p></div>
+</div>
+
+<p>　　这三者的关系，可以想象成在图书馆查资料：你走到咨询台报出自己的需求（Query），书目系统里每本书都有一张索引卡片，写着书名和关键词（Key）。你拿需求和卡片逐一对照，卡片只是判断哪本书相关的线索；真正被你借走、读进脑子里的，是书的内容（Value）。需求和哪张卡片对得上，就重点取哪本书的内容，对不上就少取甚至不取。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">点积（Dot Product）</span>
+    <span class="term-en">dot product = 两个向量对应分量相乘，再全部相加</span>
+  </div>
+  <div class="term-body">
+    <p>点积是最常用的向量相似度度量：两个向量方向越一致，点积越大；方向越无关（接近垂直），点积越接近 0。注意力机制正是用 Query 和 Key 的点积来衡量"需求"和"名片"有多匹配。</p>
+    <div class="term-analogy">就像拿两份答卷对答案：逐题比对（分量相乘），答成一样的题越多，总分（点积）越高，说明两份答卷越合拍。</div>
+  </div>
+</div>
+
+<p>　　三个角色并不是三个互不相干的向量，而是同一个 token 向量乘以三个不同投影矩阵变出来的。第 3 章得到的 token 向量 \(x\)，分别乘上三个可学习的权重矩阵 \(W^Q\)、\(W^K\)、\(W^V\)，就得到这个 token 的 \(q = xW^Q\)、\(k = xW^K\)、\(v = xW^V\)。这三个矩阵是训练出来的参数，模型通过学习不断调整"该怎么描述需求、该怎么写名片、该怎么提供内容"。同一个 token 因此身兼三职：既去查别人（Query），也被别人查（Key），还随时准备好被取走内容（Value）。</p>
+
+<div class="highlight-box">
+  Query、Key、Value 是同一个 token 向量的三种化身：投影矩阵 \(W^Q\)、\(W^K\)、\(W^V\) 让模型学会从三个角度描述每个 token。注意力要做的，就是用 Query 和 Key 算出"该听谁的"，再从 Value 里把信息取回来。
+</div>
+
+<p>　　原论文中每个 token 向量的维度是 \(d_{\text{model}} = 512\)；实际实现用了 8 个并行的注意力头，每个头里 Query、Key 的维度 \(d_k = 64\)，Value 的维度 \(d_v = 64\)（即 \(512 \div 8\)）。多头是下一节的主题，本节先用单头的视角把原理讲透。</p>
+
+<h2>4.2.3 公式拆解：四步完成一次注意力</h2>
+
+<p>　　原论文把这套机制命名为缩放点积注意力（Scaled Dot-Product Attention），全部计算浓缩在一个公式里：</p>
+
+<div class="formula-card">
+  \[ \mathrm{Attention}(Q, K, V) = \mathrm{softmax}\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V \tag{1} \]
+  <div class="formula-note">公式 (1)：缩放点积注意力（原论文公式 (1)，逐字核对）。\(Q\)、\(K\)、\(V\) 是把所有 token 的 Query、Key、Value 分别堆成的矩阵，输出同样是每个 token 一行的新矩阵。</div>
+</div>
+
+<p>　　从右往左读会晕，按计算顺序拆成四步就清楚了：</p>
+
+<ol>
+  <li><strong>匹配打分</strong> \(QK^{\top}\)：每个 Query 和每个 Key 做点积，得到一个 \(n \times n\) 的分数矩阵（\(n\) 是 token 数），第 \(i\) 行第 \(j\) 列表示 token \(i\) 对 token \(j\) 的看中程度。<strong>这步在干嘛</strong>：算出谁和谁相关。</li>
+  <li><strong>缩放</strong>：所有分数除以 \(\sqrt{d_k}\)。<strong>这步在干嘛</strong>：把分数拉回合适的数值范围，防止下一步 softmax 被撑爆（原因下文细说）。</li>
+  <li><strong>softmax 归一化</strong>：对分数矩阵的每一行做 softmax，把一行分数变成和为 1 的权重。<strong>这步在干嘛</strong>：把看中程度换算成分配比例，每个 token 手里的注意力总预算是 1，按比例分给所有 token。</li>
+  <li><strong>加权求和</strong>：用权重矩阵去乘 \(V\)，输出的第 \(i\) 行就是所有 token 的 Value 按第 \(i\) 行权重的加权和。<strong>这步在干嘛</strong>：按比例把别人的内容搬进自己的新表示。</li>
+</ol>
+
+<div class="formula-card">
+  \[ \mathrm{softmax}(z_i) = \frac{e^{z_i}}{\sum_{j} e^{z_j}} \]
+  <div class="formula-note">softmax 把任意一行实数变成和为 1 的比例：指数运算放大分数之间的差距，分母负责归一化。原始分数差一点，权重可能差出好几倍。</div>
+</div>
+
+<p>　　配上张量形状看得更清楚。设序列有 \(n\) 个 token，Query 和 Key 是 \(d_k\) 维，Value 是 \(d_v\) 维：</p>
+
+<div class="formula-card">
+  \[ \underset{n \times d_k}{Q}\;\cdot\;\underset{d_k \times n}{K^{\top}}\;=\;\underset{n \times n}{S}\;\xrightarrow{\;\div \sqrt{d_k},\ \mathrm{softmax}\;}\;\underset{n \times n}{W}\;\cdot\;\underset{n \times d_v}{V}\;=\;\underset{n \times d_v}{\text{输出}} \]
+  <div class="formula-note">中间那个 \(n \times n\) 矩阵是注意力的指挥表：每一行是一个 token 对所有 token 的注意力分配。</div>
+</div>
+
+<h3>为什么要除以 √d_k</h3>
+
+<p>　　原论文 3.2.1 节给出的理由是：当 \(d_k\) 较大时，点积的数值会变得很大，从而把 softmax 函数推进梯度极小的区域；为了抵消这种影响，用 \(1/\sqrt{d_k}\) 缩放点积。梯度极小意味着参数几乎收不到更新信号，模型在这一层就学不动了。</p>
+
+<div class="highlight-box info">
+  一个帮助理解的定量直觉：若 Query、Key 各分量是均值为 0、方差为 1 的随机数，点积是 \(d_k\) 个分量乘积之和，其标准差约为 \(\sqrt{d_k}\)。\(d_k = 64\) 时，分数的典型波动就有 ±8 上下。softmax 对差距极其敏感：分差放大 8 倍，\([1, 0]\) 的 softmax 结果会从 \([0.73, 0.27]\) 变成 \([0.9997, 0.0003]\)，几乎变成胜者全拿，输家那边的梯度趋近于 0。除以 \(\sqrt{d_k}\)（\(d_k = 64\) 时即除以 8）恰好把波动拉回单位尺度。这是后人的直觉解释，论文原文只给出"点积变大导致 softmax 饱和"的结论。
+</div>
+
+<div class="highlight-box info">
+  原论文 3.2.1 节还对比过两种打分方式：加性注意力用一个带单隐藏层的小前馈网络计算匹配度；点积注意力就是公式 (1) 去掉缩放因子。两者理论复杂度相当，但点积可以直接调用高度优化的矩阵乘法，实践中更快、更省显存。只是 \(d_k\) 较大时，未缩放的点积注意力会落后于加性注意力，论文的对策正是加上缩放因子 \(1/\sqrt{d_k}\)，缩放点积注意力由此得名。今天的 LLM 几乎清一色使用缩放点积注意力。
+</div>
+
+<h2>4.2.4 手算一遍：3 个 token、4 维向量的完整推演</h2>
+
+<p>　　公式看完，用一个能跟着算的小例子过一遍。三个 token 组成一句话："我 爱 猫"。为演示方便，假设投影已经完成，每个 token 的 Key 和 Value 如下，维度 \(d_k = d_v = 4\)（示例数字，仅为演示，不代表真实模型的计算结果）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>向量</th><th>token 1「我」</th><th>token 2「爱」</th><th>token 3「猫」</th></tr></thead>
+    <tbody>
+      <tr><td>\(k\)（名片）</td><td>\([2,\ 0,\ 0,\ 0]\)</td><td>\([0,\ 0,\ 2,\ 0]\)</td><td>\([0,\ 1,\ 0,\ 0]\)</td></tr>
+      <tr><td>\(v\)（内容）</td><td>\([1,\ 0,\ 2,\ 1]\)</td><td>\([0,\ 2,\ 1,\ 1]\)</td><td>\([2,\ 1,\ 0,\ 0]\)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　现在算 token 1「我」这一个位置的新表示，它的 Query 是 \(q_1 = [1,\ 0,\ 1,\ 0]\)。</p>
+
+<p>　　<strong>第 1 步，匹配打分</strong>。让 \(q_1\) 和三个 Key 分别做点积：</p>
+
+<ul>
+  <li>\(q_1 \cdot k_1 = 1\times2 + 0\times0 + 1\times0 + 0\times0 = 2\)</li>
+  <li>\(q_1 \cdot k_2 = 1\times0 + 0\times0 + 1\times2 + 0\times0 = 2\)</li>
+  <li>\(q_1 \cdot k_3 = 1\times0 + 0\times1 + 1\times0 + 0\times0 = 0\)</li>
+</ul>
+
+<p>　　「我」和自己的名片、和「爱」的名片都对上了，和「猫」完全没对上。</p>
+
+<p>　　<strong>第 2 步，缩放</strong>。\(\sqrt{d_k} = \sqrt{4} = 2\)，三个分数都除以 2：</p>
+
+<div class="formula-card">
+  \[ \frac{[2,\ 2,\ 0]}{\sqrt{4}} = [1,\ 1,\ 0] \]
+</div>
+
+<p>　　<strong>第 3 步，softmax</strong>。\(e^1 \approx 2.718\)，\(e^0 = 1\)，分母 \(= 2.718 + 2.718 + 1 = 6.437\)：</p>
+
+<div class="formula-card">
+  \[ \mathrm{softmax}([1,\ 1,\ 0]) = \left[\frac{2.718}{6.437},\ \frac{2.718}{6.437},\ \frac{1}{6.437}\right] \approx [0.422,\ 0.422,\ 0.155] \]
+  <div class="formula-note">三个权重加起来正好是 1。这就是 token 1 手里的注意力分配表。</div>
+</div>
+
+<p>　　<strong>第 4 步，加权求和</strong>。用这三个权重去加三个 Value：</p>
+
+<div class="formula-card">
+  \[ o_1 = 0.422 \times [1,\ 0,\ 2,\ 1] + 0.422 \times [0,\ 2,\ 1,\ 1] + 0.155 \times [2,\ 1,\ 0,\ 0] \approx [0.73,\ 1.00,\ 1.27,\ 0.84] \]
+  <div class="formula-note">token 1 的新表示：约 84% 的内容来自「我」和「爱」，16% 来自「猫」。可以抽查第 2 个分量：\(0.422\times0 + 0.422\times2 + 0.155\times1 = 1.00\)，刚好凑整。</div>
+</div>
+
+<p>　　<strong>所以这步在干嘛</strong>：四步走完，「我」不再是最初那个静态向量了，它把句子里相关 token 的内容按比例揉进了自己体内。注意力权重就是一张"该听谁的"的分配表，模型在看谁、看多少，一目了然。</p>
+
+<p>　　以上只是分数矩阵的第 1 行，也就是 token 1 一个词的计算。token 2、token 3 用各自的 Query 重复同样的过程，各算一行。三行互不依赖，可以同时算完。请记住"互不依赖"这四个字，4.2.6 节会用到它。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <!-- 列表头 -->
+    <text x="65" y="18" text-anchor="middle" font-size="12" fill="#888">Query（需求）</text>
+    <text x="235" y="18" text-anchor="middle" font-size="12" fill="#888">Key（名片）</text>
+    <text x="400" y="18" text-anchor="middle" font-size="12" fill="#888">匹配得分与缩放</text>
+    <text x="580" y="18" text-anchor="middle" font-size="12" fill="#888">注意力权重</text>
+    <text x="735" y="18" text-anchor="middle" font-size="12" fill="#888">Value（内容）</text>
+    <text x="855" y="18" text-anchor="middle" font-size="12" fill="#888">求和</text>
+    <!-- q 盒子 -->
+    <rect x="10" y="185" width="110" height="70" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="65" y="216" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">q₁</text>
+    <text x="65" y="238" text-anchor="middle" font-size="11" fill="#666">token 1 想找什么</text>
+    <!-- k 盒子 -->
+    <rect x="180" y="40" width="110" height="64" rx="10" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="235" y="66" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">k₁</text>
+    <text x="235" y="86" text-anchor="middle" font-size="11" fill="#666">token 1 的名片</text>
+    <rect x="180" y="188" width="110" height="64" rx="10" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="235" y="214" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">k₂</text>
+    <text x="235" y="234" text-anchor="middle" font-size="11" fill="#666">token 2 的名片</text>
+    <rect x="180" y="336" width="110" height="64" rx="10" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="235" y="362" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">k₃</text>
+    <text x="235" y="382" text-anchor="middle" font-size="11" fill="#666">token 3 的名片</text>
+    <!-- q → k 箭头 -->
+    <line x1="120" y1="220" x2="180" y2="72" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="120" y1="220" x2="180" y2="220" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="120" y1="220" x2="180" y2="368" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <text x="133" y="213" font-size="11" fill="#666">点积</text>
+    <!-- 得分徽章 -->
+    <rect x="330" y="40" width="140" height="64" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="400" y="66" text-anchor="middle" font-size="13" fill="#333">q₁·k₁ = 2</text>
+    <text x="400" y="88" text-anchor="middle" font-size="12" fill="#666">÷ 2 → 1.0</text>
+    <rect x="330" y="188" width="140" height="64" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="400" y="214" text-anchor="middle" font-size="13" fill="#333">q₁·k₂ = 2</text>
+    <text x="400" y="236" text-anchor="middle" font-size="12" fill="#666">÷ 2 → 1.0</text>
+    <rect x="330" y="336" width="140" height="64" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="400" y="362" text-anchor="middle" font-size="13" fill="#333">q₁·k₃ = 0</text>
+    <text x="400" y="384" text-anchor="middle" font-size="12" fill="#666">÷ 2 → 0</text>
+    <!-- k → 得分 箭头 -->
+    <line x1="290" y1="72" x2="330" y2="72" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="290" y1="220" x2="330" y2="220" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="290" y1="368" x2="330" y2="368" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <!-- 得分 → 权重 箭头（softmax） -->
+    <line x1="470" y1="72" x2="520" y2="72" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="470" y1="220" x2="520" y2="220" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="470" y1="368" x2="520" y2="368" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <text x="495" y="208" text-anchor="middle" font-size="11" fill="#666">softmax</text>
+    <!-- 权重徽章 -->
+    <rect x="520" y="40" width="120" height="64" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="580" y="64" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">w₁ = 0.42</text>
+    <text x="580" y="86" text-anchor="middle" font-size="11" fill="#666">2.718 ÷ 6.437</text>
+    <rect x="520" y="188" width="120" height="64" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="580" y="212" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">w₂ = 0.42</text>
+    <text x="580" y="234" text-anchor="middle" font-size="11" fill="#666">2.718 ÷ 6.437</text>
+    <rect x="520" y="336" width="120" height="64" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="580" y="360" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">w₃ = 0.16</text>
+    <text x="580" y="382" text-anchor="middle" font-size="11" fill="#666">1 ÷ 6.437</text>
+    <text x="580" y="286" text-anchor="middle" font-size="11" fill="#666">三者之和 = 1</text>
+    <!-- 权重 → v 箭头（乘权重） -->
+    <line x1="640" y1="72" x2="680" y2="72" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="640" y1="220" x2="680" y2="220" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="640" y1="368" x2="680" y2="368" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <text x="660" y="64" text-anchor="middle" font-size="12" fill="#666">×</text>
+    <text x="660" y="212" text-anchor="middle" font-size="12" fill="#666">×</text>
+    <text x="660" y="360" text-anchor="middle" font-size="12" fill="#666">×</text>
+    <!-- v 盒子 -->
+    <rect x="680" y="40" width="110" height="64" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="735" y="66" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">v₁</text>
+    <text x="735" y="86" text-anchor="middle" font-size="11" fill="#666">token 1 的内容</text>
+    <rect x="680" y="188" width="110" height="64" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="735" y="214" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">v₂</text>
+    <text x="735" y="234" text-anchor="middle" font-size="11" fill="#666">token 2 的内容</text>
+    <rect x="680" y="336" width="110" height="64" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="735" y="362" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">v₃</text>
+    <text x="735" y="382" text-anchor="middle" font-size="11" fill="#666">token 3 的内容</text>
+    <!-- v → Σ 箭头 -->
+    <line x1="790" y1="72" x2="837" y2="202" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
+    <line x1="790" y1="220" x2="829" y2="220" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
+    <line x1="790" y1="368" x2="837" y2="238" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
+    <!-- Σ 圆 -->
+    <circle cx="855" cy="220" r="26" fill="#6d28d9"/>
+    <text x="855" y="227" text-anchor="middle" font-size="20" fill="#ffffff">Σ</text>
+    <text x="895" y="225" font-size="12" fill="#333">输出</text>
+    <!-- 底部公式 -->
+    <text x="480" y="424" text-anchor="middle" font-size="13" fill="#333">加权和：0.42·v₁ + 0.42·v₂ + 0.16·v₃ = [0.73, 1.00, 1.27, 0.84] → token 1 的新表示</text>
+  </svg>
+  <div class="diagram-caption">图示：以 token 1（\(q_1\)）为例的注意力计算流。\(q_1\) 与所有 Key 点积得到匹配分，缩放后经 softmax 变成权重，再乘到 Value 上求和得到输出。图中数字与 4.2.4 节的手算例子一致（示例数字，仅为演示）。</div>
+</div>
+
+<h2>4.2.5 同一个公式，三种用法</h2>
+
+<p>　　缩放点积注意力这个公式，原论文在 Transformer 里用了三次（3.2.3 节），区别只在 Q、K、V 从哪里来：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>编码器自注意力</h4><p>Q、K、V 全部来自编码器前一层的输出。每个 token 都能看到同句所有 token，没有任何限制。</p></div>
+  <div class="concept-card"><h4>解码器自注意力（带掩码）</h4><p>Q、K、V 来自解码器前一层，但每个位置只允许看自己及之前的位置。做法是把 softmax 输入中所有对应非法连接的分数设为 \(-\infty\)，softmax 之后这些位置的权重变成 0。</p></div>
+  <div class="concept-card"><h4>编码器-解码器注意力</h4><p>Q 来自解码器前一层，K、V 来自编码器的输出。解码器借此回头查输入句子的每一个位置。</p></div>
+</div>
+
+<p>　　前两种用法的 Q、K、V 同源，所以叫自注意力（self-attention）；第三种的 Q 与 K、V 不同源，常叫交叉注意力（cross-attention），主要服务机器翻译这类输入一种语言、输出另一种语言的场景。今天主流的 GPT 类模型只保留解码器，只用带掩码的自注意力这一种用法：生成第 \(n\) 个词时看不到第 \(n\) 个词之后的内容，这就是模型不能剧透未来的原因。掩码的实现细节与因果生成的关系，本章后续小节还会展开。</p>
+
+<p>　　<strong>所以这步在干嘛</strong>：同一台发动机，接三种不同的油箱。理解句子时（编码器）随便看，生成文字时（解码器）只许回头看，翻译对照时（交叉注意力）一头看原文、一头写译文。</p>
+
+<h2>4.2.6 为什么注意力取代了循环</h2>
+
+<p>　　回到本节开头的问题，现在可以给注意力一个公正的评价。RNN 像击鼓传花的传话游戏：一句话从第一个人传到最后一个人，传得越远越走样，而且必须排队，快不起来。注意力像把所有人拉进一个群聊：每个人直接跟所有人对话，同时开口，距离再远也是一步到位。</p>
+
+<p>　　原论文第 4 节用一张表把这种差别量化（表 1）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>层类型</th><th>每层复杂度</th><th>顺序操作数</th><th>最大路径长度</th></tr></thead>
+    <tbody>
+      <tr><td>自注意力</td><td>\(O(n^2 \cdot d)\)</td><td>\(O(1)\)</td><td>\(O(1)\)</td></tr>
+      <tr><td>循环</td><td>\(O(n \cdot d^2)\)</td><td>\(O(n)\)</td><td>\(O(n)\)</td></tr>
+      <tr><td>卷积</td><td>\(O(k \cdot n \cdot d^2)\)</td><td>\(O(1)\)</td><td>\(O(\log_k(n))\)</td></tr>
+      <tr><td>自注意力（受限）</td><td>\(O(r \cdot n \cdot d)\)</td><td>\(O(1)\)</td><td>\(O(n/r)\)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　表 1（原论文表 1）：\(n\) 是序列长度，\(d\) 是表示维度，\(k\) 是卷积核大小，\(r\) 是受限自注意力的邻域大小。重点看右边两列。顺序操作数衡量能不能并行：自注意力每个位置的新表示互不依赖（4.2.4 节手算例子里三行就是各算各的），全部位置可以同时算，GPU 终于能火力全开。最大路径长度衡量远距离信息要走几步：自注意力任意两个位置一步直连，隔了 50 个词的指代也能一把抓住，而 RNN 要传 50 站。</p>
+
+<p>　　代价也写在表里：每层复杂度中的 \(n^2\)。序列长度翻倍，注意力的计算量翻两番。</p>
+
+<div class="highlight-box info">
+  \(n^2\) 是注意力为"任意直连"付的账单。今天的长上下文需求（几万到上百万 token）让这项开销成为系统瓶颈，怎么给注意力减负，是第 5 章（GQA、MLA 等架构变体）和第 13 章（KV Cache、推理优化）要解决的问题。
+</div>
+
+<div class="highlight-box">
+  一句话：注意力用 \(O(n^2)\) 的计算量，换来 \(O(1)\) 的顺序操作和 \(O(1)\) 的信息路径。计算量可以靠堆 GPU 并行消化，顺序依赖和长路径却是 RNN 绕不开的结构性瓶颈。这就是 Transformer 取代 RNN 的根本原因。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">Query、Key、Value 三个角色分别负责什么？它们从哪里来？</div>
+    <div class="sc-key">Query 描述这个 token 想找什么，Key 是供人匹配的名片，Value 是真正被取走的内容。三者由同一个 token 向量分别乘可学习投影矩阵 \(W^Q\)、\(W^K\)、\(W^V\) 得到。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么点积之后要除以 \(\sqrt{d_k}\) 再做 softmax？</div>
+    <div class="sc-key">原论文 3.2.1 节的理由：\(d_k\) 较大时点积数值变大，会把 softmax 推进梯度极小的饱和区，模型学不动。除以 \(\sqrt{d_k}\) 把分数拉回合适的数值范围。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">注意力凭什么取代 RNN？</div>
+    <div class="sc-key">任意两个位置一步直连（最大路径长度 \(O(1)\)），且所有位置的新表示互不依赖、可以并行计算（顺序操作数 \(O(1)\)）。代价是 \(O(n^2)\) 的计算量，但它能被并行硬件消化。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本节机制在 minimind 中的对应实现：<code>minimind-master/model/model_minimind.py</code> 的 <code>Attention</code> 类（第 91 行起，Apache 2.0 协议）。读代码时对照本节四处关键计算：</p>
+
+<ul>
+  <li>第 100–102 行 <code>q_proj / k_proj / v_proj</code>：就是本节的三个投影矩阵 \(W^Q\)、\(W^K\)、\(W^V\)，同一个输入 <code>x</code> 过三个线性层得到三种角色；</li>
+  <li>第 128 行 <code>scores = (xq @ xk.transpose(-2, -1)).float() / math.sqrt(self.head_dim)</code>：公式 (1) 的 \(QK^{\top} / \sqrt{d_k}\)；</li>
+  <li>第 129 行 <code>scores[...] += torch.full((seq_len, seq_len), float("-inf"), ...).triu(1)</code>：把上三角（看向未来的位置）加上 \(-\infty\)，正是 4.2.5 节的因果掩码；</li>
+  <li>第 131 行 <code>output = ...(F.softmax(scores, dim=-1)...) @ xv</code>：softmax 归一化后乘 \(V\)，完成加权求和。</li>
+</ul>
+
+<p>　　代码里还有两处本节没讲的细节：<code>num_key_value_heads</code> 与 <code>repeat_kv</code>（第 86 行）是 GQA 分组查询注意力，第 119 行的 <code>apply_rotary_pos_emb</code> 是 RoPE 旋转位置编码，分别对应第 5 章和第 3 章的内容，读到时留意即可。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）。本节的注意力定义、公式 (1)、缩放因子 \(1/\sqrt{d_k}\) 的理由、加性与点积注意力的对比、注意力的三种用法出自其 3.2 节；RNN 的串行瓶颈出自第 1 节；层类型复杂度对比出自第 4 节表 1。引用内容均以工程内中译本 ref_paper/2016_attention_is_all_you_need/2016_attention_is_all_you_need_zh.md 逐字核对。</li>
+  <li>minimind 工程（Apache 2.0）：model/model_minimind.py 中 Attention 类的实现，动手验证区块的行号以该文件实际代码为准。</li>
+  <li>4.2.4 节的数值例子为自编演示数字（文中已标注），仅用于演示计算流程，不来自任何真实模型。</li>
+</ul>
+
+</article>

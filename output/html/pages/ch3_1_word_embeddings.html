@@ -1,0 +1,188 @@
+﻿<article class="content">
+<h1>3.1 词向量：把 token 放进语义坐标系</h1>
+<p class="subtitle">本页范围：第 3 章第 1 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>token ID 只是编号，不携带任何语义。模型如何把编号变成“有意义的数字”，让语义相近的词在数学上也相近？</td></tr>
+      <tr><td>本节主张</td><td>词向量把每个 token 映射为一个 d 维稠密向量，语义就此转化为空间几何：近即相似，差即关系。LLM 中这张映射表（Embedding 层）与整个网络一起端到端训练。</td></tr>
+      <tr><td>一句话结论</td><td>Embedding 层本质是一张 \(V \times d\) 的可训练查找表，查表把 token ID 换成向量，语义几何是语言模型训练在这张表上留下的副产品。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>one-hot</span><span>分布式表示</span><span>word2vec</span><span>Embedding 层</span><span>权重共享</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>3.1.1 从身份证到坐标：one-hot 的缺陷</h2>
+
+<p>　　第 2 章结束时，文本已经变成一串整数 ID，比如 <code>[721, 3345, 8819, 220]</code>。但整数编号本身不携带语义：编号 3345 和 3346 在数值上相邻，对应的 token 却可能风马牛不相及。模型需要一种更好的表示，让“意思相近的词，表示也相近”。</p>
+
+<p>　　最朴素的方案是 one-hot（独热）表示：词表有 \(V\) 个词，就给每个词一个 \(V\) 维向量，属于它的那一位是 1，其余全是 0。词表有 5 万个词，每个词就是一个 5 万维的向量。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">one-hot 独热表示</span>
+    <span class="term-en">one-hot = 只有一位是 1、其余全为 0 的向量</span>
+  </div>
+  <div class="term-body">
+    <p>词表中第 \(i\) 个词的 one-hot 向量，第 \(i\) 位是 1，其余 \(V-1\) 位全是 0。它能做的只有一件事：标识“我是第 \(i\) 个词”。</p>
+    <div class="term-analogy">就像身份证：号码唯一，能证明“你是你”，但光看号码看不出你和任何人有什么关系——同村的人和千里之外的人，号码上没有区别。</div>
+  </div>
+</div>
+
+<p>　　这种身份证式表示有两个硬伤：</p>
+
+<ul>
+  <li><strong>算不出相似度</strong>：任意两个不同词的 one-hot 向量点积恒为 0（数学上称为正交），即 \(\mathbf{o}_i^{\top}\mathbf{o}_j = 0\)（\(i \neq j\)）。“猫”与“狗”的相似度，和“猫”与“汽车”的相似度一模一样，都是 0。</li>
+  <li><strong>维度爆炸且稀疏</strong>：词表一大（几万到几十万），每个向量就有几万维，其中却只有一个 1，剩下的全是 0，表达效率极低。</li>
+</ul>
+
+<p>　　出路是把身份证换成坐标：给每个词一组稠密的连续数值，就像给城市一组经纬度——坐标相近的城市地理位置相近，坐标相近的词语义相近。这就是下一节的主题。</p>
+
+<h2>3.1.2 分布式表示：语义变成几何</h2>
+
+<p>　　2013 年，Mikolov 等人提出的 word2vec 把这个想法变成了现实：用一个几百维的稠密向量表示每个词，取值不再非 0 即 1，而是连续实数。这种表示叫<strong>分布式表示</strong>（distributed representation）——一个词的语义“分布”在许多维度上共同表达。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">分布式表示 Distributed Representation</span>
+    <span class="term-en">distributed = 语义分散在多个维度上共同承载</span>
+  </div>
+  <div class="term-body">
+    <p>与 one-hot 用“一位”标识一个词相反，分布式表示用 \(d\) 个连续数值（几十到几百维）共同描述一个词。任意两个词都能算出距离或夹角，语义相近的词在向量空间中彼此靠近。</p>
+    <div class="term-analogy">就像体检报告：one-hot 是身份证，只证明你是谁；体检报告用身高、血压、心率等几十项指标描述一个人，指标相近的人体质相近。词向量的每个维度就是一项“指标”。</div>
+  </div>
+</div>
+
+<p>　　词向量最迷人的性质，是语义被编码成了几何。两个经典表现：一是“近即相似”，“猫”的最近邻是“狗”“老虎”这类词，而不是“汽车”；二是“差即关系”，词与词的差向量能捕获语义关系，最著名的例子是：</p>
+
+<div class="formula-card">
+  \[ \mathbf{v}_{\text{king}} - \mathbf{v}_{\text{man}} + \mathbf{v}_{\text{woman}} \approx \mathbf{v}_{\text{queen}} \tag{1} \]
+  <div class="formula-note">公式 (1)：“国王”减“男性”加“女性”，结果最接近的词向量是“女王”。性别、量级这类关系，在向量空间里表现为方向相近的差向量。</div>
+</div>
+
+<p>　　直觉上这样理解这个算式：把每个词想成地图上的点。从 man 走到 king 的那段位移，和从 woman 走到 queen 的位移几乎一模一样——都是“加上王室属性”。所以从 king 出发，反走“男性”这段路、再走一遍“女性”那段路，就落在了 queen 附近。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 坐标轴 -->
+    <line x1="60" y1="265" x2="60" y2="25" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr)"/>
+    <line x1="50" y1="265" x2="690" y2="265" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="640" y="290" text-anchor="middle" font-size="12" fill="#666">维度 1（示意）</text>
+    <text x="60" y="16" text-anchor="middle" font-size="12" fill="#666">维度 2（示意）</text>
+    <!-- 动物簇 -->
+    <ellipse cx="200" cy="125" rx="85" ry="60" fill="#ede9fe" fill-opacity="0.5" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="200" y="56" text-anchor="middle" font-size="13" fill="#6d28d9">动物</text>
+    <circle cx="185" cy="140" r="5" fill="#6d28d9"/><text x="197" y="145" font-size="13" fill="#333">猫</text>
+    <circle cx="225" cy="110" r="5" fill="#6d28d9"/><text x="237" y="115" font-size="13" fill="#333">狗</text>
+    <circle cx="165" cy="105" r="5" fill="#6d28d9"/><text x="177" y="110" font-size="13" fill="#333">老虎</text>
+    <!-- 交通工具簇 -->
+    <ellipse cx="515" cy="170" rx="90" ry="60" fill="#ecfeff" fill-opacity="0.6" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="515" y="100" text-anchor="middle" font-size="13" fill="#0891b2">交通工具</text>
+    <circle cx="500" cy="190" r="5" fill="#0891b2"/><text x="512" y="195" font-size="13" fill="#333">汽车</text>
+    <circle cx="550" cy="155" r="5" fill="#0891b2"/><text x="562" y="160" font-size="13" fill="#333">卡车</text>
+    <circle cx="480" cy="150" r="5" fill="#0891b2"/><text x="492" y="145" font-size="13" fill="#333">公交车</text>
+    <!-- 底部说明 -->
+    <text x="330" y="292" text-anchor="middle" font-size="12" fill="#666">簇内近 = 语义近，簇间远 = 语义远（示意：真实词向量有数百维）</text>
+  </svg>
+  <div class="diagram-caption">图示：词向量空间中，语义相近的词聚成一簇。动物的三个词彼此靠近，交通工具另成一簇，两簇之间距离明显更远。</div>
+</div>
+
+<div class="highlight-box danger">
+  不要试图解释词向量的单个维度。768 个数字里没有“第 5 维代表性别”这回事：语义分布在所有维度上，可解释的是方向（king→queen 与 man→woman 的差方向相近），不是孤立的坐标值。
+</div>
+
+<div class="highlight-box info">
+  这些几何性质不是人工设计的。word2vec 用“拿周围的词预测中间的词（或反过来）”这一任务在海量语料上自动训练，语义规律是训练过程自然涌现的副产品。
+</div>
+
+<p>　　word2vec 是“先单独学词向量、再喂给下游模型”的两段式方案。现代 LLM 更彻底：词向量不单独学，直接作为网络的第一层，和整个模型一起训练。这就是 Embedding 层。</p>
+
+<h2>3.1.3 Embedding 层：一张可训练的巨型查找表</h2>
+
+<p>　　LLM 的 Embedding 层本质上是一张巨型查找表：一个 \(V \times d\) 的矩阵 \(\mathbf{E}\)，行数等于词表大小，列数等于模型维度（hidden size）。词表中每个 token 独占一行，这一行就是它的词向量。</p>
+
+<p>　　前向传播时发生的动作简单得出人意料：分词器给出 token 编号，Embedding 层把编号当行号，取出矩阵里对应的那一行：</p>
+
+<div class="formula-card">
+  \[ \mathbf{e}_t = \mathbf{E}[\,\mathrm{id}_t\,] \in \mathbb{R}^{d}, \qquad \mathbf{E} \in \mathbb{R}^{V \times d} \tag{2} \]
+  <div class="formula-note">公式 (2)：Embedding 的前向就是“按行号取一行”。没有矩阵乘法，没有非线性变换，只是内存里的一次随机访问。</div>
+</div>
+
+<div class="highlight-box info">
+  数学上，查表等价于用 one-hot 向量左乘 \(\mathbf{E}\)：\(\mathbf{e}_t = \mathbf{o}_t^{\top}\mathbf{E}\)。实现上当然不做这次矩阵乘法，直接按行号索引——所以 Embedding 层几乎不耗算力，开销主要在显存。
+</div>
+
+<p>　　这张表不是查字典查来的，而是训练出来的。矩阵 \(\mathbf{E}\) 的初始值是随机数，训练时语言模型的损失会沿着网络一路反向传播回这张表，逐行调整每个词向量。海量 token 喂下来，“语义相近则向量相近”的几何结构就被刻进了表里。和 word2vec 相比，它不用单独训练，学到的向量也完全服务于语言模型自己的目标。</p>
+
+<p>　　还有一个常见的省参数技巧。模型最后一层要把隐藏状态投影回词表、输出每个 token 的概率，用的矩阵尺寸是 \(d \times V\)，和 Embedding 恰好互为转置。许多模型干脆让这两处共享同一份参数，称为<strong>权重共享</strong>（tied embeddings）。\(V\) 很大时这能省下整整一张 \(V \times d\) 的表，而且实验表明共享往往不损性能，甚至有益（Press &amp; Wolf, 2017）。</p>
+
+<div class="highlight-box">
+  Embedding 层是三件事的合体：一张 \(V \times d\) 的查找表、一个与整个网络端到端训练的参数矩阵、（通常）与输出投影共享的权重。词向量的语义几何不是谁设计出来的，是语言模型训练目标在这张表上留下的痕迹。
+</div>
+
+<h2>3.1.4 minimind 实例：6400 行 × 768 列</h2>
+
+<p>　　以本工程自带的 minimind 小模型为例，把上面的数字落到实处。它的 Embedding 层配置如下：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>配置项</th><th>取值</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><td><code>vocab_size</code></td><td>6400</td><td>词表大小，查找表有 6400 行</td></tr>
+      <tr><td><code>hidden_size</code></td><td>768</td><td>模型维度，每行是一个 768 维向量</td></tr>
+      <tr><td>Embedding 参数量</td><td>6400 × 768 = 4,915,200</td><td>约 491 万个可训练参数</td></tr>
+      <tr><td><code>tie_word_embeddings</code></td><td>True</td><td>输入 Embedding 与输出投影共享同一份权重</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　也就是说，分词器每吐出一个 0 到 6399 的编号，模型就从这张 6400 行、768 列的表里取出一行。编号 1、37、962 三个 token 进去，出来 3 个 768 维向量，后面的 Transformer 层处理的正是这批向量。</p>
+
+<p>　　注意，Embedding 只回答了“每个 token 是谁”，回答不了“它在第几个位置”。同一个“猫”出现在句首还是句尾，查出来的是同一行向量。可语序对意思的影响太大了，“猫吃鱼”和“鱼吃猫”完全是两回事。位置信息怎么补进去？这是 3.2 节位置编码要解决的问题。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">one-hot 表示为什么表达不了语义？</div>
+    <div class="sc-key">任意两个不同词的 one-hot 向量都正交，点积恒为 0，没有距离与相似度的概念；而且维度随词表线性膨胀，向量里几乎全是 0。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">king − man + woman ≈ queen 这个算式说明了什么？</div>
+    <div class="sc-key">词向量把语义编码成了几何：相近的词聚成一簇，“性别”“王室”这类关系表现为方向相近的差向量，语义运算可以当作向量加减来做。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">LLM 的 Embedding 层和 word2vec 的词向量有什么本质区别？</div>
+    <div class="sc-key">word2vec 是独立训练的静态词表；LLM 的 Embedding 是网络的第一层，随机初始化后随语言模型目标端到端联合训练，还常与输出投影共享权重（tied embeddings）。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+<p>　　本节机制在 minimind 中的对应实现（出处：minimind 工程，Apache 2.0 协议）：</p>
+<ul>
+  <li><code>model/model_minimind.py</code> 中 <code>MiniMindModel</code> 的 <code>self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)</code>（第 206 行附近）：6400 × 768 的查找表本体；</li>
+  <li>同一文件 <code>forward</code> 里的 <code>self.embed_tokens(input_ids)</code>（第 219 行附近）：前向时唯一的动作就是查表；</li>
+  <li><code>MiniMindForCausalLM</code> 中 <code>tie_word_embeddings=True</code> 时执行 <code>self.model.embed_tokens.weight = self.lm_head.weight</code>（第 247 行附近）：输入 Embedding 与输出投影共享权重的实现。</li>
+</ul>
+<p>　　也可以亲手跑一次查表，感受“编号进去、向量出来”：</p>
+<pre><code>cd minimind-master
+python -c "import torch; emb = torch.nn.Embedding(6400, 768); ids = torch.tensor([[1, 37, 962]]); print(emb(ids).shape)"</code></pre>
+<p>　　预期输出 <code>torch.Size([1, 3, 768])</code>：3 个编号换回 3 个 768 维向量（随机初始化，数值本身暂无意义）。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Mikolov, Chen, Corrado &amp; Dean, 2013. Efficient Estimation of Word Representations in Vector Space（word2vec 原始论文，arXiv:1301.3781）。</li>
+  <li>Mikolov, Yih &amp; Zweig, 2013. Linguistic Regularities in Continuous Space Word Representations（NAACL 2013，king − man + woman ≈ queen 算式的出处）。</li>
+  <li>Press &amp; Wolf, 2017. Using the Output Embedding to Improve Language Models（输入输出 Embedding 权重共享，arXiv:1608.05859）。</li>
+</ul>
+
+</article>

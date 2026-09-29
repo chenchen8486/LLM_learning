@@ -1,0 +1,195 @@
+﻿<article class="content">
+<h1>5.3 MLA：把 K、V 压成低维「浓缩液」</h1>
+<p class="subtitle">本页范围：第 5 章第 3 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>GQA 靠「多个头共享一份 K、V」省缓存，但共享是有损的。能不能既不共享、又把 KV 缓存大幅压小？</td></tr>
+      <tr><td>本节主张</td><td>MLA（Multi-head Latent Attention，多头隐注意力）换个思路：不存各头的 K、V，只存一个低维隐向量，用时再展开。缓存缩到接近 MQA 的量级，效果却做到不弱于完整 MHA。</td></tr>
+      <tr><td>一句话结论</td><td>把「按头存 K、V」改成「存一份低维浓缩液」，DeepSeek-V2 的 KV 缓存降到约 GQA 2.25 组的水平，性能反而强于 MHA。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>MLA</span><span>低秩压缩</span><span>KV 缓存</span><span>decoupled RoPE</span><span>DeepSeek-V2 / V3</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>5.3.1 GQA 之后还能怎么省：从「共享」到「压缩」</h2>
+
+<p>　　上一节讲的 GQA 是节流思路的直接版本：既然 128 个头各自存一份 K、V 太奢侈，那就让 8 个头共用一份。缓存确实降下来了，但代价也摆在明面上：同组的头拿到一模一样的 K、V，表达能力被「拉平」，组数越少伤得越重，MQA 是这条路的极端，所有头共享一份，质量损失最明显。</p>
+
+<p>　　DeepSeek-V2 的设计者换了个角度问这个问题。KV 缓存之所以大，是因为我们存的是「成品」：每个头展开好的 K、V。可这些 K、V 本来就是从同一个 token 表示 \(h_t\) 经过投影矩阵算出来的。既然它们同出一源，信息上就有大量冗余，那能不能不存成品，改存「原料」？</p>
+
+<p>　　这就是 MLA 的出发点：<strong>推理时只缓存一个由 \(h_t\) 直接压缩出来的低维隐向量，各头的 K、V 需要用到时再从隐向量临时展开</strong>。共享是「几个头喝同一杯茶」，压缩是「不存茶水存茶粉，喝的时候现冲」。茶粉占的地方远小于茶水，而只要浓缩工艺够好，冲出来的味道可以不打折。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">低秩压缩 Low-rank Compression</span>
+    <span class="term-en">用一个小向量承载大向量的主要信息</span>
+  </div>
+  <div class="term-body">
+    <p>一个高维向量如果实际只在一个低维子空间里变化，就可以先乘一个「下投影」矩阵把它压成低维向量，需要时再乘「上投影」矩阵还原。压缩过程有损还是无损，取决于原向量里真实信息的秩。MLA 押的注是：各头 K、V 里值得保留的信息，用一个远小于总维度的隐向量就装得下，模型可以在训练中学会把重要信息塞进这个小瓶子里。</p>
+    <div class="term-analogy">就像果汁浓缩液：运输时抽掉水分，体积缩小十几倍，到店里加水还原。只要浓缩工艺保留了风味物质，还原出的果汁和原装差别很小。</div>
+  </div>
+</div>
+
+<h2>5.3.2 MLA 的浓缩–展开机制</h2>
+
+<p>　　把话落到公式上。标准 MHA 里，位置 \(t\) 的表示 \(h_t\) 分别乘 128 个头的投影矩阵，得到 128 份 K 和 128 份 V，推理时这些全部要缓存。MLA 第一步是把这些投影「砍掉」，换成一次下投影：</p>
+
+<div class="formula-card">
+  \[ c_t^{KV} = W^{DKV}\, h_t \tag{1} \]
+  <div class="formula-note">公式 (1)：下投影。\(W^{DKV}\) 把 \(d\) 维的 \(h_t\) 压成 \(d_c\) 维的隐向量 \(c_t^{KV}\)，\(d_c \ll n_h \cdot d_h\)。推理时真正缓存的就是它。</div>
+</div>
+
+<p>　　用 DeepSeek-V2 的真实配置代入数字：隐藏维度 \(d=5120\)，共 \(n_h=128\) 个头，每头 \(d_h=128\) 维，压缩维度取 \(d_c=512\)（即 \(4\,d_h\)）。一个 \(5120\) 维的向量被压成 \(512\) 维，这一份隐向量是 128 个头共用的「浓缩液」。</p>
+
+<p>　　第二步，注意力计算需要某个头的 K、V 时，用该头的上投影矩阵把浓缩液「冲开」：</p>
+
+<div class="formula-card">
+  \[ k_{t,i}^{C} = W_i^{UK}\, c_t^{KV}, \qquad v_{t,i}^{C} = W_i^{UV}\, c_t^{KV} \tag{2} \]
+  <div class="formula-note">公式 (2)：上投影。第 \(i\) 个头用自己的 \(W_i^{UK}\)、\(W_i^{UV}\) 从同一份 \(c_t^{KV}\) 展开出各自的 K、V，每个头拿到的不一样。</div>
+</div>
+
+<p>　　注意它和 GQA 的本质区别：GQA 里同组的头拿到的是逐元素相同的 K、V；MLA 里各头的上投影矩阵互不相同，展开出的 K、V 各不相同，头与头的多样性保住了。压缩的只是「存储介质」，不是「头的个性」。<strong>所以这步在干嘛：把 128 份成品 K、V 换成一份 512 维的浓缩液存起来，喝的时候每个头用自己的配方冲一杯。</strong></p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 400" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 输入 h_t -->
+    <rect x="20" y="160" width="130" height="80" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="85" y="192" text-anchor="middle" font-size="15" fill="#333">token 表示</text>
+    <text x="85" y="216" text-anchor="middle" font-size="12" fill="#666">h_t（5120 维）</text>
+    <!-- 下投影 -->
+    <rect x="200" y="160" width="130" height="80" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="265" y="192" text-anchor="middle" font-size="15" fill="#333">下投影压缩</text>
+    <text x="265" y="216" text-anchor="middle" font-size="12" fill="#666">c = W^DKV · h_t</text>
+    <!-- 隐向量（缓存） -->
+    <rect x="390" y="160" width="150" height="80" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="2.5"/>
+    <text x="465" y="188" text-anchor="middle" font-size="15" fill="#333">低维隐向量</text>
+    <text x="465" y="210" text-anchor="middle" font-size="12" fill="#666">c_t^KV（512 维）</text>
+    <text x="465" y="228" text-anchor="middle" font-size="12" fill="#dc2626">推理时只缓存它</text>
+    <!-- 上投影到 K / V -->
+    <rect x="590" y="80" width="150" height="70" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="665" y="108" text-anchor="middle" font-size="14" fill="#333">上投影 W^UK</text>
+    <text x="665" y="130" text-anchor="middle" font-size="12" fill="#666">128 个头各自的 K</text>
+    <rect x="590" y="250" width="150" height="70" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="665" y="278" text-anchor="middle" font-size="14" fill="#333">上投影 W^UV</text>
+    <text x="665" y="300" text-anchor="middle" font-size="12" fill="#666">128 个头各自的 V</text>
+    <!-- 箭头 -->
+    <line x1="150" y1="200" x2="200" y2="200" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr5)"/>
+    <line x1="330" y1="200" x2="390" y2="200" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr5)"/>
+    <path d="M540,175 C570,160 570,130 590,120" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr5)"/>
+    <path d="M540,225 C570,240 570,270 590,280" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr5)"/>
+    <!-- 对比注记 -->
+    <text x="85" y="290" text-anchor="middle" font-size="13" fill="#666">传统 MHA：</text>
+    <text x="85" y="312" text-anchor="middle" font-size="13" fill="#666">缓存 128 份 K + 128 份 V</text>
+    <text x="85" y="334" text-anchor="middle" font-size="13" fill="#dc2626">每层每 token 32768 个数</text>
+    <text x="265" y="290" text-anchor="middle" font-size="13" fill="#666">MLA：</text>
+    <text x="265" y="312" text-anchor="middle" font-size="13" fill="#666">只缓存一份浓缩液</text>
+    <text x="265" y="334" text-anchor="middle" font-size="13" fill="#dc2626">512 个数（另加 64 维位置分量）</text>
+    <!-- 底部说明 -->
+    <text x="380" y="385" text-anchor="middle" font-size="13" fill="#666">浓缩液存缓存，K、V 用时现展开：缓存从 32768 个数缩到 576 个数。</text>
+  </svg>
+  <div class="diagram-caption">图示：MLA 的浓缩–展开流程。\(h_t\) 经下投影压成 512 维隐向量存入缓存，各头的 K、V 由各自的上投影从隐向量临时展开，不再逐头缓存。</div>
+</div>
+
+<div class="highlight-box">
+  核心结论：MLA 每层每 token 的 KV 缓存从 MHA 的 \(2\,n_h d_h\) 个数（DeepSeek-V2 配置下 32768 个）降到 \(d_c + d_h^R\) 个数（512 + 64 = 576 个），约等于 GQA 只开 2.25 组的缓存量，而论文报告其性能强于 MHA。缓存与质量第一次不再此消彼长。
+</div>
+
+<h2>5.3.3 位置与内容分家：decoupled RoPE</h2>
+
+<p>　　浓缩方案有一个暗礁，名字叫做 RoPE。回忆第 3 章：RoPE 是给 Q、K 按位置做旋转的位置编码，旋转矩阵和位置编号绑定。问题在于，RoPE 是直接作用在展开后的 K 上的，而 MLA 的 K 是推理时才从 \(c_t^{KV}\) 展开出来的。如果先把位置信息混进 \(c_t^{KV}\) 再压缩，旋转和投影两种线性变换缠在一起，「用时再展开」的账就算不转了；如果展开后再加 RoPE，每个头的 K 都要单独旋转缓存，压缩带来的缓存节省又被吃回去一大块。低秩压缩和 RoPE 在数学上互相打架。</p>
+
+<p>　　DeepSeek 的解法干脆利落：<strong>位置和内容彻底分家</strong>。K、Q 各拆成两段：</p>
+
+<ul>
+  <li><strong>内容段</strong>：占大头，从浓缩液展开，不带位置信息，走上一节的压缩流程；</li>
+  <li><strong>位置段</strong>：一小段专门承载 RoPE 的分量，单独从 \(h_t\) 算出来，不进压缩通道，也不按头区分。</li>
+</ul>
+
+<div class="formula-card">
+  \[ k_t^{R} = \mathrm{RoPE}\!\left(W^{KR}\, h_t\right) \tag{3} \]
+  <div class="formula-note">公式 (3)：解耦的位置 key。它由 \(h_t\) 直接算出并做旋转，维度很小（DeepSeek-V2 取 \(d_h^R = 64\)，即 \(d_h/2\)），所有头共享同一份，随 \(c_t^{KV}\) 一起缓存。</div>
+</div>
+
+<p>　　注意力打分就变成两项相加：内容段对内容段，位置段对位置段：</p>
+
+<div class="formula-card">
+  \[ \mathrm{score}(q_t, k_s) \;=\; \big(q_t^{C}\big)^{\!\top} k_s^{C} \;+\; \big(q_t^{R}\big)^{\!\top} k_s^{R} \tag{4} \]
+  <div class="formula-note">公式 (4)：内容相似度与位置相似度分开计算再相加。Query 侧同样拆成内容段与位置段，位置段也带 RoPE。</div>
+</div>
+
+<p>　　这份 64 维的位置 key 全头共享，所以缓存里只需再加 64 个数。最终每层每 token 缓存总量是 \(512 + 64 = 576\) 个数，对照 MHA 的 32768 个，缩到约 1/57。<strong>所以这步在干嘛：RoPE 不肯被压缩，那就别难为它，单独给它开一间 64 维的小储藏室，主仓库继续放浓缩液。</strong></p>
+
+<div class="highlight-box info">
+  补充：Query 侧 MLA 也做了同款低秩压缩（\(c_t^{Q} = W^{DQ} h_t\)，DeepSeek-V2 中压缩到 1536 维），但 Query 不需要跨步缓存，这一压缩省的是参数量与训练显存，与 KV 缓存无关，知道即可。
+</div>
+
+<h2>5.3.4 推理加速：把上投影「吸收」掉</h2>
+
+<p>　　按 5.3.2 节的描述，推理时好像每读一个缓存 token 都要做 128 次上投影，会不会把省下的显存又赔进算力里？不会，因为线性代数允许「合并同类项」。注意力打分是 \(q^{\top} k\)，把上投影代进去：</p>
+
+<div class="formula-card">
+  \[ \big(q_t^{C}\big)^{\!\top} k_s^{C} = \big(W_i^{UQ}\, c_t^{Q}\big)^{\!\top} \big(W_i^{UK}\, c_s^{KV}\big) = \big(c_t^{Q}\big)^{\!\top} \underbrace{\big(W_i^{UQ}\big)^{\!\top} W_i^{UK}}_{\text{可预先合并成一个矩阵}}\, c_s^{KV} \tag{5} \]
+  <div class="formula-note">公式 (5)：矩阵结合律。两个投影矩阵的乘积可在加载模型时预先算好，推理时 query 侧的隐向量直接与缓存的 \(c_s^{KV}\) 打分，K 根本不需要真的展开。</div>
+</div>
+
+<p>　　V 侧同理：上投影 \(W_i^{UV}\) 可以被输出投影 \(W_i^{O}\) 吸收，先对 \(c_s^{KV}\) 加权求和，最后一次性映射回隐藏维度。这套操作论文里称为矩阵吸收（absorb）。吸收之后，推理全程打交道的只有隐向量，等效于只缓存、只读取那份 576 个数的浓缩液，省显存也省显存带宽。<strong>所以这步在干嘛：展开只是数学上的中间步骤，用结合律把它折叠掉，推理时连「冲茶粉」的动作都省了。</strong></p>
+
+<div class="highlight-box info">
+  注释：吸收技巧改变的是计算顺序，不改变计算结果，属于「免费」的加速。训练时参数仍需分开存储，吸收发生在推理部署阶段。
+</div>
+
+<h2>5.3.5 与 MHA / GQA / MQA 对照</h2>
+
+<p>　　把四种注意力变体放在同一张桌上，按「每层每 token 缓存的元素个数」算账（\(l\) 为层数，\(n_g\) 为 GQA 组数，元素个数与存储精度无关）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>机制</th><th>缓存什么</th><th>每层每 token 缓存量</th><th>质量表现</th><th>代表模型</th></tr></thead>
+    <tbody>
+      <tr><td>MHA</td><td>每个头完整的 K、V</td><td>\(2\,n_h d_h\)（32768）</td><td>强（基准）</td><td>原始 Transformer</td></tr>
+      <tr><td>GQA</td><td>每组一份 K、V，组内共享</td><td>\(2\,n_g d_h\)</td><td>中等，随组数减少而下降</td><td>Llama 2/3、Qwen 系</td></tr>
+      <tr><td>MQA</td><td>全部头共享一份 K、V</td><td>\(2\,d_h\)（256）</td><td>较弱</td><td>Falcon、早期 PaLM</td></tr>
+      <tr><td>MLA</td><td>一份低维隐向量 + 共享位置 key</td><td>\(d_c + d_h^R\)（576，约 GQA 2.25 组）</td><td>论文报告不弱于 MHA</td><td>DeepSeek-V2 / V3</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　缓存量一列用的是 DeepSeek-V2 的配置（\(n_h=128\)，\(d_h=128\)，\(d_c=512\)，\(d_h^R=64\)）。可以看到 MLA 落在很特殊的位置：缓存量逼近 MQA，质量却站到了 MHA 一侧。放到整机对比上，DeepSeek-V2 技术报告给出的数字是：相比自家稠密的 DeepSeek 67B，KV 缓存减少 93.3%，最大生成吞吐提升到 5.76 倍。</p>
+
+<p>　　为什么压缩能比共享做得更好？直觉上可以这样想：共享是硬约束，强行规定若干头必须一样；压缩是软约束，只限制存储的维度，至于各头的 K、V 长什么样，模型在训练中自由学习。低秩假设赌的是「K、V 里的有效信息本来就没那么满」，DeepSeek-V2 的实验结果支持了这个赌注。当然，MLA 也不是白捡的便宜：训练和推理实现都比 GQA 复杂，对工程团队的要求更高，这也是它目前主要见于 DeepSeek 系模型的原因之一。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">MLA 和 GQA 省缓存的思路差在哪里？</div>
+    <div class="sc-key">GQA 让多个头共享同一份 K、V，牺牲头的多样性；MLA 只缓存一个低维隐向量 \(c_t^{KV}\)，各头用各自的上投影临时展开 K、V，多样性保住，缓存照样大降。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么 RoPE 和低秩压缩会冲突，怎么解决？</div>
+    <div class="sc-key">RoPE 的旋转作用在展开后的 K 上，与「先存浓缩液、用时再展开」的流程打架。解法是 decoupled RoPE：内容段走压缩通道，另留一小段（64 维）全头共享的位置分量单独承载 RoPE，两者分开算分再相加。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">MLA 的缓存到底省了多少，质量代价是什么？</div>
+    <div class="sc-key">DeepSeek-V2 配置下每层每 token 缓存 576 个数，约为 MHA 的 1/57，相当于 GQA 2.25 组；论文报告性能不弱于 MHA，整机 KV 缓存较 DeepSeek 67B 减少 93.3%。主要代价是实现复杂度。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>DeepSeek-AI, 2024. DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model（arXiv:2405.04434）。MLA 的提出处：低秩 KV 联合压缩、decoupled RoPE、矩阵吸收技巧、缓存对比表（Table 1）与 93.3% 缓存缩减、5.76 倍吞吐均出自该文。</li>
+  <li>DeepSeek-AI, 2024. DeepSeek-V3 Technical Report（arXiv:2412.19437），MLA 在 V3 中的沿用。</li>
+  <li>Ainslie et al., 2023. GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints（arXiv:2305.13245），GQA 缓存量级对照的出处。</li>
+</ul>
+
+</article>

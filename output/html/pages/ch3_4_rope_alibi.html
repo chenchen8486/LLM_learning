@@ -1,0 +1,214 @@
+﻿<article class="content">
+<h1>3.4 相对位置编码：RoPE 与 ALiBi</h1>
+<p class="subtitle">本页范围：第 3 章第 4 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>绝对位置编码给每个 token 发一张“门牌号”，可注意力真正关心的是两个词之间隔多远。怎样让模型直接感知“相对距离”？</td></tr>
+      <tr><td>本节主张</td><td>RoPE 把 query / key 向量按位置旋转不同角度，让注意力内积自动只依赖相对距离；ALiBi 不碰向量，直接在注意力分数上按距离扣分。前者效果好、生态主流，后者外推朴素直接。</td></tr>
+      <tr><td>一句话结论</td><td>RoPE 是当今 LLM 事实上的标准位置编码（Llama、Qwen、DeepSeek、minimind 全在用），ALiBi 以“训练短、测试长”的免续训外推占有一席之地。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>相对位置编码</span><span>RoPE</span><span>旋转矩阵</span><span>远程衰减</span><span>ALiBi</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>3.4.1 从“门牌号”到“隔几站”：一次思路转变</h2>
+
+<p>　　上一节讲的绝对位置编码，做法是给每个 token 发一张门牌号：位置 0 一个向量、位置 1 一个向量，把位置向量加在词向量上一起送进模型。这个方案能用，但有一个拧巴的地方——注意力真正关心的问题不是“你在哪”，而是“你离我有多远”。</p>
+
+<p>　　举个例子。句子“猫追狗，狗追猫”里，决定“追”和“猫”关系远近的，是它们中间隔了几个词，而不是“追”是第 2 个 token 还是第 20 个 token。一种合理的期待是：<strong>同样两个词，只要相隔距离相同，不管出现在句子哪个位置，它们在注意力里的相互作用就应该相同</strong>。绝对位置编码把这个信息拐了一道弯（先各自记门牌，再由模型学出门牌差），相对位置编码则开门见山：直接把“隔几站”告诉注意力。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">相对位置编码（Relative Position Encoding）</span>
+    <span class="term-en">编码对象是 token 之间的距离，而非 token 的序号</span>
+  </div>
+  <div class="term-body">
+    <p>与绝对位置编码相对的一族方法。它不记录“这个 token 是第几个”，而是让任意两个 token 在计算注意力时直接知道“我们相隔多远”。实现思路主要有两条：改造向量，让内积自带距离信息（RoPE）；或者改造注意力分数，按距离加惩罚（ALiBi）。</p>
+    <div class="term-analogy">绝对位置编码像通讯录里的门牌号，相对位置编码像打电话时对方直接说“我在你左边第三条街”。找人靠的是相对方位，不是门牌数字。</div>
+  </div>
+</div>
+
+<p>　　本节讲透这两条路线的代表：2021 年 Su 等人提出的 RoPE，和 2022 年 Press 等人提出的 ALiBi。前者如今几乎是所有主流 LLM 的默认选择，后者凭一手“训练用短序列、测试用长序列”的绝活占住一席之地。</p>
+
+<h2>3.4.2 RoPE：给 query / key 装上旋转指针</h2>
+
+<p>　　RoPE（Rotary Position Embedding，旋转位置编码）的想法一句话说清：<strong>位置每前进一格，就把 query 和 key 向量旋转一个固定角度</strong>。位置 5 的向量比位置 2 的多转 3 格角度，注意力一比对两个向量的朝向差，“隔了几站”自然就出来了。</p>
+
+<p>　　具体怎么转？RoPE 把每个注意力头的 query、key 向量（维度 \(d\)）两两分成 \(d/2\) 组，每组看成一个二维平面里的向量，按各自的位置编号分别旋转：</p>
+
+<div class="formula-card">
+  \[ \begin{pmatrix} x' \\ y' \end{pmatrix} = R(m\theta_i) \begin{pmatrix} x \\ y \end{pmatrix}, \qquad R(m\theta_i) = \begin{pmatrix} \cos m\theta_i & -\sin m\theta_i \\ \sin m\theta_i & \cos m\theta_i \end{pmatrix} \tag{1} \]
+  <div class="formula-note">公式 (1)：位置 \(m\) 的第 \(i\) 组维度被旋转角度 \(m\theta_i\)。位置越靠后，转角越大；旋转矩阵保证只改朝向、不改向量长度。</div>
+  \[ \theta_i = \mathrm{base}^{-\,2i/d}, \qquad i = 0,\,1,\,\dots,\,d/2 - 1 \tag{2} \]
+  <div class="formula-note">公式 (2)：每组维度的“转速” \(\theta_i\) 按几何级数递减，base 通常取 10000：第 0 组 \(\theta_0 = 1\) 转得最快，最后一组降到 \(10^{-4}\) 量级，几乎不动。</div>
+</div>
+
+<p>　　打个比方：这就像一只装了 \(d/2\) 根指针的钟，第一根是秒针，转得飞快；往后依次是分针、时针，一根比一根慢。位置每走一格，所有指针同时各转一格自己的角度。\(d/2\) 根指针的朝向组合起来，就是这个位置独一无二的“钟面读数”。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="ropeArrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="ropeArrC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+      <marker id="ropeArrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <!-- 左面板：同一词在不同位置 -->
+    <text x="175" y="26" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">同一个词，位置不同，转角不同</text>
+    <circle cx="170" cy="175" r="90" fill="none" stroke="#d4d4d8" stroke-width="1.5"/>
+    <circle cx="170" cy="175" r="3.5" fill="#6d28d9"/>
+    <line x1="170" y1="175" x2="256" y2="175" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#ropeArrP)"/>
+    <line x1="170" y1="175" x2="235" y2="121" stroke="#0891b2" stroke-width="2.5" marker-end="url(#ropeArrC)"/>
+    <line x1="170" y1="175" x2="177" y2="89" stroke="#dc2626" stroke-width="2.5" marker-end="url(#ropeArrR)"/>
+    <path d="M 207 175 A 37 37 0 0 0 198.3 151.2" fill="none" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="3,3"/>
+    <text x="213" y="161" font-size="12" fill="#6d28d9">3θ</text>
+    <path d="M 208.8 142.4 A 51 51 0 0 0 174.4 124.2" fill="none" stroke="#999999" stroke-width="1.2" stroke-dasharray="3,3"/>
+    <text x="195" y="112" font-size="12" fill="#666666">4θ</text>
+    <text x="262" y="179" font-size="12" fill="#6d28d9">位置 0：转角 0</text>
+    <text x="241" y="112" font-size="12" fill="#0891b2">位置 3：转角 3θ</text>
+    <text x="183" y="80" font-size="12" fill="#dc2626">位置 7：转角 7θ</text>
+    <text x="175" y="305" text-anchor="middle" font-size="12" fill="#666666">两个位置隔几格，朝向就差几个 θ：相对距离直接可见</text>
+    <!-- 分隔线 -->
+    <line x1="368" y1="45" x2="368" y2="300" stroke="#d4d4d8" stroke-width="1" stroke-dasharray="4,4"/>
+    <!-- 右面板：不同维度组转速不同 -->
+    <text x="548" y="26" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">不同维度组，转速不同</text>
+    <text x="396" y="58" font-size="12" fill="#333333">第 1 组：θ ≈ 1 rad/格，转得最快</text>
+    <rect x="396" y="64" width="250" height="16" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="654" y="77" font-size="12" fill="#6d28d9">秒针</text>
+    <text x="396" y="128" font-size="12" fill="#333333">中间组：转速居中</text>
+    <rect x="396" y="134" width="120" height="16" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="524" y="147" font-size="12" fill="#0891b2">分针</text>
+    <text x="396" y="198" font-size="12" fill="#333333">最后一组：θ 只有 0.0001 量级，几乎不动</text>
+    <rect x="396" y="204" width="22" height="16" rx="4" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="426" y="217" font-size="12" fill="#dc2626">时针</text>
+    <text x="548" y="262" text-anchor="middle" font-size="12" fill="#666666">位置每走一格，d/2 根“指针”各转各的角度</text>
+    <text x="548" y="284" text-anchor="middle" font-size="12" fill="#666666">朝向组合起来，就是这个位置独有的“钟面读数”</text>
+  </svg>
+  <div class="diagram-caption">图示：RoPE 的两层设计。左：同一个词出现在不同位置，向量被旋转不同角度，两个位置相差几格、转角就差几个 θ。右：d 维向量两两分组，每组转速不同，合在一起构成完整的位置“钟面读数”。</div>
+</div>
+
+<p>　　这套设计的精妙之处藏在注意力的内积里。位置 \(m\) 的 query 与位置 \(n\) 的 key 做点积时，旋转矩阵的一条基本性质 \(R_{m\theta}^{\top} R_{n\theta} = R_{(n-m)\theta}\) 会让绝对位置恰好消掉：</p>
+
+<div class="formula-card">
+  \[ \big\langle R_{m\theta_i}\, q,\; R_{n\theta_i}\, k \big\rangle \;=\; q^{\top} R_{(n-m)\theta_i}\, k \tag{3} \]
+  <div class="formula-note">公式 (3)：等式右边只含相对距离 \(n-m\)。不管这两个词在句子开头还是结尾，只要相隔距离相同，内积就相同——相对位置就这样免费进入了注意力。</div>
+</div>
+
+<p>　　还有一个工程上很贴心的细节：RoPE 只旋转 query 和 key，<strong>value 向量完全不碰</strong>。位置信息只参与“找谁”（注意力权重），不污染“拿什么”（value 承载的内容），分工干净。</p>
+
+<div class="highlight-box info">
+  RoPE 论文与苏剑林的博客分析还指出一个附加性质：随着 \(n-m\) 增大，公式 (3) 的内积<strong>总体呈衰减趋势</strong>，距离越远、匹配信号越弱，相当于自带“就近关注”的归纳偏置。注意这只是总体趋势，并非严格单调递减，不能解读成“远处的 token 一律被忽略”。
+</div>
+
+<h2>3.4.3 RoPE 为何成为主流</h2>
+
+<p>　　2021 年提出至今，RoPE 几乎统一了 LLM 的位置编码，原因是它抓了一手好牌：</p>
+
+<ul>
+  <li><strong>零额外参数</strong>：cos / sin 表可以预先算好存着，不需要训练任何位置参数；</li>
+  <li><strong>推理开销小</strong>：每个位置的旋转只依赖自己的编号，可独立计算，与 KV Cache（第 13 章细讲）配合顺畅；</li>
+  <li><strong>与注意力严丝合缝</strong>：相对距离直接写在内积里，不需要模型额外学习；</li>
+  <li><strong>效果过硬</strong>：RoFormer 论文在多个基准上报告了优于正弦绝对位置编码的结果，此后各大模型的实践反复选择了它。</li>
+</ul>
+
+<div class="highlight-box">
+  RoPE 是当今 LLM 事实上的标准位置编码：Llama、Qwen、DeepSeek 系列，以及本工程配套的 minimind 小模型，全部使用 RoPE。学位置编码，RoPE 是绕不开的一课。
+</div>
+
+<div class="highlight-box warn">
+  RoPE 并非全能：它擅长内插、拙于外推。训练时只见过位置 0 到 \(L-1\)，推理时遇到远超 \(L\) 的输入，没见过的超大转角会让注意力分数失真、模型“翻车”。补救办法是 3.5 节长度外推的主题。
+</div>
+
+<p>　　还有一个值得留意的趋势：base 的选择在变大。论文原版 base 为 10000，而现代模型为了支撑更长上下文，普遍把 base 调大——minimind 的默认值就是 \(10^{6}\)，Llama 3.1 更是提到 500000。base 与上下文长度的关系，3.5 节会展开。</p>
+
+<h2>3.4.4 ALiBi：注意力分数上的线性罚单</h2>
+
+<p>　　ALiBi（Attention with Linear Biases，线性偏置注意力）走了一条更“懒”的路：<strong>向量一个都不动，直接改注意力分数</strong>。既然远处的词应该少关注，那就在 softmax 之前，按距离从分数里扣分：</p>
+
+<div class="formula-card">
+  \[ \mathrm{score}(i, j) \;=\; \frac{q_i \cdot k_j}{\sqrt{d_k}} \;-\; m \cdot |i - j| \tag{4} \]
+  <div class="formula-note">公式 (4)：每隔一个位置扣 \(m\) 分。因果语言模型里 \(j \le i\)，\(|i-j|\) 就是 \(i-j\)。扣分是写死的规则，不随训练改变。</div>
+</div>
+
+<p>　　斜率 \(m\) 决定扣分力度，每个注意力头各不相同，按几何级数设置。论文给 8 个头的取值是：</p>
+
+<div class="formula-card">
+  \[ m \;\in\; \left\{\, 2^{-1},\; 2^{-2},\; \dots,\; 2^{-8} \,\right\} \tag{5} \]
+  <div class="formula-note">公式 (5)：斜率大的头近处扣分快、只看得近，斜率小的头看得远。不同的头天然分工，覆盖从近邻到长程的不同尺度。</div>
+</div>
+
+<p>　　对比一下两种手感：RoPE 是给每个词发一个随位置旋转的指南针，ALiBi 是给评委一把尺子——距离每多一格，印象分固定扣一档，简单、直接、可预测。</p>
+
+<p>　　这套设计的回报是惊人的外推能力。论文报告：一个 1.3B 参数的 ALiBi 模型在 1024 token 的序列上训练，<strong>直接在 2046 token 的序列上测试</strong>，困惑度与专门在 2046 上训练的正弦位置编码模型持平，而训练速度快 11%、显存占用少 11%。训练短、测试长（train short, test long），不需要任何续训或改刻度。BLOOM 与 MPT 两个知名开源模型正是看中这一点而采用 ALiBi。</p>
+
+<p>　　代价同样明显：线性惩罚是一条写死的直线，表达力不如 RoPE 灵活；长距离的信息召回偏弱——扣分扣到最后，远处的 token 几乎永无出头之日。外推朴素直接的另一面，是“远了就真不看了”。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>对比项</th><th>RoPE</th><th>ALiBi</th></tr></thead>
+    <tbody>
+      <tr><td>位置注入在哪里</td><td>旋转 query / key 向量本身</td><td>softmax 前的注意力分数</td></tr>
+      <tr><td>相对距离从哪来</td><td>内积自动只含 \(m-n\)</td><td>显式的 \(-m \cdot |i-j|\) 惩罚</td></tr>
+      <tr><td>长上下文外推</td><td>直接外推会翻车，需 PI / NTK / YaRN 等技巧（3.5 节）</td><td>训练短、测试长，无需续训即可外推</td></tr>
+      <tr><td>表达力</td><td>距离信息融入各维度，灵活、表达力强</td><td>固定线性衰减，表达力略逊、长距离召回弱</td></tr>
+      <tr><td>代表模型</td><td>Llama、Qwen、DeepSeek、minimind</td><td>BLOOM、MPT</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　至此位置编码两节收尾：向量有了，位置也有了，而且是模型真正需要的相对位置。3.5 节接着解决一个更刁钻的问题——训练时只见过几千个位置的模型，怎样读懂几十万 token 的长文。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">绝对位置编码“拧巴”在哪里？</div>
+    <div class="sc-key">注意力关心的是词与词的距离，绝对编码只给门牌号，距离要模型自己学出来。相对位置编码把“隔几站”直接写进计算，少了这道弯。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">RoPE 凭什么让内积只依赖相对距离？</div>
+    <div class="sc-key">位置 \(m\) 的向量按角度 \(m\theta_i\) 旋转。旋转矩阵的性质 \(R_{m\theta}^{\top} R_{n\theta} = R_{(n-m)\theta}\) 让内积里的绝对位置恰好相消，只剩 \(n-m\)。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">RoPE 与 ALiBi 各自的代价是什么？</div>
+    <div class="sc-key">RoPE 效果好、生态主流，但超出训练长度就翻车，外推要靠 3.5 节的技巧；ALiBi 免续训外推，但线性衰减是写死的，表达力与长距离召回偏弱。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本节机制在 minimind 中的对应实现（minimind 工程，Apache 2.0 协议）集中在 <code>model/model_minimind.py</code> 的三个位置：</p>
+
+<ul>
+  <li><code>precompute_freqs_cis</code>（第 62 行）：对照公式 (2)，第 63 行 <code>1.0 / (rope_base ** (arange(0, dim, 2) / dim))</code> 正是 \(\theta_i = \mathrm{base}^{-2i/d}\)，随后一次性算好所有位置的 cos / sin 表；</li>
+  <li><code>apply_rotary_pos_emb</code>（第 80 行）：用 <code>rotate_half</code> 技巧实现公式 (1) 的二维旋转，核心是一行 <code>x * cos + rotate_half(x) * sin</code>；</li>
+  <li><code>Attention.forward</code>（第 119 行）：旋转只施加在 <code>xq</code>、<code>xk</code> 上，<code>xv</code>（value）原样通过，印证本节“只转 q / k、不碰 v”的分工。</li>
+</ul>
+
+<p>　　按 minimind 的 README 装好 torch 与 transformers 后，可以直接验证预计算表的形状（cos 与 sin 都是 \((L, d)\)，对应 \(d/2\) 组维度各一对 cos / sin）：</p>
+
+<pre><code>cd minimind-master
+python -c "from model.model_minimind import precompute_freqs_cis as p; c, s = p(dim=96, end=1024); print(c.shape, s.shape)"
+# 预期输出：torch.Size([1024, 96]) torch.Size([1024, 96])</code></pre>
+
+<p>　　读代码时顺带留意 <code>precompute_freqs_cis</code> 第 64 行起的 <code>rope_scaling</code> 分支：那是 3.5 节要讲的 YaRN 缩放，专为长度外推准备。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864），旋转机制、频率公式 (2) 与相对位置性质公式 (3) 出自该文。</li>
+  <li>Press, Smith &amp; Lewis, 2022. Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation（ALiBi 原始论文，arXiv:2108.12409），线性偏置公式 (4)、斜率几何级数公式 (5) 与 1024 训练 / 2046 测试的外推实验出自该文。</li>
+  <li>苏剑林，2021. Transformer 升级之路：2、博采众长的旋转式位置编码（https://kexue.fm/archives/8265），RoPE 远程衰减性质的通俗分析。</li>
+  <li>minimind 工程 model/model_minimind.py（Apache 2.0），RoPE 工程实现与“动手验证”区块的出处。</li>
+</ul>
+
+</article>

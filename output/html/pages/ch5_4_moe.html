@@ -1,0 +1,280 @@
+﻿<article class="content">
+<h1>5.4 MoE 混合专家：一个大脑，多位专科医生</h1>
+<p class="subtitle">本页范围：第 5 章第 4 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>稠密模型里参数量和计算量绑死在一起：想扩容就得每个 token 都算完全部参数。能不能让参数暴涨，而每个 token 的计算量几乎不涨？</td></tr>
+      <tr><td>本节主张</td><td>MoE（混合专家）把每层的 FFN 复制成 E 个结构相同的“专家”，再配一个可训练的路由器，给每个 token 只派得分最高的 top-k 个专家干活，其余专家本轮不计算。</td></tr>
+      <tr><td>一句话结论</td><td>MoE 把“模型有多大”和“每步算多少”解绑：总参数决定显存，激活参数决定计算，本质是拿显存换计算。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>MoE</span><span>专家</span><span>路由器</span><span>top-k 激活</span><span>稀疏激活</span><span>负载均衡</span><span>激活参数</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>5.4.1 稠密模型的天花板与“稀疏”想法</h2>
+
+<p>　　第 4 章讲过，Transformer 每一层由注意力和前馈网络（FFN）两块组成。先算一笔参数账：按原始论文的配置，注意力的 4 个投影矩阵约占 \(4d^2\) 个参数，而 FFN 的两个矩阵（维度分别是 \(d \times d_{ff}\) 与 \(d_{ff} \times d\)，且 \(d_{ff}=4d\)）约占 \(8d^2\)。也就是说，一层里大约三分之二的参数躺在 FFN 里。想让模型更聪明，最直白的做法就是把 FFN 加宽。</p>
+
+<p>　　但稠密（Dense）模型有个甩不掉的宿命：<strong>参数量和计算量绑死在一起</strong>。FFN 加宽一倍，每个 token 的计算量就跟着涨一倍，因为每个 token 都要原封不动地流过全部参数。参数规模一路狂奔，训练和推理的账单也跟着一路狂奔，这条路很快会撞到成本的天花板。</p>
+
+<p>　　2017 年，Shazeer 等人提出了一条打破绑定的思路：<strong>稀疏激活</strong>——参数可以很多，但每个输入只用其中一小部分。有意思的是，Shazeer 正是 Transformer 论文的共同作者之一，同年发表的两篇论文，一篇给出了架构，一篇给出了让架构做大的办法。他们的生活化原型其实随处可见：综合医院从不靠把一个全科医生培养成什么都会的超人，而是分科室——心内科、呼吸科、骨科，病人来了只去对口的一两个科室，用不着全院几百位医生一起会诊。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">混合专家 MoE</span>
+    <span class="term-en">Mixture-of-Experts = 把一个大网络换成许多小“专家”网络，按需调用</span>
+  </div>
+  <div class="term-body">
+    <p>把 Transformer 每层的 FFN 换成 \(E\) 个<strong>结构相同、参数各自独立</strong>的小 FFN（每个称为一个专家），再配一个路由器（router）决定每个 token 找哪几个专家。总参数量可以做得很大，但每个 token 只激活其中一小部分，计算量只按被激活的专家算。</p>
+    <div class="term-analogy">就像医院的科室制：全院有几百位医生（总参数），但一个病人看病只需挂一两个科室的号（激活参数），其余医生该干嘛干嘛。</div>
+  </div>
+</div>
+
+<div class="highlight-box info">
+  MoE 说的“稀疏”是<strong>激活稀疏</strong>：每次前向只动用一部分参数。它和模型剪枝的“参数稀疏”（把大量权重置零）不是一回事——MoE 的每个专家本身都是一个完完整整的稠密小网络。
+</div>
+
+<p>　　<strong>一句话白话</strong>：这一步做的事，是把“模型有多大”和“每步算多少”这两本账分开记——参数随便加，计算只按出诊的专家算。</p>
+
+<h2>5.4.2 路由器与 top-k 激活：8 个专家只请 2 个</h2>
+
+<p>　　MoE 层每个 token 的旅程分三步：</p>
+
+<ol>
+  <li><strong>打分</strong>：token 的隐藏向量 \(x\) 乘上一个可训练的矩阵 \(W_g\)，softmax 之后得到 \(E\) 个专家的分数，分数代表“这个 token 与该专家的对口程度”；</li>
+  <li><strong>选择</strong>：只保留分数最高的 \(k\) 个专家（top-k），其余专家这一轮<strong>完全不参与计算</strong>；</li>
+  <li><strong>混合</strong>：被选中的专家各自处理 \(x\)，输出按路由分数加权求和，作为这一层 FFN 的结果。</li>
+</ol>
+
+<div class="formula-card">
+  \[ s = \mathrm{softmax}(W_g\, x), \qquad W_g \in \mathbb{R}^{E \times d} \tag{1} \]
+  \[ y = \sum_{i \in \mathrm{TopK}(s)} \tilde{s}_i \cdot E_i(x), \qquad \tilde{s}_i = \frac{s_i}{\sum_{j \in \mathrm{TopK}(s)} s_j} \tag{2} \]
+  <div class="formula-note">公式 (1)：路由器就是一个 \(E\) 路输出的线性层加 softmax。公式 (2)：只有 top-k 专家被计算，且选中分数重新归一化后再加权——Mixtral 与 minimind 的实现都是这个做法。</div>
+</div>
+
+<p>　　落到具体数字上。以 Mixtral 风格的“8 选 2”为例：某个输入 token（比如“咳嗽”）经路由器打出 8 个分数 <code>[0.02, 0.35, 0.01, 0.08, 0.10, 0.28, 0.15, 0.01]</code>，最高的是专家 2（0.35）和专家 6（0.28）。于是这一轮只有这两位专家真正做矩阵运算，输出按 0.35 与 0.28 加权；许多实现会先把这两个分数重新归一化成约 0.56 和 0.44 再加权。下一个 token 的打分完全不同，可能点亮专家 4 和专家 7——<strong>每个 token 走的路都不一样</strong>。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">路由器 Router</span>
+    <span class="term-en">router / gate = 可训练的“分诊台”，参数量极小的一个线性层</span>
+  </div>
+  <div class="term-body">
+    <p>路由器本身只有 \(E \times d\) 个参数（相对专家可以忽略不计），也随训练一起更新。它不做任何实质性的语义加工，唯一的职责是决定“这个 token 该挂哪几个科室的号”。</p>
+    <div class="term-analogy">就是医院分诊台的护士：自己不看病，只根据病人的主诉，快速判断该挂呼吸科还是骨科。</div>
+  </div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <!-- token -->
+    <rect x="12" y="138" width="118" height="64" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="71" y="164" text-anchor="middle" font-size="13" fill="#333">token：咳嗽</text>
+    <text x="71" y="186" text-anchor="middle" font-size="11" fill="#666">病人上门</text>
+    <line x1="130" y1="170" x2="172" y2="170" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <!-- router -->
+    <rect x="176" y="130" width="136" height="80" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="244" y="156" text-anchor="middle" font-size="13" fill="#333">路由器 Router</text>
+    <text x="244" y="176" text-anchor="middle" font-size="11" fill="#666">打分 → softmax</text>
+    <text x="244" y="194" text-anchor="middle" font-size="11" fill="#666">选出 top-2</text>
+    <!-- expert column label -->
+    <text x="500" y="20" text-anchor="middle" font-size="12" fill="#666">8 个专家 FFN：结构相同，参数各自独立</text>
+    <!-- router to experts: unchosen thin gray -->
+    <line x1="312" y1="170" x2="428" y2="44" stroke="#d1d5db" stroke-width="1"/>
+    <line x1="312" y1="170" x2="428" y2="116" stroke="#d1d5db" stroke-width="1"/>
+    <line x1="312" y1="170" x2="428" y2="152" stroke="#d1d5db" stroke-width="1"/>
+    <line x1="312" y1="170" x2="428" y2="188" stroke="#d1d5db" stroke-width="1"/>
+    <line x1="312" y1="170" x2="428" y2="260" stroke="#d1d5db" stroke-width="1"/>
+    <line x1="312" y1="170" x2="428" y2="296" stroke="#d1d5db" stroke-width="1"/>
+    <!-- router to experts: chosen thick purple -->
+    <line x1="312" y1="170" x2="428" y2="80" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#arr)"/>
+    <line x1="312" y1="170" x2="428" y2="224" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#arr)"/>
+    <!-- experts row 1..8 -->
+    <rect x="430" y="30" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
+    <text x="500" y="48" text-anchor="middle" font-size="11" fill="#9ca3af">专家1 未出诊</text>
+    <rect x="430" y="66" width="140" height="28" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="500" y="84" text-anchor="middle" font-size="11" fill="#4c1d95">专家2 呼吸科 0.35</text>
+    <rect x="430" y="102" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
+    <text x="500" y="120" text-anchor="middle" font-size="11" fill="#9ca3af">专家3 未出诊</text>
+    <rect x="430" y="138" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
+    <text x="500" y="156" text-anchor="middle" font-size="11" fill="#9ca3af">专家4 未出诊</text>
+    <rect x="430" y="174" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
+    <text x="500" y="192" text-anchor="middle" font-size="11" fill="#9ca3af">专家5 未出诊</text>
+    <rect x="430" y="210" width="140" height="28" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="500" y="228" text-anchor="middle" font-size="11" fill="#4c1d95">专家6 感染科 0.28</text>
+    <rect x="430" y="246" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
+    <text x="500" y="264" text-anchor="middle" font-size="11" fill="#9ca3af">专家7 未出诊</text>
+    <rect x="430" y="282" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
+    <text x="500" y="300" text-anchor="middle" font-size="11" fill="#9ca3af">专家8 未出诊</text>
+    <!-- experts to output -->
+    <line x1="570" y1="80" x2="626" y2="152" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
+    <line x1="570" y1="224" x2="626" y2="188" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
+    <rect x="630" y="130" width="118" height="80" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="689" y="156" text-anchor="middle" font-size="12" fill="#333">加权求和输出</text>
+    <text x="689" y="177" text-anchor="middle" font-size="10" fill="#666">0.56·E2 的结果</text>
+    <text x="689" y="194" text-anchor="middle" font-size="10" fill="#666">+ 0.44·E6 的结果</text>
+    <!-- bottom note -->
+    <text x="380" y="330" text-anchor="middle" font-size="11" fill="#666">未出诊的 6 个专家本次完全不计算——省下的就是这部分算力</text>
+  </svg>
+  <div class="diagram-caption">图示：token「咳嗽」经路由器对 8 个专家打分，得分最高的专家 2（0.35）与专家 6（0.28）被点亮并参与计算，输出按归一化后的分数加权求和；其余 6 个专家本轮完全不计算。</div>
+</div>
+
+<div class="highlight-box info">
+  专家的分工不是人工指定的，而是训练中自发涌现的，而且未必符合人类直觉的“科室”。Mixtral 论文的路由分析就发现：专家分配<strong>没有</strong>表现出明显的话题规律（生物、哲学类文本的路由分布几乎一样），分化更多体现在句法层面。所以“呼吸科专家”只是帮助我们理解的类比，真实专家学到的分工要微妙得多。
+</div>
+
+<p>　　<strong>一句话白话</strong>：路由器就是分诊台，给每个 token 挂最对口的 \(k\) 个科室，其余医生本轮休息——这就是“稀疏激活”的全部秘密。</p>
+
+<h2>5.4.3 总参数 vs 激活参数：两本账</h2>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">激活参数 Active Parameters</span>
+    <span class="term-en">active vs total parameters = 每个 token 实际参与计算的参数 vs 模型全部参数</span>
+  </div>
+  <div class="term-body">
+    <p>稠密模型里这两个数字相等；MoE 模型里，激活参数只是总参数的一个零头。<strong>总参数决定模型要占多少显存</strong>（所有专家都得装进去），<strong>激活参数决定每个 token 要花多少算力</strong>（只算被选中的专家）。</p>
+    <div class="term-analogy">医院大楼要盖得能容纳全院医生（显存），但一个病人看病只消耗两位医生的十分钟（算力）。</div>
+  </div>
+</div>
+
+<p>　　把三代代表模型摆在一起看，这两本账的差异一目了然：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型</th><th>架构</th><th>总参数</th><th>每 token 激活参数</th><th>激活比例</th></tr></thead>
+    <tbody>
+      <tr><td>Llama 2 70B</td><td>稠密</td><td>70B</td><td>70B</td><td>100%</td></tr>
+      <tr><td>Mixtral 8x7B</td><td>8 专家，top-2</td><td>约 46.7B</td><td>约 12.9B</td><td>约 28%</td></tr>
+      <tr><td>DeepSeek-V3</td><td>256 路由专家 + 1 共享专家，top-8</td><td>671B</td><td>37B</td><td>约 5.5%</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box danger">
+  易错：Mixtral 8x7B 不是 \(8 \times 7 = 56\)B。被复制成 8 份的只有 FFN，注意力、Embedding 等参数是全体专家共享的。按公开配置（隐藏维度 4096、32 层、FFN 中间维 14336）估算：每个专家 FFN 约 5.6B，8 份共约 45B，加共享部分约 1.6B，合计约 46.7B；每 token 激活则是“共享 1.6B + 2 个专家约 11.3B”，约 12.9B。
+</div>
+
+<p>　　这笔账的现实意义非常直接：Mixtral 8x7B 在论文评测的全部基准上达到或超过 Llama 2 70B，而推理时每个 token 只按约 13B 参数的规模花钱。显存占用对标 47B 级模型，计算开销对标 13B 级模型，效果对标 70B 级模型——三个数字各管各的。</p>
+
+<div class="highlight-box">
+  核心结论：显存看总参数，算力看激活参数。MoE 是一笔“拿显存换计算”的交易——只要显存装得下全部专家，就能用小模型的计算账单，跑大模型的知识容量。
+</div>
+
+<p>　　<strong>一句话白话</strong>：大楼要按全院的规模盖（显存），出诊只出两位医生（算力）——MoE 用空间换时间。</p>
+
+<h2>5.4.4 负载均衡：防止 token “追星”</h2>
+
+<p>　　路由器是学出来的，这就埋下一个隐患：<strong>马太效应</strong>。训练早期如果某几个专家碰巧起步稍好，路由器会把越来越多的 token 派给它们；被派得越多，它们得到的梯度训练就越充分，表现就更好，于是更容易被选中。恶性循环下去，少数“明星专家”被挤爆，多数专家从头到尾没接到几个病人，永远得不到训练，沦为摆设——模型名义上的大容量名存实亡。工程上还有一层麻烦：专家通常分布在不同 GPU 上，token 挤向同一个专家，等于挤爆同一张卡，其他卡干等。</p>
+
+<div class="highlight-box warn">
+  不加干预的 MoE 训练几乎必然出现路由“追星”：少量专家过载、多数专家闲置退化。负载均衡不是锦上添花，是 MoE 能训练成功的前提条件。
+</div>
+
+<p>　　经典解法是 Switch Transformer 使用的<strong>辅助负载均衡损失</strong>：在一个 batch 里，统计每个专家实际分到的 token 比例 \(f_i\)，以及路由器输出给它的平均概率 \(P_i\)，把两者乘积之和加进总损失里惩罚：</p>
+
+<div class="formula-card">
+  \[ \mathcal{L}_{\mathrm{aux}} = E \cdot \sum_{i=1}^{E} f_i \cdot P_i \tag{3} \]
+  <div class="formula-note">公式 (3)：\(f_i\) 是分给专家 \(i\) 的 token 占比，\(P_i\) 是路由器给专家 \(i\) 的平均概率。分配越不均匀，乘积之和越大；每个专家都分到 \(1/E\) 时损失最小。乘以 \(E\) 只是让损失尺度不随专家数变化。</div>
+</div>
+
+<p>　　除了辅助损失，各家还有不同的均衡思路，了解即可：</p>
+
+<ul>
+  <li><strong>噪声门控</strong>（Shazeer 2017）：打分时注入随机噪声再选 top-k，给“非明星”专家被抽中的机会，避免开局就一边倒；</li>
+  <li><strong>无辅助损失均衡</strong>（DeepSeek-V3）：给每个专家维护一个只加在“选谁”环节的偏置项，谁过载就调低谁的中选优先级，而不污染分数本身，从而避免辅助损失干扰主任务训练。</li>
+</ul>
+
+<p>　　<strong>一句话白话</strong>：辅助损失相当于分诊台的绩效考核——不许把病人全塞给名医，每个科室都得上手练，医院才算真的大。</p>
+
+<h2>5.4.5 发展谱系：从 137B 到 671B</h2>
+
+<p>　　MoE 从 2017 年的一个大胆想法，走到今天顶级大模型的标配，关键节点如下：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型（年份）</th><th>路由策略</th><th>专家规模</th><th>一句话定位</th></tr></thead>
+    <tbody>
+      <tr><td>Sparsely-Gated MoE（2017，Google）</td><td>top-k，含噪声门控</td><td>最多上万专家（堆在 LSTM 上）</td><td>首次把“稀疏激活”做成可行方案，模型冲到 137B 参数</td></tr>
+      <tr><td>GShard（2020，Google）</td><td>top-2</td><td>600B 参数</td><td>第一次把 MoE 搬进 Transformer，用于机器翻译</td></tr>
+      <tr><td>Switch Transformer（2021，Google）</td><td>top-1</td><td>万亿参数级</td><td>把路由简化到每 token 只选 1 个专家，通信与实现大幅简化</td></tr>
+      <tr><td>Mixtral 8x7B（2023 年底开源，2024 成文）</td><td>top-2，8 专家</td><td>约 46.7B 总参数</td><td>开源权重标杆，效果对标 Llama 2 70B，激活仅约 12.9B</td></tr>
+      <tr><td>DeepSeek-V3（2024，DeepSeek）</td><td>top-8，256 路由专家 + 1 共享专家</td><td>671B 总参数</td><td>细粒度专家 + 无辅助损失均衡，每 token 激活 37B</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　最后把视野收回本章。MoE 改动的是 FFN 的<strong>组织方式</strong>，与本章前几节讲的注意力侧改进（GQA、MLA）以及归一化、激活函数的替换是<strong>正交</strong>的，可以自由组合——DeepSeek-V3 就是 MLA 注意力加 MoE 前馈的组合体。而大规模 MoE 牵出的工程问题（专家并行、显存墙、路由通信）已经超出架构本身，分别留到第 7 章的训练工程和第 13 章的推理部署再展开。</p>
+
+<p>　　<strong>一句话白话</strong>：MoE 的七年进化，就是专家越切越细、路由越调越稳，用同样的算力账单撬动越来越大的知识容量。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">MoE 凭什么让参数暴涨而每 token 计算量不涨？</div>
+    <div class="sc-key">每层 FFN 被复制成 E 个专家，路由器对每个 token 只激活得分最高的 top-k 个，其余专家不计算。模型容量由总参数决定，计算量由激活参数决定，两本账从此分开记。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么说 MoE 是“拿显存换计算”？</div>
+    <div class="sc-key">全部专家参数都必须装进显存（按总参数计），但每个 token 只按激活的少数专家计算。Mixtral 8x7B 的显存占用对标 47B 级模型，计算量只对标 13B 级模型，效果对标 70B。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">训练 MoE 时不管路由分布会怎样？</div>
+    <div class="sc-key">会出现“追星”：少数专家被反复选中、越练越强，多数专家闲置退化，大容量名存实亡。辅助负载均衡损失（公式 3）通过惩罚不均匀的分配，把 token 摊平到各个专家。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本节机制在 minimind 中有一份不到 40 行的完整实现：<code>model/model_minimind.py</code> 的 <code>MOEFeedForward</code> 类（第 148–181 行；minimind 工程，Apache 2.0 协议）。对照本节概念逐行读：</p>
+
+<ul>
+  <li>第 152 行 <code>self.gate = nn.Linear(hidden_size, num_experts)</code>：路由器本体，就是公式 (1) 里的 \(W_g\)，输出维度等于专家数；</li>
+  <li>第 153 行：把同一个 <code>FeedForward</code> 复制 <code>num_experts</code> 份（默认 4 个，见 <code>MiniMindConfig</code> 第 41 行），每个专家都是结构相同的 FFN；</li>
+  <li>第 159–160 行：softmax 打分后用 <code>torch.topk</code> 选出 <code>num_experts_per_tok</code>（默认 1，第 42 行）个专家；</li>
+  <li>第 168–173 行：只有被选中的专家对分到的 token 做计算，输出按路由分数加权，即公式 (2)；</li>
+  <li>第 176–178 行：辅助负载均衡损失，与公式 (3) 同款思想，系数 <code>router_aux_loss_coef</code> 默认 5e-4（第 45 行）。</li>
+</ul>
+
+<p>　　装齐 minimind 的依赖（torch 与 transformers）后，在 <code>minimind-master</code> 目录下运行下面这段最小实验（bash 或 PowerShell 可直接粘贴），可以亲眼看到“每个 token 选中的专家不一样”：</p>
+
+<pre><code>python -c "
+import torch
+from model.model_minimind import MiniMindConfig, MOEFeedForward
+torch.manual_seed(0)
+cfg = MiniMindConfig(use_moe=True)
+moe = MOEFeedForward(cfg).train()
+x = torch.randn(1, 5, cfg.hidden_size)
+y = moe(x)
+scores = torch.softmax(moe.gate(x.view(-1, cfg.hidden_size)), dim=-1)
+top_idx = torch.topk(scores, k=cfg.num_experts_per_tok, dim=-1, sorted=False)[1]
+print('chosen:', top_idx.squeeze(0).tolist())
+print('out:', tuple(y.shape), '| aux_loss:', float(moe.aux_loss.detach()))"</code></pre>
+
+<p>　　笔者在本机实测（torch CPU 版，随机种子固定为 0）：5 个 token 被选中的专家编号是 <code>[[3], [2], [3], [1], [2]]</code>——同一个 MoE 层里不同 token 进了不同专家，而专家 0 一个 token 都没分到；输出形状仍是 <code>(1, 5, 768)</code>，与稠密 FFN 完全一致；辅助损失约 5.5e-4。读者的结果可能因初始化细节略有出入，但“各 token 各走各的专家”这一现象是稳定的。顺便说，专家 0 被冷落正是 5.4.4 节要防的苗头，公式 (3) 的辅助损失就是在给这种冷落记账。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Shazeer et al., 2017. Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer（arXiv:1701.06538）：稀疏门控 MoE 的原始论文，137B 参数规模与噪声门控的出处。</li>
+  <li>Lepikhin et al., 2020. GShard: Scaling Giant Models with Conditional Computation and Automatic Sharding（arXiv:2006.16668）：MoE 首次用于 Transformer，600B 参数。</li>
+  <li>Fedus, Zoph &amp; Shazeer, 2021. Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity（arXiv:2101.03961）：top-1 路由与公式 (3) 辅助负载均衡损失的出处。</li>
+  <li>Jiang et al., 2024. Mixtral of Experts（arXiv:2401.04088）：46.7B 总参数、12.9B 激活、对标 Llama 2 70B，以及路由分析“专家分化不按话题、偏句法”的出处。</li>
+  <li>DeepSeek-AI, 2024. DeepSeek-V3 Technical Report（arXiv:2412.19437）：671B 总参数、37B 激活、256 路由专家加共享专家与无辅助损失均衡策略的出处。</li>
+  <li>minimind 工程（Apache 2.0），<code>model/model_minimind.py</code> 的 MOEFeedForward 类：“动手验证”区块的代码出处。</li>
+</ul>
+
+</article>

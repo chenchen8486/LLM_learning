@@ -1,0 +1,159 @@
+﻿<article class="content">
+<h1>3.5 长度外推：从几千 token 到几十万</h1>
+<p class="subtitle">本页范围：第 3 章第 5 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>模型训练时只见过几千 token 的位置，凭什么能读几十万 token 的长文？直接硬塞会发生什么？</td></tr>
+      <tr><td>本节主张</td><td>RoPE 在没见过的位置上会失灵，直接外推不可行。主流解法分两步：先用位置插值（PI）、NTK、YaRN 等方法把超长位置“缩回”模型熟悉的刻度，再用长文档数据继续训练让模型适应新刻度。</td></tr>
+      <tr><td>一句话结论</td><td>长上下文能力 = 改位置编码的刻度 + 拿长曲子集训，两步缺一不可；Llama 3.1 正是靠这套组合把上下文从 8K 扩到 128K。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>长度外推</span><span>位置插值 PI</span><span>NTK 缩放</span><span>YaRN</span><span>继续训练</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>3.5.1 外推问题：超出训练长度就翻车</h2>
+
+<p>　　3.4 节讲过，RoPE 通过旋转角度给每个位置编码：位置 \(m\) 的查询和键向量会被旋转 \(m\theta_i\) 度。预训练时序列长度是 \(L\)（比如 8192），模型一生中见过的位置编号只有 \(0\) 到 \(L-1\)。推理时如果喂给它 \(L' \gg L\) 的长文，位置 \(L, L+1, \dots, L'-1\) 上的旋转角度就超出了训练分布，注意力分数随之失真，模型输出迅速崩坏。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">长度外推（Length Extrapolation）</span>
+    <span class="term-en">extrapolation = 在训练见过的范围之外做预测</span>
+  </div>
+  <div class="term-body">
+    <p>指模型在<strong>比训练时更长的序列</strong>上保持正常表现的能力。衡量它最常用的指标是困惑度（Perplexity，第 6 章细讲）：理想情况下，序列变长、可参考的上下文变多，困惑度应该下降或持平；而直接外推的模型在越过训练长度 \(L\) 的那一刻，困惑度曲线几乎垂直起飞，俗称“翻车”。</p>
+    <div class="term-analogy">就像一名短跑运动员只练过 400 米跑道，比赛时直接被拉去跑马拉松：前 400 米他的配速、呼吸都很稳，一跑过熟悉的里程标记，节奏立刻全乱。他不是不会跑步，是从来没学过 400 米之外该怎么分配体力。</div>
+  </div>
+</div>
+
+<p>　　需要区分两种看似相近、实则不同的做法：<strong>内插</strong>是在训练见过的区间内取值，模型表现通常很稳；<strong>外推</strong>是在区间之外“盲猜”，这正是翻车现场。本节后面要讲的所有方法，本质都是同一件事：想方设法把“外推问题”偷换成“内插问题”。</p>
+
+<h2>3.5.2 位置插值 PI：把刻度缩回去</h2>
+
+<p>　　先看一个反直觉的观察：RoPE 崩溃的原因不是“位置太多”，而是“位置编号超出了模型熟悉的数值范围”。那么最直接的思路就是：既然模型只认识 \(0\) 到 \(L-1\) 的刻度，就把长文的 \(0\) 到 \(L'-1\) <strong>等比压缩</strong>回这个区间。这就是 Chen 等人 2023 年提出的位置插值（Position Interpolation，PI）：</p>
+
+<div class="formula-card">
+  \[ f_{\mathrm{PI}}(x, m) \;=\; f\!\left(x, \frac{m}{s}\right) \;=\; f\!\left(x, \frac{m L}{L'}\right), \qquad s=\frac{L'}{L} \tag{1} \]
+  <div class="formula-note">公式 (1)：把位置编号 \(m\) 除以缩放系数 \(s\)，原来落在 \(0\) 到 \(L'-1\) 的位置被压缩回 \(0\) 到 \(L-1\)。注意 \(m/s\) 一般不再是整数，位置编码变成了小数位置上的内插。</div>
+</div>
+
+<p>　　打个比方：这就像把 32 页乐谱缩印到 4 页的版面上。音符的先后顺序完全没变，整首曲子的结构一目了然，只是每个音符挤得更密了。乐手（模型）只需要稍作适应，就能在熟悉的版面上读完整首曲子。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 第一行：训练时见过的区间 -->
+    <text x="110" y="28" font-size="13" fill="#333" font-weight="bold">训练时见过的位置区间</text>
+    <rect x="110" y="34" width="280" height="24" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="110" y="72" font-size="11" fill="#666">0</text>
+    <text x="378" y="72" font-size="11" fill="#666">L=8192</text>
+    <!-- 第二行：直接外推 -->
+    <text x="110" y="104" font-size="13" fill="#333" font-weight="bold">直接外推：硬塞进 L′=32768</text>
+    <rect x="110" y="110" width="280" height="24" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="390" y="110" width="210" height="24" rx="5" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5,3"/>
+    <text x="495" y="127" text-anchor="middle" font-size="11" fill="#dc2626">没见过的位置：困惑度爆炸</text>
+    <text x="588" y="148" font-size="11" fill="#dc2626">L′=32768</text>
+    <!-- 第三行：插值前的完整区间 -->
+    <text x="110" y="180" font-size="13" fill="#333" font-weight="bold">位置插值：先把 L′ 个位置等比压缩 s=4 倍</text>
+    <rect x="110" y="186" width="490" height="24" rx="5" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="355" y="203" text-anchor="middle" font-size="11" fill="#0891b2">位置 0 到 L′−1（共 32768 个，挤在同一把尺上）</text>
+    <!-- 压缩箭头 -->
+    <path d="M355,214 C355,230 250,230 250,242" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <text x="330" y="236" font-size="11" fill="#6d28d9">m ÷ s</text>
+    <!-- 第四行：压缩后的区间 -->
+    <rect x="110" y="246" width="280" height="24" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="250" y="263" text-anchor="middle" font-size="11" fill="#6d28d9">落回 0 到 L−1：变成模型熟悉的内插</text>
+    <text x="110" y="288" font-size="11" fill="#666">0</text>
+    <text x="378" y="288" font-size="11" fill="#666">L=8192</text>
+  </svg>
+  <div class="diagram-caption">图示：同一批 token，直接外推会把位置推到训练区间（紫）之外的红区；位置插值先把位置编号整体缩小 \(s\) 倍，压回模型熟悉的紫色区间。</div>
+</div>
+
+<p>　　缩印只是第一步。压缩后的位置变成了小数（比如原来位置 100 和 101 变成 25.0 和 25.25），相邻 token 之间的距离被拉近了 \(s\) 倍，模型需要一点练习来适应这种“更密的刻度”。PI 论文给出的处方是：在新刻度上<strong>少量继续训练</strong>，论文实验中约千步量级即可让模型在长上下文上稳定下来。与之对照，什么都不做的直接外推在论文实验中完全失效，插值加微调则大幅改善。</p>
+
+<div class="highlight-box info">
+  注：PI 并非免费的午餐。位置刻度被压缩后，模型区分“相邻 token”的分辨率也随之下降，就像缩印后的乐谱，紧挨着的音符更难看清谁是谁。这个代价正是后面 NTK 与 YaRN 要解决的问题。
+</div>
+
+<h2>3.5.3 从 NTK 到 YaRN：按频段区别对待</h2>
+
+<p>　　PI 把所有位置一视同仁地压缩，但 RoPE 的不同维度其实各司其职。回忆 3.4 节的结论：RoPE 第 \(i\) 对维度的旋转频率是 \(\theta_i = \mathrm{base}^{-2i/d}\)。高维下标对应的高频维度转得快、波长短，负责区分相邻 token；低维下标对应的低频维度转得慢、波长长，负责编码远距离的相对关系。PI 一刀切的压缩，把高频维度的“近邻分辨力”也一起压坏了。</p>
+
+<p>　　2023 年社区研究者 bloc97 提出的 <strong>NTK-aware 缩放</strong>给出了第一版按频段区别对待的方案：不动位置编号，改 RoPE 的基频：</p>
+
+<div class="formula-card">
+  \[ \mathrm{base}' \;=\; \mathrm{base} \cdot \alpha^{\frac{d}{d-2}} \tag{2} \]
+  <div class="formula-note">公式 (2)：\(\alpha\) 是缩放系数，\(d\) 是注意力头的维度。基频被放大后，低频维度（小 \(i\)）等效于被多压缩，高频维度（大 \(i\)）几乎不受影响，正好实现“高频少动、低频多缩”。</div>
+</div>
+
+<p>　　这个改法只动一行配置，<strong>不训练也有一定效果</strong>，因此迅速普及。之所以叫 NTK（Neural Tangent Kernel，神经正切核），是因为其推导借用了该理论中“高频函数难以外推”的视角；实际使用时不训练就直接改基频的变体，有时被称为 NTK-by-parts 之外的“直接 NTK 外推”，后续研究又陆续给出更精细的分频段公式。</p>
+
+<p>　　同年 Peng 等人提出的 <strong>YaRN</strong>（Yet another RoPE extensioN）把这条思路做到了当时的新高度，两处关键改进：</p>
+
+<ul>
+  <li><strong>分频段插值</strong>（NTK-by-parts）：把维度按波长分组，波长远大于上下文长度的高频维度<strong>完全不插值</strong>（保留近邻分辨力），波长很短的低频维度按 PI 方式插值，中间维度做平滑过渡；</li>
+  <li><strong>注意力温度修正</strong>：插值会拉近位置间距，使注意力分布变平，YaRN 给注意力 logit 乘上一个温度因子补偿：\[ \sqrt{\frac{1}{t}} \;=\; 0.1\ln s + 1 \tag{3} \]让 softmax 后的注意力恢复原有的尖锐度。</li>
+</ul>
+
+<p>　　结果是 YaRN 用比 PI 更小的训练量拿到了更好的长上下文效果，后来成为 Qwen 等开源模型扩展上下文的标准组件之一。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>方法</th><th>核心思路</th><th>是否需要训练</th><th>主要代价 / 特点</th></tr></thead>
+    <tbody>
+      <tr><td>直接外推</td><td>什么都不改</td><td>否</td><td>越过训练长度即翻车，不可用</td></tr>
+      <tr><td>PI 位置插值</td><td>位置编号统一除以 \(s\)</td><td>需要，约千步量级</td><td>高频分辨力受损，需少量微调</td></tr>
+      <tr><td>NTK-aware 缩放</td><td>只改 RoPE 基频，按维度天然区分频段</td><td>不训练也有一定效果</td><td>实现最简单，效果弱于系统训练</td></tr>
+      <tr><td>YaRN</td><td>分频段插值 + 注意力温度修正</td><td>需要，但训练量比 PI 更小</td><td>同等预算下效果更好，实现略复杂</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>3.5.4 工业界怎么做：Llama 3.1 的 8K 到 128K</h2>
+
+<p>　　把上面的零件组装成工业级流水线，Meta 的 Llama 3.1（2024）是一个标准样板。它把 RoPE 的基频从 Llama 2 时代的 10000 提到 <strong>500000</strong>（相当于内置了 NTK 式的低频缩放），然后<strong>分阶段继续训练</strong>：逐步拉长训练序列，把上下文窗口从预训练的 8K 一路扩到 128K，继续预训练阶段消耗了约 8000 亿（800B）token。</p>
+
+<p>　　注意最后这个数字：改刻度本身只要几行代码，但让模型真正学会在 128K 长度上组织信息，仍然要烧掉预训练零头规模的算力。而且这 800B token 里<strong>长文档的配比被显著上调</strong>——如果续训数据还是一堆短文本，模型压根没机会练习“第 10 万个 token 回看第 3 万个 token”这种动作。这正是第 1 章讲的数据配比问题在训练后期的一次返场，整套“预训练之后再针对性补训”的流程，就是第 8 章中间训练（Mid-training）的核心内容。</p>
+
+<div class="highlight-box">
+  长上下文扩展的通用配方：先用 PI / NTK / YaRN 类方法改位置编码的刻度，把乐谱缩印到模型熟悉的版面；再用长文档配比上调的数据继续训练，拿长曲子集训。缩印让模型“读得下”，集训让模型“读得懂”，两步缺一不可。
+</div>
+
+<p>　　至此第 3 章收尾：token 变成向量、向量带上位置、位置还能弹性扩展。下一章进入 Transformer 架构本体，看这些向量如何在注意力层里真正流动起来。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么 RoPE 模型直接把长文塞进去会翻车？</div>
+    <div class="sc-key">训练只见过 \(0\) 到 \(L-1\) 的位置，更长输入的旋转角度超出训练分布，注意力分数失真，困惑度曲线爆炸。本质是外推问题，不是模型容量问题。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">位置插值 PI 的核心动作是什么？为什么还要微调？</div>
+    <div class="sc-key">把位置编号除以 \(s=L'/L\)，把长文压回训练见过的位置区间，外推变内插。压缩后相邻位置间距变小、分辨力下降，需要约千步量级的继续训练让模型适应新刻度。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">NTK 和 YaRN 相比 PI 改进了什么？工业界如何用？</div>
+    <div class="sc-key">按频段区别对待：高频维度少动以保留近邻分辨力，低频维度多缩，YaRN 再加注意力温度修正，训练量更小、效果更好。工业界如 Llama 3.1 把它们组合成流水线：提基频改刻度，再分阶段用高配比长文档继续训练，从 8K 扩到 128K。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Chen et al., 2023. Extending Context Window of Large Language Models via Positional Interpolation（位置插值 PI 原始论文，arXiv:2306.15595），公式 (1) 与千步量级微调结论出自该文。</li>
+  <li>Peng et al., 2023. YaRN: Efficient Context Window Extension of Large Language Models（YaRN 原始论文，arXiv:2309.00071），分频段插值与注意力温度修正出自该文。</li>
+  <li>bloc97, 2023. NTK-Aware Scaled RoPE（NTK-aware 缩放的社区原始出处，首发于 Reddit 与个人博客）。</li>
+  <li>Meta AI（Dubey et al.）, 2024. The Llama 3 Herd of Models（Llama 3.1 技术报告，arXiv:2407.21783），RoPE 基频 500000、分阶段扩上下文至 128K、约 800B token 继续训练出自该文。</li>
+  <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864），频率公式 \(\theta_i=\mathrm{base}^{-2i/d}\) 的出处，详见 3.4 节。</li>
+</ul>
+
+</article>

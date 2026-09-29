@@ -1,0 +1,172 @@
+﻿<article class="content">
+<h1>1.4 数据配比：网页、代码、数学各放多少</h1>
+<p class="subtitle">本页范围：第 1 章第 4 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>预训练语料来自网页、书籍、代码、数学等多个来源，每类各放多少比例？这个比例凭什么这么定？</td></tr>
+      <tr><td>本节主张</td><td>数据配比（domain weights）是预训练的关键旋钮，直接决定模型的能力结构。早期靠人工经验拍定，DoReMi 证明可以让小模型自动寻优，再把结论外推给大模型。</td></tr>
+      <tr><td>一句话结论</td><td>配比的本质是在主分布不掉队的前提下拔高关键能力；好配比可以从人工试错升级为小模型实验加外推。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>数据配比</span><span>Domain Weights</span><span>Common Crawl</span><span>DoReMi</span><span>Group DRO</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>1.4.1 配比为什么重要：偏科的代价</h2>
+
+<p>　　前面几节解决的是数据好不好、够不够的问题，这一节面对的是另一类问题：每类数据放多少。同一个语料库里，网页文本、书籍、代码、学术论文的占比可以是任意组合，而模型最终的能力结构，很大程度上就是被这个组合塑造出来的。</p>
+
+<p>　　直觉类比是学生的复习时间分配。同样三个月备考，把时间全砸在数学上的学生和平均用力的学生，考出来的成绩单完全不同。模型也一样：训练时对某类数据的<strong>采样频率</strong>，就是模型分配给它学习时间的长短。代码数据见得多，代码能力就强；网页闲聊文本占了绝对主导，模型就擅长日常表达而疏于严谨推理。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">数据配比（Domain Weights）</span>
+    <span class="term-en">data mixture / domain weights = 训练时从各数据域采样的相对权重</span>
+  </div>
+  <div class="term-body">
+    <p>预训练语料按来源或类型被划分为若干<strong>域</strong>（domain），如网页、书籍、代码、数学、对话。每个域的样本量差异巨大，训练时通常<strong>不按自然占比采样</strong>，而是人为给每个域指定一个采样权重，这组权重就是配比。配比改变，喂进模型的数据分布就改变，最终能力结构跟着改变。</p>
+    <div class="term-analogy">就像食堂配餐：仓库里米面成山、牛肉稀少（各域自然占比悬殊），但配餐师不会按库存比例打饭，而是按营养目标决定每餐主食、肉、菜各打几勺。配比就是那张打饭的分量表。</div>
+  </div>
+</div>
+
+<div class="highlight-box info">
+  配比是<strong>相对权重</strong>，不是绝对数据量。同样一批语料，按两种不同配比各训一遍，得到的两个模型能力结构会明显不同。这就是为什么配比能和数据质量、数据量并列成为预训练数据的第三个关键决策。
+</div>
+
+<p>　　偏科的代价是真实的：网页文本管够但代码稀缺，模型就学不会写程序；代码比例拉得太高，通用语料被挤占，日常对话和写作能力又会退化。调配比的目标从来不是让所有能力齐头并进，而是在主分布不掉队的前提下，把关键能力拔上去。</p>
+
+<h2>1.4.2 人工配比时代：GPT-3 的配方</h2>
+
+<p>　　最早的配方全靠人工拍。GPT-3 论文公开了它的训练混合方案，是观察人工配比思路的经典样本：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>数据集</th><th>token 量</th><th>训练混合权重</th><th>训满 3000 亿 token 时看过的遍数</th></tr></thead>
+    <tbody>
+      <tr><td>Common Crawl（过滤后）</td><td>4100 亿</td><td>60%</td><td>0.44 遍</td></tr>
+      <tr><td>WebText2</td><td>190 亿</td><td>22%</td><td>2.9 遍</td></tr>
+      <tr><td>Books1</td><td>120 亿</td><td>8%</td><td>1.9 遍</td></tr>
+      <tr><td>Books2</td><td>550 亿</td><td>8%</td><td>0.43 遍</td></tr>
+      <tr><td>Wikipedia</td><td>30 亿</td><td>3%</td><td>3.4 遍</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　这张表（GPT-3 论文表 2.2）藏着人工配比的全部思路。<strong>采样不按数据量比例来</strong>：Wikipedia 只有 30 亿 token，却给了 3% 的权重，训练中被翻来覆去看了 3.4 遍；Common Crawl 有 4100 亿 token，按 60% 权重采样下来连一遍都没看完。论文说得很直白：这是有意接受少量过拟合，换取更高质量的训练数据。小精料反复吃，大粗粮吃不完，背后全是人的经验判断。</p>
+
+<div class="highlight-box info">
+  表中权重合计为 101%，论文原表如此：各权重是近似的采样比例，没有严格归一。另外注意区分后两列——Books1 的 token 量是 120 亿，权重是 8%，数量与权重是两回事。
+</div>
+
+<p>　　人工配方的问题在于验证成本。一个配比好不好，只有拿它把大模型完整训一遍、再跑下游评测才知道。每试一个候选配方就是一次完整的大模型训练，没人试得起几轮，最后端上桌的配方往往只是拍脑袋加上几轮小规模试探的产物。GPT-3 的 60/22/8/8/3 显著影响了后续许多模型的配方设计，但它本身并没有被系统论证过。有没有办法让配比自己学出来？</p>
+
+<h2>1.4.3 DoReMi：让小模型替大模型找配比</h2>
+
+<p>　　2023 年的 DoReMi 给出了肯定的答案。它的思路一句话说清：<strong>大模型试错太贵，就让便宜的小模型去试错，再把结论外推回来</strong>。就像大厨研发新菜，不可能每试一版都办一场正式宴席，而是先让小灶试做，口味比例调好了再上大席。</p>
+
+<p>　　具体分三步走：</p>
+
+<ol>
+  <li><strong>训参考模型</strong>：按一个初始配比（比如各域默认占比）训一个 280M 的小参考模型，记下它在每个域上的损失，作为各域的基线水平；</li>
+  <li><strong>代理模型调权重</strong>：再训一个同样 280M 的代理模型，训练过程中用 Group DRO 算法持续调整各域权重，目标是最小化最坏情况下的<strong>超额损失</strong>——也就是与参考模型基线相比，改善最少的那个域也要被照顾到；</li>
+  <li><strong>外推训大模型</strong>：把代理模型学出的域权重拿来重新采样数据，直接训 8B 大模型（参数量约为代理模型的 30 倍）。</li>
+</ol>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <rect x="10" y="45" width="190" height="125" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="105" y="85" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">第一步：参考模型</text>
+    <text x="105" y="110" text-anchor="middle" font-size="12" fill="#555">280M，按初始配比训练</text>
+    <text x="105" y="135" text-anchor="middle" font-size="12" fill="#555">记录各域损失基线</text>
+    <rect x="265" y="45" width="190" height="125" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="360" y="85" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">第二步：代理模型</text>
+    <text x="360" y="110" text-anchor="middle" font-size="12" fill="#555">280M，Group DRO 调权重</text>
+    <text x="360" y="135" text-anchor="middle" font-size="12" fill="#555">最小化最坏域超额损失</text>
+    <rect x="520" y="45" width="190" height="125" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="615" y="85" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">第三步：大模型 8B</text>
+    <text x="615" y="110" text-anchor="middle" font-size="12" fill="#555">学出的域权重直接外推</text>
+    <text x="615" y="135" text-anchor="middle" font-size="12" fill="#555">重新采样数据后训练</text>
+    <line x1="200" y1="107" x2="265" y2="107" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="455" y1="107" x2="520" y2="107" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <text x="360" y="215" text-anchor="middle" font-size="13" fill="#666">结果：少样本下游平均准确率 +6.5 个百分点，训练步数约为基线的 1/2.6</text>
+  </svg>
+  <div class="diagram-caption">图示：DoReMi 三步流程。小模型负责试错与寻优，大模型只消费最终配比，两步的参数量相差约 30 倍。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">超额损失（Excess Loss）</span>
+    <span class="term-en">excess loss = 当前模型某域损失 − 参考模型同域损失</span>
+  </div>
+  <div class="term-body">
+    <p>有些域天生难学，损失本来就高，单看损失绝对值会误判。超额损失用<strong>与基线的差值</strong>衡量进步幅度：值为正说明这个域比参考模型还差，值为负说明已经反超。DoReMi 盯住的是所有域里最差的那个超额损失，逼模型把最拖后腿的域补上来，各域均衡受益。</p>
+    <div class="term-analogy">就像老师不只盯全班总分，而是盯每个学生相比入学考试的进步幅度，重点补进步最慢的那个，防止任何一门课掉队。</div>
+  </div>
+</div>
+
+<div class="formula-card">
+  \[ \min_{\theta}\ \max_{\alpha \in \Delta^{k}}\ \sum_{i=1}^{k} \alpha_i \cdot \bar{\ell}_i(\theta), \qquad \bar{\ell}_i(\theta) = L_i(\theta) - L_i(\theta_{\mathrm{ref}}) \tag{1} \]
+  <div class="formula-note">公式 (1)：DoReMi 的优化目标（简化示意）。\(k\) 为域个数，\(\bar{\ell}_i\) 是域 \(i\) 的超额损失，\(\alpha\) 是域权重。Group DRO 取所有域中超额损失最大的组合作为优化对象，代理模型 \(\theta\) 在最小化这个最坏情况的同时，权重 \(\alpha\) 被逐步更新出来。</div>
+</div>
+
+<p>　　效果相当亮眼。在 The Pile 语料上的实验显示，DoReMi 学出的配比训出的 8B 模型，相比沿用默认配比的基线模型，少样本下游任务平均准确率提升 6.5 个百分点，达到基线同等准确率所需训练步数减少到约 \(1/2.6\)。更难得的是，DoReMi 全程不知道下游要考什么，却在 GLaM 语料上匹配了拿下游任务人工调出来的配比效果。</p>
+
+<div class="highlight-box">
+  DoReMi 最关键的启示是<strong>配比结论可以跨规模外推</strong>：280M 小模型上学出的域权重，直接搬到 30 倍大的 8B 模型上依然有效。配比研究从此可以放在便宜的小模型上做，这把人工调配比的试错成本降了一到两个数量级。
+</div>
+
+<h2>1.4.4 实践启示小结</h2>
+
+<div class="highlight-box info">
+  本小节是业界通行经验的归纳，属经验性共识，不对应某一篇论文的精确实验结论；不同团队的具体配方多为商业秘密，公开数字仅供参考方向。
+</div>
+
+<ul>
+  <li><strong>代码比例上升有助于推理能力</strong>。代码的结构化、逻辑严密的特点会外溢到通用推理，主流模型普遍在配方中给代码留出不小份额，即使目标场景不是写程序；</li>
+  <li><strong>高质量数学数据稀缺且昂贵</strong>。网页和代码可以从公开渠道大量获取，而经过严格校验的数学推理内容产量低、获取成本高，往往需要专门采集甚至合成；</li>
+  <li><strong>配比目标是扬长而不拆台</strong>。在主分布（通用网页文本）能力不掉队的前提下，用有限的配比预算拔高代码、数学、多语言等关键能力；</li>
+  <li><strong>小模型先行成为标配动作</strong>。受 DoReMi 一类工作影响，先在小规模上扫配比、定配方，再放大到正式训练，已是主流实验室的通行流程。</li>
+</ul>
+
+<p>　　至此，第 1 章关于数据的三个决策——质量、数量、配比——已经讲完。数据备齐之后，下一步是把它切成模型能消化的单元，第 2 章进入分词的世界。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">数据配比为什么能左右模型能力？</div>
+    <div class="sc-key">模型按采样频率分配学习时间，配比就是能力预算表：某类数据见得越多，对应能力越强，挤占的则是其他域的学习份额。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">GPT-3 的配方体现了怎样的人工权衡？</div>
+    <div class="sc-key">采样不按数据量比例：Wikipedia 等高质量小源被重复看 2 到 3 遍，Common Crawl 连一遍都没看完，宁可接受少量过拟合也要保证数据质量，权重本身是经验拍定。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">DoReMi 凭什么摆脱人工调配比？</div>
+    <div class="sc-key">参考模型提供各域损失基线，代理模型用 Group DRO 最小化最坏域的超额损失，自动学出域权重；关键是小模型上学出的配比能直接外推到 30 倍大的模型，试错成本大降。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+<p>　　minimind 的预训练数据是单一成品文件（<code>pretrain_t2t.jsonl</code>，配比在数据制作阶段已完成），但"按比例混合不同类型样本"的思想在数据加载代码里就有体现：<code>dataset/lm_dataset.py</code> 的 <code>pre_processing_chat</code> 用参数 <code>add_system_ratio=0.2</code> 控制约 20% 的对话样本被加上 system 提示词，<code>RLAIFDataset</code> 用 <code>thinking_ratio=0.5</code> 控制一半样本开启思考链。配比落到工程里，就是一个采样概率参数。</p>
+<pre><code># 读代码位置（minimind 工程，Apache 2.0）
+minimind-master/dataset/lm_dataset.py   # 第 9、31、200 行附近的 ratio 参数</code></pre>
+<p>　　另一个实例在 README 的数据集说明里：<code>sft_t2t.jsonl</code> 中已混入一部分 Tool Call 样本，模型因此免去一轮独立的工具调用微调。这正是本节"配比服务于能力"的思路在小工程里的落地。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3 论文，arXiv:2005.14165）。1.4.2 节的配比表与"高质量源重复采样、宁可接受少量过拟合"的论述出自该文第 2.2 节及表 2.2。</li>
+  <li>Xie et al., 2023. DoReMi: Optimizing Data Mixtures Speeds Up Language Model Pretraining（NeurIPS 2023，arXiv:2305.10429）。1.4.3 节的三步流程、6.5 个百分点提升、2.6 倍加速与 GLaM 匹配结果出自该文摘要与正文。</li>
+  <li>Sagawa et al., 2020. Distributionally Robust Neural Networks for Group Shifts: On the Importance of Regularization for Worst-Case Generalization（Group DRO 原始论文，ICLR 2020，arXiv:1911.08731），DoReMi 所用优化算法的出处。</li>
+</ul>
+
+</article>

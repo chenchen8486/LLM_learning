@@ -1,0 +1,306 @@
+﻿<article class="content">
+<h1>5.5 现代 LLM 架构总账：2017 到今天改了什么</h1>
+<p class="subtitle">本页范围：第 5 章第 5 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>2017 年论文里的 Transformer，和今天服务器上跑的开源大模型，架构上到底差在哪？哪些零件被换掉了，哪些一字未动？</td></tr>
+      <tr><td>本节主张</td><td>从 2017 到 2024，Transformer 的骨架原样保留，换掉的主要是四类零件：归一化、激活函数、位置编码、注意力的缓存形态。所有改动都指向三件事：训练更稳、推理更省、能力更能随规模增长。</td></tr>
+      <tr><td>一句话结论</td><td>今天的 LLM 是「原版骨架加现代化零件」：缩放点积注意力、多头、残差、逐位置 FFN、自回归生成一个没少，LayerNorm、ReLU、正弦位置、MHA 则被 RMSNorm、SwiGLU、RoPE、GQA 与 MLA 替换。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>Pre-LN</span><span>RMSNorm</span><span>SwiGLU</span><span>RoPE</span><span>GQA / MLA</span><span>MoE</span><span>架构总账</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>5.5.1 七年演化一图速览</h2>
+
+<p>　　第 4 章逐层拆解了 2017 年的原版 Transformer，本章前几节又分别讲了 RMSNorm、SwiGLU、GQA、MLA 与 MoE 这些新零件。收官之前，先把七年的演化拉到同一条时间线上看一眼：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 930 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 时间轴 -->
+    <line x1="30" y1="190" x2="905" y2="190" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#arrT)"/>
+    <!-- 节点 1：2017 Transformer -->
+    <rect x="35" y="48" width="170" height="106" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="120" y="74" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#4c1d95">2017 · Transformer</text>
+    <text x="120" y="96" text-anchor="middle" font-size="11" fill="#555">编码器-解码器做翻译</text>
+    <text x="120" y="116" text-anchor="middle" font-size="11" fill="#555">Post-LN · ReLU</text>
+    <text x="120" y="136" text-anchor="middle" font-size="11" fill="#555">正弦位置 · MHA</text>
+    <line x1="120" y1="154" x2="120" y2="186" stroke="#6d28d9" stroke-width="1.5"/>
+    <circle cx="120" cy="190" r="5.5" fill="#6d28d9"/>
+    <!-- 节点 2：2018 GPT -->
+    <rect x="215" y="48" width="170" height="106" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="300" y="74" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#4c1d95">2018 · GPT</text>
+    <text x="300" y="96" text-anchor="middle" font-size="11" fill="#555">砍掉编码器</text>
+    <text x="300" y="116" text-anchor="middle" font-size="11" fill="#555">只留自回归解码器栈</text>
+    <text x="300" y="136" text-anchor="middle" font-size="11" fill="#555">预训练 + 微调范式</text>
+    <line x1="300" y1="154" x2="300" y2="186" stroke="#6d28d9" stroke-width="1.5"/>
+    <circle cx="300" cy="190" r="5.5" fill="#6d28d9"/>
+    <!-- 节点 3：2020 GPT-3 -->
+    <rect x="395" y="48" width="170" height="106" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="480" y="74" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#4c1d95">2020 · GPT-3</text>
+    <text x="480" y="96" text-anchor="middle" font-size="11" fill="#555">1750 亿参数</text>
+    <text x="480" y="116" text-anchor="middle" font-size="11" fill="#555">架构几乎不变</text>
+    <text x="480" y="136" text-anchor="middle" font-size="11" fill="#555">规模即能力</text>
+    <line x1="480" y1="154" x2="480" y2="186" stroke="#6d28d9" stroke-width="1.5"/>
+    <circle cx="480" cy="190" r="5.5" fill="#6d28d9"/>
+    <!-- 节点 4：2023 LLaMA / GQA -->
+    <rect x="575" y="48" width="170" height="106" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="660" y="74" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#155e75">2023 · LLaMA / GQA</text>
+    <text x="660" y="96" text-anchor="middle" font-size="11" fill="#555">LLaMA 集齐现代配方</text>
+    <text x="660" y="116" text-anchor="middle" font-size="11" fill="#555">RMSNorm+SwiGLU+RoPE</text>
+    <text x="660" y="136" text-anchor="middle" font-size="11" fill="#555">Llama 2 引入 GQA</text>
+    <line x1="660" y1="154" x2="660" y2="186" stroke="#0891b2" stroke-width="1.5"/>
+    <circle cx="660" cy="190" r="5.5" fill="#0891b2"/>
+    <!-- 节点 5：2024 MLA / MoE -->
+    <rect x="755" y="48" width="170" height="106" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="840" y="74" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#155e75">2024 · MLA / MoE</text>
+    <text x="840" y="96" text-anchor="middle" font-size="11" fill="#555">DeepSeek-V2 提出 MLA</text>
+    <text x="840" y="116" text-anchor="middle" font-size="11" fill="#555">V3 大规模验证</text>
+    <text x="840" y="136" text-anchor="middle" font-size="11" fill="#555">MoE 全面铺开</text>
+    <line x1="840" y1="154" x2="840" y2="186" stroke="#0891b2" stroke-width="1.5"/>
+    <circle cx="840" cy="190" r="5.5" fill="#0891b2"/>
+    <!-- 底部补充 -->
+    <text x="465" y="240" text-anchor="middle" font-size="12" fill="#666">零件的发明普遍早于普及：RMSNorm 出自 2019，SwiGLU 出自 2020，RoPE 出自 2021，</text>
+    <text x="465" y="262" text-anchor="middle" font-size="12" fill="#666">直到 2023 年 LLaMA 把它们打包验证，「现代配方」才算定型。</text>
+  </svg>
+  <div class="diagram-caption">图示：从 2017 年原版 Transformer 到 2024 年 MLA 与 MoE 普及，骨架始终是「多头注意力 + 逐位置 FFN + 残差」的堆叠，变化发生在零件层。</div>
+</div>
+
+<p>　　有两个节点值得单独说一句。一是 2018 年的 GPT：它把原论文为翻译任务设计的编码器整个砍掉，只保留带因果掩码的自回归解码器栈，今天所有主流 LLM 都是这个形态。二是 2020 年的 GPT-3：架构上它几乎没动 GPT-2 的图纸，只把参数量推到 1750 亿，却换来了质变的能力。这件事给整个行业的启发是：先把骨架稳住，再围绕它换更好的零件、喂更多的数据。</p>
+
+<h2>5.5.2 零件替换总账表</h2>
+
+<p>　　把原论文和三家 2024 年的代表性开源模型摆到同一张表上，换了什么一目了然：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>配置项</th><th>原论文 Transformer（2017）</th><th>Llama 3（2024）</th><th>Qwen2.5（2024）</th><th>DeepSeek-V3（2024）</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>归一化</td><td>LayerNorm，Post-LN（残差相加之后）</td><td>RMSNorm，Pre-LN</td><td>RMSNorm，Pre-LN</td><td>RMSNorm，Pre-LN</td></tr>
+      <tr><td>激活函数</td><td>ReLU</td><td>SwiGLU</td><td>SwiGLU</td><td>SwiGLU（MoE 专家内）</td></tr>
+      <tr><td>注意力</td><td>MHA，Q、K、V 都是 8 头</td><td>GQA，8 个 KV 头</td><td>GQA，带 QKV 偏置</td><td>MLA，512 维隐向量加 64 维解耦旋转键</td></tr>
+      <tr><td>位置编码</td><td>正弦绝对位置编码，加在嵌入上</td><td>RoPE，基频 \(\theta=500000\)</td><td>RoPE，长上下文阶段 ABF 提至 100 万</td><td>RoPE（MLA 解耦键），YaRN 扩展</td></tr>
+      <tr><td>词表</td><td>约 3.7 万（英德共享 BPE）</td><td>128,256</td><td>151,643 常规加 22 控制</td><td>129,280（BBPE）</td></tr>
+      <tr><td>上下文</td><td>翻译句子，数百 token 量级</td><td>8192（3.1 代扩至 128K）</td><td>32K 至 128K（YARN 与 DCA 扩展）</td><td>128K（两阶段扩展）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box info">
+  表中数字以各技术报告与官方配置文件为准。原论文的正弦位置编码本身不设硬长度上限，「数百 token」指机器翻译句子的实际长度量级，不是架构限制。DeepSeek-V3 的 FFN 换成了 DeepSeekMoE（前 3 层稠密，其余每层 256 个专家选 8 个加 1 个共享专家），这是规模扩张维度上的改动，表中不重复展开。
+</div>
+
+<p>　　词表和上下文这两行虽然不是「零件替换」，但变化幅度同样惊人。词表从 3.7 万涨到 12.8 万以上，动机是更好的多语言覆盖和更高的压缩率：Llama 3 的报告提到，新词表把英文样本的压缩率从 Llama 2 的 3.17 提升到 3.94 字符每 token，同样的文本切成更少的 token，训练和推理都跟着省。上下文从几百 token 涨到 8K 起步、128K 主流，Qwen2.5-Turbo 更是推到 100 万 token，背后是位置编码、注意力和训练流程一整套配合的结果，第 8 章会讲训练侧怎么把窗口一步步撑大。</p>
+
+<h2>5.5.3 四处替换，各自为什么换</h2>
+
+<p>　　总账表说的是「换了什么」，这一节回答「为什么换」。四处替换各有各的直接动机，但底层的账本是同一本：</p>
+
+<div class="highlight-box">
+  七年下来骨架没动，所有替换都指向三件事：训练更稳（Pre-LN 加 RMSNorm）、推理更省（GQA 与 MLA 压缩 KV 缓存）、能力更能 scaling（SwiGLU 增强表达力，RoPE 撑住长上下文）。
+</div>
+
+<h3>归一化：Post-LN 加 LayerNorm 换成 Pre-LN 加 RMSNorm</h3>
+
+<p>　　原论文的写法是把归一化放在残差相加<strong>之后</strong>，数据每过一个子层都要先和输入相加、再过一次 LayerNorm。这种 Post-LN 在深模型里有个麻烦：梯度主要涌向最顶层的归一化附近，底层参数得不到干净的梯度，训练前期容易发散，必须靠学习率 warmup（先小步热身再加速）才能稳住。Xiong 等人在 2020 年的分析表明，把归一化挪到子层<strong>输入端</strong>（Pre-LN），残差主路就成了恒等直通的高速公路，不加 warmup 也能稳定训练。GPT-2 在 2019 年已经这么干了，Pre-LN 随后成为所有主流模型的标配。</p>
+
+<div class="formula-card">
+  \[ \text{Post-LN（2017 原版）：}\quad \mathrm{LayerNorm}\big(x+\mathrm{Sublayer}(x)\big) \tag{1} \]
+  \[ \text{Pre-LN（现代主流）：}\quad x+\mathrm{Sublayer}\big(\mathrm{RMSNorm}(x)\big) \tag{2} \]
+  <div class="formula-note">公式 (1)(2)：归一化的位置之差。Pre-LN 里主路上的 \(x\) 原样直通到层尾，梯度可以无衰减地传回浅层。</div>
+</div>
+
+<p>　　RMSNorm 换的是归一化本身：LayerNorm 先减均值、再除以标准差，RMSNorm 跳过减均值这一步，直接除以均方根再缩放。少一步计算，开销更小，效果与 LayerNorm 相当（Zhang 与 Sennrich，2019）。<strong>所以这步在干嘛：把收费站从主路挪到岔路入口，让梯度一路直通，再把收费站的流程砍掉一半。</strong></p>
+
+<h3>激活函数：ReLU 换成 SwiGLU</h3>
+
+<p>　　原论文的 FFN 是「升维、ReLU、降维」三步，ReLU 的判别标准简单粗暴：负数一律归零。SwiGLU 把 FFN 改成双支路门控结构，一支算「门开多大」，一支算「传什么内容」，逐元素相乘后再投影回去：</p>
+
+<div class="formula-card">
+  \[ \mathrm{FFN}_{\mathrm{SwiGLU}}(x)=\big(\mathrm{Swish}(xW_1)\odot xV\big)\,W_2, \qquad \mathrm{Swish}(x)=x\cdot\sigma(x) \tag{3} \]
+  <div class="formula-note">公式 (3)：门控 FFN。\(xW_1\) 过 Swish 当「门」，\(xV\) 当「内容」，\(\odot\) 是逐元素相乘。模型可以学到对每个维度连续地调节放行比例，而不是 ReLU 的 0 或 1。</div>
+</div>
+
+<p>　　Shazeer 在 2020 年系统比较了 GLU 家族的多个变体，SwiGLU 综合表现最好，此后被 LLaMA 带成了行业标准。门控结构多一个投影矩阵，为了总参数量不超标，论文给出的办法是把 FFN 中间维度按三分之二的系数折算，实际各家再按硬件取整。<strong>所以这步在干嘛：ReLU 是保安，负数直接赶走；SwiGLU 是双岗门卫，一个判断放行几成，一个递上内容，表达更细腻，scaling 的性价比更高。</strong></p>
+
+<h3>位置编码：正弦与可学习换成 RoPE</h3>
+
+<p>　　正弦编码是给每个位置钉一块「绝对门牌号」，直接加在词嵌入上；RoPE 换成记录「转角」，把位置信息以旋转的方式作用在 Q、K 上，两个位置做内积时天然只剩相对位移。机制细节 3.4 节已经讲透，这里只补一个数字链条，看看「基频」这个旋钮怎么把上下文越转越远：</p>
+
+<ul>
+  <li>RoFormer（2021）沿用 \(\theta=10000\)，与原论文正弦编码的波长上限一致；</li>
+  <li>Llama 3（2024）把基频提到 \(\theta=500000\)，官方报告写明此举是为了支持更长上下文；</li>
+  <li>Qwen2.5（2024）在长上下文训练阶段用 ABF 技术把基频从 1 万提到 100 万，Turbo 版更是用到 1000 万，配合分阶段训练把窗口推到 100 万 token。</li>
+</ul>
+
+<p>　　基频越大，单个维度转得越慢，远处位置的转角不至于绕圈缠在一起，模型才分得清第 1 个 token 和第 10 万个 token。3.5 节讲的长度外推技巧，大半都是围着这个旋钮做文章。<strong>所以这步在干嘛：把「门牌号」改成「相对转角」，位置关系更贴合注意力的计算方式，还把「看得远」变成了一个有得调的参数。</strong></p>
+
+<h3>注意力：MHA 换成 GQA，再压成 MLA</h3>
+
+<p>　　前三处替换主要服务训练，这一处服务推理。自回归生成每蹦一个 token，都要把历史所有 token 的 K、V 再读一遍，所以推理时要把它们缓存起来，这就是 KV 缓存。头越多、上下文越长，缓存越恐怖，它才是长上下文落地的真正瓶颈。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">KV 缓存 KV Cache</span>
+    <span class="term-en">cache = 把算过的中间结果存起来，避免重复计算</span>
+  </div>
+  <div class="term-body">
+    <p>推理时每生成一个 token，都要拿它的 Q 去和<strong>之前所有位置</strong>的 K、V 算注意力。这些 K、V 在生成它们时已经算过一遍，存下来就不用重算。代价是显存：缓存量等于「层数 × 序列长度 × KV 头数 × 每头维度 × 2（K 和 V）」，上下文一拉长，显存先被它吃光。</p>
+    <div class="term-analogy">就像开卷考试时每做一道新题都要翻一遍之前的笔记。笔记（K、V）越厚翻得越慢，GQA 和 MLA 干的事就是把笔记做薄。</div>
+  </div>
+</div>
+
+<p>　　用真实配置算一笔账，看每层每个 token 要缓存多少个浮点数：</p>
+
+<ul>
+  <li><strong>MHA</strong>（以 64 个头、每头 128 维为例）：\(64\times128\times2=16384\) 个数，K 和 V 各一份；</li>
+  <li><strong>GQA</strong>（Llama 3 的做法，64 个查询头只配 8 个 KV 头）：\(8\times128\times2=2048\) 个数，缓存直接缩到八分之一；</li>
+  <li><strong>MLA</strong>（DeepSeek-V3）：只存 512 维压缩隐向量加 64 维解耦旋转键，共 576 个数，比 GQA 再省约 3.5 倍，约为 MHA 的二十八分之一。</li>
+</ul>
+
+<p>　　GQA 的代价是同组的头拿到一模一样的 K、V，表达被打了个折扣；MLA 改用「存浓缩液、用时现冲」的低秩压缩，把这份折扣几乎抹平，5.3 节有完整推导。<strong>所以这步在干嘛：MHA 是每个秘书各备一份档案，GQA 是几个秘书共享一份，MLA 是只存档案粉末、用时现冲，目的都是一个，把推理的显存账单砍下来。</strong></p>
+
+<h2>5.5.4 现代 LLM 的一层长什么样</h2>
+
+<p>　　把换好的零件装回原版图纸，就得到今天主流模型的一层 block。和第 4 章那张原版图对照着看，结构关系没变，变的是每个格子里装的货：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 930 640" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 主路：自下而上 -->
+    <!-- 输入 -->
+    <rect x="210" y="560" width="250" height="52" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="335" y="592" text-anchor="middle" font-size="14" fill="#333">输入 x（上一层输出）</text>
+    <!-- RMSNorm 1 -->
+    <rect x="210" y="470" width="250" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="335" y="502" text-anchor="middle" font-size="14" fill="#333">RMSNorm</text>
+    <!-- GQA -->
+    <rect x="210" y="370" width="250" height="72" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="335" y="398" text-anchor="middle" font-size="14" font-weight="bold" fill="#4c1d95">GQA 注意力</text>
+    <text x="335" y="418" text-anchor="middle" font-size="11.5" fill="#555">查询头多 · KV 头少，Q、K 上施加 RoPE</text>
+    <text x="335" y="434" text-anchor="middle" font-size="11.5" fill="#555">（MLA 模型此处换低秩压缩）</text>
+    <!-- 残差加 1 -->
+    <circle cx="335" cy="305" r="17" fill="#fff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="335" y="311" text-anchor="middle" font-size="16" fill="#6d28d9">+</text>
+    <!-- RMSNorm 2 -->
+    <rect x="210" y="220" width="250" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="335" y="252" text-anchor="middle" font-size="14" fill="#333">RMSNorm</text>
+    <!-- FFN -->
+    <rect x="210" y="120" width="250" height="72" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="335" y="148" text-anchor="middle" font-size="14" font-weight="bold" fill="#4c1d95">SwiGLU FFN</text>
+    <text x="335" y="168" text-anchor="middle" font-size="11.5" fill="#555">门控双支路，逐位置独立</text>
+    <text x="335" y="184" text-anchor="middle" font-size="11.5" fill="#555">（MoE 模型此处换路由 + 专家）</text>
+    <!-- 残差加 2 -->
+    <circle cx="335" cy="70" r="17" fill="#fff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="335" y="76" text-anchor="middle" font-size="16" fill="#6d28d9">+</text>
+    <!-- 输出 -->
+    <rect x="210" y="8" width="250" height="40" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="335" y="33" text-anchor="middle" font-size="14" fill="#333">输出：送往下一层</text>
+    <!-- 主路箭头 -->
+    <line x1="335" y1="560" x2="335" y2="524" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="470" x2="335" y2="444" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="370" x2="335" y2="324" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="288" x2="335" y2="274" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="220" x2="335" y2="194" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="120" x2="335" y2="89" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="53" x2="335" y2="50" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <!-- 残差 ①：输入 -> 加1 -->
+    <path d="M210,586 L140,586 L140,305 L316,305" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrB)"/>
+    <text x="126" y="440" font-size="11.5" fill="#0891b2" text-anchor="middle" transform="rotate(-90 126 440)">残差 ①：绕过注意力层</text>
+    <!-- 残差 ②：加1 后 -> 加2 -->
+    <path d="M335,281 L180,281 L180,70 L316,70" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrB)"/>
+    <text x="166" y="180" font-size="11.5" fill="#0891b2" text-anchor="middle" transform="rotate(-90 166 180)">残差 ②：绕过 FFN</text>
+    <!-- 右侧注释：GQA + RoPE -->
+    <line x1="460" y1="406" x2="600" y2="406" stroke="#9ca3af" stroke-width="1"/>
+    <text x="608" y="378" font-size="12" fill="#444">GQA：64 查询头只配 8 KV 头，</text>
+    <text x="608" y="398" font-size="12" fill="#444">KV 缓存立省 8 倍（MLA 更省）</text>
+    <text x="608" y="422" font-size="12" fill="#444">RoPE：位置信息只旋转 Q、K，</text>
+    <text x="608" y="442" font-size="12" fill="#444">门牌号变成相对转角</text>
+    <!-- 右侧注释：Pre-LN -->
+    <line x1="460" y1="246" x2="600" y2="246" stroke="#9ca3af" stroke-width="1"/>
+    <text x="608" y="232" font-size="12" fill="#444">Pre-LN：归一化挪到岔路入口，</text>
+    <text x="608" y="252" font-size="12" fill="#444">主路全程直通，梯度不衰减</text>
+    <!-- 右侧注释：FFN -->
+    <line x1="460" y1="156" x2="600" y2="156" stroke="#9ca3af" stroke-width="1"/>
+    <text x="608" y="142" font-size="12" fill="#444">SwiGLU：一支算「门」、一支算「内容」</text>
+    <text x="608" y="162" font-size="12" fill="#444">MoE 版：路由器把 token 分给少数专家</text>
+  </svg>
+  <div class="diagram-caption">图示：现代 LLM 的一层 block。与第 4 章原版图同构：两个子层、两条残差；Pre-LN 把归一化移到子层输入端，GQA 与 SwiGLU 替换了子层内部的实现。</div>
+</div>
+
+<p>　　对照原论文的解码器层，变化可以数得很清楚：少了与编码器的交叉注意力子层（decoder-only 没有编码器可对），归一化从残差之后挪到子层之前，MHA 换 GQA 或 MLA，ReLU 版 FFN 换 SwiGLU 版，位置信息从嵌入处的加法变成 Q、K 上的旋转。剩下的部分，就是下一节的主角。</p>
+
+<h2>5.5.5 没换的部分为什么屹立不倒</h2>
+
+<p>　　比起换了什么，更值得问的是：为什么这些东西七年没人换得动？</p>
+
+<ul>
+  <li><strong>缩放点积注意力的核心</strong>：\(\mathrm{softmax}(QK^{\top}/\sqrt{d_k})V\) 这一行公式原样跑在今天每一个模型里。GQA 和 MLA 改的都是「K、V 怎么存」，注意力本身怎么算，没人找到又便宜又好的替代品。</li>
+  <li><strong>多头结构</strong>：多组 Q 并行地从不同子空间看同一序列，这个设计被证明是容量与成本的甜点位。变的只是 KV 头的数量，「多头并行」本身没动。</li>
+  <li><strong>残差连接</strong>：从 ResNet 借来之后一直原样保留。它是上百层网络还能训练的物理基础，Pre-LN 的全部意义其实就是把残差主路彻底腾干净。</li>
+  <li><strong>逐位置 FFN 的位置与分工</strong>：注意力负责跨位置混合信息，FFN 负责对每个位置独立加工，这个分工沿用至今。MoE 也只是把 FFN 复制很多份再加个路由器，角色没变。</li>
+  <li><strong>自回归生成</strong>：2017 年的解码器就是一个 token 一个 token 往外蹦，今天依然如此。它把「生成任意文本」化归成「反复预测下一个 token」，简单到没有对手。</li>
+</ul>
+
+<p>　　这套组合能活下来，原因可以归结为一句话：它在并行效率、表达容量、梯度可达性三件事上同时拿高分，后来者的改进空间只剩它暴露出的具体短板，也就是显存、稳定性和长度，而不是核心理念。所有新零件都是对着短板去的补丁，骨架本身没有裂缝。</p>
+
+<h2>5.5.6 与后续章节的衔接</h2>
+
+<p>　　到这里，「模型长什么样」就讲完了，但架构只是静态图纸，接下来的章节回答它怎么被用起来：</p>
+
+<ul>
+  <li><strong>第 6 章</strong>接过一个最自然的问题：这套架构在预训练时「学什么」。答案简单得惊人，就是反复预测下一个 token，但配合 scaling law，简单的目标撑起了全部能力；</li>
+  <li><strong>第 8 章</strong>讲中间训练，其中长上下文扩展正是本节 RoPE 基频数字链在训练侧的完整操作：怎么分阶段把窗口从几千撑到十几万；</li>
+  <li><strong>第 13 章</strong>把推理的账算到底：KV 缓存只是第一刀，量化、投机采样、连续批处理这些推理系统技术，都是沿着 GQA 与 MLA「省显存、提吞吐」的思路继续往下走。</li>
+</ul>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">今天的开源 LLM 和 2017 年原论文相比，骨架上最大的共同点是什么？</div>
+    <div class="sc-key">缩放点积注意力、多头并行、残差连接、逐位置 FFN、自回归生成全部原样保留；换掉的只是归一化、激活函数、位置编码、KV 缓存形态这四类零件。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">这些零件替换共同指向哪三个目标？</div>
+    <div class="sc-key">训练更稳（Pre-LN 加 RMSNorm 让梯度直通）、推理更省（GQA 与 MLA 把 KV 缓存压缩一个数量级）、能力更能 scaling（SwiGLU 增强表达力，RoPE 加基频调整撑住长上下文）。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Llama 3 的 64 个查询头只配 8 个 KV 头，到底省了什么？</div>
+    <div class="sc-key">省推理时的 KV 缓存：每个 token 每层要存的 K、V 份数从 64 降到 8，缓存缩到八分之一。上下文越长，这笔省下的显存越关键，MLA 在此基础上再省约 3.5 倍。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762），原论文配置列（Post-LN、ReLU、正弦位置、MHA、约 3.7 万词表）对照该文第 3、5 节。</li>
+  <li>Zhang &amp; Sennrich, 2019. Root Mean Square Layer Normalization（RMSNorm 原始论文，arXiv:1910.07467）。</li>
+  <li>Xiong et al., 2020. On Layer Normalization in the Transformer Architecture（arXiv:2002.04745），Pre-LN 稳定性与 warmup 分析。</li>
+  <li>Shazeer, 2020. GLU Variants Improve Transformer（SwiGLU 出处，arXiv:2002.05202），含三分之二折算系数。</li>
+  <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864）。</li>
+  <li>Ainslie et al., 2023. GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints（arXiv:2305.13245）。</li>
+  <li>Radford et al., 2018. Improving Language Understanding by Generative Pre-Training（GPT 报告，decoder-only 起点）；Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3，arXiv:2005.14165）。</li>
+  <li>Touvron et al., 2023. LLaMA: Open and Efficient Foundation Language Models（arXiv:2302.13971，现代配方定型）与 Llama 2（arXiv:2307.09288，引入 GQA）。</li>
+  <li>Grattafiori, Dubey et al., 2024. The Llama 3 Herd of Models（arXiv:2407.21783），词表 128K、GQA 8 个 KV 头、RoPE 基频提至 500,000、压缩率 3.17 到 3.94 均出自该文。</li>
+  <li>Yang et al., 2024. Qwen2.5 Technical Report（arXiv:2412.15115），词表 151,643 常规加 22 控制、ABF 基频 100 万、32K 至 128K 上下文。</li>
+  <li>DeepSeek-AI, 2024. DeepSeek-V2（arXiv:2405.04434，MLA 出处）与 DeepSeek-V3 Technical Report（arXiv:2412.19437，671B 总参、37B 激活、512 维隐向量加 64 维解耦键、128K 上下文；词表 129,280 见其官方配置文件）。</li>
+</ul>
+
+</article>

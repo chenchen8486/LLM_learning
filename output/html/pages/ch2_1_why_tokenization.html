@@ -48,6 +48,10 @@
   <div class="concept-card"><h4>子词级（Subword）</h4><p><code>["Token", "ization", "Ġis", "Ġfun", "."]</code><br>5 个单元，常见词保留整词，长词拆成有意义的片段。</p></div>
 </div>
 
+<div class="highlight-box info">
+  注：<code>Ġ</code> 是空格的特殊标识，<code>Ċ</code> 是换行符的特殊标识（byte-level 分词器的字节映射约定）。
+</div>
+
 <h3>词级切分的问题：词表爆炸与 OOV</h3>
 
 <p>　　如果按词切分，词表必须收录所有可能出现的词。英语的形态变化让这个词表急剧膨胀：<code>look</code>、<code>looks</code>、<code>looked</code>、<code>looking</code> 是 4 个不同的词条，再乘上几十万单词和各种拼写变体，词表动辄上百万。更麻烦的是，只要遇到一个词表没收的词，模型就不认识它。</p>

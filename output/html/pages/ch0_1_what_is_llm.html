@@ -1,0 +1,168 @@
+<article class="content">
+<h1>0.1 大语言模型是什么</h1>
+<p class="subtitle">本页范围：第 0 章第 1 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>ChatGPT 这类助手背后的大语言模型到底是什么？它的“智能”从哪来？</td></tr>
+      <tr><td>本节主张</td><td>大语言模型的内核是一个条件概率模型：给定上文，预测下一个 token。所谓训练，就是把海量文本中的统计模式压缩进参数；日常所见的对话能力，是基座模型经过后训练对齐出来的行为。</td></tr>
+      <tr><td>一句话结论</td><td>LLM 的底层任务一句话就能说完：根据上文猜下一个词。惊人的能力来自这个简单目标在巨大规模上的反复执行。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>语言建模</span><span>下一个 token</span><span>参数</span><span>Base Model</span><span>Chat Model</span><span>涌现</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>0.1.1 本质：预测下一个 token</h2>
+
+<p>　　先从一个文字接龙游戏说起。看到“今天天气很”，几乎不假思索，你就会接上“好”或者“冷”。这个直觉就是语言建模的全部起点。大语言模型做的事情与此相同，只是把“觉得哪个词顺口”换成了精确的概率计算：面对词表里的每一个候选 token，模型都给出一个概率，表示它接在当前上文之后的合理程度。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">大语言模型 LLM</span>
+    <span class="term-en">Large Language Model = 用语言数据训练的大型神经网络</span>
+  </div>
+  <div class="term-body">
+    <p>“语言模型”说的是它的学习任务：对语言的概率分布建模，回答“这段文字有多像人写出来的话”。“大”说的是参数规模：现代 LLM 的参数（可学习的数值权重）从数十亿到上万亿不等，训练语料动辄数千亿甚至数万亿 token。</p>
+    <div class="term-analogy">就像一个把整座图书馆读完的接龙玩家：他不记得每本书的原文，但“什么话后面通常接什么话”已经练成了肌肉记忆。</div>
+  </div>
+</div>
+
+<p>　　把这个想法写成数学语言：一段文本 \(x_1, x_2, \dots, x_n\) 出现的概率，可以按概率的链式法则精确地分解为逐步条件概率的连乘：</p>
+
+<div class="formula-card">
+  \[ P(x_1, x_2, \dots, x_n) = \prod_{t=1}^{n} P\big(x_t \mid x_1, x_2, \dots, x_{t-1}\big) \tag{1} \]
+  <div class="formula-note">公式 (1)：语言建模的链式分解。这不是近似，而是概率论的恒等式：整段文本的概率等于“给定前面所有 token，下一个 token 出现概率”的逐项连乘。</div>
+</div>
+
+<p>　　这个分解的价值在于，它把“给整段文字打分”这件难事化成了同一个简单动作的重复：每一步只需回答一个问题：已知前面是 \(x_1, \dots, x_{t-1}\)，下一个 token 是 \(x_t\) 的可能性有多大？模型一旦学会这个条件分布，就能反过来逐 token 生成全新的文本：从分布里选出一个，接到末尾，再以新的上文继续预测，直到生成结束标记。</p>
+
+<p>　　举个例子。输入“今天天气很”，模型输出的不是唯一答案，而是整个词表上的一个概率分布（下表数字为示意，帮助建立直觉）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>候选 token</th><th>接上后的开头</th><th>概率（示意）</th></tr></thead>
+    <tbody>
+      <tr><td>好</td><td>今天天气很好</td><td>0.31</td></tr>
+      <tr><td>不</td><td>今天天气很不…</td><td>0.12</td></tr>
+      <tr><td>冷</td><td>今天天气很冷</td><td>0.09</td></tr>
+      <tr><td>热</td><td>今天天气很热</td><td>0.07</td></tr>
+      <tr><td>晴</td><td>今天天气很晴（不太通顺）</td><td>0.01</td></tr>
+      <tr><td>词表中其余全部 token（数万条合计）</td><td>……</td><td>合计约 0.40</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box info">
+  表中数字仅用于示意。表中只列出概率最高的 5 个候选，合计 0.60；词表里其余数万条 token 的合计约 0.40，单条摊下来极小（平均不到十万分之一）。真实模型会在整个词表（几万到几十万个候选 token）上输出分布，所有概率之和为 1；具体数值由模型参数决定，不同模型给出的分布不同。
+</div>
+
+<p>　　生成文本就是反复执行同一个动作：预测分布、选出 token、接回上文。这个循环称为自回归（autoregressive）生成：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 220" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 步骤框 -->
+    <rect x="12" y="50" width="140" height="84" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="82" y="88" text-anchor="middle" font-size="15" fill="#333">当前上文</text>
+    <text x="82" y="112" text-anchor="middle" font-size="12" fill="#666">今天天气很</text>
+    <rect x="192" y="50" width="130" height="84" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="257" y="88" text-anchor="middle" font-size="15" fill="#333">模型</text>
+    <text x="257" y="112" text-anchor="middle" font-size="12" fill="#666">第 4 章详解</text>
+    <rect x="362" y="50" width="180" height="84" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="452" y="88" text-anchor="middle" font-size="15" fill="#333">下一 token 的分布</text>
+    <text x="452" y="112" text-anchor="middle" font-size="12" fill="#666">好 0.31 / 不 0.12 / 冷 0.09</text>
+    <rect x="582" y="50" width="126" height="84" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="645" y="88" text-anchor="middle" font-size="15" fill="#333">选出并接回</text>
+    <text x="645" y="112" text-anchor="middle" font-size="12" fill="#666">今天天气很好</text>
+    <!-- 箭头 -->
+    <line x1="152" y1="92" x2="192" y2="92" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="322" y1="92" x2="362" y2="92" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="542" y1="92" x2="582" y2="92" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <!-- 回路 -->
+    <path d="M645,134 L645,180 L82,180 L82,138" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <text x="360" y="202" text-anchor="middle" font-size="13" fill="#666">新 token 接回上文，进入下一轮预测，直到生成结束标记</text>
+  </svg>
+  <div class="diagram-caption">图示：自回归生成循环。模型每次只预测一个 token，把选中的 token 接回上文，再开始下一轮预测。</div>
+</div>
+
+<div class="highlight-box">
+  LLM 的本质就是一个“下一个 token 预测器”。翻译、问答、写作、编程这些看似各不相同的能力，在底层都被统一成同一个任务：给定上文，估计下一个 token 的分布。这是理解整本手册的第一块基石。
+</div>
+
+<h2>0.1.2 参数：压缩进权重的知识</h2>
+
+<p>　　刚创建出来的模型什么也不懂：参数是随机数，预测结果接近瞎猜。训练做的事说起来很朴素：把海量文本切成无数个“猜下一个 token”的练习题，猜错了就调整参数，让下次猜得更准；猜对了就保留这种行为倾向。这个过程重复数千亿次之后，参数里沉淀下来的就是数据中的统计模式与规律。</p>
+
+<p>　　注意，参数里存的不是文本本身。以 GPT-3 为例：训练语料约 3000 亿 token，模型参数是 1750 亿个数值，折算下来存储空间远小于原始语料。模型装不下原文，只能留下规律性的东西：语法的结构、词语的搭配习惯、事实之间的关联，乃至常见的推理套路。想要预测得更准，模型就必须在内部学会这些东西。“预测”这个简单目标，反过来逼迫模型学会了语言，以及语言所描述的世界。</p>
+
+<div class="highlight-box warn">
+  参数记录的是统计模式，不是可精确检索的数据库。所以模型可能“自信地记错”事实，一本正经地编出不存在的内容。这是幻觉问题的根源，第 15 章会专门讨论。
+</div>
+
+<p>　　训练这一步涉及的海量计算与工程细节，留到第 6 章（预训练目标与 Scaling Law）和第 7 章（训练工程）展开。这里只需记住一个图景：训练 = 调整权重，让下一个 token 的预测越来越准。</p>
+
+<h2>0.1.3 Base Model 与 Chat Model：续写机器与对话助手</h2>
+
+<p>　　预训练的产物叫 base model（基座模型），它是一台纯粹的续写机器：给一段文字，它就接着往下写。直接拿它当助手用，体验会很奇怪：你问它“怎么煮饺子”，它可能不回答，反而再续写出三个类似的问题。原因不难理解：在它的训练语料里，一个问题后面跟着的往往是一串问题（比如试卷和论坛帖子），续写更多问题才是符合概率的行为。</p>
+
+<p>　　我们日常使用的 ChatGPT 类助手是 chat model（对话模型）：以 base model 为起点，再做一轮后训练（post-training）：先用人工编写的问答示范做监督微调（SFT），再用人类偏好反馈做对齐（RLHF 等）。经过这轮“上岗培训”，模型学会了把输入当作需要回应的指令，而不是需要续写的文本片段。InstructGPT 的实验（Ouyang et al., 2022）系统地展示了这一转变：同一个基座，对齐后的模型会照着指令作答，而 base model 倾向于自顾自地续写。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Base Model / Chat Model</span>
+    <span class="term-en">基座模型 = 预训练的直接产物；对话模型 = 后训练对齐后的助手形态</span>
+  </div>
+  <div class="term-body">
+    <p>两者共享同一个底座：chat model 的语言能力几乎全部继承自 base model，后训练改变的主要是<strong>行为模式</strong>，从“接着写”变成“听指令、做回答”，并附加安全约束。开源社区发布的原始权重通常先放出 base model，而 API 提供的助手服务通常是 chat model。</p>
+    <div class="term-analogy">base model 像一位刚读完整个图书馆、却不懂社交规则的学者：满腹经纶，但你向他提问，他可能反问你三个问题。chat model 是这位学者接受了客服培训之后的样子：知识没变，学会了好好回答。</div>
+  </div>
+</div>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>Base Model（基座模型）</h4><p>预训练的直接产物。行为是续写：给一段文字接着往下写，没有“回答问题”的概念。掌握全部语言能力，是对话模型和各类微调版本的共同起点。</p></div>
+  <div class="concept-card"><h4>Chat Model（对话模型）</h4><p>base model 经后训练（SFT + 偏好对齐）得到的助手形态。会把输入当指令来回应，会拒绝不当请求。ChatGPT 等日常接触的助手都属于这一类。</p></div>
+</div>
+
+<p>　　后训练具体怎么做，包括 SFT、RLHF、DPO、推理能力训练，是第 9 到 11 章的主题。本节只需建立一个二分：先有一个会续写的底座，再把它对齐成会对话的助手。</p>
+
+<h2>0.1.4 能力从哪来：规模带来质变</h2>
+
+<p>　　为什么“猜下一个词”能猜出翻译、推理、写代码的能力？简短的回答是规模。当参数、数据、算力同步放大，模型不只是预测得更准，还会出现小模型身上观察不到的新行为。GPT-3 是典型案例：不对任务做任何额外训练，只在输入里给几个示例，模型就能当场学会新任务（few-shot learning）。这类“规模跨过某个阈值后突然出现”的能力称为涌现（emergent abilities）。</p>
+
+<p>　　规模与能力之间并不是玄学，而有相当稳定的定量规律，这部分留到第 6 章讲 Scaling Law 时展开；能力究竟到了什么程度、边界在哪里，则是第 15 章评测与局限的主题。本节的结论是方向性的：下一个 token 预测是机制，规模和数据是土壤，涌现出的丰富行为是结果。</p>
+
+<p>　　建立好这个心智模型后，本章接下来会把镜头拉远，看从原始文本到一个可用的对话助手完整要经历哪几道工序，这正是整本手册的骨架。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">LLM 的本质任务是什么？</div>
+    <div class="sc-key">给定上文，预测下一个 token 的概率分布。整段文本的概率按链式法则分解为逐 token 条件概率的连乘（公式 1），生成文本就是在这个分布上反复采样、接回上文。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">base model 和 chat model 有什么区别？</div>
+    <div class="sc-key">base model 是预训练的直接产物，只会续写；chat model 是 base model 经过后训练（SFT + 偏好对齐）得到的助手形态，会把输入当指令来回应。日常接触的 ChatGPT 类助手都是后者。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">模型的参数里存的到底是什么？</div>
+    <div class="sc-key">不是文本原文，而是从训练数据中学到的统计模式与规律：语法结构、搭配习惯、事实关联与推理套路。训练就是反复调整权重，让下一个 token 的预测越来越准。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3 论文，arXiv:2005.14165），1750 亿参数、约 3000 亿 token 训练语料与 few-shot 行为的出处。</li>
+  <li>Ouyang et al., 2022. Training Language Models to Follow Instructions with Human Feedback（InstructGPT 论文，arXiv:2203.02155），base model 与对齐后模型的行为差异出自该文。</li>
+  <li>Jurafsky &amp; Martin, Speech and Language Processing (3rd ed. draft)，Language Modeling 章节（语言建模的链式分解与下一个词预测的经典表述）。</li>
+</ul>
+
+</article>

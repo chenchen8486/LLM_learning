@@ -1,0 +1,293 @@
+﻿<article class="content">
+<h1>4.1 整体架构：编码器与解码器搭起的流水线</h1>
+<p class="subtitle">本页范围：第 4 章第 1 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>2017 年那台「只靠注意力、不要循环」的翻译机器，内部到底是一条怎样的流水线？</td></tr>
+      <tr><td>本节主张</td><td>Transformer 由两塔组成：编码器塔把源句整体读成上下文表示，解码器塔看着这份表示逐词写出译文。两塔都用多头注意力与前馈网络堆叠，残差连接和统一维度 \(d_{\mathrm{model}}=512\) 把这些积木粘成整体。</td></tr>
+      <tr><td>一句话结论</td><td>先整体读懂，再逐词生成，生成的每一步都能回看原文——这套编码器-解码器骨架就是后来所有 LLM 的祖先。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>编码器-解码器</span><span>自回归</span><span>掩码注意力</span><span>残差连接</span><span>d_model=512</span><span>权重共享</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>4.1.1 这台机器在干什么：一句话翻译流水线</h2>
+
+<p>　　先把任务说清楚。2017 年的原论文为<strong>机器翻译</strong>而生：给一句英文，输出一句德文或法文。这在当时叫序列转导（sequence transduction）问题——输入一个序列，输出另一个序列，两边长度还不一定相等。此前最强的模型都建立在循环神经网络（RNN）上，而 RNN 有一个绕不开的硬伤：它逐字串行处理，第 \(t\) 个位置的隐状态 \(h_t\) 必须先等 \(h_{t-1}\) 算完，句子越长越慢，而且没法并行。原论文的破局思路写在标题里：Attention Is All You Need——把循环和卷积全部扔掉，只留注意力机制。</p>
+
+<p>　　这场赌博的成绩单很亮眼：WMT 2014 英德翻译任务上取得 28.4 BLEU，比此前最佳结果（包括多模型集成）还高出 2 个 BLEU 以上；英法任务上以 41.8 BLEU 刷新单模型纪录，而训练只花了 8 块 GPU 跑 3.5 天，训练成本远低于当时的最佳模型。</p>
+
+<div class="highlight-box info">
+  BLEU 是机器翻译的自动评分指标，把模型译文和人工参考译文做片段比对，分数越高越接近人工水平。它是翻译任务时代的通用标尺，第 15 章评测部分还会再见。
+</div>
+
+<p>　　那这台机器内部长什么样？原论文第 3 节开篇一句话定下了整条流水线：</p>
+
+<blockquote>
+  编码器将输入符号表示序列 \((x_1, \dots, x_n)\) 映射为连续表示序列 \(z = (z_1, \dots, z_n)\)。给定 \(z\)，解码器随后逐个元素地生成输出符号序列 \((y_1, \dots, y_m)\)。每一步模型都是自回归的，即在生成下一个符号时，会将先前生成的符号作为额外输入。
+  <br>—— Attention Is All You Need，第 3 节
+</blockquote>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">自回归 Autoregressive</span>
+    <span class="term-en">auto = 自己，regressive = 回归：用自己的输出预测自己的下一步</span>
+  </div>
+  <div class="term-body">
+    <p>自回归生成就是<strong>写一个字、看一眼、再写下一个字</strong>：模型每生成一个新词，就把它接在已有内容的末尾，作为预测下一个词的输入。如此循环，直到生成结束符为止。这决定了 LLM 的生成天然是逐词串行的——后面每个词都依赖前面已经写下的词。</p>
+    <div class="term-analogy">就像玩词语接龙：你说出下一个词之前，必须先听到自己上一个词说了什么。整条链条只能一环一环往下走，没法一口气把整句话同时说出来。</div>
+  </div>
+</div>
+
+<p>　　把这段话翻译成数据流，就是下面这张图。左塔是编码器，负责「读」；右塔是解码器，负责「写」；两塔之间唯一的桥梁是编码器输出的那组向量 \(z\)。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 780 540" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+      <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+
+    <!-- 塔标题 -->
+    <text x="180" y="30" text-anchor="middle" font-size="15" font-weight="bold" fill="#6d28d9">编码器（读懂源句）</text>
+    <text x="540" y="30" text-anchor="middle" font-size="15" font-weight="bold" fill="#6d28d9">解码器（逐词写译文）</text>
+
+    <!-- 编码器：顶部输出 z -->
+    <rect x="60" y="46" width="240" height="52" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="180" y="68" text-anchor="middle" font-size="14" fill="#333">上下文表示 z</text>
+    <text x="180" y="88" text-anchor="middle" font-size="11" fill="#666">每个 token 一个 512 维向量</text>
+    <line x1="180" y1="130" x2="180" y2="101" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+
+    <!-- 编码器层堆叠 -->
+    <rect x="55" y="130" width="250" height="190" rx="12" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="180" y="152" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">编码器层 ×6（每层两个子层）</text>
+    <rect x="75" y="162" width="210" height="38" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="180" y="186" text-anchor="middle" font-size="13" fill="#333">子层 1：多头自注意力</text>
+    <rect x="75" y="210" width="210" height="50" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="180" y="230" text-anchor="middle" font-size="13" fill="#333">子层 2：前馈网络 FFN</text>
+    <text x="180" y="248" text-anchor="middle" font-size="11" fill="#666">512 → 2048 → 512</text>
+    <text x="180" y="288" text-anchor="middle" font-size="12" fill="#666">每个子层外裹：残差连接 + 层归一化</text>
+    <line x1="180" y1="350" x2="180" y2="323" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+
+    <!-- 编码器：Embedding -->
+    <rect x="60" y="350" width="240" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="180" y="372" text-anchor="middle" font-size="13" fill="#333">Embedding × √512</text>
+    <text x="180" y="390" text-anchor="middle" font-size="11" fill="#666">再加位置编码（第 3 章）</text>
+    <line x1="180" y1="432" x2="180" y2="405" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+
+    <!-- 编码器：输入 -->
+    <rect x="60" y="432" width="240" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="180" y="452" text-anchor="middle" font-size="13" fill="#333">源句 token 序列</text>
+    <text x="180" y="469" text-anchor="middle" font-size="11" fill="#666">例：I love you（4 个 token）</text>
+
+    <!-- 解码器：顶部输出 -->
+    <rect x="420" y="46" width="240" height="52" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="540" y="68" text-anchor="middle" font-size="14" fill="#333">Linear + Softmax</text>
+    <text x="540" y="88" text-anchor="middle" font-size="11" fill="#666">输出下一个词的概率</text>
+    <line x1="540" y1="130" x2="540" y2="101" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+
+    <!-- 解码器层堆叠 -->
+    <rect x="415" y="130" width="250" height="220" rx="12" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="540" y="152" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">解码器层 ×6（每层三个子层）</text>
+    <rect x="435" y="162" width="210" height="38" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="540" y="186" text-anchor="middle" font-size="13" fill="#333">子层 1：掩码多头自注意力</text>
+    <rect x="435" y="210" width="210" height="38" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="540" y="234" text-anchor="middle" font-size="13" fill="#333">子层 2：编码器-解码器注意力</text>
+    <rect x="435" y="258" width="210" height="38" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="540" y="282" text-anchor="middle" font-size="13" fill="#333">子层 3：前馈网络 FFN</text>
+    <text x="540" y="322" text-anchor="middle" font-size="12" fill="#666">每个子层外裹：残差连接 + 层归一化</text>
+    <line x1="540" y1="380" x2="540" y2="353" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+
+    <!-- 解码器：Embedding -->
+    <rect x="420" y="380" width="240" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="540" y="402" text-anchor="middle" font-size="13" fill="#333">Embedding × √512</text>
+    <text x="540" y="420" text-anchor="middle" font-size="11" fill="#666">再加位置编码（第 3 章）</text>
+    <line x1="540" y1="462" x2="540" y2="435" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+
+    <!-- 解码器：输入 -->
+    <rect x="420" y="462" width="240" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="540" y="482" text-anchor="middle" font-size="13" fill="#333">已生成前缀（右移一位）</text>
+    <text x="540" y="499" text-anchor="middle" font-size="11" fill="#666">起始符 + 已写出的译文词</text>
+
+    <!-- 跨塔箭头：编码器输出喂给解码器子层 2 -->
+    <path d="M 300 72 C 380 72 360 229 430 229" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
+    <text x="368" y="58" text-anchor="middle" font-size="12" fill="#0891b2">K、V 来自编码器</text>
+
+    <!-- 自回归循环 -->
+    <path d="M 660 72 L 740 72 L 740 484 L 664 484" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR)"/>
+    <text x="752" y="278" text-anchor="middle" font-size="12" fill="#dc2626" transform="rotate(90 752 278)">输出接回输入，逐词循环</text>
+  </svg>
+  <div class="diagram-caption">图示：Transformer 两塔流水线。编码器把源句读成上下文表示 \(z\)；解码器以已生成前缀为输入，经掩码自注意力、编码器-解码器注意力（K、V 来自编码器）与前馈网络，预测下一个词；红色回路就是自回归：新词接回输入，循环直到结束符。</div>
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>把「两种语言互译」这件大事拆成两道工序——编码器负责一次性读懂整句原文，解码器负责看着这份理解逐词写出译文，两塔之间只传递一组向量。</p>
+
+<p>　　对照原论文的图 1，可以看到同样的两塔结构（左侧编码器、右侧解码器），本章后续几节会把图里的小方块逐一拆开。</p>
+
+<div class="img-block">
+  <img src="images/ch4/f7896a22ff43c1f81531754bb9c3f1e738ea4cf8f64eb0a2e62ca12ec9f973de.jpg" alt="Transformer 模型架构图">
+  <div class="img-caption">图 1：Transformer 整体架构，左半为编码器堆栈，右半为解码器堆栈（来源：Attention Is All You Need 图 1）。</div>
+</div>
+
+<h2>4.1.2 编码器：把整句读成上下文表示</h2>
+
+<p>　　编码器的任务一句话：把源句里每个 token 的「字面意思」加工成「带上全文语境的意思」。刚查完 Embedding 的词向量只认识自己——<code>bank</code> 的向量不知道自己在「河岸」句还是「银行」句里；编码器要做的，就是让整句话的信息互相流动，最后每个位置都吐出一个个已经被上下文「浸泡」过的向量。</p>
+
+<p>　　结构上，编码器是 \(N=6\) 个相同层的堆叠，每一层包含两个子层：</p>
+
+<ol>
+  <li><strong>多头自注意力</strong>：每个位置向所有位置「打听」信息，是上下文混合的引擎（内部机制是 4.2 节的主题）；</li>
+  <li><strong>前馈网络 FFN</strong>：对每个位置的向量单独做一次非线性变换，维度 \(512 \to 2048 \to 512\)，负责加工提炼（4.3 节细讲）。</li>
+</ol>
+
+<p>　　每个子层外面都裹着同一套「保护壳」：残差连接加层归一化。原论文 3.1 节给出的子层输出公式是：</p>
+
+<div class="formula-card">
+  \[ \text{子层输出} = \mathrm{LayerNorm}\big(x + \mathrm{Sublayer}(x)\big) \tag{1} \]
+  <div class="formula-note">公式 (1)：子层的输入 \(x\) 不经变换直接加到子层输出上（残差连接），再做层归一化。6 层编码器、6 层解码器里的每一个子层都长这样。</div>
+</div>
+
+<p>　　落到具体数字：假设源句 <code>I love you</code> 被切成 4 个 token（含句点），第 3 章的 Embedding 层把每个 token 变成一个 512 维向量，于是编码器的输入是一个 \(4 \times 512\) 的矩阵。神奇的是，无论经过多少个子层，这个矩阵的形状始终是 \(4 \times 512\)——这正是全模型统一维度 \(d_{\mathrm{model}}=512\) 的设计意图（4.1.4 节细说）。6 层走完后输出的 \(z\)，形状还是 \(4 \times 512\)，但每个 512 维向量里已经揉进了全句的信息。</p>
+
+<div class="highlight-box info">
+  编码器像一位精读课文的读者，把同一句话反复读 6 遍：每一遍都先前后对照着读（自注意力），再逐词做笔记提炼（FFN），读完 6 遍，每个词都带上了全文的批注。
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>编码器就是把 4 个「只认识自己」的词向量，加工成 4 个「认识全句」的词向量，交给解码器当参考资料。</p>
+
+<h2>4.1.3 解码器：边写边回看的生成器</h2>
+
+<p>　　解码器同样是 \(N=6\) 层堆叠，但每层有三个子层。在编码器那两个子层之外，中间多插了一个<strong>编码器-解码器注意力</strong>子层，它的使命是让解码器随时回看原文。按原论文 3.2.3 节的说法：这个子层里，查询（Query）来自前一个解码器层，键（Key）和值（Value）来自编码器的输出 \(z\)——于是解码器的每个位置都能「关注输入序列中的所有位置」。</p>
+
+<div class="highlight-box warn">
+  一个常见误解：编码器-解码器注意力不是编码器在做事，它发生在解码器内部。方向是「解码器发问（Query），编码器的输出作答（Key、Value）」，千万别把 Query 的来源记反。
+</div>
+
+<p>　　解码器的自注意力子层也被动过手术：加了<strong>掩码</strong>（mask）。原论文 3.1 节要求「防止位置关注后续位置」，做法是先把译文输入整体右移一位（开头补一个起始符），再在注意力计算里把每个位置通向后面位置的连接全部屏蔽。两者配合，就保证了对位置 \(i\) 的预测只能依赖位置小于 \(i\) 的已知输出。</p>
+
+<div class="highlight-box danger">
+  掩码是一条硬约束，不是可选项：如果训练时让第 \(i\) 个位置看到第 \(i+1\) 个位置的词，模型等于开卷考试——直接抄答案，什么也学不到。具体怎么把非法位置置为 \(-\infty\) 再经 softmax 归零，4.2 节会逐步演算。
+</div>
+
+<p>　　用概率语言说，解码器干的就是把译文概率按链式法则逐词展开：</p>
+
+<div class="formula-card">
+  \[ P(y_1, \dots, y_m \mid z) = \prod_{i=1}^{m} P\big(y_i \mid y_1, \dots, y_{i-1},\, z\big) \tag{2} \]
+  <div class="formula-note">公式 (2)：整句译文的概率等于逐词条件概率的连乘（概率链式法则的通用展开）。每生成一个词，都以「已经写出的前缀 + 编码器的 \(z\)」为条件。</div>
+</div>
+
+<p>　　最后走一遍完整流程。仍以 <code>I love you</code> 译成中文「我爱你」为例（论文原文是英德、英法任务，这里用英译中举例，机制完全一样）：</p>
+
+<ol>
+  <li>源句切成 4 个 token，各自查 Embedding 得 512 维向量，乘 \(\sqrt{512}\) 再加位置编码，拼成 \(4 \times 512\) 的矩阵送入编码器；</li>
+  <li>6 层编码器加工完毕，输出上下文表示 \(z\)：还是 \(4 \times 512\)，但每个向量已融入全句信息；</li>
+  <li>解码器第 1 步：输入只有起始符（\(1 \times 512\)），过 6 层解码器（其中编码器-解码器注意力一直在读 \(z\)），顶部 Linear + Softmax 输出词表大小的概率分布（论文英德任务的共享词表约 37000 个词元），取最大概率的词——「我」；</li>
+  <li>第 2 步：输入变成「起始符 + 我」，同样流程，输出「爱」；</li>
+  <li>第 3 步：输入「起始符 + 我 + 爱」，输出「你」；</li>
+  <li>第 4 步：输入「起始符 + 我 + 爱 + 你」，输出结束符，生成停止，得到译文「我爱你」。</li>
+</ol>
+
+<p>　　注意第 3 到第 6 步的一个事实：每多写一个新词，整个解码器就要重新跑一遍。这就是自回归生成的代价——逐词串行，无法一口气并行生成整句译文。第 13 章讲的 KV Cache 等推理加速技术，很大程度上就是在为这个「每步重跑」减负。</p>
+
+<div class="highlight-box info">
+  解码器像一位同声传译员：每开口说一个词之前，可以先扫一眼自己刚说了什么（掩码自注意力），再回听原话的任意位置（编码器-解码器注意力），但绝不允许预知自己接下来要说的话（掩码）。
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>解码器每写一个新词都要做三件事——回顾自己写了什么、回看原文、提炼加工，然后才从词表里挑出下一个词，写完接回输入继续循环。</p>
+
+<h2>4.1.4 贯穿全局的三条设计</h2>
+
+<p>　　两塔内部的零件后面几节逐个拆，这里先讲三条贯穿整个模型的全局设计。它们藏在图 1 的边边角角，却决定了这 12 层积木能不能稳稳地叠起来。</p>
+
+<h3>全局统一宽度 d_model = 512</h3>
+
+<p>　　原论文 3.1 节规定：模型中所有子层以及嵌入层的输出，维度一律是 \(d_{\mathrm{model}}=512\)。Embedding 输出是 512 维，每个注意力子层、每个 FFN 的输入输出也都是 512 维，6 层堆叠下来，任何一个位置的向量形状从头到尾都是 \(512\)。</p>
+
+<p>　　为什么要这么「死板」？因为残差连接要求 \(x\) 和 \(\mathrm{Sublayer}(x)\) 能直接相加——两个向量要做加法，维度必须相同。统一宽度之后，12 层、共 30 个子层（编码器每层 2 个、解码器每层 3 个）的接口全部一致，任意拼接都不用担心形状对不上。输入端唯一要做的准备，是把 Embedding 向量按原论文 3.4 节的要求乘上 \(\sqrt{d_{\mathrm{model}}}\)，再加位置编码：</p>
+
+<div class="formula-card">
+  \[ \text{输入向量}_i = \mathrm{Embedding}(x_i) \times \sqrt{512} + PE_i \]
+  <div class="formula-note">乘以 \(\sqrt{512} \approx 22.6\) 是为了把嵌入向量的数值尺度放大，免得被随后相加的位置编码淹没。位置编码 \(PE\) 的构造见第 3.3 节。</div>
+</div>
+
+<h3>残差连接 + 层归一化：给信号留一条直达通道</h3>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">残差连接 Residual Connection</span>
+    <span class="term-en">residual = 残差、剩余：把输入原样「剩」下来加回输出</span>
+  </div>
+  <div class="term-body">
+    <p>残差连接就是公式 (1) 里的那个 \(+\,x\)：子层无论把输入加工成什么样，输入本身都原封不动地抄近路加到结果上。这样每一层只需要学习「在原有基础上改动多少」，而不是从头重写整个表示。梯度反向传播时也能沿这条直达通道一路传回底层，网络再深也不容易「学不动」。</p>
+    <div class="term-analogy">就像改稿子用修订模式：原稿始终保留，每一轮修改只是往上加批注和增删，无论改多少轮都不会弄丢最初的原文。</div>
+  </div>
+</div>
+
+<p>　　残差之后的层归一化（LayerNorm）负责把每个 512 维向量的数值重新拉回稳定范围，防止层数一多数值失控。这对组合在第 5 章会有变体（现代 LLM 多改用 RMSNorm，并把归一化挪到子层之前），但「直达通道 + 数值稳定」的思想一脉相承。</p>
+
+<div class="highlight-box">
+  统一宽度、残差连接、层归一化是三位一体的一套设计：宽度统一了残差才能相加，残差相加了深层堆叠才训得动，归一化则保证相加后的数值不爆炸。Transformer 能稳稳叠起 6 层、乃至后来 LLM 的上百层，靠的就是这套组合拳。
+</div>
+
+<h3>权重共享：一份矩阵，三处使用</h3>
+
+<p>　　原论文 3.4 节末尾还有一个省参数的设计：源语言嵌入层、目标语言嵌入层、softmax 之前的线性变换，三处共享同一个权重矩阵。直观理解，「把词变成向量」和「把向量变回词」本来是一件事的正反两面，用同一份对照表顺理成章。以论文英德任务约 37000 词元、512 维计算，这张矩阵约含 1900 万个参数（\(37000 \times 512\)），共享意味着少存两份。顺带一提，先乘 \(\sqrt{512}\) 再加位置编码的「输入端约定」，用的也正是这份共享矩阵。</p>
+
+<p>　　<strong>所以这三条设计在干嘛：</strong>统一宽度让所有积木接口一致，残差加归一化让深层堆叠训得动，权重共享让模型少背两份词表——三者共同保证 12 层塔既搭得起来，又训得下去。</p>
+
+<h2>4.1.5 与现代 LLM 的关系</h2>
+
+<p>　　今天主流的 GPT 系 LLM 并不是完整的两塔，而是只保留了解码器那一塔的 <strong>decoder-only</strong> 架构：编码器塔整个去掉，编码器-解码器注意力子层也随之消失，每层只剩掩码自注意力和 FFN 两个子层。道理也简单：现代 LLM 干的活是「接着上文往下写」，没有另一句源文需要单独读懂，「读」和「写」在同一个塔里用同一份上下文完成。与之对应，BERT 系则是只留编码器塔的 encoder-only 路线，擅长理解类任务。</p>
+
+<p>　　但拆开看，零件几乎全数继承自本页这台 2017 年的机器：多头注意力、前馈网络、残差连接、归一化、Embedding 与输出投影的权重共享（许多现代模型依然沿用）。变化的是配方细节——LayerNorm 换成 RMSNorm，绝对位置编码换成 RoPE，FFN 换成 SwiGLU 变体，这些是第 5 章的主题。</p>
+
+<p>　　本章接下来的路线：4.2 节拆解注意力内部（缩放点积、多头、掩码的完整演算），4.3 节讲前馈网络，4.5 节再正式回答「现代 LLM 为什么从两塔塌缩成一塔」。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">编码器和解码器各自干什么，两塔之间靠什么连接？</div>
+    <div class="sc-key">编码器一次性读完整个源句，把每个 token 加工成带全文上下文的 512 维表示 \(z\)；解码器自回归地逐词生成译文，每步通过编码器-解码器注意力回看 \(z\)。两塔之间唯一的桥梁就是这组向量。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">解码器的自注意力为什么要加掩码、输入为什么要右移一位？</div>
+    <div class="sc-key">为了保证位置 \(i\) 的预测只依赖 \(i\) 之前的已知输出，维持自回归特性。掩码屏蔽通向未来位置的连接，右移一位让位置 \(i\) 的输入恰好是它该预测的词的前一个词；缺了任何一样，训练都变成开卷考试。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么全模型要把所有子层的输出维度统一成 512？</div>
+    <div class="sc-key">残差连接要求子层输入 \(x\) 与输出直接相加，维度必须一致。统一 \(d_{\mathrm{model}}=512\) 后，Embedding、注意力、FFN 共 30 个子层接口完全相同，6 层编码器加 6 层解码器才能像标准积木一样自由堆叠。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本节的架构蓝图在 minimind 工程里能找到一个「现代简化版」实现：<code>model/model_minimind.py</code>。读代码时对照三个位置：</p>
+
+<ul>
+  <li><code>MiniMindModel</code>（第 201 行）：只有一塔——<code>embed_tokens</code> 嵌入、<code>num_hidden_layers</code> 个 <code>MiniMindBlock</code>、末尾一个归一化，没有编码器塔，也没有编码器-解码器注意力。这正是 4.1.5 节说的 decoder-only：现代 LLM 把原论文的两塔塌缩成了一塔。</li>
+  <li><code>MiniMindBlock</code>（第 183 行）：每层只有 <code>self_attn</code> 加 <code>mlp</code> 两个子层，对应原论文解码器砍掉中间那个注意力子层后的样子；注意 <code>forward</code> 里的 <code>residual</code> 写法，就是公式 (1) 残差连接的工程实现（归一化被挪到了子层之前，第 5 章会讲这个变体）。</li>
+  <li><code>MiniMindForCausalLM</code>（第 239 行）：类属性 <code>_tied_weights_keys</code>（第 241 行）把输出投影 <code>lm_head.weight</code> 绑定到 <code>model.embed_tokens.weight</code>，正是原论文 3.4 节「输入嵌入与输出投影共享权重」的延续。</li>
+</ul>
+
+<p>　　其余差异也值得一眼带过：归一化用的是 RMSNorm 而非 LayerNorm，位置信息靠 RoPE 注入而非绝对位置编码相加——这些都属于第 5 章的现代变体。代码出处：minimind 工程，Apache 2.0 协议，行号以当前工程源码为准。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）。本页全部架构事实出自该文：翻译任务定位与 BLEU 成绩见摘要，RNN 串行瓶颈见第 1 节，编码器-解码器定义与自回归表述见第 3 节引言，6 层堆叠、两/三子层结构、残差与层归一化公式、掩码与右移一位见 3.1 节，编码器-解码器注意力的 Q/K/V 来源见 3.2.3 节，FFN 维度见 3.3 节，Embedding 乘 \(\sqrt{d_{\mathrm{model}}}\) 与三处权重共享见 3.4 节；中文表述对照工程内 ref_paper 译本逐字核对。</li>
+  <li>minimind 工程源码（Apache 2.0），<code>model/model_minimind.py</code>，动手验证区块引用的类名与行号以该工程当前源码为准。</li>
+</ul>
+
+</article>

@@ -1,0 +1,187 @@
+﻿<article class="content">
+<h1>1.2 质量过滤：从万亿网页里挑出好文本</h1>
+<p class="subtitle">本页范围：第 1 章第 2 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>从 Common Crawl 抓下来的原始网页里混着广告、模板碎片、乱码和机器垃圾。模型是吃什么像什么的学习机器，训练之前怎么把坏文本筛出去？</td></tr>
+      <tr><td>本节主张</td><td>质量过滤有三种成本递增、判断递深的做法：人写的启发式规则、小语言模型的困惑度打分、蒸馏自大模型的分类器打分。工业级语料库是三者叠加使用的。</td></tr>
+      <tr><td>一句话结论</td><td>先用便宜的规则砍掉明显垃圾，再让模型当评委按“值不值得学”精筛。C4、CCNet、FineWeb-Edu 分别代表了这条演进路线的三个阶段。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>GIGO</span><span>C4</span><span>启发式规则</span><span>KenLM 困惑度</span><span>FineWeb-Edu</span><span>分类器过滤</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>1.2.1 垃圾进，垃圾出：过滤为什么是第一要务</h2>
+
+<p>　　机器学习有句老话：<strong>Garbage In, Garbage Out</strong>（垃圾进，垃圾出，简称 GIGO）。语言模型不会分辨教材的好坏，喂给它什么，它就学什么。这句朴素的话，就是整个数据工程的出发点。</p>
+
+<p>　　打个比方：你接手一名转学生，要给他配一学期教材。结果仓库里送来的书堆中混着盗版残页、夹带广告的传单、印串行的废纸，甚至还有整本的推销手册。如果照单全收，学生很可能把广告词当成课文背下来。原始网页抓取结果就是一座这样的“问题图书馆”：导航栏、页脚版权声明、“请开启 JavaScript”的提示、为了搜索排名堆砌关键词的 SEO 页面、机器翻译生成的病句、反复转载的同一篇文章，全都混在一起。</p>
+
+<div class="highlight-box info">
+  Common Crawl 是一个非营利项目，每月公开发布一次全网网页快照，每次抓取数十亿网页，原始数据达 PB 级。它免费、海量，但完全不替使用者挑拣：把里面什么该学、什么该扔分清楚，是每个语料工程自己的责任。
+</div>
+
+<p>　　过滤还有一笔经济账。预训练要消耗的算力极其昂贵，而 token 就是计价单位：喂给模型的每一个垃圾 token，都在白白烧掉显卡时间和电。把预算花在有营养的文本上，是花同样多的钱把模型练得更好的最直接手段。</p>
+
+<h2>1.2.2 启发式规则：C4 的七把筛子</h2>
+
+<p>　　最早也最便宜的办法是人写规则：凭经验列出垃圾文本的表面特征，逐条排查。代表作是 Google 的 C4（Colossal Clean Crawled Corpus）：在 T5 论文（Raffel et al., 2020）中，作者把 Common Crawl 的一个快照按一组人工规则洗了一遍，得到约 750 GB 的干净英文文本。这些规则写在论文附录里，每一条都瞄准一类典型的网页残留垃圾。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>C4 的清洗规则</th><th>这条规则在防什么</th></tr></thead>
+    <tbody>
+      <tr><td>只保留以终止标点（句号、问号等）结尾的行</td><td>导航栏、按钮文字、列表碎片通常没有结尾标点，顺手淘汰残缺行</td></tr>
+      <tr><td>删除含脏词的页面</td><td>屏蔽污言秽语，守住训练数据的安全底线</td></tr>
+      <tr><td>删除含 “Javascript” 字样的行</td><td>这类行多半是“请开启 Javascript”之类的脚本警告，不是正文</td></tr>
+      <tr><td>删除含 lorem ipsum 的页面</td><td>lorem ipsum 是排版用的占位假文，页面里没有任何真实内容</td></tr>
+      <tr><td>删除含花括号 <code>{ }</code> 的行</td><td>花括号几乎只出现在代码里，说明抓进来的可能是源码而非自然语言</td></tr>
+      <tr><td>页内行级去重</td><td>同一页面里重复出现的模板行（如页脚）只留一份</td></tr>
+      <tr><td>删除不足 5 句的页面</td><td>内容太稀薄的页面，几乎不承载可学习的知识</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　这套规则的共同点是直白、便宜、可解释：不需要任何模型，普通服务器就能给整个语料库过一遍筛子，出了问题也知道是哪条规则干的。C4 之后，几乎所有主流语料工程都沿用了类似的规则打底。</p>
+
+<div class="highlight-box warn">
+  启发式规则的问题在于一刀切：写诗的行可能故意不用句号，代码教程里的花括号恰恰是正文，精炼的短公告会被“不足 5 句”误杀。规则看不懂内容，只认表面特征，必然误伤一部分好文本。
+</div>
+
+<h2>1.2.3 让模型当评委：困惑度与分类器</h2>
+
+<p>　　想让筛子“看懂”内容，就得请模型出场。这条路上有两个里程碑：CCNet 用困惑度回答“像不像正经文章”，FineWeb-Edu 用分类器回答“值不值得学”。</p>
+
+<h3>CCNet：用困惑度给文本量“正经程度”</h3>
+
+<p>　　CCNet（Wenzek et al., 2020）是从 Common Crawl 提取高质量单语料的经典流水线，分三步：快照去重、语言识别、困惑度过滤。核心在第三步：用一个在 Wikipedia 上训练的 n-gram 语言模型（工具为 KenLM）给每段文本算困惑度，只留下困惑度低的文本。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 740 180" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <rect x="10" y="55" width="128" height="95" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="74" y="95" text-anchor="middle" font-size="14" fill="#333">原始网页快照</text>
+    <text x="74" y="118" text-anchor="middle" font-size="11" fill="#666">数十亿页</text>
+    <rect x="158" y="55" width="128" height="95" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="222" y="95" text-anchor="middle" font-size="14" fill="#333">快照去重</text>
+    <text x="222" y="118" text-anchor="middle" font-size="11" fill="#666">重复内容只留一份</text>
+    <rect x="306" y="55" width="128" height="95" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="370" y="95" text-anchor="middle" font-size="14" fill="#333">语言识别</text>
+    <text x="370" y="118" text-anchor="middle" font-size="11" fill="#666">LangID 筛语言</text>
+    <rect x="454" y="55" width="128" height="95" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="518" y="95" text-anchor="middle" font-size="14" fill="#333">困惑度过滤</text>
+    <text x="518" y="118" text-anchor="middle" font-size="11" fill="#666">KenLM 给文本打分</text>
+    <rect x="602" y="55" width="128" height="95" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="666" y="95" text-anchor="middle" font-size="14" fill="#333">高质量语料</text>
+    <text x="666" y="118" text-anchor="middle" font-size="11" fill="#666">进入训练</text>
+    <line x1="138" y1="102" x2="158" y2="102" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="286" y1="102" x2="306" y2="102" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="434" y1="102" x2="454" y2="102" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="582" y1="102" x2="602" y2="102" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+  </svg>
+  <div class="diagram-caption">图示：CCNet 从网页快照到高质量语料的三级过滤流程，每过一道工序淘汰一批，最终只有一小部分文本幸存。困惑度过滤是最后一道也是最关键的一道。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">困惑度 Perplexity</span>
+    <span class="term-en">perplexity = 语言模型对一段文本的“意外程度”</span>
+  </div>
+  <div class="term-body">
+    <p>对一段含 \(n\) 个词的文本 \(w_1,\dots,w_n\)，语言模型给出的困惑度是 \(\mathrm{PPL}=\exp\!\big(-\frac{1}{n}\sum_{i=1}^{n}\log P(w_i \mid w_{&lt;i})\big)\)。直觉上，它度量模型读这段文本时有多“意外”：<strong>困惑度越低，文本越像模型见惯的正经文章；越高，越像乱码或病句</strong>。</p>
+    <div class="term-analogy">像请一位只读过维基百科的老学究当审稿人：语句通顺、用词规矩的稿子他边看边点头（低分），满屏乱码和病句的稿子他直皱眉（高分）。</div>
+  </div>
+</div>
+
+<p>　　CCNet 的做法就是把 Wikipedia 当成参照系：先在维基文本上训练模型，再让它给网页打分。困惑度低说明文风接近维基，留下；高则淘汰。要注意这把尺子量的是“文风像不像”，不是“内容对不对、值不值得学”，这正是它和下面分类器过滤的本质差别。</p>
+
+<h3>FineWeb-Edu：让大模型按“教育价值”打分</h3>
+
+<p>　　2024 年 Hugging Face 发布的 FineWeb-Edu 把思路再推一步：不量文风，直接量“这段文本值不值得学”。整个流程分三步：</p>
+
+<ol>
+  <li><strong>大模型标注</strong>：用 Llama-3-70B-Instruct 给约 46 万份网页打 0 到 5 分的教育价值分；</li>
+  <li><strong>蒸馏小分类器</strong>：用这批标注训练一个轻量分类器，让它学会大模型的评分标准；</li>
+  <li><strong>全量打分筛选</strong>：小分类器给 FineWeb 全部 15T token 打分，留下 3 分以上的部分，得到 1.3T token 的高教育价值语料。</li>
+</ol>
+
+<p>　　用 FineWeb-Edu 训练的模型，在下游基准上的表现显著优于用纯启发式过滤数据训练的模型。这一步的实质，是把过滤标准从“查违禁品”升级成“按教学价值评奖”。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">蒸馏 Distillation</span>
+    <span class="term-en">distill = 把大模型的判断能力萃取到小模型里</span>
+  </div>
+  <div class="term-body">
+    <p>大模型打分准但太贵，不可能给 15T token 逐条评分。做法是让它只标一小批样本，再用这些标签训练一个小模型：小模型学会大模型的评判标准后，就能以零头成本给全量数据打分。</p>
+    <div class="term-analogy">名师批改作文太贵，就请名师先批改几十万篇，让学徒揣摩这些批改记录；学徒出师后按名师的标准，批改剩下的几千万篇。</div>
+  </div>
+</div>
+
+<div class="highlight-box">
+  三代方法回答的问题各不相同：启发式规则问“这像不像垃圾”，困惑度问“这像不像维基”，分类器问“这值不值得学”。问题问得越深入，单条成本越高，筛出的数据对模型能力的提升也越直接。
+</div>
+
+<h2>1.2.4 三种方法对比与取舍</h2>
+
+<p>　　三种方法不是替代关系，而是按成本和精度分工。把它们的取舍摆在一起看：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>维度</th><th>启发式规则</th><th>困惑度打分</th><th>分类器打分</th></tr></thead>
+    <tbody>
+      <tr><td>代表工作</td><td>C4</td><td>CCNet</td><td>FineWeb-Edu</td></tr>
+      <tr><td>判断依据</td><td>人写的表面特征</td><td>与参考语料（维基）的文风距离</td><td>大模型标注蒸馏出的质量观</td></tr>
+      <tr><td>单条处理成本</td><td>几乎为零</td><td>低（n-gram 查表）</td><td>较高（每条过一次小模型）</td></tr>
+      <tr><td>擅长抓什么</td><td>模板残留、明显垃圾</td><td>乱码、病句、机翻腔</td><td>语义空泛、没营养的“水稿”</td></tr>
+      <tr><td>典型盲区</td><td>误伤特殊文体（诗歌、代码教程）</td><td>内容好但文风不像维基的被冤杀</td><td>大模型的口味与偏见被继承放大</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　实际语料工程里三者是叠加使用的：规则粗筛在前，砍掉零成本的垃圾；模型精筛在后，挑出真正值得学的文本。过滤解决的是“质”的问题，但语料还有“量上的重复”问题：同一篇文章被转载几百次，模型就会被迫把同一段话背上几百遍。怎么去重，是本章下一节的主题。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么不能把 Common Crawl 原样喂给模型？</div>
+    <div class="sc-key">原始网页混着广告、模板碎片、乱码和机器垃圾，模型照单全收学到的就是垃圾（GIGO），而且每一个垃圾 token 都在白烧预训练算力。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">C4 那组清洗规则共同的设计思路是什么？</div>
+    <div class="sc-key">每条规则瞄准一类网页抓取的典型残留，用“只认表面特征”换来几乎为零的处理成本；代价是一刀切，必然误伤一部分特殊文体的好文本。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">FineWeb-Edu 为什么效果能超过纯启发式，代价又是什么？</div>
+    <div class="sc-key">它让大模型按教育价值标注样本、再蒸馏出小分类器，能判断语义层面“值不值得学”；代价是要先付出大模型标注的成本，且大模型的口味与偏见会被分类器继承。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本节讲的质量过滤，在 minimind 的数据代码里恰恰是“已经完成”的前提：<code>minimind-master/dataset/lm_dataset.py</code> 中的 <code>PretrainDataset</code> 类直接用 <code>load_dataset('json', ...)</code> 读取 JSONL，每行样本就是一个已清洗的 <code>text</code> 字段，代码里没有任何过滤逻辑。原因很简单：小项目站在上游语料工程的肩膀上，过滤在数据发布前就做完了。工程默认使用的预训练语料是 <code>pretrain_t2t.jsonl</code> / <code>pretrain_t2t_mini.jsonl</code>（见 minimind README，数据下载后放入 <code>dataset/</code> 目录）。（出处：minimind 工程，Apache 2.0 协议）</p>
+
+<pre><code># 下载语料放入 minimind-master/dataset/ 后，查看已清洗数据的形态
+head -n 2 minimind-master/dataset/pretrain_t2t_mini.jsonl</code></pre>
+
+<p>　　预期每行是一条 JSON，其中 <code>text</code> 字段是干净连贯的中文文本。读代码时对照本节想一个问题：如果这份语料没经过过滤，<code>PretrainDataset</code> 会把什么东西原样送进模型？</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Raffel et al., 2020. Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer（T5 论文，arXiv:1910.10683），C4 语料及其清洗规则见论文附录。</li>
+  <li>Wenzek et al., 2020. CCNet: Extracting High Quality Monolingual Datasets from Web Crawl Data（arXiv:1911.00359），快照去重、语言识别、KenLM 困惑度过滤三级流水线出自该文。</li>
+  <li>Penedo et al., 2024. The FineWeb Datasets: Decanting the Web for the Finest Text Data at Scale（arXiv:2406.17557），及 Hugging Face FineWeb-Edu 官方博客：Llama-3-70B 教育价值标注、蒸馏分类器、从 15T 筛出 1.3T 的细节出自该工作。</li>
+  <li>Heafield, 2011. KenLM: Faster and Smaller Language Model Queries（KenLM 工具原始论文，WMT 2011 研讨会论文集）。</li>
+</ul>
+
+</article>

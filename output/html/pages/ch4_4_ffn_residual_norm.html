@@ -1,0 +1,256 @@
+﻿<article class="content">
+<h1>4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</h1>
+<p class="subtitle">本页范围：第 4 章第 4 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>多头注意力算完「谁看谁」之后，一层 Transformer 还差哪些部件，才能叠到 6 层甚至上百层还训得动？</td></tr>
+      <tr><td>本节主张</td><td>每个子层都配三位搭档：FFN 把每个位置的信息独立加工一遍，残差连接给信息和梯度留一条直达通道，层归一化把数值分布拉回标准形态。三者按固定套路包裹每一个子层。</td></tr>
+      <tr><td>一句话结论</td><td>注意力管搬运信息，FFN 管加工信息，残差连接与层归一化管深层堆叠的稳定性，四者合体才是完整的一层 Transformer。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>FFN</span><span>逐位置</span><span>残差连接</span><span>层归一化</span><span>Dropout</span><span>Post-LN</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>4.4.1 FFN：每个位置的独立思考</h2>
+
+<p>　　前两节的多头注意力解决的是 token 之间的信息交换：每个位置看看别的位置，把有用的信息加权搬回来。但搬回来的只是原料，还需要一道加工工序，这就是每层第二个子层——逐位置前馈网络（Position-wise Feed-Forward Network，FFN）要干的活。</p>
+
+<p>　　把一层 Transformer 想象成一次部门例会。注意力阶段是开会：每个人（token）听别人发言，把和自己相关的要点记下来。FFN 阶段是散会后各自回工位：每个人关起门来，把记下的笔记独立整理消化，形成自己的新认识。下一层再开一次会、再整理一次，如此往复六轮（原论文 \(N=6\)）。</p>
+
+<div class="formula-card">
+  \[ \mathrm{FFN}(x)=\max(0,\,xW_{1}+b_{1})\,W_{2}+b_{2} \tag{1} \]
+  <div class="formula-note">公式 (1)：原论文 3.3 节。两个线性变换中间夹一个 ReLU 激活，\(x\) 是某个位置的 512 维向量。</div>
+</div>
+
+<p>　　把公式 (1) 按运算顺序拆开：</p>
+
+<ul>
+  <li>\(xW_{1}+b_{1}\)：把 512 维放大到 2048 维（\(W_{1}\) 形状 \(512\times2048\)），维度膨胀 4 倍；</li>
+  <li>\(\max(0,\cdot)\)：ReLU 激活，负数一律砍成 0，像一排闸门，只放被激活的特征通过；</li>
+  <li>\(\cdot\,W_{2}+b_{2}\)：把 2048 维压回 512 维（\(W_{2}\) 形状 \(2048\times512\)），保证输出还能接回主干。</li>
+</ul>
+
+<p>　　落到具体数字。设一句话有 \(n=10\) 个 token，整个 FFN 的形状变化是：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>步骤</th><th>运算</th><th>张量形状</th></tr></thead>
+    <tbody>
+      <tr><td>输入</td><td>\(x\)</td><td>\((10,\ 512)\)</td></tr>
+      <tr><td>放大 4 倍</td><td>\(xW_{1}+b_{1}\)</td><td>\((10,\ 2048)\)</td></tr>
+      <tr><td>闸门筛选</td><td>\(\max(0,\cdot)\)</td><td>\((10,\ 2048)\)</td></tr>
+      <tr><td>压回原宽</td><td>\(\cdot\,W_{2}+b_{2}\)</td><td>\((10,\ 512)\)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　参数量也能算出来：\(W_{1}\) 与 \(W_{2}\) 各有 \(512\times2048\approx105\) 万个权重，连偏置合计约 210 万个参数。作为对比，4.2 节多头注意力子层的四个投影矩阵合计约 105 万个参数——一层里约三分之二的参数在 FFN 里。说 FFN 是模型的「知识仓库」并不夸张：有研究把 FFN 的神经元解释为一条条 key-value 记忆，认为模型记住的事实知识主要存在这里（Geva et al., 2021）。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">逐位置 Position-wise</span>
+    <span class="term-en">position-wise = 对序列中每个位置分别施加同一个网络</span>
+  </div>
+  <div class="term-body">
+    <p>原论文说 FFN「分别且相同地应用于每个位置」：10 个 token 就是 10 次独立计算，用的是同一组 \(W_{1},W_{2}\)（层与层之间参数不同）。它不看任何别的位置，只处理当前位置自己的 512 维向量。原论文还给出一种等效看法：两个核大小为 1 的卷积。</p>
+    <div class="term-analogy">就像流水线上的同一台机器：每个工件（token）依次经过它，机器设置不变，加工效果如何只取决于工件自身，跟旁边的工件无关。</div>
+  </div>
+</div>
+
+<div class="highlight-box info">
+  为什么偏偏膨胀 4 倍（\(2048/512\)）？原论文没有解释，这是工程经验的选择，但影响深远：后来的 GPT 系模型大多沿用 4 倍膨胀这个比例。
+</div>
+
+<div class="highlight-box">
+  注意力负责搬运，FFN 负责加工。注意力的输出是每个位置从各处借来的信息的混合物，FFN 对这份混合物做非线性变换，提炼出新特征。两个子层交替，就是「交流一次、思考一次」。
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>把每个 token 刚收集来的信息，先摊到 2048 维的大工作台上筛选（ReLU 闸门），再压回 512 维的精华——每个位置被独立消化了一遍。</p>
+
+<h2>4.4.2 残差连接：梯度的高速公路</h2>
+
+<p>　　原论文把 6 个完全相同的层叠在一起，今天的模型动辄几十上百层。一个朴素的问题随之出现：信息每经过一层就被改写一次，叠得越多，底层的输入信号和传回底层的梯度，都越容易在层层变换中走样甚至消失——网络越深越训不动。</p>
+
+<p>　　这就像传话游戏：一句话经 50 个人依次转述，传到最后往往面目全非。如果改一下规则——每个人除了转述自己的版本，还必须把听到的原话抄一份一起递下去——那无论传多少棒，最初的那句话都丢不了。残差连接（Residual Connection）改的就是这个规则。</p>
+
+<div class="formula-card">
+  \[ \mathrm{LayerNorm}\big(x+\mathrm{Sublayer}(x)\big) \tag{2} \]
+  <div class="formula-note">公式 (2)：原论文 3.1 节给定的子层输出。输入 \(x\) 不经任何变换，直接加到子层自己的输出上，再做层归一化。</div>
+</div>
+
+<p>　　从梯度视角看，加法对梯度是原样放行的：若 \(y=x+F(x)\)，则 \(\partial y/\partial x=1+\partial F/\partial x\)。无论 \(\partial F/\partial x\) 多小，那个常数 \(1\) 都在，梯度总有一条不衰减的通道直达浅层。这就是「高速公路」的含义：残差旁路上的梯度不堵车，几十层的网络才训得动。这一思想源自 ResNet（He et al., 2016），原论文把它借用到每个子层周围。</p>
+
+<div class="highlight-box info">
+  残差连接带来一条硬约束：相加要求两边形状一致。原论文为此把模型中所有子层以及嵌入层的输出维度统一成 \(d_{\mathrm{model}}=512\)（3.1 节），这就是 512 这个数字在架构里反复出现的原因之一。
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>子层只负责学「增量」，原始信息走旁边的直达通道原样下传；正向传信号不丢失，反向传梯度不衰减。</p>
+
+<h2>4.4.3 层归一化：给数值分布上缰绳</h2>
+
+<p>　　残差相加解决「深」，还有一个「稳」的问题。训练过程中，每个 token 的 512 维向量的数值幅度会随层数和参数更新不断漂移：有的分量冲到几十，有的缩在零附近。数值分布忽胖忽瘦，后续子层就要不停适应新尺度，训练像开一辆方向盘发抖的车。层归一化（Layer Normalization，LN）的作用是给这辆车上缰绳。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">层归一化 Layer Normalization</span>
+    <span class="term-en">normalize = 把数据折算到统一的标准尺度</span>
+  </div>
+  <div class="term-body">
+    <p>LN 对每一个 token 的 512 维向量单独做两件事：先减去均值、除以标准差，把这组数折算成均值 0、方差 1 的标准形态；再乘一个可学习的缩放 \(\gamma\)、加一个可学习的平移 \(\beta\)，让模型自己决定标准形态之后最合适的尺度和位置。统计量在「同一个 token 的 512 个分量」上计算，与序列长短、批次大小无关。</p>
+    <div class="term-analogy">就像把不同难度的考试都折算成标准分：两场卷子难度不同，直接比原始分不公平；各自减去本场平均分、除以本场分差，高低才好比较。LN 就是给每个 token 的 512 个数算「标准分」。</div>
+  </div>
+</div>
+
+<div class="formula-card">
+  \[ \mathrm{LN}(x)=\gamma\odot\frac{x-\mu}{\sqrt{\sigma^{2}+\epsilon}}+\beta,\qquad \mu=\frac{1}{d}\sum_{i=1}^{d}x_{i},\quad \sigma^{2}=\frac{1}{d}\sum_{i=1}^{d}(x_{i}-\mu)^{2} \tag{3} \]
+  <div class="formula-note">公式 (3)：\(d=d_{\mathrm{model}}=512\)，\(\epsilon\) 是防除零的小常数；\(\gamma,\beta\) 为可学习参数（LN 原始论文：Ba et al., 2016）。</div>
+</div>
+
+<p>　　拿一个 4 维小向量 \(x=(2,4,4,6)\) 走一遍。均值 \(\mu=4\)，方差 \(\sigma^{2}=\big((2-4)^{2}+0+0+(6-4)^{2}\big)/4=2\)，标准差 \(\sqrt{2}\approx1.41\)。标准化后得到 \((-1.41,\ 0,\ 0,\ 1.41)\)：偏大的 6 变成 \(+1.41\)，偏小的 2 变成 \(-1.41\)，中间值归零。最后乘 \(\gamma\)、加 \(\beta\)（训练中学会的缩放与平移），就是 LN 的输出。512 维时算法一模一样，只是统计量在 512 个数上算。</p>
+
+<p>　　为什么还要 \(\gamma,\beta\)？一律标准化会抹掉「这个 token 本来信号更强」这类幅度信息，模型未必想要人人均值 0。\(\gamma,\beta\) 让网络把有用的尺度和偏移学回来——先帮你稳住，再给你自由。</p>
+
+<div class="highlight-box info">
+  和 BatchNorm 的区别一句话带过：BN 在一个批次内、按特征维跨样本算统计量；LN 在同一个样本内部、按特征分量算统计量。序列长度可变、批次为 1 的场景下 BN 很难用，这正是 Transformer 选 LN 的原因（Ba et al., 2016）。
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>每经过一个子层，就把每个 token 的数值重新归置到标准形态，再按学来的尺度微调，让下一层永远面对分布稳定的输入。</p>
+
+<h2>4.4.4 三件套如何拼成完整的一层</h2>
+
+<p>　　现在把零件装起来。原论文 3.1 节与 5.4 节合起来给出了一层编码器的固定组装套路：每个子层（多头注意力、FFN）都被同样三件套包裹——</p>
+
+<ol>
+  <li><strong>子层计算</strong>：\(\mathrm{Sublayer}(x)\)；</li>
+  <li><strong>施加 dropout</strong>：训练时把子层输出中约 10% 的数值随机置零（\(P_{drop}=0.1\)）；</li>
+  <li><strong>残差相加</strong>：把子层输入 \(x\) 原样加回来；</li>
+  <li><strong>层归一化</strong>：对相加结果做 LN，得到这一子层的最终输出。</li>
+</ol>
+
+<p>　　第 2 步来自 5.4 节的 residual dropout：原论文明确说在每个子层的输出上应用 dropout，「在将其添加到子层输入并进行归一化之前」；嵌入与位置编码之和进第一层前同样施加。所以这个固定顺序可以写成 \(\mathrm{LN}\big(x+\mathrm{Dropout}(\mathrm{Sublayer}(x))\big)\)。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Dropout 随机丢弃</span>
+    <span class="term-en">drop out = 训练时随机让一部分数值「缺席」</span>
+  </div>
+  <div class="term-body">
+    <p>dropout 在训练时以概率 \(p\) 把张量中的一些数值随机置零（基础模型 \(p=0.1\)），迫使网络不能把希望寄托在某几个特定数值上，要学出更分散、更稳健的特征；推理时关闭，全量数值参与计算。</p>
+    <div class="term-analogy">像球队训练时随机抽几名队员坐板凳：剩下的人必须学会互相补位，球队整体才不依赖某个球星；正式比赛（推理）时全员上阵。</div>
+  </div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 640" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <!-- 主干节点 -->
+    <rect x="270" y="8" width="220" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="380" y="27" text-anchor="middle" font-size="15" fill="#333">输入 x</text>
+    <text x="380" y="44" text-anchor="middle" font-size="12" fill="#666">n 个 token，各 512 维</text>
+    <line x1="380" y1="52" x2="380" y2="66" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="270" y="66" width="220" height="48" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="86" text-anchor="middle" font-size="15" fill="#333">多头自注意力</text>
+    <text x="380" y="104" text-anchor="middle" font-size="12" fill="#666">token 间交流（4.2 节）</text>
+    <line x1="380" y1="114" x2="380" y2="128" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="270" y="128" width="220" height="40" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <text x="380" y="145" text-anchor="middle" font-size="14" fill="#555">Dropout 随机丢弃</text>
+    <text x="380" y="161" text-anchor="middle" font-size="12" fill="#888">训练时随机置零（p=0.1）</text>
+    <line x1="380" y1="168" x2="380" y2="182" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <circle cx="380" cy="197" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="380" y="203" text-anchor="middle" font-size="18" fill="#92400e">+</text>
+    <line x1="380" y1="212" x2="380" y2="226" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="270" y="226" width="220" height="44" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="245" text-anchor="middle" font-size="15" fill="#333">LayerNorm 层归一化</text>
+    <text x="380" y="262" text-anchor="middle" font-size="12" fill="#666">标准化 + 缩放平移</text>
+    <line x1="380" y1="270" x2="380" y2="284" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="270" y="284" width="220" height="48" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="304" text-anchor="middle" font-size="15" fill="#333">FFN 前馈网络</text>
+    <text x="380" y="322" text-anchor="middle" font-size="12" fill="#666">512 → 2048 → 512，逐位置加工</text>
+    <line x1="380" y1="332" x2="380" y2="346" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="270" y="346" width="220" height="40" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <text x="380" y="363" text-anchor="middle" font-size="14" fill="#555">Dropout 随机丢弃</text>
+    <text x="380" y="379" text-anchor="middle" font-size="12" fill="#888">训练时随机置零（p=0.1）</text>
+    <line x1="380" y1="386" x2="380" y2="400" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <circle cx="380" cy="415" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="380" y="421" text-anchor="middle" font-size="18" fill="#92400e">+</text>
+    <line x1="380" y1="430" x2="380" y2="444" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="270" y="444" width="220" height="44" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="463" text-anchor="middle" font-size="15" fill="#333">LayerNorm 层归一化</text>
+    <text x="380" y="480" text-anchor="middle" font-size="12" fill="#666">标准化 + 缩放平移</text>
+    <line x1="380" y1="488" x2="380" y2="502" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="270" y="502" width="220" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="380" y="521" text-anchor="middle" font-size="15" fill="#333">输出</text>
+    <text x="380" y="538" text-anchor="middle" font-size="12" fill="#666">形状不变：(n, 512)</text>
+    <!-- 残差旁路 1（右侧）：输入 x 直达第一个加法点 -->
+    <path d="M490,30 H585 V197 H397" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
+    <text x="498" y="22" text-anchor="start" font-size="12" fill="#0891b2">残差旁路</text>
+    <!-- 残差旁路 2（左侧）：LN1 输出直达第二个加法点 -->
+    <path d="M270,248 H175 V415 H363" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
+    <text x="182" y="240" text-anchor="start" font-size="12" fill="#0891b2">残差旁路</text>
+    <!-- 底部说明 -->
+    <text x="380" y="600" text-anchor="middle" font-size="13" fill="#666">每个子层都被同一套流程包裹：dropout → 残差相加 → 层归一化</text>
+  </svg>
+  <div class="diagram-caption">图示：原论文 Post-LN 顺序下，一层编码器的完整数据流。两个子层各自被三件套包裹，张量形状全程 (n, 512) 不变。</div>
+</div>
+
+<p>　　注意图里一个贯穿始终的事实：从输入到输出，张量形状始终是 \((n,512)\)。残差相加能成立靠它（形状一致才能相加），层与层之间能无限堆叠也靠它——这一层的输出形状和输入一样，下一层原样接上即可。</p>
+
+<div class="highlight-box info">
+  演进预告：原论文这种「先相加、后归一化」的顺序叫 Post-LN。后来的研究发现，把归一化挪到子层输入侧（Pre-LN，即 \(x+\mathrm{Sublayer}(\mathrm{LN}(x))\)）在深层模型中训练更稳定，甚至不必依赖学习率预热（Xiong et al., 2020）；LN 本身被简化成 RMSNorm，FFN 的 ReLU 也被 SwiGLU 取代。这些现代变体是第 5 章的主题，5.1 节细讲。
+</div>
+
+<p>　　<strong>所以这一层在干嘛：</strong>token 们先开会交换信息（注意力），散会后各自整理消化（FFN）；残差旁路保证信息与梯度畅通，LN 与 dropout 把数值和训练都约束在稳定轨道上。六层叠加，就是「交流—思考—再交流—再思考」的六轮循环。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">注意力和 FFN 在一层里如何分工？</div>
+    <div class="sc-key">注意力负责 token 之间的信息搬运（每个位置加权收集别处的信息），FFN 对每个位置的 512 维向量独立做 512 → 2048 → 512 的非线性加工。一层 = 交流一次 + 思考一次。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">深层 Transformer 为什么离不开残差连接？</div>
+    <div class="sc-key">加法让正向的原始信息和反向的梯度都有一条不衰减的直达通道（\(\partial y/\partial x\) 中恒含常数 1）。没有它，几十层堆叠会让信号与梯度在层层变换中走样消失。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">层归一化在每个 token 上具体做了什么？</div>
+    <div class="sc-key">对该 token 的 512 个分量减去均值、除以标准差，折算成均值 0、方差 1 的标准形态，再乘可学习的 \(\gamma\)、加可学习的 \(\beta\) 微调尺度，让每层输入的数值分布保持稳定。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本节机制在 minimind 中的对应实现（<code>model/model_minimind.py</code>，minimind 工程，Apache 2.0）：</p>
+
+<ul>
+  <li><strong>FFN</strong>：<code>FeedForward</code> 类（第 136 行）。注意 minimind 用的是现代 SwiGLU 变体 <code>down_proj(act_fn(gate_proj(x)) * up_proj(x))</code>，比原论文的 ReLU 两段式多一路门控投影，第 5 章细讲；</li>
+  <li><strong>残差连接</strong>：<code>MiniMindBlock</code> 类的 <code>forward</code>（第 183-199 行）：<code>residual = hidden_states</code> …… <code>hidden_states += residual</code>，正是公式 (2) 里的 \(x+\mathrm{Sublayer}(x)\)；</li>
+  <li><strong>归一化</strong>：用的是 <code>RMSNorm</code> 类（第 50 行），LN 的简化版；且顺序是 Pre-LN——先做 <code>input_layernorm</code> 再进注意力（第 194 行），与原论文的 Post-LN 相反，正好印证本节末尾的演进预告；</li>
+  <li><strong>residual dropout</strong>：<code>Attention</code> 类第 107 行定义 <code>resid_dropout</code>，第 133 行施加在输出投影之后（minimind 默认 <code>dropout</code> 取 0.0）。</li>
+</ul>
+
+<p>　　读 <code>MiniMindBlock.forward</code> 时对照 4.4.4 节的示意图，能直观看到「归一化 → 子层 → 加残差」的现代组装顺序，与图中 Post-LN 顺序只差归一化的位置。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：3.1 节（残差连接与 LayerNorm(x+Sublayer(x))、统一 512 维）、3.3 节（FFN 公式与 \(d_{ff}=2048\)）、5.4 节（residual dropout，\(P_{drop}=0.1\)）。</li>
+  <li>He et al., 2016. Deep Residual Learning for Image Recognition（CVPR 2016）：残差连接的原始出处，原论文参考文献 [11]。</li>
+  <li>Ba, Kiros &amp; Hinton, 2016. Layer Normalization（arXiv:1607.06450）：层归一化原始论文，原论文参考文献 [1]。</li>
+  <li>Xiong et al., 2020. On Layer Normalization in the Transformer Architecture（arXiv:2002.04745，ICML 2020）：Post-LN 与 Pre-LN 的对比分析，Pre-LN 训练更稳定、可不依赖学习率预热的结论出自该文。</li>
+  <li>Geva et al., 2021. Transformer Feed-Forward Layers Are Key-Value Memories（EMNLP 2021，arXiv:2012.14913）：FFN 作为 key-value 记忆的解读。</li>
+  <li>minimind 工程代码（Apache 2.0）：<code>model/model_minimind.py</code> 的 <code>FeedForward</code>、<code>RMSNorm</code>、<code>MiniMindBlock</code> 类。</li>
+</ul>
+
+</article>

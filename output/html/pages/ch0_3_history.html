@@ -1,0 +1,244 @@
+<article class="content">
+<h1>0.3 LLM 简史与本手册读法</h1>
+<p class="subtitle">本页范围：第 0 章第 3 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>从 2017 年的 Transformer 到 2025 年的推理模型，哪些节点真正改变了 LLM 的方向？这本手册又该按什么方式读？</td></tr>
+      <tr><td>本节主张</td><td>LLM 的演进不是一条平滑上升的曲线，而是技术事件驱动的台阶式跃迁。看懂每一级台阶垫在哪项技术上，就看懂了手册的章节安排。</td></tr>
+      <tr><td>一句话结论</td><td>架构（Transformer）、规模（GPT-3 与 Scaling Law）、对齐（RLHF 与 ChatGPT）、开源与能力跃迁（LLaMA 与 GPT-4）、推理时计算（o1 与 DeepSeek-R1），五级台阶串起本手册的主线。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>Transformer</span><span>GPT-3</span><span>RLHF</span><span>ChatGPT</span><span>LLaMA</span><span>o1</span><span>DeepSeek-R1</span><span>推理时扩展</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>0.3.1 八年时间线：从 Transformer 到推理模型</h2>
+
+<p>　　LLM 不是某一天突然出现的。它是架构、规模、对齐、推理等方向上一连串技术事件累积的产物。下面这条时间线只收录改变方向的关键节点，先看全景，再用表格逐个说清楚每个节点改变了什么。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 980 270" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="tarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 时间轴 -->
+    <line x1="40" y1="160" x2="952" y2="160" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#tarr)"/>
+    <!-- 2017 上 -->
+    <circle cx="90" cy="160" r="7" fill="#6d28d9" stroke="#ffffff" stroke-width="2"/>
+    <line x1="90" y1="153" x2="90" y2="135" stroke="#c4b5fd" stroke-width="1.5"/>
+    <text x="90" y="92" text-anchor="middle" font-size="14" font-weight="bold" fill="#333333">Transformer</text>
+    <text x="90" y="113" text-anchor="middle" font-size="12" fill="#555555">自注意力架构诞生</text>
+    <text x="90" y="185" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">2017</text>
+    <!-- 2018 下 -->
+    <circle cx="210" cy="160" r="7" fill="#6d28d9" stroke="#ffffff" stroke-width="2"/>
+    <line x1="210" y1="167" x2="210" y2="190" stroke="#c4b5fd" stroke-width="1.5"/>
+    <text x="210" y="145" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">2018</text>
+    <text x="210" y="212" text-anchor="middle" font-size="14" font-weight="bold" fill="#333333">GPT-1 / BERT</text>
+    <text x="210" y="233" text-anchor="middle" font-size="12" fill="#555555">预训练+微调范式</text>
+    <!-- 2019 上 -->
+    <circle cx="330" cy="160" r="7" fill="#6d28d9" stroke="#ffffff" stroke-width="2"/>
+    <line x1="330" y1="153" x2="330" y2="135" stroke="#c4b5fd" stroke-width="1.5"/>
+    <text x="330" y="92" text-anchor="middle" font-size="14" font-weight="bold" fill="#333333">GPT-2</text>
+    <text x="330" y="113" text-anchor="middle" font-size="12" fill="#555555">零样本迁移初现</text>
+    <text x="330" y="185" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">2019</text>
+    <!-- 2020 下 -->
+    <circle cx="450" cy="160" r="7" fill="#6d28d9" stroke="#ffffff" stroke-width="2"/>
+    <line x1="450" y1="167" x2="450" y2="190" stroke="#c4b5fd" stroke-width="1.5"/>
+    <text x="450" y="145" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">2020</text>
+    <text x="450" y="212" text-anchor="middle" font-size="14" font-weight="bold" fill="#333333">GPT-3 / Scaling Law</text>
+    <text x="450" y="233" text-anchor="middle" font-size="12" fill="#555555">few-shot 涌现</text>
+    <!-- 2022 上 -->
+    <circle cx="565" cy="160" r="7" fill="#6d28d9" stroke="#ffffff" stroke-width="2"/>
+    <line x1="565" y1="153" x2="565" y2="135" stroke="#c4b5fd" stroke-width="1.5"/>
+    <text x="565" y="92" text-anchor="middle" font-size="14" font-weight="bold" fill="#333333">InstructGPT / ChatGPT</text>
+    <text x="565" y="113" text-anchor="middle" font-size="12" fill="#555555">RLHF 走出实验室</text>
+    <text x="565" y="185" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">2022</text>
+    <!-- 2023 下 -->
+    <circle cx="680" cy="160" r="7" fill="#6d28d9" stroke="#ffffff" stroke-width="2"/>
+    <line x1="680" y1="167" x2="680" y2="190" stroke="#c4b5fd" stroke-width="1.5"/>
+    <text x="680" y="145" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">2023</text>
+    <text x="680" y="212" text-anchor="middle" font-size="14" font-weight="bold" fill="#333333">LLaMA / GPT-4</text>
+    <text x="680" y="233" text-anchor="middle" font-size="12" fill="#555555">开源生态爆发</text>
+    <!-- 2024 上 -->
+    <circle cx="790" cy="160" r="7" fill="#6d28d9" stroke="#ffffff" stroke-width="2"/>
+    <line x1="790" y1="153" x2="790" y2="135" stroke="#c4b5fd" stroke-width="1.5"/>
+    <text x="790" y="92" text-anchor="middle" font-size="14" font-weight="bold" fill="#333333">o1 / DPO 普及</text>
+    <text x="790" y="113" text-anchor="middle" font-size="12" fill="#555555">推理时扩展登场</text>
+    <text x="790" y="185" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">2024</text>
+    <!-- 2025 下 -->
+    <circle cx="900" cy="160" r="7" fill="#6d28d9" stroke="#ffffff" stroke-width="2"/>
+    <line x1="900" y1="167" x2="900" y2="190" stroke="#c4b5fd" stroke-width="1.5"/>
+    <text x="900" y="145" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">2025</text>
+    <text x="900" y="212" text-anchor="middle" font-size="14" font-weight="bold" fill="#333333">DeepSeek-R1</text>
+    <text x="900" y="233" text-anchor="middle" font-size="12" fill="#555555">RLVR 推理模型开源</text>
+  </svg>
+  <div class="diagram-caption">图示：2017 到 2025 年 LLM 关键节点时间线，只收录改变方向的事件。</div>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>年份</th><th>节点</th><th>它改变了什么</th></tr></thead>
+    <tbody>
+      <tr><td>2017</td><td>Transformer（Vaswani et al.）</td><td>自注意力取代循环结构成为序列建模的主流架构，此后所有 LLM 都建立在它之上（本手册第 4 章的主题）。</td></tr>
+      <tr><td>2018</td><td>GPT-1（Radford et al.）、BERT（Devlin et al.）</td><td>确立“预训练 + 微调”范式，并分出生成式（GPT，decoder-only）与理解式（BERT，encoder-only）两条路线，前者后来成为 LLM 的主流形态。</td></tr>
+      <tr><td>2019</td><td>GPT-2（Radford et al.）</td><td>零样本任务迁移初现苗头，“模型变大后会自发获得新能力”第一次成为清晰信号。</td></tr>
+      <tr><td>2020</td><td>GPT-3（Brown et al.，1750 亿参数）、Kaplan Scaling Law</td><td>few-shot 上下文学习涌现：不改参数，只在输入里给几个例子就能完成新任务；Scaling Law 给出性能随规模增长的幂律关系，堆规模从经验变成可计算的工程决策。</td></tr>
+      <tr><td>2022</td><td>InstructGPT（Ouyang et al.）、Chinchilla（Hoffmann et al.）、ChatGPT</td><td>RLHF 让模型学会遵循指令、对齐人类偏好；ChatGPT（2022-11-30 发布）两个月用户破亿，把 LLM 带出实验室；Chinchilla 用 700 亿参数配 1.4 万亿 token，证明数据要与参数同步扩，纠正只堆参数的训法。</td></tr>
+      <tr><td>2023</td><td>LLaMA（Touvron et al.）、GPT-4（OpenAI）</td><td>LLaMA 权重开放引爆开源生态，衍生出整个开源模型家族；GPT-4 把复杂推理与多模态能力推上新台阶。</td></tr>
+      <tr><td>2024</td><td>o1（OpenAI，9 月）、DPO 普及</td><td>o1 证明推理时计算（test-time compute）是新的性能轴：让模型想得更久，换答得更好；DPO 等免强化学习的偏好对齐方法在开源社区普及，对齐不再是大厂专利。</td></tr>
+      <tr><td>2025</td><td>DeepSeek-R1（DeepSeek-AI，1 月）</td><td>开源 RLVR 推理模型，证明纯强化学习可以涌现长思维链，把推理时扩展带进开源世界。</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box info">
+  两点说明：时间线只列改变方向的关键节点，并非完整编年史，同期的重要工作（T5、PaLM、Qwen、GLM 等）未逐一收录；“两个月破 1 亿用户”来自 UBS 估算与媒体报道，是公开流传的口径，不是官方精确统计。
+</div>
+
+<h2>0.3.2 趋势小结：能力是台阶式跃迁</h2>
+
+<p>　　把时间线连起来看，LLM 的能力增长更像楼梯，而不是斜坡。每一级台阶都由一项具体技术垫起，台阶之间是相对平缓的消化期：</p>
+
+<ol>
+  <li><strong>第一级，2020 年（GPT-3）</strong>：few-shot 上下文学习。模型第一次表现出不做梯度更新、看几个例子就会做新任务的能力；</li>
+  <li><strong>第二级，2022 年（InstructGPT / ChatGPT）</strong>：指令遵循。RLHF 把模型从续写机器变成听得懂人话的助手，能力第一次变成公众可用的产品；</li>
+  <li><strong>第三级，2023 年（GPT-4）</strong>：复杂推理与多模态。模型的能力边界显著外推，开始处理代码、数学、图像等更复杂的任务；</li>
+  <li><strong>第四级，2024 到 2025 年（o1 / DeepSeek-R1）</strong>：推理时计算。性能提升不再只靠训练阶段，推理时生成更长的思维链也能换来性能。</li>
+</ol>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">推理时扩展（Test-time Compute）</span>
+    <span class="term-en">test-time compute = 把更多计算花在推理阶段，而不是训练阶段</span>
+  </div>
+  <div class="term-body">
+    <p>传统路径是训练时一次性投入巨大算力，推理时每个问题只花固定的小代价。o1 与 DeepSeek-R1 走另一条路：回答之前先生成一长串思维链，让模型在同一个问题上想得更久、算得更多，用推理时的计算换更高的正确率。这一范式将在第 11 章（推理能力训练）与第 13 章（推理时扩展）展开。</p>
+    <div class="term-analogy">就像考试：以往的模型是条件反射式答题，拿到卷子立刻落笔；推理时扩展相当于允许打草稿，题目越难草稿越长，正确率随之上升。</div>
+  </div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 265" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="sarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <!-- 坐标轴 -->
+    <line x1="60" y1="215" x2="60" y2="28" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#sarr)"/>
+    <line x1="60" y1="215" x2="702" y2="215" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#sarr)"/>
+    <text x="60" y="18" text-anchor="middle" font-size="12" fill="#666666">能力</text>
+    <text x="696" y="205" text-anchor="end" font-size="12" fill="#666666">时间</text>
+    <!-- 想象中的平滑曲线 -->
+    <path d="M60,212 C260,210 480,160 690,70" stroke="#9ca3af" stroke-width="2" stroke-dasharray="6,5" fill="none"/>
+    <!-- 实际的台阶 -->
+    <path d="M60,215 L130,215 L130,175 L270,175 L270,135 L410,135 L410,95 L550,95 L550,55 L690,55" stroke="#6d28d9" stroke-width="3" fill="none"/>
+    <!-- 图例 -->
+    <line x1="95" y1="40" x2="125" y2="40" stroke="#9ca3af" stroke-width="2" stroke-dasharray="6,5"/>
+    <text x="133" y="44" font-size="11" fill="#6b7280">想象中的平滑进步</text>
+    <line x1="95" y1="60" x2="125" y2="60" stroke="#6d28d9" stroke-width="3"/>
+    <text x="133" y="64" font-size="11" fill="#6d28d9">实际上的台阶式跃迁</text>
+    <!-- 台阶标签 -->
+    <text x="200" y="235" text-anchor="middle" font-size="10.5" fill="#555555">2020 GPT-3</text>
+    <text x="200" y="251" text-anchor="middle" font-size="10.5" fill="#555555">few-shot 上下文学习</text>
+    <text x="340" y="235" text-anchor="middle" font-size="10.5" fill="#555555">2022 InstructGPT</text>
+    <text x="340" y="251" text-anchor="middle" font-size="10.5" fill="#555555">指令遵循与对齐</text>
+    <text x="480" y="235" text-anchor="middle" font-size="10.5" fill="#555555">2023 GPT-4</text>
+    <text x="480" y="251" text-anchor="middle" font-size="10.5" fill="#555555">多模态与推理</text>
+    <text x="620" y="235" text-anchor="middle" font-size="10.5" fill="#555555">2024-25 o1 / R1</text>
+    <text x="620" y="251" text-anchor="middle" font-size="10.5" fill="#555555">推理时计算</text>
+  </svg>
+  <div class="diagram-caption">图示：LLM 能力的增长曲线。灰色虚线是想象中的平滑进步，紫色折线更接近事实：每一级台阶都对应一项可指认的技术事件。</div>
+</div>
+
+<div class="highlight-box">
+  台阶式跃迁的含义：每一级台阶都垫在一项可指认的技术上，而这些技术正是本手册的章节。第 4 到 7 章讲架构与预训练（地基），第 9 到 10 章讲指令微调与偏好对齐（第二级台阶），第 11 章与第 13 章讲推理训练与推理时扩展（第四级台阶）。历史脉络与章节结构是同一张图。
+</div>
+
+<h2>0.3.3 本手册怎么读</h2>
+
+<p>　　最后说说这本手册本身的读法。手册的内容建立在三类素材上，编写时按可信度分层使用：</p>
+
+<h3>三大素材支柱</h3>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>一手论文与官方文档</h4><p>理论表述以 arXiv 原始论文、官方技术报告、经典教材（如 SLP3）为准。每页末尾的参考来源列明本节出处，拿不准的内容会明确标注待查证。</p></div>
+  <div class="concept-card"><h4>ref_paper 论文原文</h4><p>Transformer、ViT、DINO、Swin、MAE 五篇经典论文的中文精译。第 4 章架构精讲逐节对照 Attention 原文编写，其余章节按需引用。</p></div>
+  <div class="concept-card"><h4>minimind-master 可运行代码</h4><p>一套能在个人电脑上跑通的小模型完整实现，覆盖分词、预训练、SFT、LoRA、DPO 全流程。机制类页面末尾的动手验证区块会指到具体代码文件。</p></div>
+</div>
+
+<h3>页面组件图例</h3>
+
+<p>　　手册页面由一套固定的组件拼装而成。先看懂图例，读的时候就不会被各种颜色的框打断：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>组件</th><th>长相</th><th>作用</th></tr></thead>
+    <tbody>
+      <tr><td>快速浏览卡片</td><td>每页开头的灰底表格</td><td>电梯概览：核心问题、本节主张、一句话结论、关键词。</td></tr>
+      <tr><td>术语卡</td><td>橙色卡片，左上角“术语”标签</td><td>把关键名词掰开揉碎：词源、通俗解释、生活类比。</td></tr>
+      <tr><td>橙色注释框</td><td>橙色边框，“注释”标签</td><td>补充说明、背景知识。</td></tr>
+      <tr><td>黄色警告框</td><td>黄色边框，“警告”标签</td><td>注意事项、常见误区。</td></tr>
+      <tr><td>红色易错框</td><td>红色边框，“易错”标签</td><td>易混淆点与强约束。</td></tr>
+      <tr><td>绿色结论框</td><td>绿色边框，无标签</td><td>一页只有一两处的核心结论。</td></tr>
+      <tr><td>要点回顾</td><td>页末紫色卡片</td><td>3 组自问自答，检验是否抓住要点。</td></tr>
+      <tr><td>动手验证</td><td>机制类页面末尾的区块</td><td>指向 minimind-master 对应代码文件与可运行命令，把纸面知识变成手感。</td></tr>
+      <tr><td>参考来源</td><td>页面最末尾</td><td>本节内容依据的一手资料清单。</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h3>建议读法</h3>
+
+<p>　　两种读法都支持：</p>
+
+<ol>
+  <li><strong>顺序读</strong>：章节按 LLM 生命周期排布，从训练数据一路讲到评测与局限，第一次系统学习建议按顺序推进；</li>
+  <li><strong>按需跳读</strong>：有基础的读者可以直接跳到目标章节，配合 0.2 节的全景地图页确认该章在流水线中的位置，再决定要不要回补前置章节。</li>
+</ol>
+
+<p>　　每页开头的快速浏览卡片给出本节核心问题与一句话结论，适合预习时扫读、复习时定位。至此第 0 章收尾：0.1 节看流水线、0.2 节看全景地图、本节看历史与读法，下一章正式进入第一块积木，训练数据。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">哪个节点真正把 LLM 带出了实验室？</div>
+    <div class="sc-key">ChatGPT（2022-11-30 发布，两个月用户破亿）。但它不是孤立事件，底下垫着 InstructGPT 的 RLHF 指令对齐：公众愿意用的不是会续写的模型，而是听得懂指令的助手。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">RLHF 到底改变了什么？</div>
+    <div class="sc-key">改变的是模型的行为方式，而不是知识容量。预训练模型只会续写文本，RLHF 让它学会遵循指令、按人类偏好组织回答，把已有的能力变成可用、可控的产品形态。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">推理时扩展为什么算得上新范式？</div>
+    <div class="sc-key">此前提升性能只有一条路：训练时堆参数、数据和算力。o1 与 DeepSeek-R1 证明还有第二条路，推理时让模型生成更长思维链、分配更多计算，性能随之提升。开销从一次性的训练投入，部分转为按次推理的弹性分配。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762），Transformer 架构原始论文。</li>
+  <li>Radford et al., 2018. Improving Language Understanding by Generative Pre-Training（GPT-1 技术报告）。</li>
+  <li>Devlin et al., 2019. BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding（arXiv:1810.04805）。</li>
+  <li>Radford et al., 2019. Language Models are Unsupervised Multitask Learners（GPT-2 技术报告）。</li>
+  <li>Kaplan et al., 2020. Scaling Laws for Neural Language Models（arXiv:2001.08361）。</li>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3，arXiv:2005.14165）。</li>
+  <li>Ouyang et al., 2022. Training Language Models to Follow Instructions with Human Feedback（InstructGPT，arXiv:2203.02155）。</li>
+  <li>Hoffmann et al., 2022. Training Compute-Optimal Large Language Models（Chinchilla，arXiv:2203.15556）。</li>
+  <li>Touvron et al., 2023. LLaMA: Open and Efficient Foundation Language Models（arXiv:2302.13971）。</li>
+  <li>OpenAI, 2023. GPT-4 Technical Report（arXiv:2303.08774）。</li>
+  <li>Rafailov et al., 2023. Direct Preference Optimization: Your Language Model is Secretly a Reward Model（DPO，arXiv:2305.18290；2024 年起在开源社区大规模落地）。</li>
+  <li>OpenAI, 2024. Introducing OpenAI o1（2024 年 9 月官方公告，推理时扩展）。</li>
+  <li>DeepSeek-AI, 2025. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning（arXiv:2501.12948）。</li>
+  <li>OpenAI, 2022. Introducing ChatGPT（2022-11-30 官方公告）；用户增长口径见 Reuters 2023 年 2 月报道引用的 UBS 估算。</li>
+</ul>
+
+</article>

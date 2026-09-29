@@ -1,0 +1,209 @@
+﻿<article class="content">
+<h1>3.2 为什么需要位置编码：注意力是个「脸盲」</h1>
+<p class="subtitle">本页范围：第 3 章第 2 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>Embedding 告诉模型「每个 token 是什么」，但 Transformer 的注意力天生不看顺序。「第几个出现的 token」这条信息从哪来？</td></tr>
+      <tr><td>本节主张</td><td>纯自注意力是置换等变的：把输入 token 打乱，输出只是跟着重排，数值一点不变。它把句子当「集合」而非「序列」，语序信息必须额外注入。</td></tr>
+      <tr><td>一句话结论</td><td>绝对位置编码给每个位置发一个向量加在 token 上，相对位置编码让注意力计算时直接感知两个 token 相距多远；选哪种深刻影响模型的长度外推能力。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>置换等变</span><span>位置编码</span><span>语序</span><span>绝对位置</span><span>相对位置</span><span>RoPE</span><span>ALiBi</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>3.2.1 一个思想实验：把句子打乱</h2>
+
+<p>　　上一节讲过，Embedding 层把每个 token ID 变成一个向量。到这里，模型知道了「这句话里有哪些词」。接下来这些向量会被送进一摞 Transformer 层做注意力计算（第 4 章的主题）。在正式拆开 Transformer 之前，先做一个思想实验，它能暴露注意力机制一个天生的盲区。</p>
+
+<p>　　实验很简单：把「我 / 爱 / 大语言 / 模型」四个 token 的向量喂给一个不带位置编码的注意力层，记下每个 token 的输出向量；然后把输入打乱成「模型 / 爱 / 大语言 / 我」，再喂一次。直觉上，输入顺序变了，输出总该跟着变吧？实际发生的事恰恰相反：<strong>每个 token 的输出向量数值一点没变，只是按新顺序重新排了一遍</strong>。「我」在两次实验里得到的输出完全相同，它根本不知道自己第一次站在队首、第二次站在队尾。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 实验 A -->
+    <text x="20" y="24" font-size="13" fill="#555">实验 A：正常顺序输入</text>
+    <text x="48" y="44" text-anchor="middle" font-size="9" fill="#999">位置0</text>
+    <text x="110" y="44" text-anchor="middle" font-size="9" fill="#999">位置1</text>
+    <text x="172" y="44" text-anchor="middle" font-size="9" fill="#999">位置2</text>
+    <text x="234" y="44" text-anchor="middle" font-size="9" fill="#999">位置3</text>
+    <rect x="20" y="50" width="56" height="34" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="48" y="71" text-anchor="middle" font-size="13" fill="#333">我</text>
+    <rect x="82" y="50" width="56" height="34" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="110" y="71" text-anchor="middle" font-size="13" fill="#333">爱</text>
+    <rect x="144" y="50" width="56" height="34" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="172" y="71" text-anchor="middle" font-size="13" fill="#333">大语言</text>
+    <rect x="206" y="50" width="56" height="34" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="234" y="71" text-anchor="middle" font-size="13" fill="#333">模型</text>
+    <line x1="266" y1="67" x2="292" y2="67" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="292" y="47" width="104" height="40" rx="9" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="344" y="64" text-anchor="middle" font-size="12" fill="#333">自注意力</text>
+    <text x="344" y="79" text-anchor="middle" font-size="9" fill="#777">无位置编码</text>
+    <line x1="400" y1="67" x2="426" y2="67" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="426" y="50" width="56" height="34" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="454" y="71" text-anchor="middle" font-size="13" fill="#333">我'</text>
+    <rect x="488" y="50" width="56" height="34" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="516" y="71" text-anchor="middle" font-size="13" fill="#333">爱'</text>
+    <rect x="550" y="50" width="56" height="34" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="578" y="71" text-anchor="middle" font-size="13" fill="#333">大语言'</text>
+    <rect x="612" y="50" width="56" height="34" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="640" y="71" text-anchor="middle" font-size="13" fill="#333">模型'</text>
+    <text x="454" y="98" text-anchor="middle" font-size="10" fill="#888">0.21</text>
+    <text x="516" y="98" text-anchor="middle" font-size="10" fill="#888">0.87</text>
+    <text x="578" y="98" text-anchor="middle" font-size="10" fill="#888">0.45</text>
+    <text x="640" y="98" text-anchor="middle" font-size="10" fill="#888">0.63</text>
+    <!-- 实验 B -->
+    <text x="20" y="140" font-size="13" fill="#555">实验 B：打乱顺序输入</text>
+    <text x="48" y="160" text-anchor="middle" font-size="9" fill="#999">位置0</text>
+    <text x="110" y="160" text-anchor="middle" font-size="9" fill="#999">位置1</text>
+    <text x="172" y="160" text-anchor="middle" font-size="9" fill="#999">位置2</text>
+    <text x="234" y="160" text-anchor="middle" font-size="9" fill="#999">位置3</text>
+    <rect x="20" y="166" width="56" height="34" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="48" y="187" text-anchor="middle" font-size="13" fill="#333">模型</text>
+    <rect x="82" y="166" width="56" height="34" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="110" y="187" text-anchor="middle" font-size="13" fill="#333">爱</text>
+    <rect x="144" y="166" width="56" height="34" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="172" y="187" text-anchor="middle" font-size="13" fill="#333">大语言</text>
+    <rect x="206" y="166" width="56" height="34" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="234" y="187" text-anchor="middle" font-size="13" fill="#333">我</text>
+    <line x1="266" y1="183" x2="292" y2="183" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="292" y="163" width="104" height="40" rx="9" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="344" y="180" text-anchor="middle" font-size="12" fill="#333">自注意力</text>
+    <text x="344" y="195" text-anchor="middle" font-size="9" fill="#777">无位置编码</text>
+    <line x1="400" y1="183" x2="426" y2="183" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="426" y="166" width="56" height="34" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="454" y="187" text-anchor="middle" font-size="13" fill="#333">模型'</text>
+    <rect x="488" y="166" width="56" height="34" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="516" y="187" text-anchor="middle" font-size="13" fill="#333">爱'</text>
+    <rect x="550" y="166" width="56" height="34" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="578" y="187" text-anchor="middle" font-size="13" fill="#333">大语言'</text>
+    <rect x="612" y="166" width="56" height="34" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="640" y="187" text-anchor="middle" font-size="13" fill="#333">我'</text>
+    <text x="454" y="214" text-anchor="middle" font-size="10" fill="#888">0.63</text>
+    <text x="516" y="214" text-anchor="middle" font-size="10" fill="#888">0.87</text>
+    <text x="578" y="214" text-anchor="middle" font-size="10" fill="#888">0.45</text>
+    <text x="640" y="214" text-anchor="middle" font-size="10" fill="#888">0.21</text>
+    <!-- 底部结论 -->
+    <rect x="20" y="242" width="648" height="58" rx="10" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1"/>
+    <text x="344" y="266" text-anchor="middle" font-size="13" fill="#333">「我」的输出两次都是 0.21，它不知道自己站在队首还是队尾</text>
+    <text x="344" y="288" text-anchor="middle" font-size="13" fill="#6d28d9">打乱输入，输出只是跟着重排：注意力对语序「脸盲」</text>
+  </svg>
+  <div class="diagram-caption">图示：同一句子的两种排列喂给不带位置编码的注意力层，每个 token 的输出数值完全相同（颜色与数字一一对应），只是顺序跟着重排。</div>
+</div>
+
+<p>　　这个现象不是 bug，而是注意力的计算方式决定的。注意力算的是「任意两个 token 之间的相关程度」：每个 token 都和所有 token 两两匹配一次，再把结果加权求和。整个过程没有任何一步用到「这个 token 排第几」。打个比方，注意力像一位能看清全班每个人的脸、却完全分不清座次的值班老师：他知道张三、李四都在教室里，但谁坐在谁旁边，他一概不知。这就是我们说的「脸盲」。</p>
+
+<h2>3.2.2 语序即语义：顺序本身就是意思</h2>
+
+<p>　　分不清顺序，问题有多严重？看这组中文例子：</p>
+
+<blockquote>
+  狗咬人。<br>人咬狗。
+</blockquote>
+
+<p>　　两句话由完全相同的三个 token 组成，意思却完全相反：谁是动作的发出者、谁是承受者，全部编码在顺序里。对一个「脸盲」的模型来说，这两句话是同一个集合 {狗，咬，人}，算出的表示一模一样，它没有任何线索知道两句话的意思相反。</p>
+
+<p>　　这样的例子在中文里俯拾皆是。「我请你吃饭」和「你请我吃饭」，人情方向完全颠倒；「屡战屡败」和「屡败屡战」用字全同，一个是丧气汇报，一个是顽强表态。人类语言的语义有相当一部分就装在词序里，读不出顺序，等于丢了一半的信息。</p>
+
+<p>　　所以 Transformer 必须有办法感知位置。原论文对此写得非常直白：</p>
+
+<blockquote>
+  由于我们的模型不包含循环和卷积，为了让模型利用序列的顺序信息，我们必须注入关于序列中令牌相对或绝对位置的信息。<br>—— Vaswani et al., Attention Is All You Need，第 3.5 节
+</blockquote>
+
+<h2>3.2.3 「脸盲」的数学表述：置换等变</h2>
+
+<p>　　这个盲区在数学上有个正式名字，值得记住，后面几节会反复用到：</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">置换等变 Permutation Equivariant</span>
+    <span class="term-en">permutation（置换）+ equivariant（等变）= 输入怎么换顺序，输出就跟着怎么换顺序</span>
+  </div>
+  <div class="term-body">
+    <p>「等变」指一种「跟着变」的性质。对注意力来说：把输入 token 的顺序任意打乱（置换），输出的内容不变，只是顺序跟着同样打乱。它意味着注意力把输入当成一个<strong>无序的集合</strong>，而不是一串有先后的序列。</p>
+    <div class="term-analogy">就像洗一副牌：不管怎么洗，牌还是那 54 张。注意力看到的是「这副牌有哪些」，而不是「哪张牌排在第几张」。</div>
+  </div>
+</div>
+
+<p>　　用公式写出来。设 \(X\) 是 \(n\) 个 token 的向量排成的矩阵，\(\pi\) 表示任意一种打乱顺序的操作（置换），那么：</p>
+
+<div class="formula-card">
+  \[ \mathrm{Attention}(\pi X) \;=\; \pi\,\mathrm{Attention}(X) \tag{1} \]
+  <div class="formula-note">公式 (1)：先打乱再算注意力，与先算注意力再打乱，结果完全一样。注意力不创造任何顺序信息，输入怎么排，输出就怎么排。</div>
+</div>
+
+<p>　　对比一下前代架构就明白这有多特殊：RNN 一个词一个词按顺序读进来，顺序天然烙在计算过程里；CNN 的卷积核也有固定的左右结构。Transformer 为了追求并行效率，让所有位置同时计算，代价就是把顺序信息弄丢了。位置编码的任务，就是把这块信息补回来。</p>
+
+<div class="highlight-box info">
+  有研究（Kazemnejad et al., 2023）发现，GPT 类模型的因果掩码会泄露少量先后信息：第 \(i\) 个位置只能看到前 \(i\) 个 token，这本身已是一种位置线索，所以 decoder-only 模型不加显式位置编码也能学到部分语序。但「相距多远」它依然感知不到，主流模型仍离不开专门的位置编码，这一点 3.4 节再展开。
+</div>
+
+<h2>3.2.4 两条解决路线：绝对位置 vs 相对位置</h2>
+
+<p>　　补位置信息的方案分成两大流派，区别用一个类比就能说清。给小区住户定位：一种思路是<strong>发门牌号</strong>，每栋楼钉一块牌子，1 号楼、2 号楼，住户报出号码就知道自己在哪；另一种思路<strong>不发门牌号，见面问距离</strong>，任意两户碰面，先问一句「咱们两家隔几栋楼」。前一种是绝对位置编码，后一种是相对位置编码。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>对比维度</th><th>绝对位置编码</th><th>相对位置编码</th></tr></thead>
+    <tbody>
+      <tr><td>核心思想</td><td>给每个位置发一个「门牌号」向量</td><td>不标门牌号，让 token 两两感知「相距多远」</td></tr>
+      <tr><td>代表方法</td><td>正弦编码（Transformer 原版）、可学习编码（GPT、BERT）</td><td>RoPE（旋转位置编码）、ALiBi</td></tr>
+      <tr><td>注入位置</td><td>输入端：位置向量直接加在 token 向量上</td><td>注意力内部：改造 QK 内积或给注意力分数加偏置</td></tr>
+      <tr><td>模型感知到</td><td>「我排在序列的第几位」</td><td>「我们两个隔多远、谁前谁后」</td></tr>
+      <tr><td>长度外推</td><td>偏弱：训练时没见过的位置，没有现成的向量可用</td><td>偏强：距离规律不随序列变长而失效（ALiBi 的论文标题就叫 Train Short, Test Long）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　两派的分歧不只是工程口味。绝对位置编码把「第 512 位」这样的信息写死在向量里，训练时没见过第 513 位，推理时就没有对应的表示；相对位置编码只学「距离 3 是什么意思」，这条规律不随序列变长而失效。这就是为什么位置编码的选择会一路影响模型的长度外推能力，也就是第 3.5 节的主线。</p>
+
+<div class="highlight-box">
+  自注意力天生是个「脸盲」：认得出每个 token，认不出 token 的顺序，位置编码是 Transformer 唯一的位置信息来源。绝对位置编码发「门牌号」，相对位置编码量「间距」。当代主流 LLM（LLaMA、Qwen、DeepSeek 等）几乎一边倒地选择了相对阵营的 RoPE，3.4 节细讲原因。
+</div>
+
+<h2>3.2.5 本章地图</h2>
+
+<p>　　接下来的三节把位置编码讲透：</p>
+
+<ul>
+  <li><strong>3.3 绝对位置编码</strong>：正弦编码的公式设计（为什么用正弦？为什么波长按几何级数排布？）与可学习位置编码；</li>
+  <li><strong>3.4 相对位置编码</strong>：RoPE 如何用「旋转」把绝对位置转化为相对距离、为什么成为当代 LLM 的默认选项，ALiBi 一条直线凭什么外推；</li>
+  <li><strong>3.5 长度外推</strong>：推理长度超过训练长度时模型会发生什么，位置编码如何决定模型能不能「读长文」。</li>
+</ul>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么说不加位置编码的注意力是个「脸盲」？</div>
+    <div class="sc-key">注意力是置换等变的：输入 token 怎么打乱，输出只是跟着重排，每个 token 的输出数值不变。它把句子当集合而非序列，认得出 token，认不出顺序。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">「狗咬人」和「人咬狗」对纯注意力模型来说是什么关系？</div>
+    <div class="sc-key">完全是一回事。两者的 token 集合相同，模型算出的每个 token 表示一模一样；两句话意思相反这件事，它无从得知，语序承载的语义对它全部丢失。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">绝对位置编码和相对位置编码的分水岭在哪里？</div>
+    <div class="sc-key">前者给每个位置发固定的「门牌号」向量加在 token 上（正弦编码、可学习编码），后者不标绝对位置，让注意力计算时直接感知两个 token 的距离（RoPE、ALiBi）。这个选择深刻影响长度外推能力，是 3.5 节的主线。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762），第 3.5 节明确提出「模型不含循环与卷积，必须注入位置信息」。</li>
+  <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864），3.4 节详述。</li>
+  <li>Press, Smith &amp; Lewis, 2021. Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation（ALiBi 原始论文，arXiv:2108.12409），3.4、3.5 节详述。</li>
+  <li>Devlin et al., 2019. BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding（arXiv:1810.04805），可学习绝对位置编码的代表。</li>
+  <li>Kazemnejad et al., 2023. The Impact of Positional Encoding on Length Generalization in Transformers（NeurIPS 2023），因果掩码泄露位置信息与无显式位置编码（NoPE）现象的讨论。</li>
+</ul>
+
+</article>

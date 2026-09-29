@@ -1,0 +1,298 @@
+﻿<article class="content">
+<h1>4.3 多头注意力与掩码：八个视角看同一句</h1>
+<p class="subtitle">本页范围：第 4 章第 3 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>一个注意力头只能给出一种加权平均，一句话里同时存在的多种关系（长距离搭配、指代、语法结构）会不会被互相糊掉？自回归生成时，又怎么保证模型看不到还没写出来的未来？</td></tr>
+      <tr><td>本节主张</td><td>多头注意力把 Q、K、V 分别投影到 8 个低维子空间，并行算出 8 份注意力再拼接混合，算力开销与单头全维相当；掩码在 softmax 之前把未来位置的分数置为 −∞，从数学上封死信息从右向左流动。</td></tr>
+      <tr><td>一句话结论</td><td>8 个头是 8 个声部各听一种关系，掩码是给未来位置贴的封条：前者解决"看得全"，后者保证"不作弊"。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>多头注意力</span><span>表示子空间</span><span>因果掩码</span><span>自回归</span><span>交叉注意力</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>4.3.1 一个头为什么不够：平均会糊掉多种关系</h2>
+
+<p>　　上一节的缩放点积注意力只有一套打分体系：每个位置对所有位置算一组分数，softmax 之后做一份加权平均。一份平均意味着每个位置最终只端得出一盘"什锦菜"：主谓搭配、指代关系、修饰关系全被搅进同一个向量里，谁也说不清这盘菜到底是什么味。原论文在 3.2.2 节直接点破了这个问题：</p>
+
+<blockquote>多头注意力允许模型在不同位置共同关注来自不同表示子空间的信息。使用单个注意力头时，平均操作会抑制这种能力。（3.2.2 节）</blockquote>
+
+<p>　　打个比方：把一句话交给一个人评审，他要同时看语法、看指代、看长距离搭配，最后只能给一份综合意见，细节必然被平均掉。换成 8 个各有所长的评审，一个专盯动词搭配，一个专盯代词指向，一个专盯句子结构，最后把 8 份笔记汇总，信息就完整得多。这就是多头注意力的直觉。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">表示子空间 Representation Subspace</span>
+    <span class="term-en">subspace = 高维向量空间里划出的一块低维专区</span>
+  </div>
+  <div class="term-body">
+    <p>512 维的向量可以切成 8 段 64 维的小空间，每段就是原空间的一个<strong>子空间</strong>。模型可以让不同子空间专门编码不同性质的关系：一段管语法搭配，一段管指代，互不干扰。多头机制里的"投影到低维"，就是把每个头送进各自的子空间工作。</p>
+    <div class="term-analogy">就像把一面 512 格的信息墙划分成 8 个公告栏，每个公告栏只贴一类通知，查哪类消息就去哪个栏，不用在整面墙上大海捞针。</div>
+  </div>
+</div>
+
+<p>　　这个直觉有两条硬证据。一条来自消融实验：原论文 6.2 节表 3 的 (A) 组在保持总计算量不变的前提下改变头数，结果是单头（\(h=1\)）比最佳设置低 0.9 个 BLEU，头数过多时质量同样下降，基准设置 \(h=8\) 在英德开发集上取得 25.8 的 BLEU。另一条来自可视化：论文附录把训练好的注意力权重画了出来，不同的头确实在干不同的活。</p>
+
+<div class="img-row">
+  <div class="img-block">
+    <img src="images/ch4/57e3ad00e7c57fe0dc66b468b013f2fcf447ef78a7d2ee01be8b434fe6ef0669.jpg" alt="原论文图3：多个注意力头关注长距离依赖">
+    <div class="img-caption">原论文图 3：编码器第 5 层中，多个注意力头（不同颜色）共同关注动词 making 的远距离搭配，完成 "making...more difficult" 这一短语（来源：Attention Is All You Need）。</div>
+  </div>
+  <div class="img-block">
+    <img src="images/ch4/b616696f63c30ad27de5f095b0cac5975742209d1231c70057510010187c1512.jpg" alt="原论文图5：不同注意力头表现出不同行为">
+    <div class="img-caption">原论文图 5：同一层的两个注意力头表现出与句子结构相关的不同行为，论文评价它们"显然学会了执行不同的任务"（来源：Attention Is All You Need）。</div>
+  </div>
+</div>
+
+<p>　　<strong>所以这一步在干嘛：</strong>单头是一个人包办所有关系，多头是把评审团拆开，让每个头在自己的子空间里专盯一类模式，免得所有线索被一锅平均成糊。</p>
+
+<h2>4.3.2 多头机制：投影、分头、拼接、再投影</h2>
+
+<p>　　多头的做法分四步：把 Q、K、V 投影到低维，分成 8 个头，8 个头并行各自算注意力，把 8 份输出拼接后再投影一次。每一步都是矩阵运算，可以完全并行。原论文 3.2.2 节的定义：</p>
+
+<div class="formula-card">
+  \[ \mathrm{MultiHead}(Q,K,V)=\mathrm{Concat}(\mathrm{head}_1,\dots,\mathrm{head}_h)\,W^O \tag{1} \]
+  \[ \text{其中 }\ \mathrm{head}_i=\mathrm{Attention}(QW_i^Q,\ KW_i^K,\ VW_i^V) \tag{2} \]
+  <div class="formula-note">公式 (1)(2)：每个头先用自己的投影矩阵把 Q、K、V 压到低维，独立算注意力；8 份输出拼接后过一层 \(W^O\)，混合各头的信息。</div>
+</div>
+
+<p>　　式中各投影矩阵的形状为 \(W_i^Q\in\mathbb{R}^{d_{\mathrm{model}}\times d_k}\)、\(W_i^K\in\mathbb{R}^{d_{\mathrm{model}}\times d_k}\)、\(W_i^V\in\mathbb{R}^{d_{\mathrm{model}}\times d_v}\)、\(W^O\in\mathbb{R}^{hd_v\times d_{\mathrm{model}}}\)。原论文的具体设置：\(d_{\mathrm{model}}=512\)，\(h=8\)，每个头 \(d_k=d_v=d_{\mathrm{model}}/h=64\)。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>量</th><th>符号</th><th>原论文取值</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><td>模型主维度</td><td>\(d_{\mathrm{model}}\)</td><td>512</td><td>残差流的宽度，每层输入输出都是这个维度</td></tr>
+      <tr><td>注意力头数</td><td>\(h\)</td><td>8</td><td>并行计算的子空间份数</td></tr>
+      <tr><td>每头键/查询维度</td><td>\(d_k\)</td><td>64</td><td>每个头用来算分数的向量长度</td></tr>
+      <tr><td>每头值维度</td><td>\(d_v\)</td><td>64</td><td>每个头输出的向量长度</td></tr>
+      <tr><td>拼接后维度</td><td>\(h\cdot d_v\)</td><td>512</td><td>恰好等于 \(d_{\mathrm{model}}\)，无缝接回主干</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　把张量形状走一遍。假设一句话有 \(n=10\) 个 token，输入是 \(10\times 512\) 的矩阵。第 \(i\) 个头用自己的三套投影矩阵（各 \(512\times 64\)）把它压成 \(10\times 64\) 的 \(Q_i\)、\(K_i\)、\(V_i\)，按上一节的缩放点积算出 \(10\times 64\) 的输出。8 个头各产出一份 \(10\times 64\)，按列拼起来是 \(10\times 512\)，最后乘 \(W^O\)（\(512\times 512\)）得到 \(10\times 512\)，维度与输入完全一致，可以直接交给残差连接和下一层。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrMh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 输入 -->
+    <rect x="10" y="100" width="105" height="76" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="62" y="132" text-anchor="middle" font-size="14" fill="#333">输入 X</text>
+    <text x="62" y="154" text-anchor="middle" font-size="12" fill="#666">n×512</text>
+    <line x1="115" y1="138" x2="140" y2="138" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMh)"/>
+    <!-- 投影 -->
+    <rect x="140" y="100" width="150" height="76" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="215" y="126" text-anchor="middle" font-size="14" fill="#333">Q/K/V 线性投影</text>
+    <text x="215" y="148" text-anchor="middle" font-size="12" fill="#666">每头一套矩阵</text>
+    <text x="215" y="166" text-anchor="middle" font-size="12" fill="#666">512 → 64</text>
+    <line x1="290" y1="138" x2="318" y2="138" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMh)"/>
+    <!-- 8 头并行（叠放效果） -->
+    <rect x="330" y="86" width="150" height="76" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1" opacity="0.45"/>
+    <rect x="325" y="93" width="150" height="76" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1" opacity="0.7"/>
+    <rect x="320" y="100" width="150" height="76" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="395" y="126" text-anchor="middle" font-size="14" fill="#333">8 个头并行算注意力</text>
+    <text x="395" y="148" text-anchor="middle" font-size="12" fill="#666">各自独立，互不通信</text>
+    <text x="395" y="166" text-anchor="middle" font-size="12" fill="#666">各输出 n×64</text>
+    <line x1="478" y1="138" x2="505" y2="138" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMh)"/>
+    <!-- 拼接 -->
+    <rect x="505" y="100" width="95" height="76" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="552" y="132" text-anchor="middle" font-size="14" fill="#333">Concat</text>
+    <text x="552" y="154" text-anchor="middle" font-size="12" fill="#666">8×64=512</text>
+    <line x1="600" y1="138" x2="622" y2="138" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMh)"/>
+    <!-- W^O -->
+    <rect x="622" y="100" width="90" height="76" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="667" y="126" text-anchor="middle" font-size="14" fill="#333">W^O 投影</text>
+    <text x="667" y="148" text-anchor="middle" font-size="12" fill="#666">混合 8 头信息</text>
+    <text x="667" y="166" text-anchor="middle" font-size="12" fill="#666">输出 n×512</text>
+    <!-- 底部说明 -->
+    <text x="360" y="235" text-anchor="middle" font-size="13" fill="#555">8 个头各自在 64 维子空间里工作，拼回 512 维后由 W^O 汇总，维度与输入一致。</text>
+  </svg>
+  <div class="diagram-caption">图示：多头注意力的数据流，投影、分头、并行注意力、拼接、再投影五步，括号外维度始终对齐 \(d_{\mathrm{model}}\)。</div>
+</div>
+
+<p>　　8 个头会不会把算力翻 8 倍？不会，账很好算。以 Q 投影为例：单头全维方案需要一套 \(512\times 512\) 的投影矩阵；多头方案是 8 套 \(512\times 64\)，总参数量 \(8\times 512\times 64=512\times 512\)，一模一样。注意力打分的计算量同理。原论文因此写明："由于每个头的维度降低，总计算成本与使用全维度的单头注意力相似。"</p>
+
+<div class="highlight-box">
+  多头是用同一份预算买 8 个视角：总参数量、总计算量与单头全维注意力基本相当，换来的是 8 个表示子空间各自学习不同关系模式的能力。
+</div>
+
+<p>　　<strong>所以这一步在干嘛：</strong>把 512 维的大会议室隔成 8 间 64 维的小会议室，8 场讨论同时开，最后把 8 份纪要钉成一份，交给下一层。</p>
+
+<h2>4.3.3 掩码：给未来的卷子贴上封条</h2>
+
+<p>　　多头解决的是"看得全"，掩码解决的是"不许看"。语言模型生成是一个词一个词往外写的：写出第 3 个词时，第 4 个词还不存在。可训练时句子的所有位置是同时送进模型的，如果不加限制，模型预测每个词时都能直接看到答案，那就什么也学不到。这条"只许依赖已经写出来的内容"的纪律，叫做自回归。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">自回归 Autoregressive</span>
+    <span class="term-en">auto（自己）+ regressive（回归）= 用自己已有的输出预测下一个输出</span>
+  </div>
+  <div class="term-body">
+    <p>自回归模型每生成一步，只能把已经生成的内容当作已知条件。写出第 \(i\) 个词时，能用的信息只有第 1 到第 \(i-1\) 个词。Transformer 不靠外部规则维持这条纪律，而是用掩码把它直接焊死在注意力计算里。</p>
+    <div class="term-analogy">就像按页密封的考卷：每页右上角贴着封条，没写到那一页就不许提前翻看，答案页永远在你的笔尖之后。</div>
+  </div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">因果掩码 Causal Mask</span>
+    <span class="term-en">causal = 保证因果方向：现在的输出只由过去决定</span>
+  </div>
+  <div class="term-body">
+    <p>一个下三角形状的开关：位置 \(i\) 允许看 \(j\leq i\) 的位置（包括自己），\(j>i\) 的位置一律封死。实现上不动 softmax 本身，而是在 softmax 之前把非法位置的注意力分数改成 \(-\infty\)，让 softmax 替你把它们的权重清零。</p>
+    <div class="term-analogy">就像给每位考生发一副只能朝左看的挡板眼镜，左边同学的卷子随便参考，右边的卷子物理上不存在。</div>
+  </div>
+</div>
+
+<p>　　具体做法极简。在 \(QK^\top/\sqrt{d_k}\) 算出的分数矩阵上，给所有"看向未来"的格子加 \(-\infty\)（工程里也常用一个很大的负数，比如 \(-10^9\)）。softmax 对 \(-\infty\) 的处理是 \(e^{-\infty}=0\)，这些位置的权重被压成精确的 0。工程上常把这件事写成给分数矩阵加一个掩码矩阵 \(M\)：</p>
+
+<div class="formula-card">
+  \[ \mathrm{Attention}(Q,K,V)=\mathrm{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}+M\right)V,\qquad M_{ij}=\begin{cases}0, & j\leq i\\ -\infty, & j>i\end{cases} \tag{3} \]
+  \[ \mathrm{softmax}\big([\,2.0,\ 1.5,\ -\infty,\ -\infty,\ -\infty\,]\big)= [\,0.62,\ 0.38,\ 0,\ 0,\ 0\,] \tag{4} \]
+  <div class="formula-note">公式 (3)：掩码作为加法项进入 softmax 之前。公式 (4)：一行具体数字，位置 2 的分数被掩码截断后，权重只落在位置 1、2 上，未来位置精确为 0，不是约等于。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <!-- 列头 -->
+    <text x="134" y="68" text-anchor="middle" font-size="14" fill="#333">我</text>
+    <text x="182" y="68" text-anchor="middle" font-size="14" fill="#333">爱</text>
+    <text x="230" y="68" text-anchor="middle" font-size="14" fill="#333">大</text>
+    <text x="278" y="68" text-anchor="middle" font-size="14" fill="#333">语</text>
+    <text x="326" y="68" text-anchor="middle" font-size="14" fill="#333">言</text>
+    <!-- 行头 -->
+    <text x="100" y="109" text-anchor="end" font-size="14" fill="#333">我</text>
+    <text x="100" y="157" text-anchor="end" font-size="14" fill="#333">爱</text>
+    <text x="100" y="205" text-anchor="end" font-size="14" fill="#333">大</text>
+    <text x="100" y="253" text-anchor="end" font-size="14" fill="#333">语</text>
+    <text x="100" y="301" text-anchor="end" font-size="14" fill="#333">言</text>
+    <!-- 第 1 行（我） -->
+    <rect x="110" y="80" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="134" y="110" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="158" y="80" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="182" y="110" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="206" y="80" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="230" y="110" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="254" y="80" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="278" y="110" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="302" y="80" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="326" y="110" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <!-- 第 2 行（爱） -->
+    <rect x="110" y="128" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="134" y="158" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="158" y="128" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="182" y="158" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="206" y="128" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="230" y="158" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="254" y="128" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="278" y="158" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="302" y="128" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="326" y="158" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <!-- 第 3 行（大） -->
+    <rect x="110" y="176" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="134" y="206" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="158" y="176" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="182" y="206" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="206" y="176" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="230" y="206" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="254" y="176" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="278" y="206" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="302" y="176" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="326" y="206" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <!-- 第 4 行（语） -->
+    <rect x="110" y="224" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="134" y="254" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="158" y="224" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="182" y="254" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="206" y="224" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="230" y="254" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="254" y="224" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="278" y="254" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="302" y="224" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="326" y="254" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <!-- 第 5 行（言） -->
+    <rect x="110" y="272" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="134" y="302" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="158" y="272" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="182" y="302" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="206" y="272" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="230" y="302" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="254" y="272" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="278" y="302" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="302" y="272" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="326" y="302" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <!-- 高亮第 2 行 -->
+    <rect x="110" y="128" width="240" height="48" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="6 4"/>
+    <!-- 右侧说明 -->
+    <text x="392" y="95" font-size="14" fill="#333">以第 2 行（位置"爱"）为例：</text>
+    <text x="392" y="125" font-size="13" fill="#555">softmax 前的分数（掩码已生效）</text>
+    <text x="392" y="148" font-size="13" font-family="Consolas, monospace" fill="#6d28d9">[2.0, 1.5, −∞, −∞, −∞]</text>
+    <text x="392" y="178" font-size="13" fill="#555">softmax 后的注意力权重</text>
+    <text x="392" y="201" font-size="13" font-family="Consolas, monospace" fill="#0891b2">[0.62, 0.38, 0, 0, 0]</text>
+    <rect x="392" y="226" width="16" height="16" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="416" y="239" font-size="12" fill="#333">允许关注（j ≤ i）</text>
+    <rect x="392" y="254" width="16" height="16" fill="#f3f4f6" stroke="#d1d5db"/>
+    <text x="416" y="267" font-size="12" fill="#333">封住未来（分数置 −∞，权重为 0）</text>
+    <!-- 底部说明 -->
+    <text x="360" y="352" text-anchor="middle" font-size="13" fill="#555">行 i 是当前生成位置，列 j 是想回看的位置：生成第 i 个词时只允许看 j ≤ i 的格子。</text>
+  </svg>
+  <div class="diagram-caption">图示：因果掩码是一个下三角开关矩阵，紫格可见、灰格被封，被封的格子的注意力权重精确为 0。</div>
+</div>
+
+<div class="highlight-box danger">
+  两个高频误解。其一：掩码加在 softmax 之前的分数上，不是 softmax 之后把权重改成 0；先归一化再清零会破坏权重总和为 1 的性质。其二：位置 i 能看到位置 i 自己（\(j\leq i\) 含等号），配合解码器输入整体右移一位，位置 i 的预测恰好只依赖前 \(i-1\) 个已知输出（原论文 3.1 与 3.2.3 节），训练与推理因此严格对齐。
+</div>
+
+<div class="highlight-box info">
+  补充：有了掩码，训练时可以把完整句子一次性送进解码器，并行计算所有位置的损失，而不必像 RNN 那样逐词串行等待。封条让"整句并行训练"与"逐词自回归生成"在数学上完全等价，这是 Transformer 训练快的重要原因之一。
+</div>
+
+<p>　　<strong>所以这一步在干嘛：</strong>在打分表上给每个未来位置盖 \(-\infty\) 的章，softmax 一过滤，这些位置的权重变成 0，模型写每个词时眼里真的只有过去。</p>
+
+<h2>4.3.4 一份注意力，三种岗位</h2>
+
+<p>　　同一个 MultiHead 模块，在编码器-解码器架构里被安排到三个岗位，区别只在两件事：Q、K、V 分别从哪儿来，谁能看谁。原论文 3.2.3 节的划分：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>岗位</th><th>Q 来自</th><th>K、V 来自</th><th>每个位置能看谁</th><th>掩码</th></tr></thead>
+    <tbody>
+      <tr><td>编码器自注意力</td><td>编码器前一层输出</td><td>编码器前一层输出</td><td>输入序列全部位置</td><td>无</td></tr>
+      <tr><td>解码器掩码自注意力</td><td>解码器前一层输出</td><td>解码器前一层输出</td><td>自己及左边（\(j\leq i\)）</td><td>因果掩码</td></tr>
+      <tr><td>编码器-解码器注意力</td><td>解码器前一层输出</td><td>编码器输出</td><td>输入序列全部位置</td><td>无</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　前两种是自注意力，Q、K、V 同源，区别只在有没有封条：编码器读原文时全句可见，解码器写译文时只许回看。第三种常叫<strong>交叉注意力</strong>（cross-attention）：Q 是解码器当前的状态，相当于"我现在想知道什么"；K、V 是编码器读完原文后留下的全套笔记，相当于"原文哪里写着答案"。翻译时每写一个词，解码器都拿着自己的问题去原文里检索一遍最相关的段落。</p>
+
+<p>　　值得一提的是，今天主流的 GPT 系模型只保留了第二种岗位：它们是纯解码器（decoder-only）架构，没有编码器，交叉注意力整层取消，只剩掩码自注意力一路堆叠。掩码因此从"三种用法之一"变成现代 LLM 的默认设定，第 12 章讲解码策略时还会反复用到它。动手验证环节要看的 minimind，正是这样一个纯解码器小模型。</p>
+
+<p>　　<strong>所以这一步在干嘛：</strong>同一台发动机装在三个工位上，靠切换 Q、K、V 的来源和可见范围，分别干"读原文""写译文（不偷看）""边写边查原文"三件事。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么单个注意力头不够用？</div>
+    <div class="sc-key">单头只能输出一份加权平均，多种关系被搅在一起互相抑制。原论文消融显示单头比最佳设置低 0.9 个 BLEU，可视化则直接看到不同的头分工关注不同的句子结构。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">8 个头会不会让计算量翻 8 倍？</div>
+    <div class="sc-key">不会。每个头的维度从 512 降到 64，以 Q 投影为例，总参数量 \(8\times 512\times 64=512\times 512\)，与单头全维方案完全相同，计算量也相当，这是原论文 3.2.2 的明确设定。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">掩码是怎么保证模型看不到未来的？</div>
+    <div class="sc-key">在 softmax 之前把 \(j>i\) 的分数置为 \(-\infty\)，softmax 后这些位置的权重精确为 0。位置 i 只能看 \(j\leq i\)，再配合解码器输入右移一位，预测第 i 个词时只依赖前 \(i-1\) 个已知输出。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本节机制在 minimind 中有完整对应。minimind 是纯解码器小模型，它的注意力实现在 <code>model/model_minimind.py</code> 的 <code>Attention</code> 类（第 91–134 行，minimind 工程，Apache 2.0 协议）。对照本节概念读这些关键行：</p>
+
+<ul>
+  <li>第 100–103 行：<code>q_proj</code>、<code>k_proj</code>、<code>v_proj</code>、<code>o_proj</code> 四个线性层，正是公式 (1)(2) 里的 \(W^Q\)、\(W^K\)、\(W^V\)、\(W^O\)；</li>
+  <li>第 114–116 行：<code>view(bsz, seq_len, n_local_heads, head_dim)</code> 把投影结果切开分头，对应示意图里的"分头"一步；</li>
+  <li>第 128 行：<code>scores = (xq @ xk.transpose(-2, -1)) / math.sqrt(head_dim)</code>，即上一节的缩放点积打分；</li>
+  <li>第 129 行：因果掩码，构造一个上三角全为 \(-\infty\) 的矩阵加到分数上（<code>triu(1)</code> 取主对角线以上，恰好是"未来位置"）；</li>
+  <li>第 130 行：处理补齐位置的 padding 掩码用的是 \(-10^9\)，即"很大的负数"那条工程路线。</li>
+</ul>
+
+<pre><code># model/model_minimind.py 第 129 行：因果掩码（minimind 工程，Apache 2.0）
+scores[:, :, :, -seq_len:] += torch.full((seq_len, seq_len), float("-inf"), device=scores.device).triu(1)</code></pre>
+
+<p>　　还可以留意两个细节。其一，配置里 <code>num_attention_heads=8</code> 而 <code>num_key_value_heads=4</code>（第 22–23 行），K、V 的头数只有 Q 的一半，靠第 86–89 行的 <code>repeat_kv</code> 复制补齐，这正是第 5 章要展开的 GQA。其二，第 126 行的 flash 路径直接调用 PyTorch 的 <code>F.scaled_dot_product_attention(is_causal=True)</code>，掩码由底层算子代劳，原理与本节完全一致。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：多头公式与 \(h=8\)、\(d_k=d_v=64\) 的设定出自 3.2.2 节；掩码机制与输出嵌入右移出自 3.1 与 3.2.3 节；三种注意力岗位出自 3.2.3 节；头数消融（单头低 0.9 个 BLEU、\(h=8\) 基准 25.8）出自 6.2 节表 3；注意力头分工的可视化证据出自附录图 3 与图 5。</li>
+  <li>minimind 工程源码（Apache 2.0 协议）：<code>model/model_minimind.py</code> 中 <code>Attention</code> 类的多头与因果掩码实现。</li>
+</ul>
+
+</article>

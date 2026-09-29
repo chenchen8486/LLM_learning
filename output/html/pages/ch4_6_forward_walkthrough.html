@@ -1,0 +1,301 @@
+﻿<article class="content">
+<h1>4.6 一次完整前向：张量尺寸逐步走查</h1>
+<p class="subtitle">本页范围：第 4 章第 6 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>一个 batch 的 token 编号送进 Transformer，到吐出下一个词的概率分布，中间每一步张量到底长什么样？</td></tr>
+      <tr><td>本节主张</td><td>拿 minimind-3（64M 参数）的真实配置当解剖对象，把前向过程拆到毫米级：每个操作的输入输出形状都写出来，参数量与计算量也一笔一笔算清。</td></tr>
+      <tr><td>一句话结论</td><td>全程只有三处形状变化：主干恒为 [B, T, 768]，注意力内部按头重排（768 → 8×96），FFN 升到 2432 再压回；最后投影到 6400 维词表，softmax 得到概率。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>前向传播</span><span>张量形状</span><span>minimind</span><span>GQA</span><span>SwiGLU</span><span>lm_head</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　前几节把 Transformer 的零件逐个讲了一遍：多头注意力、因果掩码、归一化、前馈网络、残差连接。零件认识不等于会装机，这一节做本章的收官练习：把一台<strong>真实可运行的小模型</strong>放上解剖台，从输入到输出走一遍完整前向，每一步张量的形状都写出来。走完这一遍，你对"模型读一句话"这件事的认识会精确到毫米。</p>
+
+<h2>4.6.1 设定：拿一台真模型当解剖对象</h2>
+
+<p>　　解剖对象是 minimind-3 的 Dense 档，也就是工程里 <code>MiniMindConfig()</code> 不加任何参数时的默认配置（<code>model/model_minimind.py</code> 第 10–45 行）。全部数字来自源码与 README 的模型规格表，不是举例编造：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>配置项</th><th>数值</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><td><code>vocab_size</code></td><td>6400</td><td>词表大小，模型认识 6400 个 token</td></tr>
+      <tr><td><code>hidden_size</code>（\(d\)）</td><td>768</td><td>每个 token 向量的宽度，主干维度</td></tr>
+      <tr><td><code>num_hidden_layers</code>（\(L\)）</td><td>8</td><td>Block 堆叠层数</td></tr>
+      <tr><td><code>num_attention_heads</code>（\(h\)）</td><td>8</td><td>注意力头数（Q 头）</td></tr>
+      <tr><td><code>num_key_value_heads</code></td><td>4</td><td>K / V 头数，GQA 分组（第 5 章细讲）</td></tr>
+      <tr><td><code>head_dim</code>（\(d_k\)）</td><td>96</td><td>每个头的维度，等于 768 ÷ 8</td></tr>
+      <tr><td><code>intermediate_size</code></td><td>2432</td><td>FFN 中间层宽度，768 的 π 倍向上对齐到 64 的倍数</td></tr>
+      <tr><td><code>max_position_embeddings</code></td><td>32768</td><td>RoPE 预计算的最大位置数</td></tr>
+      <tr><td><code>rope_theta</code></td><td>1e6</td><td>RoPE 的基底频率</td></tr>
+      <tr><td><code>tie_word_embeddings</code></td><td>True</td><td>输入嵌入表与输出投影共享同一份权重</td></tr>
+      <tr><td><code>rms_norm_eps</code></td><td>1e-6</td><td>RMSNorm 防除零的小量</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box info">
+  minimind 还有 minimind2-small（26M，\(d=512\)）等历史档位，README 的规格表里都列着。本文选当前主线 minimind-3 的 64M 档，原因之一是它就是代码默认值，文末"动手验证"的脚本可以不传任何参数直接复现本文全部数字。
+</div>
+
+<p>　　输入设定为 batch 大小 \(B=1\)、序列长度 \(T=10\)：假设"床前明月光，疑是地上霜"这类一句话经分词器得到 10 个 token ID，拼成形状为 <code>[1, 10]</code> 的整数张量 <code>input_ids</code>。取 \(B=1\) 纯粹是为了看着清爽，batch 维只是"几句话一起算"，多加几句不改变任何一步的形状规律。</p>
+
+<p>　　第一步是 <strong>Embedding 查表</strong>。<code>nn.Embedding(6400, 768)</code> 本质是一张 <code>[6400, 768]</code> 的大表，10 个 token ID 各取一行，得到 <code>[1, 10, 768]</code>。这步没有矩阵乘法，就是按编号取货。取出的 10 个 768 维向量，就是接下来所有计算的原料。</p>
+
+<p>　　<strong>所以这步在干嘛：</strong>把离散的 token 编号翻译成连续向量，模型从此只在向量世界里做运算，整数编号本身不再参与。</p>
+
+<p>　　另外还有一份"备料"在模型初始化时就做好了：RoPE 的余弦/正弦频率表（<code>precompute_freqs_cis</code>，第 62–78 行），按最大位置 32768、头维 96 预计算，各是 <code>[32768, 96]</code> 的两张表。本次前向只取前 10 行，即 <code>[10, 96]</code>，等注意力那一步再用。它是位置的函数，不含可学习参数。</p>
+
+<h2>4.6.2 一层 Block 的毫米级走查</h2>
+
+<p>　　一层 Block（<code>MiniMindBlock</code>，第 183–199 行）分前后两半：前半层是自注意力，后半层是前馈网络，两半都是"先归一化、再计算、最后残差相加"的 Pre-Norm 结构。下面逐小步走，记住主干形状 <code>[1, 10, 768]</code>。</p>
+
+<h3>前半层：自注意力</h3>
+
+<p>　　<strong>第 1 小步，RMSNorm。</strong>进注意力之前先做归一化（<code>input_layernorm</code>）：对每一个位置的 768 维向量，除以它自己的均方根，再乘一个可学习的缩放向量 \(\gamma\)：</p>
+
+<div class="formula-card">
+  \[ \mathrm{RMSNorm}(x) = \frac{x}{\sqrt{\frac{1}{d}\sum_{i=1}^{d} x_i^2 + \epsilon}} \odot \gamma \tag{1} \]
+  <div class="formula-note">公式 (1)：逐位置独立进行，\(d=768\)，\(\epsilon=10^{-6}\)，\(\gamma\) 是 768 个可学习参数。只调数值大小，不动形状：进 <code>[1, 10, 768]</code>，出 <code>[1, 10, 768]</code>。</div>
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>把每个向量调到标准尺度。不同位置的向量数值可能差好几个数量级，先拉平再投影，后面的矩阵乘法数值才稳定。</p>
+
+<p>　　<strong>第 2 小步，Q/K/V 投影。</strong>三个不带偏置的线性层各自乘一个权重矩阵：</p>
+
+<ul>
+  <li>q_proj：权重 <code>[768, 768]</code>，<code>[1, 10, 768]</code> → <code>[1, 10, 768]</code>，再 view 成 <code>[1, 10, 8, 96]</code>（8 个头，每头 96 维）；</li>
+  <li>k_proj：权重 <code>[768, 384]</code>，→ <code>[1, 10, 384]</code>，view 成 <code>[1, 10, 4, 96]</code>；</li>
+  <li>v_proj：权重 <code>[768, 384]</code>，→ <code>[1, 10, 384]</code>，view 成 <code>[1, 10, 4, 96]</code>。</li>
+</ul>
+
+<p>　　768 拆成 8×96，384 拆成 4×96：Q 有 8 个头，K 和 V 只有 4 个头。这就是 GQA（分组查询注意力），每 2 个 Q 头共享同一组 K/V。注意 <code>view</code> 只改"看待数据的方式"，不复制、不计算，96×8 还是那 768 个数。</p>
+
+<div class="highlight-box info">
+  GQA 省的是 K/V 的参数量与推理时的 KV Cache 显存，动机与变体（MQA、MLA）留给第 5 章。本节只需记住形状事实：Q 8 头、K/V 4 头，每个头 96 维。
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>同一句话被打包成 8 份不同的"问法"（Q）和 4 组"标签加内容"（K/V），每个头从自己的视角去理解这句话。</p>
+
+<p>　　<strong>第 3 小步，QK-Norm 与 RoPE 旋转。</strong>minimind 先对每个头的 Q、K 各做一次 96 维 RMSNorm（<code>q_norm</code>/<code>k_norm</code>，稳定注意力的技巧），再把第 4.6.1 节备好的 <code>[10, 96]</code> 余弦/正弦表广播成 <code>[10, 1, 96]</code>，按 <code>x·cos + rotate_half(x)·sin</code> 旋进 Q 和 K（第 80–84 行）。两小步都不改形状：Q 仍 <code>[1, 10, 8, 96]</code>，K 仍 <code>[1, 10, 4, 96]</code>。RoPE 的原理（为什么旋转等于注入位置）在第 3.4 节已经讲透，这里只认形状。</p>
+
+<p>　　<strong>所以这步在干嘛：</strong>给每个头里的向量按位置编号"拧一个角度"。同一个词出现在第 2 个位置和第 9 个位置，旋转后的向量就不一样了，模型由此感知先后顺序。</p>
+
+<p>　　<strong>第 4 小步，对齐头数。</strong>打分前把 K/V 的 4 个头复制成 8 个（<code>repeat_kv</code>，每组复制 \(n_{rep}=2\) 份），再把三个张量的"头"维都挪到第 2 维（<code>transpose</code>）：Q/K/V 统一成 <code>[1, 8, 10, 96]</code>。挪维度还是为了下一步能对每个头单独做矩阵乘法。</p>
+
+<p>　　<strong>第 5 小步，计算注意力分数。</strong>每个头内部，Q 乘 K 的转置，再除以 \(\sqrt{d_k}\)： </p>
+
+<div class="formula-card">
+  \[ \mathrm{Attention}(Q,K,V)=\mathrm{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V \tag{2} \]
+  <div class="formula-note">公式 (2)：与原论文公式 (1) 逐字一致。本例 \(d_k = 96\)，\(\sqrt{96} \approx 9.80\)。<code>[1, 8, 10, 96] @ [1, 8, 96, 10]</code> 得到分数 <code>[1, 8, 10, 10]</code>：每个头一张 10×10 的"亲密度表"，第 \(i\) 行第 \(j\) 列表示位置 \(i\) 对位置 \(j\) 的关注程度（归一化之前）。</div>
+</div>
+
+<p>　　<strong>第 6 小步，加因果掩码。</strong>给分数加上一个上三角（不含主对角线）全为 \(-\infty\) 的 10×10 矩阵（第 129 行），形状不变，仍是 <code>[1, 8, 10, 10]</code>。</p>
+
+<div class="highlight-box danger">
+  因果掩码是自回归模型的硬约束：位置 \(i\) 只允许看第 1 到第 \(i\) 个位置。被填 \(-\infty\) 的格子经 softmax 后权重精确等于 0，未来信息被物理封死，不存在"稍微看一点"的中间态。训练与推理都受这条约束。
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>第 5、6 小步合起来，是让每个位置算清楚"在我之前的这些位置里，我该听谁的话"，并且不许偷看答案。</p>
+
+<p>　　<strong>第 7 小步，softmax。</strong>对 <code>[1, 8, 10, 10]</code> 的最后一维做 softmax，每行变成一组和为 1 的权重。分数从此有了概率的含义：位置 \(i\) 该把百分之几的注意力分给位置 \(j\)。</p>
+
+<p>　　<strong>第 8 小步，加权求和 V。</strong>权重矩阵乘 V：<code>[1, 8, 10, 10] @ [1, 8, 10, 96]</code> → <code>[1, 8, 10, 96]</code>。位置 \(i\) 的新向量，是所有（允许的）位置的 V 按权重调和出来的混合体。</p>
+
+<p>　　<strong>所以这步在干嘛：</strong>第 7、8 小步是"按票数收内容"：先决定听谁的话各占几成，再按比例把各位置的内容调和成每个位置的新向量。</p>
+
+<p>　　<strong>第 9 小步，拼头与输出投影。</strong>把 8 个头 transpose 回来、reshape 拼成 <code>[1, 10, 768]</code>，再过 o_proj（权重 <code>[768, 768]</code>）混合一遍，输出仍是 <code>[1, 10, 768]</code>。</p>
+
+<p>　　<strong>第 10 小步，残差相加。</strong>注意力的输出与这一半层的输入直接相加：两个 <code>[1, 10, 768]</code> 逐元素加，结果还是 <code>[1, 10, 768]</code>。</p>
+
+<p>　　<strong>所以这步在干嘛：</strong>新信息叠加在原向量上，原始信息一点不少。深层网络堆几十上百层还能训练得动，残差连接居首功（第 4.5 节）。</p>
+
+<div class="highlight-box info">
+  工程实现里，minimind 默认走 PyTorch 的 <code>F.scaled_dot_product_attention</code> 融合算子（<code>flash_attn=True</code>，第 125–126 行），第 5 到 8 小步一步算完，数学结果与分步计算完全等价，只是不把 <code>[1, 8, 10, 10]</code> 的完整分数矩阵显式存下来。本文拆开来走，是为了让你看清里面发生了什么。
+</div>
+
+<h3>后半层：前馈网络</h3>
+
+<p>　　先做第二次 RMSNorm（<code>post_attention_layernorm</code>），形状不变。然后 FFN 的三个矩阵依次登场（<code>FeedForward</code>，第 136–146 行）：</p>
+
+<ul>
+  <li>gate_proj：权重 <code>[2432, 768]</code>，<code>[1, 10, 768]</code> → <code>[1, 10, 2432]</code>；</li>
+  <li>up_proj：权重 <code>[2432, 768]</code>，<code>[1, 10, 768]</code> → <code>[1, 10, 2432]</code>；</li>
+  <li>SiLU 门控相乘：<code>[1, 10, 2432]</code> 与 <code>[1, 10, 2432]</code> 逐元素乘 → <code>[1, 10, 2432]</code>；</li>
+  <li>down_proj：权重 <code>[768, 2432]</code>，<code>[1, 10, 2432]</code> → <code>[1, 10, 768]</code>。</li>
+</ul>
+
+<div class="formula-card">
+  \[ \mathrm{FFN}(x) = \mathrm{down}\!\big(\mathrm{SiLU}(\mathrm{gate}(x)) \odot \mathrm{up}(x)\big) \tag{3} \]
+  <div class="formula-note">公式 (3)：SwiGLU 结构，与代码 <code>down_proj(act_fn(gate_proj(x)) * up_proj(x))</code> 一一对应，三个矩阵均无偏置。\(\mathrm{SiLU}(z) = z \cdot \mathrm{sigmoid}(z)\)。升维到 2432 再压回 768，形状一进一出都是 <code>[1, 10, 768]</code>。</div>
+</div>
+
+<p>　　最后再做一次残差相加，一层 Block 结束。整个 Block 进 <code>[1, 10, 768]</code>，出 <code>[1, 10, 768]</code>。</p>
+
+<p>　　<strong>所以这步在干嘛：</strong>把每个位置的向量升到 2432 维"展开加工"，用门控筛掉没用的成分，再压回 768 维。注意每个位置是独立过 FFN 的，位置之间互不交流；跨位置的信息交换只发生在注意力那半层。</p>
+
+<p>　　同样的 Block 一共堆 8 层，结构完全相同、参数各自独立。从第 2 层到第 8 层，主干形状始终是 <code>[1, 10, 768]</code>，一层层改变的只有数值——每层都在上一层的理解之上再加工一轮。</p>
+
+<h2>4.6.3 收尾：从向量到下一个词的概率</h2>
+
+<p>　　8 层全部走完后，还有三小步：</p>
+
+<ol>
+  <li><strong>最终 RMSNorm</strong>（<code>self.norm</code>）：<code>[1, 10, 768]</code> → <code>[1, 10, 768]</code>，收尾再稳一次数值；</li>
+  <li><strong>lm_head 投影</strong>：乘权重 <code>[6400, 768]</code> 的转置，<code>[1, 10, 768]</code> → <code>[1, 10, 6400]</code>。每个位置得到 6400 个分数，对应词表里每个 token 的"得票"；</li>
+  <li><strong>取最后位置 + softmax</strong>：预测下一个词只需要最后一个位置的分数 <code>[1, 6400]</code>，softmax 后得到 6400 个和为 1 的概率，即模型对"下一个 token 是谁"的回答。</li>
+</ol>
+
+<div class="highlight-box info">
+  lm_head 与 Embedding 共享同一张 <code>[6400, 768]</code> 的权重表（<code>tie_word_embeddings=True</code>，第 247 行）：进模型时按行查表，出模型时用同一张表做投影。这省了近 500 万参数，原论文第 3.4 节同样让输入/输出嵌入与 softmax 前的线性变换共享权重，是沿用至今的经典做法。代码里的 <code>logits_to_keep</code> 参数（第 252–253 行）则允许只切出最后若干位置再投影，生成时不必为全部 10 个位置算 logits。
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Logits（未归一化分数）</span>
+    <span class="term-en">logit = softmax 之前的原始打分</span>
+  </div>
+  <div class="term-body">
+    <p>lm_head 输出的 6400 个数还不是概率，可正可负、大小不限，叫 logits。softmax 把它们压缩到 0 到 1 之间且总和为 1，才成为概率分布。采样、贪心、温度调节等解码策略（第 12 章）都是在 logits 或它对应的概率上做文章。</p>
+    <div class="term-analogy">就像选举计票：logits 是每个候选人拿到的原始票数，softmax 把票数换算成得票率，最后按得票率决定谁当选（或抽签）。</div>
+  </div>
+</div>
+
+<p>　　<strong>所以这步在干嘛：</strong>把 768 维的"理解结果"翻译回词表世界：6400 个候选 token 各得一个概率，概率最高（或被采样中）的那个接在序列末尾，整个流程再重复一遍——这就是自回归生成的最小循环。</p>
+
+<p>　　把全过程压缩成一张账表，方便随时回看（B=1、T=10、 minimind-3 默认配置）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>步骤</th><th>操作</th><th>输入形状</th><th>输出形状</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>输入 token ID</td><td>—</td><td><code>[1, 10]</code></td></tr>
+      <tr><td>2</td><td>Embedding 查表</td><td><code>[1, 10]</code></td><td><code>[1, 10, 768]</code></td></tr>
+      <tr><td>3</td><td>RMSNorm（每层第一次）</td><td><code>[1, 10, 768]</code></td><td><code>[1, 10, 768]</code></td></tr>
+      <tr><td>4</td><td>q_proj / k_proj / v_proj</td><td><code>[1, 10, 768]</code></td><td><code>[1,10,768]</code> / <code>[1,10,384]</code> / <code>[1,10,384]</code></td></tr>
+      <tr><td>5</td><td>view 分头</td><td>上一步结果</td><td>Q <code>[1,10,8,96]</code>，K/V <code>[1,10,4,96]</code></td></tr>
+      <tr><td>6</td><td>QK-Norm + RoPE 旋转</td><td><code>[1,10,8,96]</code> 等</td><td>形状不变</td></tr>
+      <tr><td>7</td><td>repeat_kv + transpose</td><td>K/V <code>[1,10,4,96]</code></td><td>Q/K/V 均 <code>[1,8,10,96]</code></td></tr>
+      <tr><td>8</td><td>\(QK^{\top}/\sqrt{96}\)</td><td><code>[1,8,10,96]</code></td><td><code>[1,8,10,10]</code></td></tr>
+      <tr><td>9</td><td>因果掩码 + softmax</td><td><code>[1,8,10,10]</code></td><td><code>[1,8,10,10]</code></td></tr>
+      <tr><td>10</td><td>加权求和 V</td><td><code>[1,8,10,10] × [1,8,10,96]</code></td><td><code>[1,8,10,96]</code></td></tr>
+      <tr><td>11</td><td>拼头（transpose + reshape）</td><td><code>[1,8,10,96]</code></td><td><code>[1,10,768]</code></td></tr>
+      <tr><td>12</td><td>o_proj</td><td><code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
+      <tr><td>13</td><td>残差相加</td><td>两个 <code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
+      <tr><td>14</td><td>RMSNorm（每层第二次）</td><td><code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
+      <tr><td>15</td><td>gate_proj / up_proj</td><td><code>[1,10,768]</code></td><td>两个 <code>[1,10,2432]</code></td></tr>
+      <tr><td>16</td><td>\(\mathrm{SiLU}(\mathrm{gate}) \odot \mathrm{up}\)</td><td>两个 <code>[1,10,2432]</code></td><td><code>[1,10,2432]</code></td></tr>
+      <tr><td>17</td><td>down_proj</td><td><code>[1,10,2432]</code></td><td><code>[1,10,768]</code></td></tr>
+      <tr><td>18</td><td>残差相加</td><td>两个 <code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
+      <tr><td>19</td><td>步骤 3–18 重复 8 层</td><td><code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
+      <tr><td>20</td><td>最终 RMSNorm</td><td><code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
+      <tr><td>21</td><td>lm_head 投影</td><td><code>[1,10,768]</code></td><td><code>[1,10,6400]</code></td></tr>
+      <tr><td>22</td><td>取最后位置 + softmax</td><td><code>[1,6400]</code></td><td><code>[1,6400]</code> 概率分布</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box">
+  全程的形状变化只有三种：主干恒为 \([B, T, 768]\)；注意力内部按头重排（768 ↔ 8×96）；FFN 内部升维（768 → 2432 → 768）。最后一次性投影到 6400 维词表。抓住"主干不变"这条纲，再深的网络走查起来也不会迷路。
+</div>
+
+<h2>4.6.4 参数量与计算量总账</h2>
+
+<p>　　形状清楚了，再算两笔账：参数存在哪，算力花在哪。参数量按 4.6.1 节的真实配置逐模块算（所有线性层都无偏置）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>部件</th><th>计算式</th><th>参数量</th><th>占比</th></tr></thead>
+    <tbody>
+      <tr><td>Embedding 表（与 lm_head 共享）</td><td>\(6400 \times 768\)</td><td>4,915,200</td><td>7.7%</td></tr>
+      <tr><td>注意力投影 ×8 层</td><td>\(8 \times (768^2 + 2 \times 768 \times 384 + 768^2 + 2 \times 96)\)</td><td>14,157,312</td><td>22.2%</td></tr>
+      <tr><td>FFN 三个矩阵 ×8 层</td><td>\(8 \times 3 \times 768 \times 2432\)</td><td>44,826,624</td><td>70.1%</td></tr>
+      <tr><td>全部 RMSNorm</td><td>\(8 \times 2 \times 768 + 768\)</td><td>13,056</td><td>0.02%</td></tr>
+      <tr><td><strong>合计</strong></td><td></td><td><strong>63,912,192 ≈ 63.9M</strong></td><td>100%</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　63.9M 就是"64M 档"这个名字的由来。单层看，注意力约 1.77M（Q/K/V/O 四个投影外加 QK-Norm 的 192 个参数），FFN 约 5.60M，FFN 是注意力的三倍多。这份分布不是偶然，而是现代 LLM 的普遍形态：<strong>模型的参数大头在 FFN 里</strong>，它常被看作模型存储"知识"的主要场所。</p>
+
+<div class="highlight-box">
+  参数量分布：FFN 约 70%，注意力约 22%，Embedding 约 8%，归一化不到万分之一。第 5 章的 MoE（混合专家）改造的正是占大头的 FFN，KV Cache 优化瞄准的则是注意力——看懂这笔账，第 5 章每个变体的动机就都不言自明。
+</div>
+
+<p>　　计算量用一条经典经验式估算（Kaplan 等人 2020 年归纳）：前向一次的浮点运算量约等于 \(2 \times\) 参数量 \(\times\) token 数，系数 2 对应每个参数在一次矩阵乘里的一次乘加：</p>
+
+<div class="formula-card">
+  \[ C_{\text{forward}} \approx 2 \times N \times T = 2 \times 63.9\,\mathrm{M} \times 10 \approx 1.28 \times 10^{9}\ \text{FLOPs} \tag{4} \]
+  <div class="formula-note">公式 (4)：本例一次前向约 1.3 GFLOPs。逐模块手算核对：8 层 Block 约 11.8 亿次（其中 FFN 占约四分之三），lm_head 约 0.98 亿次，合计约 12.8 亿次，与经验式一致。</div>
+</div>
+
+<p>　　两点提醒。第一，这条经验式忽略了注意力分数那一步（\(2 h T^2 d_k\) 次运算）：本例 \(T=10\)，它只占约 0.3%，可以忽略；但它随 \(T\) 平方增长，序列一长就不可忽略，这是第 7 章（训练算力）和第 13 章（长序列推理、KV Cache）要正面处理的问题。第二，1.3 GFLOPs 听起来大，一块普通 GPU 每秒能算几十 TFLOPs，这台 64M 小模型前向一次只是眨眼功夫；真正的成本在训练时要对万亿 token 反复前向加反向，那是第 6、7 章的主题。</p>
+
+<p>　　至此，从 <code>[1, 10]</code> 的整数编号到 <code>[1, 6400]</code> 的概率分布，每一步的形状、每一类参数的去向、每一份算力的花销都摆在了台面上。第 5 章将看到，RMSNorm、SwiGLU、GQA 这些"现代变体"为什么能全面取代原论文的初代设计——你已经有了评判它们的全部基础。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么张量中途多出"头"这一维，最后又消失了？</div>
+    <div class="sc-key">多头是让 8 组注意力并行看待同一句子：<code>view</code>/<code>transpose</code> 把 768 维拆成 8×96 分别计算，算完再 <code>reshape</code> 拼回 768 维。这些操作只重排数据，不产生新数值，所以主干形状始终 <code>[B, T, 768]</code>。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">6400 这个数字在全流程出现两次，分别在哪里？</div>
+    <div class="sc-key">第一次在 Embedding 表的行数（按 token ID 查向量），第二次在 lm_head 的输出宽度（给每个 token 打分）。minimind 里两处共享同一张 <code>[6400, 768]</code> 权重表，原论文 3.4 节也用了同样的共享做法。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">64M 参数里哪个部件最占地方？这预示了第 5 章的哪些改造？</div>
+    <div class="sc-key">FFN 占约 70%，注意力约 22%，Embedding 约 8%。所以 MoE 选择把 FFN 换成多专家来扩容量，GQA/MLA 选择压缩 K/V 来省推理显存——变体的靶子都由参数与算力账本决定。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本文全部数字都能在你本机复现，对应实现：<code>model/model_minimind.py</code> 中的 <code>MiniMindConfig</code>（第 10 行）、<code>Attention</code>（第 91 行）、<code>FeedForward</code>（第 136 行）、<code>MiniMindBlock</code>（第 183 行）与 <code>MiniMindForCausalLM</code>（第 239 行）。把下面脚本存为 <code>minimind-master/forward_walkthrough.py</code>：</p>
+
+<pre><code>import torch
+from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
+
+config = MiniMindConfig()                     # 默认即 768 维 × 8 层的 64M 档
+model = MiniMindForCausalLM(config).eval()
+
+input_ids = torch.randint(0, config.vocab_size, (1, 10))   # 造一条 B=1, T=10 的输入
+with torch.no_grad():
+    out = model(input_ids)
+
+print('logits 形状:', tuple(out.logits.shape))             # (1, 10, 6400)
+n = sum(p.numel() for p in model.parameters())
+print(f'总参数量: {n:,} ≈ {n/1e6:.2f}M')                   # 63,912,192 ≈ 63.91M
+
+probs = torch.softmax(out.logits[0, -1], dim=-1)
+print('最后位置概率分布:', tuple(probs.shape), '概率和:', probs.sum().item())</code></pre>
+
+<p>　　运行与预期输出：</p>
+
+<pre><code>cd minimind-master
+python forward_walkthrough.py
+
+# 预期输出：
+# logits 形状: (1, 10, 6400)
+# 总参数量: 63,912,192 ≈ 63.91M
+# 最后位置概率分布: (6400,) 概率和: 1.0</code></pre>
+
+<p>　　脚本不加载任何训练权重：形状与参数量由配置唯一决定，随机初始化的模型同样能核对本文每一笔账。需先按 minimind 的 README 装好依赖（torch、transformers 等）。以上脚本已在 CPU 环境（torch 2.x、transformers 5.x）实测，输出与预期一致。代码引用自 minimind 工程（jingyaogong/minimind），遵循 Apache 2.0 协议。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：本文公式 (2) 与该文公式 (1) 逐字核对一致，嵌入/输出权重共享出自其 3.4 节，对照 ref_paper 中文译稿核实。</li>
+  <li>minimind 工程（jingyaogong/minimind，Apache 2.0）：全部配置数字、参数拆解与代码行号出自 <code>model/model_minimind.py</code> 及 README.md 模型规格表（minimind-3：64M、词表 6400、8 层、768 维、q_heads=8、kv_heads=4）。</li>
+  <li>Kaplan et al., 2020. Scaling Laws for Neural Language Models（arXiv:2001.08361）：前向计算量 \(C \approx 2NT\) 的经验估算出自该文表 1，本文公式 (4) 另用逐模块手算交叉验证。</li>
+  <li>Zhang &amp; Sennrich, 2019. Root Mean Square Layer Normalization（arXiv:1910.07467）：公式 (1) RMSNorm 的出处，实现细节以 minimind 源码为准。</li>
+  <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（arXiv:2104.09864）：RoPE 原始论文，旋转原理详见本手册 3.4 节。</li>
+</ul>
+
+</article>

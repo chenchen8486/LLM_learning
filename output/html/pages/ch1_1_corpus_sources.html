@@ -1,0 +1,241 @@
+﻿<article class="content">
+<h1>1.1 语料从哪来：互联网、书籍与公共语料库</h1>
+<p class="subtitle">本页范围：第 1 章第 1 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>语言模型的全部“见识”来自训练语料。这些语料从哪里来，谁在生产，谁又在负责把它们整理干净？</td></tr>
+      <tr><td>本节主张</td><td>现代 LLM 的语料以公开网页抓取存档（Common Crawl）为绝对主料，书籍、论文、维基、代码为高质量配料。原始抓取不能直接训练，必须经过正文提取、过滤、去重、配比四道工序，各家模型的语料差异主要差在这套加工手艺上。</td></tr>
+      <tr><td>一句话结论</td><td>语料工作的核心不是“去哪找数据”，而是“从海量原料里炼出多少干净教材”，炼得好，纯网页也能训出强模型。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>Common Crawl</span><span>C4</span><span>The Pile</span><span>RefinedWeb</span><span>FineWeb</span><span>数据配比</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>1.1.1 语料是模型的“教材”</h2>
+
+<p>　　把训练语言模型想象成培养学生：学生将来能有多大本事，一半看天赋（模型架构与算力），另一半看他读什么书。教材的广度决定知识面，教材的质量决定学到的是真知还是偏见，教材的编排比例决定他会不会偏科。训练语料就是模型的全部教材，这个类比会贯穿整个第 1 章。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">语料库 Corpus</span>
+    <span class="term-en">corpus（拉丁语，身体）= 成规模收集、供模型学习的文本集合</span>
+  </div>
+  <div class="term-body">
+    <p>语料库指按某种目的组织起来的大规模文本集合。预训练语料追求<strong>广</strong>：新闻、论坛、百科、书籍、代码什么都要，模型才有机会学会语言与常识的全貌。它通常以纯文本形式存放，规模从几百 GB 到几十 TB 不等，折成 token 后从几千亿到十几万亿。</p>
+    <div class="term-analogy">就像学校图书馆的馆藏：藏书越全、版本越正，学生能学到的东西就越多越可靠。语料库就是模型上学之前要填满的那座图书馆。</div>
+  </div>
+</div>
+
+<p>　　“万亿 token”听起来抽象，换算一下就有体感了。按 OpenAI 的常用口径，1 个 token 约合 0.75 个英文单词；中文侧，一个汉字在主流多语言分词器里约占 1 到 2 个 token（第 2 章细讲）。以本节后面要讲的 FineWeb 为例，15 万亿 token 约合 11 万亿个英文单词，相当于上千万套《哈利·波特》七部曲。模型“读书破万卷”这个说法，实际要放大到“读书破亿卷”。</p>
+
+<p>　　今天的预训练语料大体来自三类源头，量与质恰好互补：</p>
+
+<ul>
+  <li><strong>互联网网页</strong>：量最大、覆盖最广，但噪声最多，是绝对主料；</li>
+  <li><strong>书籍、论文、维基百科</strong>：量小但质量最高，是长文写作与知识的主要来源；</li>
+  <li><strong>代码与专业数据</strong>：GitHub 代码、StackExchange 问答、数学与科学文献等，赋予模型逻辑与工具能力。</li>
+</ul>
+
+<p>　　本节接下来的任务，就是把这三类源头的代表性公共语料库逐个看清楚。</p>
+
+<h2>1.1.2 互联网语料：Common Crawl 与它的精加工产物</h2>
+
+<p>　　几乎所有主流 LLM 的语料清单里，第一行写的都是同一个名字：Common Crawl。它不是某家公司私藏的数据，而是一个所有人都能免费下载的公共网页存档。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Common Crawl</span>
+    <span class="term-en">非营利公开网页抓取存档（2008 年至今）</span>
+  </div>
+  <div class="term-body">
+    <p>Common Crawl 是一家非营利组织，从 2008 年起持续抓取公开网页并把原始数据免费开放。官网口径下，它已累计存档超过 2500 亿个网页，每月新增约 30 到 50 亿页，原始数据达 PB 级。GPT-3、LLaMA、Falcon 等模型的网页语料都从这里出发。</p>
+    <div class="term-analogy">就像全世界最大的公共原料仓库：货免费、量管够，但仓库只负责收货，不负责拣选，里面的东西好坏混杂，要做菜得自己先挑一遍。</div>
+  </div>
+</div>
+
+<div class="highlight-box info">
+  原始抓取拿到的是完整 HTML 页面，里面混着导航栏、广告位、页脚模板、乱码和机器生成的垃圾内容。直接把这份“原料”喂给模型，等于让学生照着带错别字的盗版书学习。从 Common Crawl 到可用语料之间的距离，就是本节后面几张术语卡要讲的“精加工”。
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">C4</span>
+    <span class="term-en">Colossal Clean Crawled Corpus（T5 论文，2020）</span>
+  </div>
+  <div class="term-body">
+    <p>Google 在 T5 论文中从 Common Crawl 清洗出约 750GB 的英文文本，取名 C4。清洗手段包括只保留以句点结尾的成句文本、剔除含脏话与模板代码的页面、去重等。C4 是“网页必须认真清洗”这条路线最早的标准答案，至今仍是许多实验的默认起点。</p>
+    <div class="term-analogy">就像从原料仓库挑出的第一批“净菜”：菜叶子摘掉了，泥也洗了，可以直接下锅。</div>
+  </div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">RefinedWeb</span>
+    <span class="term-en">Falcon 模型的纯网页语料（2023）</span>
+  </div>
+  <div class="term-body">
+    <p>Falcon 团队把清洗做到极致：从 Common Crawl 提取出约 5 万亿 token 的 RefinedWeb，只用纯网页数据（不掺书籍、论文等精选料）就训出了超越用 The Pile 等精选语料训练的模型。它回答了一个行业级疑问：没有神秘私藏语料，公开网页认真洗也够用。</p>
+    <div class="term-analogy">证明了一个道理：只要洗菜的手艺足够好，菜市场的大众食材也能做出宴席，不一定非得用特供食材。</div>
+  </div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">FineWeb</span>
+    <span class="term-en">Hugging Face 的大规模公开语料（2024）</span>
+  </div>
+  <div class="term-body">
+    <p>FineWeb 汇集 2013 到 2024 年共 96 个 Common Crawl 快照，产出 15 万亿 token，是当前公开英文预训练语料的标杆。更难得的是它把整条处理管线、每步过滤规则的消融实验一并公开，别人可以照着复刻。</p>
+    <div class="term-analogy">不只把净菜端出来，连菜谱、刀工视频和每一版试做记录都贴在门口，欢迎同行来抄作业。</div>
+  </div>
+</div>
+
+<div class="highlight-box">
+  从 C4 的 750GB，到 RefinedWeb 的 5 万亿 token，再到 FineWeb 的 15 万亿 token，五年间的趋势很清晰：原料没变（都是 Common Crawl），变的是清洗管线越来越细、公开程度越来越高。语料工程的竞争力在加工手艺，不在原料囤积。
+</div>
+
+<h2>1.1.3 精选语料：The Pile、书籍与中文语料</h2>
+
+<p>　　与“海量网页一条路”并行，还有另一条思路：不追求一个超大统一来源，而是把几十个高质量小语料精心拼装起来。这条思路的代表是 EleutherAI 的 The Pile。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">The Pile</span>
+    <span class="term-en">EleutherAI 的 825GB 精选语料（2021）</span>
+  </div>
+  <div class="term-body">
+    <p>The Pile 由 22 个高质量子集拼装而成，总量约 825GB：既有网页（Pile-CC），也有 arXiv 论文、PubMed Central 医学文献、Books3 图书、维基百科、GitHub 代码、StackExchange 问答等。GPT-Neo、GPT-J 等一批开源模型用它训练，它也成了后来者设计语料结构时的参照系。</p>
+    <div class="term-analogy">就像一份营养师搭配的配餐：主食、蛋白、蔬菜按比例配好，不求量大，但求每一样都优质且结构均衡。</div>
+  </div>
+</div>
+
+<p>　　书籍子集值得单独说两句。GPT-3 用的 Books1、Books2 从未公开具体构成；The Pile 里的 Books3 约 101GB、含 19.6 万余本电子书，来自 Bibliotik 影子图书馆。书籍是长文叙事与深度写作能力的最佳来源，但来源合法性一直悬而未决。</p>
+
+<div class="highlight-box warn">
+  版权是语料工程的硬伤。Books3 在 2023 年被丹麦版权组织 Rights Alliance 投诉后，先后从各托管渠道下线，多家被认定使用过它的模型厂商卷入诉讼。语料“网上能下载”与“能合法用于训练”是两回事，法律合规已经成为数据清单里必须写明的一栏。
+</div>
+
+<p>　　中文侧的公共语料规模整体小于英文，代表性开源项目有两个。智源研究院（BAAI）的中文互联网语料库 CCI 持续迭代：CCI 2.0 约 500GB、含 1.25 亿个网页，CCI 3.0 扩至 1000GB 并附 498GB 高质量子集 CCI3.0-HQ。昆仑万维在开源 Skywork-13B 时配套发布了 Skypile/Chinese-Web-Text-150B，约 600GB、1500 亿 token 的中文网页语料，开放商用。两者都填补了中文高质量网页语料的空白。</p>
+
+<h2>1.1.4 数据配比：GPT-3 怎么调配“教材结构”</h2>
+
+<p>　　料备齐之后，下一个问题是每样放多少。这个比例叫<strong>数据配比</strong>（data mixture），各家厂商通常秘而不宣，GPT-3 论文的表 2.2 是少有的公开范例：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>数据集</th><th>采样权重</th><th>池内 token 量</th><th>训练 300B token 时经历的 epoch</th></tr></thead>
+    <tbody>
+      <tr><td>Common Crawl（过滤后）</td><td>60%</td><td>410B</td><td>0.44</td></tr>
+      <tr><td>WebText2</td><td>22%</td><td>19B</td><td>2.9</td></tr>
+      <tr><td>Books1</td><td>8%</td><td>12B</td><td>1.9</td></tr>
+      <tr><td>Books2</td><td>8%</td><td>55B</td><td>0.43</td></tr>
+      <tr><td>Wikipedia</td><td>3%</td><td>3B</td><td>3.4</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　读这张表最容易犯的错，是把 60% 理解成“Common Crawl 贡献了六成的 token 量”。其实它是<strong>采样权重</strong>：训练时每个批次里约六成的数据从 Common Crawl 池子里随机抽取。GPT-3 一共训练 300B token，Common Crawl 摊到约 \(300\mathrm{B} \times 60\% \approx 180\mathrm{B}\) 的曝光量，只占它 410B 池子的约 44%，所以最后一列是 0.44 epoch，即整池数据连一遍都没看完。Wikipedia 正好相反，池子只有 3B，3% 的权重对应约 9B 曝光量，等于被翻来覆去读了约 3.4 遍。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">欠采样与过采样</span>
+    <span class="term-en">undersampling / oversampling = 池子看完不到一遍 / 看了多遍</span>
+  </div>
+  <div class="term-body">
+    <p>epoch 指把整个数据池完整过一遍。欠采样（epoch 小于 1）意味着池子里相当一部分数据模型从未见过；过采样（epoch 大于 1）意味着同一份数据被反复学习。海量低质网页适合欠采样，精品小语料适合过采样，配比就是用这两个旋钮调出来的。</p>
+    <div class="term-analogy">就像备考：百万题的大题库只抽到一小半（欠采样），而三十页的错题本翻了三遍（过采样），题海保广度，错题本保深度。</div>
+  </div>
+</div>
+
+<div class="highlight-box">
+  配比是按采样权重而非 token 绝对量设计的训练超参数：高质量小语料多看几遍（Wikipedia 3.4 epoch），海量网页少看几遍（Common Crawl 0.44 epoch）。模型的“食谱结构”和它吃什么同样重要。
+</div>
+
+<h2>1.1.5 从原始抓取到训练语料：流水线总览</h2>
+
+<p>　　回顾本页提到的所有语料库，它们的诞生过程其实是同一条流水线：先从公开存档拿到原料，再一道道工序加工成教材。后续两节会逐一拆解其中的关键工序：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 230" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 框 1：原料 -->
+    <rect x="20" y="40" width="120" height="120" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="80" y="70" text-anchor="middle" font-size="15" fill="#333">原始网页抓取</text>
+    <text x="80" y="95" text-anchor="middle" font-size="11.5" fill="#666">HTML 混杂</text>
+    <text x="80" y="112" text-anchor="middle" font-size="11.5" fill="#666">广告、导航</text>
+    <text x="80" y="129" text-anchor="middle" font-size="11.5" fill="#666">与模板文字</text>
+    <!-- 框 2：正文提取 -->
+    <rect x="160" y="40" width="120" height="120" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="220" y="70" text-anchor="middle" font-size="15" fill="#333">正文提取</text>
+    <text x="220" y="95" text-anchor="middle" font-size="11.5" fill="#666">剥掉样板与导航</text>
+    <text x="220" y="112" text-anchor="middle" font-size="11.5" fill="#666">只留正文文本</text>
+    <!-- 框 3：过滤 -->
+    <rect x="300" y="40" width="120" height="120" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="360" y="70" text-anchor="middle" font-size="15" fill="#333">过滤</text>
+    <text x="360" y="95" text-anchor="middle" font-size="11.5" fill="#666">质量、语言、安全</text>
+    <text x="360" y="112" text-anchor="middle" font-size="11.5" fill="#666">三重筛选</text>
+    <text x="360" y="135" text-anchor="middle" font-size="11.5" fill="#6d28d9">1.2 节细讲</text>
+    <!-- 框 4：去重 -->
+    <rect x="440" y="40" width="120" height="120" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="500" y="70" text-anchor="middle" font-size="15" fill="#333">去重</text>
+    <text x="500" y="95" text-anchor="middle" font-size="11.5" fill="#666">删除重复与</text>
+    <text x="500" y="112" text-anchor="middle" font-size="11.5" fill="#666">近似重复内容</text>
+    <text x="500" y="135" text-anchor="middle" font-size="11.5" fill="#6d28d9">1.3 节细讲</text>
+    <!-- 框 5：配比混合 -->
+    <rect x="580" y="40" width="120" height="120" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="640" y="70" text-anchor="middle" font-size="15" fill="#333">配比混合</text>
+    <text x="640" y="95" text-anchor="middle" font-size="11.5" fill="#666">多源按采样权重</text>
+    <text x="640" y="112" text-anchor="middle" font-size="11.5" fill="#666">调配教材结构</text>
+    <text x="640" y="135" text-anchor="middle" font-size="11.5" fill="#0891b2">本章后续细讲</text>
+    <!-- 箭头 -->
+    <line x1="140" y1="100" x2="160" y2="100" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="280" y1="100" x2="300" y2="100" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="420" y1="100" x2="440" y2="100" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="560" y1="100" x2="580" y2="100" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <!-- 底部说明 -->
+    <text x="360" y="200" text-anchor="middle" font-size="13" fill="#666">原料：Common Crawl 等公开存档　→　成品：直接喂给预训练（第 6 章）</text>
+  </svg>
+  <div class="diagram-caption">图示：语料加工的主流水线。从公开存档拿到原料后，先提取正文，再过滤、去重，最后按配比混合成可直接训练的语料。</div>
+</div>
+
+<p>　　其中过滤决定“留什么、扔什么”，直接左右语料质量，1.2 节展开；去重决定“同一份内容模型看几遍”，与上一节的配比问题暗相呼应，1.3 节展开；配比混合与合成数据的完整讨论放在本章后续小节。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">Common Crawl 免费公开，为什么不直接拿来训练？</div>
+    <div class="sc-key">它是原料仓库不是教材：HTML 里混着导航模板、广告与机器垃圾，必须经过正文提取、过滤、去重、配比四道工序。C4、RefinedWeb、FineWeb 都是它的精加工产物，差别就在加工手艺。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">GPT-3 给 Common Crawl 配 60% 的权重，为什么只训了 0.44 epoch？</div>
+    <div class="sc-key">60% 是每批训练数据里的采样占比，不是池子使用率。\(300\mathrm{B} \times 60\% \approx 180\mathrm{B}\) 的曝光量只占 410B 池子的约 44%，所以过半网页模型一遍都没见过，海量低质语料本就适合欠采样。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">RefinedWeb 的结论为什么重要？</div>
+    <div class="sc-key">它证明不依赖私藏精选语料，把公开网页认真清洗到 5 万亿 token 也能训出强模型。语料工程的核心竞争力是清洗管线，这条结论后来被 FineWeb 以 15 万亿 token 再次放大。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Raffel et al., 2020. Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer（T5 论文，JMLR 2020，arXiv:1910.10683），C4 的构造与 750GB 规模出自该文附录。</li>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3 论文，arXiv:2005.14165），数据配比与各数据集 epoch 数出自 Table 2.2。</li>
+  <li>Gao et al., 2021. The Pile: An 800GB Dataset of Diverse Text for Language Modeling（arXiv:2101.00027），22 个子集与 Books3 规模出自该文。</li>
+  <li>Penedo et al., 2023. The RefinedWeb Dataset for Falcon LLM: Outperforming Curated Corpora with Web Data, and Web Data Only（arXiv:2306.01116），5 万亿 token 与“纯网页足够强”的结论出自该文。</li>
+  <li>Penedo et al., 2024. The FineWeb Datasets: Decanting the Web for the Finest Text Data at Scale（arXiv:2406.17557），15 万亿 token、96 个 Common Crawl 快照（2013—2024）出自该文。</li>
+  <li>Common Crawl 官方网站（commoncrawl.org），累计存档超 2500 亿页、月新增约 30 到 50 亿页的口径来自官网。</li>
+  <li>Reuters, 2024. Copyright group takes down Dutch language AI dataset（2024-08，reuters.com），其中回顾了 Danish Rights Alliance 于 2023 年促成 Books3 下架的经过。</li>
+  <li>智源研究院官方发布：中文互联网语料库 CCI 2.0 与 CCI 3.0（hub.baai.ac.cn，2024）；昆仑万维 Skywork-13B 发布与 Skypile/Chinese-Web-Text-150B 数据集（Hugging Face，2023）。</li>
+</ul>
+
+</article>

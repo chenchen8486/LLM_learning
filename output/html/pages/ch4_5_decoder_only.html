@@ -1,0 +1,242 @@
+﻿<article class="content">
+<h1>4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</h1>
+<p class="subtitle">本页范围：第 4 章第 5 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>原论文给出的是编码器-解码器双塔结构，为什么今天的主流 LLM 只剩一座解码器塔？</td></tr>
+      <tr><td>本节主张</td><td>2017 到 2019 年三条架构路线分家：encoder-only 擅理解、encoder-decoder 擅翻译、decoder-only 擅生成。decoder-only 凭「生成天然自回归、单塔最简、扩展最顺」赢下生成赛道，现代 LLM 的一层 block 就是原论文 decoder 层删掉交叉注意力、逐件更换零件后的直系后代。</td></tr>
+      <tr><td>一句话结论</td><td>现代 LLM 一层 block = 掩码多头自注意力 + FFN + 残差 + 归一化，骨架沿用 2017 年的 decoder 层，零件全面升级（第 5 章逐件拆解）。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>Encoder-Decoder</span><span>Decoder-only</span><span>自回归</span><span>交叉注意力</span><span>因果掩码</span><span>GPT</span><span>BERT</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>4.5.1 2017—2019：同一副骨架，三条路线分家</h2>
+
+<p>　　回顾 4.1 节的整体结构：原论文的 Transformer 是标准的<strong>编码器-解码器（Encoder-Decoder）</strong>双塔结构，这是为它要解决的机器翻译问题量身定做的。翻译天然分两步：先把整句原文读进去、消化成表示，再一个词一个词把译文写出来。前一半交给编码器，后一半交给解码器。两座塔各堆 6 层，\(d_{\mathrm{model}}=512\)；编码器每层 2 个子层（自注意力 + FFN），解码器每层 3 个子层，多出来的那一个专门负责「回头看原文」，叫交叉注意力（原论文 3.1 节）。</p>
+
+<p>　　所以这步在干嘛：双塔是「一读一写」分工的产物。可当任务从翻译扩展到「什么都干」时，两座塔真的都需要吗？2017 年之后的两年里，社区用三个著名模型给出了三种答案：</p>
+
+<ol>
+  <li><strong>2017 年 6 月，Transformer（原论文）</strong>：编码器-解码器双塔，为机器翻译而生；</li>
+  <li><strong>2018 年 6 月，GPT-1（Radford 等人的 OpenAI 技术报告）</strong>：只保留解码器塔，12 层、约 117M 参数，在 BookCorpus 上用「预测下一个词」做自回归预训练，再微调到下游任务，证明纯解码器路线可行；</li>
+  <li><strong>2018 年 10 月，BERT（Devlin 等人，arXiv:1810.04805，2019 年正式发表）</strong>：只保留编码器塔，双向注意力加掩码填空（MLM），横扫当时的理解类基准。</li>
+</ol>
+
+<p>　　三者的差别用三个角色来记最牢：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>Encoder-only = 阅卷老师</h4><p>通读全文、双向对照，判断理解一气呵成，但从不动笔写长文。代表：BERT。</p></div>
+  <div class="concept-card"><h4>Encoder-Decoder = 专职翻译</h4><p>一个大脑读原文，一个大脑写译文，中间靠交叉注意力「回头查原文」对齐。代表：原论文 Transformer、T5、BART。</p></div>
+  <div class="concept-card"><h4>Decoder-only = 作家</h4><p>从自己写下的文字出发往下续，每写一词都回头读一遍自己写过的东西。代表：GPT 全系。</p></div>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>维度</th><th>Encoder-only</th><th>Encoder-Decoder</th><th>Decoder-only</th></tr></thead>
+    <tbody>
+      <tr><td>结构</td><td>只有编码器塔</td><td>两座塔，交叉注意力相连</td><td>只有解码器塔</td></tr>
+      <tr><td>每个位置能看到</td><td>全文（双向）</td><td>编码器看全文，解码器只看左侧</td><td>只看左侧（单向）</td></tr>
+      <tr><td>预训练目标</td><td>掩码填空（MLM）</td><td>输入到输出的序列转换</td><td>自回归预测下一个 token</td></tr>
+      <tr><td>擅长</td><td>理解类：分类、匹配、抽取</td><td>翻译、摘要等转换任务</td><td>开放式生成、对话</td></tr>
+      <tr><td>短板</td><td>不会自由生成</td><td>两塔结构与训练更复杂</td><td>天然看不到右侧上下文</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　分家的逻辑很直白：任务需要看哪边，就留哪座塔。理解任务要纵览全文，留编码器；翻译要一读一写，两座都留；生成只需要顺着自己写过的内容往下走，留解码器就够。接下来十年发生的事情是：生成这条线越长越大，最终把另外两条线挤出了主流视野。</p>
+
+<h2>4.5.2 为什么 decoder-only 赢下了生成赛道</h2>
+
+<div class="highlight-box info">
+  本节讲的是业界多年复盘形成的主流解释（共识性解释），几条理由互相强化，并不存在某一篇「宣判胜负」的论文，请不要把它当作单一实验结论。
+</div>
+
+<p>　　<strong>理由一：生成天然是自回归的。</strong>写答案就是一个词一个词往外蹦，写到第 \(t\) 个词时，能依据的只有前面 \(t-1\) 个词。用概率语言写出来就是链式分解：</p>
+
+<div class="formula-card">
+  \[ P(x_1,\ldots,x_n)=\prod_{t=1}^{n}P(x_t\mid x_1,\ldots,x_{t-1}) \tag{1} \]
+  <div class="formula-note">公式 (1)：自回归生成的定义。右边每一项的条件里只有「过去」，没有「未来」。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">自回归 Autoregressive</span>
+    <span class="term-en">auto（自己）+ regressive（回归）= 用自己之前的输出预测下一步</span>
+  </div>
+  <div class="term-body">
+    <p>自回归生成像词语接龙：每一步都把<strong>自己已经写下的全部内容</strong>当作已知条件，预测下一个词，把它接在末尾，再以此为基础预测再下一个。解码器的因果掩码（4.2 节）做的正是这件事：在结构层面焊死「只看左侧」的约束，训练和生成遵守同一个规则。</p>
+    <div class="term-analogy">就像写作文：你每写一句，都会回头读一遍自己写过的部分，但永远读不到还没写出来的后半篇。</div>
+  </div>
+</div>
+
+<div class="highlight-box warn">
+  反过来想就明白 BERT 为什么不擅生成：双向注意力在训练时让每个位置都能看到右侧内容，一旦拿来做自回归生成，等于考试时偷看还没写出的答案，这称为信息泄漏。掩码填空的目标决定了它擅长「补全中间」，不擅长「续写结尾」。
+</div>
+
+<p>　　<strong>理由二：纯生成场景里没有「另一段输入」，编码器失业了。</strong>交叉注意力存在的唯一理由，是让解码器在写每个词时能回头查阅编码器整理好的另一段文本。聊天、续写、创作时根本没有这样一段输入，编码器和交叉注意力一起失去存在意义。删掉它们，每层立刻从 3 个子层瘦身为 2 个。算一笔具体的账：原论文解码器是 6 层 × 3 子层 = 18 个子层，GPT-1 是 12 层 × 2 子层 = 24 个子层，省下的参数直接换成了更多的层数。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">交叉注意力 Cross-Attention</span>
+    <span class="term-en">cross = 跨越两段文本的注意力</span>
+  </div>
+  <div class="term-body">
+    <p>交叉注意力和自注意力的计算公式完全一样，区别只在原料来源：Query 来自解码器自己，Key 和 Value 来自<strong>编码器的输出</strong>。于是解码器每写一个词，都能按当前需要「回头看一眼」原文的每个位置。它只存在于 encoder-decoder 结构里，是连接两座塔的桥。</p>
+    <div class="term-analogy">就像同声传译时手边摊着原文稿：每开口译一句，眼睛都回稿子上扫一遍，而不是凭记忆硬背。</div>
+  </div>
+</div>
+
+<p>　　<strong>理由三：架构越简单统一，越吃得上 scaling 红利。</strong>decoder-only 模型从头到尾只有一款积木：同一个 block 复制 N 次。加深、加宽、加数据都是一条直线上的事，工程上不用权衡两座塔的配比。第 6 章会讲，2018 年之后模型能力的主引擎正是「规模按比例放大」，结构最简单的路线自然跑得最快。</p>
+
+<p>　　<strong>理由四：Prompt 范式抹平了理解与生成的边界。</strong>分类、匹配、抽取这些理解任务，如今都能改写成「给一段提示，让模型续写答案」的形式（第 14 章细讲）。理解的饭碗也能用续写的方式吃，encoder-only 最后的护城河随之消失。</p>
+
+<div class="highlight-box">
+  四条理由合流成一个结论：decoder-only = 掩码自注意力 + FFN 的单塔重复堆叠。生成任务的第一性原理（自回归）选了它，极简结构给了它最低的扩展成本，Prompt 范式又让它通吃理解任务。这就是 2019 年之后主流 LLM 几乎全部倒向 decoder-only 的原因。
+</div>
+
+<p>　　所以这步在干嘛：把两座塔拆成一座，是因为人们发现「写东西」这件事一座塔就够用；塔越简单越能往大里盖，盖得越大越什么都会。顺带说明，encoder-decoder 没有消亡：T5、BART 这一脉在翻译、摘要等「有明确输入要转换」的场景里至今活跃，只是生成的主赛道让给了 decoder-only。</p>
+
+<h2>4.5.3 零件对照：原论文 decoder 层 → 现代 LLM block</h2>
+
+<p>　　把 2017 年的 decoder 层和今天的一层 block 并排拆开，第一眼会看到子层数量的变化（3 个变 2 个），第二眼会发现剩下的两个子层里，几乎每个零件都换了一代。先列出两边「一层」的完整配方：</p>
+
+<ul>
+  <li><strong>原论文 decoder 层（×6）</strong>：掩码多头自注意力 → 交叉注意力 → FFN（ReLU）；每个子层外面包一层残差连接，归一化加在残差之后（Post-Norm）；位置信息靠在输入嵌入上加正弦位置编码；</li>
+  <li><strong>现代 LLM block（×N）</strong>：掩码多头自注意力（RoPE / GQA）→ FFN（SwiGLU）；残差连接保留，归一化换成 RMSNorm 并挪到子层之前（Pre-Norm）。</li>
+</ul>
+
+<div class="formula-card">
+  \[ \underbrace{\mathrm{LayerNorm}\bigl(x+\mathrm{Sublayer}(x)\bigr)}_{\text{原论文：Post-Norm}} \qquad \underbrace{x+\mathrm{Sublayer}\bigl(\mathrm{RMSNorm}(x)\bigr)}_{\text{现代：Pre-Norm}} \tag{2} \]
+  <div class="formula-note">公式 (2)：每个子层的「包装方式」对比。左边逐字出自原论文 3.1 节；右边以 minimind 的 MiniMindBlock 代码为证，先归一化再进子层，残差原样加回。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 980 470" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <!-- 左：原论文 decoder 层 -->
+    <text x="155" y="34" text-anchor="middle" font-size="16" font-weight="bold" fill="#4c1d95">原论文 Decoder 层（2017）</text>
+    <rect x="20" y="52" width="270" height="392" rx="12" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="45" y="76" width="220" height="54" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="155" y="100" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">掩码多头自注意力</text>
+    <text x="155" y="118" text-anchor="middle" font-size="11" fill="#666">只能看左侧（因果掩码）</text>
+    <text x="155" y="156" text-anchor="middle" font-size="11" fill="#666">＋ 残差 → LayerNorm</text>
+    <rect x="45" y="176" width="220" height="54" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="155" y="200" text-anchor="middle" font-size="14" font-weight="bold" fill="#991b1b">交叉注意力</text>
+    <text x="155" y="218" text-anchor="middle" font-size="10.5" fill="#991b1b">Q 来自自己，K、V 来自编码器</text>
+    <text x="155" y="256" text-anchor="middle" font-size="11" fill="#666">＋ 残差 → LayerNorm</text>
+    <rect x="45" y="276" width="220" height="54" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="155" y="300" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">前馈网络 FFN</text>
+    <text x="155" y="318" text-anchor="middle" font-size="11" fill="#666">ReLU 激活</text>
+    <text x="155" y="356" text-anchor="middle" font-size="11" fill="#666">＋ 残差 → LayerNorm</text>
+    <text x="155" y="396" text-anchor="middle" font-size="12" fill="#4c1d95">每层 3 个子层 × 6 层 = 18 个子层</text>
+    <text x="155" y="420" text-anchor="middle" font-size="11" fill="#666">d_model = 512</text>
+    <!-- 右：现代 LLM block -->
+    <text x="825" y="34" text-anchor="middle" font-size="16" font-weight="bold" fill="#155e75">现代 LLM Block（GPT 系）</text>
+    <rect x="690" y="52" width="270" height="392" rx="12" fill="#f0fdff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="825" y="76" text-anchor="middle" font-size="11" fill="#155e75">两个子层都先 RMSNorm 再计算（Pre-Norm）</text>
+    <rect x="715" y="92" width="220" height="54" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="825" y="116" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">掩码多头自注意力</text>
+    <text x="825" y="134" text-anchor="middle" font-size="11" fill="#155e75">配 RoPE / GQA</text>
+    <text x="825" y="172" text-anchor="middle" font-size="11" fill="#666">＋ 残差</text>
+    <rect x="715" y="192" width="220" height="54" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="825" y="216" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">前馈网络 FFN</text>
+    <text x="825" y="234" text-anchor="middle" font-size="11" fill="#155e75">SwiGLU 门控激活</text>
+    <text x="825" y="272" text-anchor="middle" font-size="11" fill="#666">＋ 残差</text>
+    <text x="825" y="320" text-anchor="middle" font-size="12" fill="#155e75">每层 2 个子层 × N 层</text>
+    <text x="825" y="344" text-anchor="middle" font-size="11" fill="#666">塔顶再过一个 RMSNorm</text>
+    <!-- 中间箭头 -->
+    <line x1="292" y1="103" x2="688" y2="119" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <text x="490" y="88" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">保留 · 换零件</text>
+    <line x1="292" y1="203" x2="455" y2="203" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR)"/>
+    <text x="380" y="188" text-anchor="middle" font-size="13" font-weight="bold" fill="#dc2626">删除</text>
+    <text x="490" y="212" text-anchor="middle" font-size="22" font-weight="bold" fill="#dc2626">✕</text>
+    <text x="490" y="240" text-anchor="middle" font-size="11" fill="#dc2626">没有编码器可读</text>
+    <line x1="292" y1="303" x2="688" y2="219" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <text x="490" y="284" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">保留 · 换零件</text>
+  </svg>
+  <div class="diagram-caption">图示：左为原论文 decoder 层（3 个子层），右为现代 LLM block（2 个子层）。掩码自注意力与 FFN 原样保留但内部零件换代，交叉注意力随编码器一起被删除；残差加归一化的「骨架搭法」两边一致。</div>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>零件</th><th>原论文 decoder 层（2017）</th><th>现代 LLM block</th><th>详解</th></tr></thead>
+    <tbody>
+      <tr><td>子层构成</td><td>掩码自注意力 + 交叉注意力 + FFN，共 3 个</td><td>掩码自注意力 + FFN，共 2 个</td><td>本节 4.5.2</td></tr>
+      <tr><td>归一化</td><td>LayerNorm，加在残差之后（Post-Norm）</td><td>RMSNorm，放在子层之前（Pre-Norm）</td><td>第 5 章</td></tr>
+      <tr><td>位置信息</td><td>正弦绝对位置编码，加在输入嵌入上</td><td>RoPE 旋转位置编码，融进注意力内部</td><td>3.4 节</td></tr>
+      <tr><td>FFN 结构</td><td>两个线性变换夹一个 ReLU</td><td>三路投影 + SiLU 门控（SwiGLU 家族）</td><td>第 5 章</td></tr>
+      <tr><td>注意力头</td><td>标准 MHA，Q、K、V 头数相同</td><td>GQA / MLA，多个 Q 头共享 K、V 头</td><td>第 5 章</td></tr>
+      <tr><td>残差连接</td><td>每个子层一条</td><td>每个子层一条，写法几乎原样</td><td>4.3 节</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　所以这步在干嘛：换的全是零件，没动的是骨架。子层 + 残差 + 归一化的搭法从 2017 年沿用至今，这意味着读懂了原论文的 decoder 层，就看懂了今天所有主流 LLM 的「一层」长什么样；剩下的差异，每一件都是第 5 章的一节课。</p>
+
+<h2>4.5.4 骨架没变：本页通往第 5 章</h2>
+
+<p>　　这套定型后的形态，在本工程配套的 minimind 小模型里看得最清楚：词嵌入之后是 8 个完全相同的 MiniMindBlock 串成一座塔，塔顶过一个 RMSNorm，再接输出头，训练方式就是自回归预测下一个 token。没有编码器，没有交叉注意力，每个 block 里只有掩码自注意力和 FFN 两个子层。它同时用上了表里的全部现代零件：RMSNorm、Pre-Norm、RoPE、SiLU 门控 FFN、GQA（8 个 Q 头共享 4 组 K、V 头）。</p>
+
+<div class="highlight-box">
+  本节最重要的结论：现代 LLM 的一层 block = 掩码多头自注意力 + FFN + 残差 + 归一化。它是原论文 decoder 层删掉交叉注意力后的直系后代，骨架七年没变，零件全面升级。
+</div>
+
+<p>　　第 5 章的任务就是把这张零件清单逐件拆开：RMSNorm 为什么敢简化 LayerNorm，Pre-Norm 为什么让训练更稳，SwiGLU 凭什么换掉 ReLU，GQA 和 MLA 如何给 KV 缓存瘦身，MoE 又如何在不增加计算量的前提下扩大参数量。学完第 5 章再回看 4.5.3 的对照表，每一格都会有一个完整的答案。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">原论文的解码器层比编码器层多哪个子层？它干什么用？</div>
+    <div class="sc-key">多一个交叉注意力子层：Query 来自解码器，Key、Value 来自编码器输出，让解码器每写一词都能回头看原文，是两座塔之间的桥。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">decoder-only 为什么在生成赛道上胜出？</div>
+    <div class="sc-key">生成天然自回归，掩码自注意力把「只看左侧」焊进结构；纯生成没有另一段输入，编码器与交叉注意力可以整个删掉，每层只剩两个子层；单塔结构最简，最吃得上 scaling 红利；Prompt 范式又让它通吃理解任务。（业界共识性解释）</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">现代 LLM block 和原论文 decoder 层相比，什么没变、什么变了？</div>
+    <div class="sc-key">骨架没变：子层 + 残差 + 归一化的搭法原样保留。变了：删掉交叉注意力；归一化换 RMSNorm 并挪到子层前；位置编码换 RoPE；FFN 换 SwiGLU；注意力头换 GQA / MLA。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本节的「现代 block」在 minimind 工程（Apache 2.0）里有逐行对应的实现，读 <code>model/model_minimind.py</code> 时对照以下四个位置：</p>
+
+<ul>
+  <li><code>MiniMindBlock</code>（第 183 行）：__init__ 里只有四个成员：self_attn、两个 RMSNorm、mlp，没有任何交叉注意力模块；forward（第 191 行起）先 RMSNorm 再进注意力、残差加回，再过第二个 RMSNorm 进 FFN、残差加回，正是公式 (2) 右边的 Pre-Norm 写法；</li>
+  <li><code>MiniMindModel</code>（第 201 行）：第 208 行把 MiniMindBlock 复制 num_hidden_layers 份串成单塔（MiniMindConfig 默认 8 层，第 12 行），塔顶一个 RMSNorm（第 209 行），全文件没有编码器；</li>
+  <li><code>FeedForward</code>（第 136 行）：gate_proj、up_proj、down_proj 三路投影，act_fn 默认 silu（配置第 25 行），即 4.5.3 表中的 SwiGLU 家族；</li>
+  <li><code>MiniMindConfig</code>（第 22 到 23 行）：num_attention_heads=8 而 num_key_value_heads=4，这就是 GQA，第 5 章会讲它省的是什么。</li>
+</ul>
+
+<p>　　想亲自确认「没有交叉注意力」，可以在工程根目录执行：</p>
+
+<pre><code>grep -n "cross" minimind-master/model/model_minimind.py
+# 只能搜到一行 cross_entropy（交叉熵损失函数），没有任何交叉注意力模块</code></pre>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）。编码器与解码器各 N=6 层、解码器第三个子层为交叉注意力、掩码与右移一位的约定、Post-Norm 公式 LayerNorm(x + Sublayer(x))、FFN 用 ReLU、正弦位置编码、\(d_{\mathrm{model}}=512\)，均逐字核对该文第 3 节。</li>
+  <li>Radford, Narasimhan, Salimans &amp; Sutskever, 2018. Improving Language Understanding by Generative Pre-Training（OpenAI 技术报告，GPT-1）。12 层 decoder-only、约 117M 参数、BookCorpus 自回归预训练出自该报告。</li>
+  <li>Devlin et al., 2019. BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding（arXiv:1810.04805）。encoder-only 路线与掩码填空（MLM）目标出自该文。</li>
+  <li>Raffel et al., 2019. Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer（T5，arXiv:1910.10683）。encoder-decoder 路线在 LLM 时代的延续。</li>
+  <li>minimind 工程（Apache 2.0），model/model_minimind.py：decoder-only 单塔、Pre-Norm、RMSNorm、SwiGLU、GQA 的对照实现，行号以本工程当前代码为准。</li>
+  <li>说明：4.5.2 节「decoder-only 胜出的原因」为业界共识性复盘解释，无单一论文出处，正文已标注。</li>
+</ul>
+
+</article>

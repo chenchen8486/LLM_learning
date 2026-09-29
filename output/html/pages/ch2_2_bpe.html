@@ -28,7 +28,7 @@
     <span class="term-en">Byte Pair Encoding = 反复合并最高频相邻符号对</span>
   </div>
   <div class="term-body">
-    <p>BPE 的核心动作只有一个：<strong>数数，然后合并</strong>。统计当前所有相邻符号对的出现频次，把最高的那一对捏成一个新符号，再数、再捏，直到词表长到目标大小。学出来的词表天然是高频片段优先。</p>
+    <p>BPE 的核心动作只有一个：<strong>数数，然后合并</strong>。具体数的是：把<strong>整个训练语料</strong>按目前的拆分方式逐词摆开，从头数出<strong>所有相邻符号对</strong>各出现了多少次（每个词还要乘上它在语料中的出现次数），把频次最高的那一对捏成一个新符号。这一捏会改变语料的拆分方式，有些原本相邻的符号被吸进了新符号里，相邻关系跟着变了，所以要<strong>基于新的拆分再数一遍、再捏一次</strong>，如此反复，直到词表长到目标大小。学出来的词表天然是高频片段优先。</p>
     <div class="term-analogy">就像整理一间办公室：你总是把最常一起使用的两件文具（比如笔和笔帽）装进同一个笔袋，用得越频繁的组合越早被收编，最后桌面上剩下的都是成套的高频组合和零散的低频单件。</div>
   </div>
 </div>
@@ -191,6 +191,15 @@
     <div class="sc-key">它是人工设定的超参数：训练时合并到目标大小就停（如 GPT-2 的 50000 条合并加 256 字节加 1 个特殊 token）。取值要在序列长度、Embedding 参数量和稀有 token 训练充分性之间权衡。</div>
   </div>
 </div>
+
+<h2>动手验证</h2>
+
+<p>　　本节讲的 byte-level BPE 在 minimind 工程里有完整实现：<code>minimind-master/trainer/train_tokenizer.py</code>，基于 Hugging Face tokenizers 库训练 BPE 分词器（ByteLevel 预分词，词表 6400）。读代码时对照本节的“统计 → 合并 → 更新”循环，看 <code>BpeTrainer</code> 如何把它工程化。</p>
+
+<pre><code>cd minimind-master/trainer
+python train_tokenizer.py   # 训练产物在 ../model_learn_tokenizer/</code></pre>
+
+<p>　　注意两点：脚本开头注释明确提醒“不建议重复训练，仅供学习参考”（minimind 已自带词表，换词表会导致模型不通用）；运行前需安装依赖 <code>pip install tokenizers</code>。</p>
 
 <h2>参考来源</h2>
 <ul>
