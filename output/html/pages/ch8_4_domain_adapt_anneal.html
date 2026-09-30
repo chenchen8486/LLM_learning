@@ -1,0 +1,238 @@
+﻿<article class="content">
+<h1>8.4 领域适配与退火：收尾阶段的数据艺术</h1>
+<p class="subtitle">本页范围：第 8 章第 4 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>通用预训练喂出的模型什么都会一点、什么都不精。如何在不推倒重来的前提下，把它往目标领域拽一把？训练的最后一程，数据和学习率还能怎么配合着收尾？</td></tr>
+      <tr><td>本节主张</td><td>中间训练后半段是数据的艺术：用继续预训练做领域适配（DAPT），用配比再平衡给数学和代码加座，用退火在收尾阶段喂最好的数据。每一步收益都标着价格——灾难性遗忘，必须用回放与监测对冲。</td></tr>
+      <tr><td>一句话结论</td><td>领域续训与退火是预训练性价比最高的两段：少量 token 换来显著的能力迁移与基准提升，但方向越专、遗忘越狠，通用数据回放与全程双轨监测是必缴的保险费。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>继续预训练</span><span>DAPT</span><span>TAPT</span><span>数据配比</span><span>退火 annealing</span><span>WSD</span><span>灾难性遗忘</span><span>回放 replay</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　本章的主线是中间训练：预训练主体跑完、后训练尚未开始，中间这段窗口期还大有可为。此前各节讨论的长上下文扩展解决的是「看得远」的问题，本节转向「做得专」与「收得好」两个问题：模型什么都会一点但什么都不精，怎么往目标领域再拽一把？训练的最后一程，数据和学习率还能怎么配合着再榨出一截分数？这两个问题的答案出奇地一致——换数据，不换练法。训练目标始终是第 6 章讲过的下一个 token 预测，变的只有喂什么、喂多少、什么时候喂。</p>
+
+<p>　　本节按「先适配、再调配、后收尾、终算账」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>继续预训练与领域适配：DAPT 与 TAPT</strong>（8.4.1）：Don't Stop Pretraining 的经典结论——在领域语料上接着做自监督训练，下游任务一致提升，以及两种适配口径的差别；</li>
+  <li><strong>数据配比再平衡：给数学和代码加座</strong>（8.4.2）：预训练开局定死的配比，到中期还能调——DeepSeekMath 用 120B 精选数学 token 续训出的经验，以及 DoReMi 用小模型自动探配比的思路；</li>
+  <li><strong>退火：最后几公里用最好的数据</strong>（8.4.3）：Llama 3 与 MiniCPM 共同验证的收尾配方——高质量数据上采样配合学习率衰减，附 WSD 调度曲线图；</li>
+  <li><strong>灾难性遗忘：补强一头的代价</strong>（8.4.4）：领域分数涨、通用能力掉，回放、控学习率、全程监测三招对冲，附遗忘与回放示意图。</li>
+</ol>
+
+<p>　　读完本节，你应该能回答一个实操问题：手里有一个通用底座模型和一批领域语料，续训方案该怎么设计，又有哪些坑必须提前防。</p>
+
+<h2>8.4.1 继续预训练与领域适配：DAPT 与 TAPT</h2>
+
+<p>　　先建立直觉。把通用预训练想象成医学院的通识教育：解剖、生理、药理都学过，什么病都认得一些。但医院要的是能上门诊的专科医生，于是毕业生还要进专科轮训——心内科的天天看心电图，骨科的天天上手术台。注意轮训的形式：不用重新高考、不用重读医学院，直接在原有底子上接着学。领域适配对模型做的事一模一样：不推倒重来，在预训练好的模型上继续训练，只是教材换成了目标领域的语料。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">继续预训练 Continued Pretraining</span>
+    <span class="term-en">continued = 接着练，不换目标、不换架构、不重新初始化</span>
+  </div>
+  <div class="term-body">
+    <p>在已经预训练好的模型上，沿用原来的自监督目标（对 LLM 就是下一个 token 预测），用一批新语料继续训练。架构不动、目标不动、参数接着原来的权重走，动的只有数据。它也叫持续预训练（continual pretraining），口语里常叫「二次预训练」或「续训」。</p>
+    <div class="term-analogy">就像毕业后的在职进修：学籍还在原来的学校（参数还在原来的权重上），课程表换成了新方向（数据换成了新语料），毕业证不用重考。</div>
+  </div>
+</div>
+
+<p>　　把这个想法钉成经典的，是 Gururangan 等人 2020 年的论文 <em>Don't Stop Pretraining</em>（arXiv:2004.10964）。他们在 RoBERTa 上做了系统实验：取四个领域（生物医学、计算机科学论文、新闻、商品评论）的八个分类任务，比较「直接微调」和「先继续预训练、再微调」的差别。论文提出并对比了两种续训口径：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>DAPT 领域自适应预训练</h4><p>Domain-Adaptive PreTraining。在<strong>任务所在领域</strong>的大规模无标注语料上继续训练，比如要做医学文献分类，就先啃一大批生物医学论文。语料量大，面向「领域」。</p></div>
+  <div class="concept-card"><h4>TAPT 任务自适应预训练</h4><p>Task-Adaptive PreTraining。在与<strong>具体任务直接相关</strong>的小而精无标注数据上继续训练，比如直接用该分类任务自带的未标注文本。语料量小，离任务更近。</p></div>
+</div>
+
+<p>　　两个结论值得记住。其一，DAPT 在全部八个任务上带来一致提升——在领域语料上多泡一阵子，下游表现水涨船高。其二，DAPT 与 TAPT 可以叠加，先在大语料上做 DAPT、再在任务数据上做 TAPT，效果最好。续训离任务越近，最后一棒的收益越直接。</p>
+
+<p>　　这篇 2020 年在 1.25 亿参数模型上做成的实验，后来成了 LLM 时代领域大模型的标准工序：医疗、法律、金融、代码方向的专用模型，几乎都是「通用底座 + 数十亿到上千亿领域 token 续训」的产物。下一小节的 DeepSeekMath 就是这个工序在数学方向上的样板。</p>
+
+<div class="highlight-box info">
+  Don't Stop Pretraining 论文还观察到一个当时不算起眼的现象：模型在本领域变强的同时，在其它领域上的表现会回落。这笔代价不是实验误差，而是续训的固有属性，8.4.4 会专门跟它算账。
+</div>
+
+<h2>8.4.2 数据配比再平衡：给数学和代码加座</h2>
+
+<p>　　第 1 章 1.4 节讲过预训练开局怎么定配比：网页、代码、数学、书籍各放多少，是一份在开工前就要拍板的菜单。这份菜单通常一用就是几千亿 token。但「开局定终身」并不合理——训练推进到中盘，模型的短板会逐渐暴露，团队的雄心也会调整：发现推理能力是弱项，想重点补强，最直接的杠杆就是把数学和代码的座位往前提。</p>
+
+<p>　　DeepSeekMath（Shao et al., 2024，arXiv:2402.03300）是这份杠杆最漂亮的公开案例。团队以代码基座模型 DeepSeek-Coder-Base-v1.5 7B 为起点，用从 Common Crawl 中精心筛出的 120B 数学相关 token，混合自然语言与代码数据继续预训练，得到 DeepSeekMath 7B——在竞赛级 MATH 基准上拿到 51.7%，逼近当时的 Gemini-Ultra 与 GPT-4。注意这里的配方次序：不是从零训一个数学模型，而是先在代码上打底、再用数学加座。</p>
+
+<p>　　论文第 5 节总结的预训练教训里有一条尤其值得记住：<strong>代码训练有益于数学推理</strong>（Code Training Benefits Mathematical Reasoning）。它提醒我们，域与域之间存在正迁移，加座不等于此消彼长——代码数据里严密的逻辑链条，恰好是数学推理需要的那部分内功。配比的学问也因此远比「几个数字凑成 100%」微妙：调的不只是比例，还有顺序与搭配。</p>
+
+<p>　　配比也不一定靠人拍脑袋。DoReMi（Xie et al., 2023，arXiv:2305.10429）给出了一条自动化路线：先训一个 280M 的小代理模型，用极小化极大优化自动搜出让各域最坏情况损失最小的配比，再把这套配比搬去训练 8B 的大模型（体量约 30 倍），整个搜索成本只花主模型训练量的 8%——小模型探路、大模型赶路。这与 1.4 节介绍的手工定配比正好形成对照，两处可以对着读。</p>
+
+<div class="highlight-box info">
+  中期调配比不是没有代价的：数据分布突变会让损失曲线抖动，实践中通常配合更低的学习率平滑过渡——这就牵出了下一节的学习率收尾问题，也埋下了 8.4.4 遗忘问题的引子。
+</div>
+
+<h2>8.4.3 退火：最后几公里用最好的数据</h2>
+
+<p>　　配比可以在中期调，还有一份调整留给了收尾。长跑运动员最后一公里要冲刺，预训练的最后一程也有一段特殊的跑法，名字借自冶金——退火。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">退火 Annealing</span>
+    <span class="term-en">anneal = 金属加热后缓慢冷却，消除内应力</span>
+  </div>
+  <div class="term-body">
+    <p>冶金里，烧红的金属如果直接淬火会变脆，缓慢降温则让原子有时间归位、消除内应力，材料更韧。预训练的退火照着这个意象来：训练末期让学习率沿一条短促的衰减曲线逐步收到很低，同时把数据换成质量最高的一批，让模型在最后阶段「精细定型」。两个要素缺一不可：<strong>学习率收尾衰减</strong>与<strong>高质量数据上采样</strong>。</p>
+    <div class="term-analogy">就像备考的最后一周：不再大面积刷题（停止高强度赶进度），把错题本和最精华的讲义过一遍（高质量数据），心态放缓、精细吸收（学习率调低）。</div>
+  </div>
+</div>
+
+<p>　　退火不是玄学，两份一手报告给出了硬数据。Llama 3 技术报告（arXiv:2407.21783）把退火数据单列一节（3.1.3 节）：在预训练末期，用少量高质量代码与数学数据做退火，上采样选定领域的高质量源，并且刻意不混入任何常用基准的训练集，保证测出来的是真本事。效果写在 3.4.3 节：退火让预训练的 Llama 3 8B 在 GSM8K 与 MATH 验证集上分别相对提升 24.0% 与 6.4%。注意这还没有动用任何后训练手段，纯粹是预训练收尾阶段的数据操作，性价比可见一斑。</p>
+
+<p>　　MiniCPM（Hu et al., 2024，arXiv:2404.06395）则把「学习率怎么收」做成了显式方案。6.2 节讲过 warmup 加 cosine 的经典调度，MiniCPM 提出的 WSD（Warmup-Stable-Decay）把曲线改成三段：先线性爬升，再顶住峰值长跑，最后快速衰减收尾：</p>
+
+<div class="formula-card">
+  \[ \eta_s = \begin{cases} \eta \cdot \dfrac{s}{W}, &amp; s \le W \\[6pt] \eta, &amp; W &lt; s \le T \\[6pt] \eta \cdot f(s - T), &amp; T &lt; s \le S \end{cases} \tag{1} \]
+  <div class="formula-note">公式 (1)：WSD 学习率调度——先爬升、再顶住、最后快速降落。符号说明：\(\eta\) 是峰值学习率；\(s\) 是当前步数；\(W\) 是 warmup 持续的步数，第一段里学习率从 0 线性爬到峰值；\(T\) 是 stable 段结束的步数，第二段里学习率恒定在峰值；\(S\) 是训练总步数；\(f(\cdot)\) 是一个递减函数（线性或指数均可），第三段把学习率从峰值收到接近 0，这一段就是退火段，通常只占总步数的一成上下。</div>
+</div>
+
+<p>　　MiniCPM 的实验报告了两个关键发现。其一，<strong>衰减段 loss 急剧下降</strong>：学习率一开始降，loss 就快速下探，很快追平甚至低于同预算 cosine 调度的终值——高学习率长跑攒下的「势能」，在衰减段集中兑现。其二，<strong>衰减前的 checkpoint 可以反复复用</strong>：stable 段末尾存一份模型，想继续训练就保持高学习率接着跑，想收工随时接一段衰减。这个性质让 WSD 与持续训练、领域适配天然兼容——底座训到 stable 段存档，之后每次领域续训都可以从这份存档出发，各续各的，互不绑架。相比之下，cosine 调度一开工就把终点写死，中途想加数据就得从头再来。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-wsd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 阶段底色 -->
+    <rect x="60" y="30" width="50" height="270" fill="#ede9fe" fill-opacity="0.55"/>
+    <rect x="110" y="30" width="370" height="270" fill="#ecfeff" fill-opacity="0.5"/>
+    <rect x="480" y="30" width="210" height="270" fill="#fef3c7" fill-opacity="0.75"/>
+    <!-- 坐标轴 -->
+    <line x1="60" y1="305" x2="60" y2="22" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-wsd)"/>
+    <line x1="50" y1="300" x2="700" y2="300" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-wsd)"/>
+    <text x="60" y="16" text-anchor="middle" font-size="12" fill="#666">学习率 η</text>
+    <text x="380" y="342" text-anchor="middle" font-size="12" fill="#666">训练进度（步数）</text>
+    <!-- 峰值虚线 -->
+    <line x1="60" y1="70" x2="690" y2="70" stroke="#6d28d9" stroke-width="1" stroke-dasharray="5 4" opacity="0.6"/>
+    <text x="688" y="90" text-anchor="end" font-size="12" fill="#6d28d9">峰值学习率 η</text>
+    <!-- cosine 对照曲线（青色虚线） -->
+    <polyline fill="none" stroke="#0891b2" stroke-width="2" stroke-dasharray="7 5" points="110,70 140,72 170,76 200,82 230,90 260,100 290,112 320,125 350,140 380,155 410,170 440,185 470,199 500,212 530,224 560,234 590,243 620,250 650,256 660,258"/>
+    <!-- WSD 曲线（紫色实线） -->
+    <line x1="60" y1="300" x2="110" y2="70" stroke="#6d28d9" stroke-width="2.5"/>
+    <line x1="110" y1="70" x2="480" y2="70" stroke="#6d28d9" stroke-width="2.5"/>
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2.5" points="480,70 495,75 510,86 525,101 540,121 555,146 570,175 585,205 600,231 615,251 630,265 645,275 660,282"/>
+    <!-- 阶段标注 -->
+    <text x="95" y="48" text-anchor="middle" font-size="12" fill="#6d28d9">①warmup</text>
+    <text x="295" y="52" text-anchor="middle" font-size="13" fill="#0891b2">② stable：顶住峰值长跑</text>
+    <text x="585" y="52" text-anchor="middle" font-size="12.5" fill="#b45309">③ decay：快速衰减 = 退火段</text>
+    <!-- 图例 -->
+    <line x1="150" y1="248" x2="190" y2="248" stroke="#6d28d9" stroke-width="2.5"/>
+    <text x="198" y="253" font-size="12.5" fill="#333">WSD（warmup-stable-decay）</text>
+    <line x1="150" y1="272" x2="190" y2="272" stroke="#0891b2" stroke-width="2" stroke-dasharray="7 5"/>
+    <text x="198" y="277" font-size="12.5" fill="#333">cosine 对照（6.2 节的经典调度）</text>
+    <!-- 底部注释 -->
+    <text x="380" y="368" text-anchor="middle" font-size="12" fill="#666">decay 段通常只占总步数一成上下，常与高质量数据上采样同步进行</text>
+  </svg>
+  <div class="diagram-caption">图示：WSD 与 cosine 两种学习率调度的对比。WSD 在 stable 段顶住峰值长跑，末段陡降收尾；stable 段末尾的 checkpoint 可存档复用，想续训接着跑、想收工随时衰减。cosine 则全程平滑下坡，开工即锁定终点。</div>
+</div>
+
+<p>　　为什么退火有效？数据侧的解释是「好钢用在刀刃上」：末期学习率已经很小，每一步更新都精细，此时喂进来的高质量数据能被模型干净地吸收；学习率侧，小步长本身就是精细收敛的必要条件。要坦白说明的是，退火为何如此奏效的机理研究还不充分，上述解释属于社区的主流直觉，尚无严格定理背书——但配方本身已被 Llama 3 与 MiniCPM 两代模型独立验证，先用起来再说。</p>
+
+<div class="highlight-box">
+  退火是预训练全程性价比最高的一段：只花总 token 量百分之几的预算，换基准分数的显著提升。配方是两味药同煎——学习率收尾衰减 + 高质量数据上采样，缺一效减。
+</div>
+
+<h2>8.4.4 灾难性遗忘：补强一头的代价</h2>
+
+<p>　　前三节讲的全是收益，这一节算账。8.4.1 留下的伏笔该兑现了：模型在本领域变强的同时，其它领域的表现会回落。这不是某个团队的失手，而是神经网络的固有属性，学界给它起了个名字——灾难性遗忘。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">灾难性遗忘 Catastrophic Forgetting</span>
+    <span class="term-en">catastrophic = 灾难性的；forgetting = 学了新的、忘了旧的</span>
+  </div>
+  <div class="term-body">
+    <p>神经网络按顺序学习新任务时，旧任务上的性能大幅下降的现象。根源在于参数只有一份、全部共享：把参数往新任务的方向拉，就必然离开旧任务的舒适区。Goodfellow 等人 2013 年的经典实验（arXiv:1312.6211）系统验证了这一现象在梯度训练的各类网络中普遍存在。它不是 bug，是共享参数架构的固有属性。</p>
+    <div class="term-analogy">就像只有一块黑板的教室：今天的课板书再精彩，明天写新板书时也只能擦掉旧的。想留住旧内容，唯一的办法是新课里不断回头引用它。</div>
+  </div>
+</div>
+
+<p>　　放到 LLM 续训的语境里，遗忘的表现是：领域基准分数节节攀升，通用基准（常识推理、通用语言理解等）分数悄悄下滑。Don't Stop Pretraining 里 DAPT 后跨领域回落的现象，就是它在文献中的早期身影。放任不管的结果是一个「偏科」模型：医学问答对答如流，日常对话反而变笨。</p>
+
+<p>　　工程实践总结出的对冲手段主要是三招：</p>
+
+<ul>
+  <li><strong>通用数据回放（replay）</strong>：续训语料里按比例掺回通用预训练数据，让模型温故的同时知新。黑板理论的直接应用——新板书每隔几行就复述一遍旧内容。这是工业界最常用的一招，成本只是多喂一些已有数据。</li>
+  <li><strong>压低学习率、控制步数</strong>：续训学习率通常明显低于预训练峰值，步数也短，小步慢走、见好就收，减小参数被拽离原位的幅度。细节上，Gupta 等人 2023 年的研究（arXiv:2308.04014）发现长周期、大剂量的续训里学习率需要重新 warmup 再衰减才能学好——直接沿用上次训练末尾的小学习率一动不动，往往学不进新数据；仅千步量级的短促扩展续训不在此列，DeepSeek-V3 沿用收尾学习率照样成功（8.5 节）。这与 WSD「从 stable 存档出发」的思路正好衔接。</li>
+  <li><strong>全程双轨监测</strong>：续训期间定期在领域基准与通用基准上同时评测，两条曲线一起看。通用曲线下滑超预期，就提前刹车或加大回放比例——把遗忘从事后才发现，变成过程中可干预的变量。</li>
+</ul>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-forget" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 坐标轴 -->
+    <line x1="70" y1="305" x2="70" y2="22" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-forget)"/>
+    <line x1="60" y1="300" x2="700" y2="300" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-forget)"/>
+    <text x="70" y="16" text-anchor="middle" font-size="12" fill="#666">基准分数</text>
+    <text x="385" y="346" text-anchor="middle" font-size="12" fill="#666">领域续训步数 →</text>
+    <!-- 领域任务曲线（青色实线，上升） -->
+    <polyline fill="none" stroke="#0891b2" stroke-width="2.5" points="100,250 160,190 230,150 300,122 380,100 460,88 540,82 650,76"/>
+    <text x="490" y="66" font-size="12.5" fill="#0891b2">领域任务分数：稳步上升</text>
+    <!-- 通用能力·无回放（红色虚线，下降） -->
+    <polyline fill="none" stroke="#dc2626" stroke-width="2.5" stroke-dasharray="7 5" points="100,140 170,155 240,172 320,190 400,206 480,219 560,228 650,235"/>
+    <text x="400" y="252" font-size="12.5" fill="#dc2626">通用分数·无回放：一路下滑（遗忘）</text>
+    <!-- 通用能力·有回放（紫色实线，基本持平） -->
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2.5" points="100,140 170,147 250,153 340,158 430,161 520,163 650,165"/>
+    <text x="120" y="126" font-size="12.5" fill="#6d28d9">通用分数·掺回放：基本守住</text>
+    <!-- 遗忘代价标注：红紫两线之间的落差 -->
+    <line x1="620" y1="167" x2="620" y2="232" stroke="#dc2626" stroke-width="1.2" stroke-dasharray="3 3"/>
+    <text x="632" y="205" font-size="12" fill="#dc2626">遗忘的代价</text>
+    <!-- 底部注释 -->
+    <text x="385" y="322" text-anchor="middle" font-size="12" fill="#666">回放 replay：续训语料中按比例掺回通用数据，让模型温故知新</text>
+  </svg>
+  <div class="diagram-caption">图示：领域续训中的三条曲线。领域任务分数一路上升；通用能力在纯领域语料上续训时持续下滑（红色虚线），掺入通用数据回放后基本守住（紫色实线）。两线之间的落差就是遗忘的代价，也是回放要挽回的部分。</div>
+</div>
+
+<div class="highlight-box warn">
+  遗忘与适配是一对根本张力：完全不忘就几乎没适配，彻底适配往往伴随着大忘。续训工程的目标是在两条曲线之间找到可接受的平衡点，而不是把领域分数刷到最高——后者常常意味着通用能力已经悄悄崩盘。
+</div>
+
+<p>　　至此，中间训练的两条腿就齐了：长上下文扩展把模型的「视野」拉长，领域适配与退火把模型的「功底」砸实。但无论是适配后的领域模型还是退火后的通用模型，都还只是「知识在线、行为离线」的底座——会说不会做，有知识没规矩。把底座调教成听得懂指令、答得像样的助手，是后训练的任务，第 9 章监督微调就此开场。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">DAPT 和 TAPT 的区别是什么？</div>
+    <div class="sc-key">DAPT 在任务所在领域的大规模无标注语料上继续预训练，面向领域、语料量大；TAPT 在与具体任务直接相关的小而精数据上继续训练，离任务更近。Don't Stop Pretraining 表明两者各自都提升下游表现，先后叠加效果最好。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">退火阶段到底在做什么，为什么有效？</div>
+    <div class="sc-key">训练末期把学习率收到很低，同时上采样最高质量的数据（教科书式、合成精选、高质量代码与数学）。小步长负责精细收敛，好数据负责最后一程的营养。Llama 3 报告退火使 GSM8K 相对提升 24.0%；MiniCPM 的 WSD 把这一思路固化成「顶住峰值长跑 + 末段陡降」的调度。机理尚无严格解释，属社区主流直觉。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">领域续训为什么会伤害通用能力，怎么缓解？</div>
+    <div class="sc-key">参数只有一份且全部共享，往新分布拉就离开旧分布的谷底，即灾难性遗忘。缓解三招：续训语料中掺通用数据回放、压低学习率并控制步数（必要时重新 warmup 再衰减）、续训全程双轨监测领域与通用基准。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Gururangan et al., 2020. Don't Stop Pretraining: Adapt Language Models to Domains and Tasks（DAPT 与 TAPT 的出处，ACL 2020，arXiv:2004.10964）。</li>
+  <li>Shao et al., 2024. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models（120B 数学 token 续训、代码训练有益于数学推理，arXiv:2402.03300）。</li>
+  <li>Xie et al., 2023. DoReMi: Optimizing Data Mixtures Speeds Up Language Model Pretraining（小代理模型自动搜配比，NeurIPS 2023，arXiv:2305.10429）。</li>
+  <li>Grattafiori et al., 2024. The Llama 3 Herd of Models（退火数据见 3.1.3 节，退火使 GSM8K / MATH 相对提升 24.0% / 6.4% 见 3.4.3 节，arXiv:2407.21783）。</li>
+  <li>Hu et al., 2024. MiniCPM: Unveiling the Potential of Small Language Models with Scalable Training Strategies（WSD 调度、衰减段 loss 急剧下降与 checkpoint 复用，arXiv:2404.06395；decay 段约占总步数一成为该文实验与后续综述的经验值）。</li>
+  <li>Goodfellow et al., 2013. An Empirical Investigation of Catastrophic Forgetting in Gradient-Based Neural Networks（灾难性遗忘的经典实验研究，ICLR 2014，arXiv:1312.6211）。</li>
+  <li>Gupta et al., 2023. Continual Pre-Training of Large Language Models: How to (re)warm your model?（续训需重新 warmup 学习率再衰减，arXiv:2308.04014）。</li>
+</ul>
+
+</article>

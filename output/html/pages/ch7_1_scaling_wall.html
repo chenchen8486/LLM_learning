@@ -1,0 +1,367 @@
+﻿<article class="content">
+<h1>7.1 显存墙与算力墙：为什么单卡训不动大模型</h1>
+<p class="subtitle">本页范围：第 7 章第 1 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>同一套 Transformer 架构、同一套训练循环，为什么大公司训一个模型要几千张顶级 GPU 跑几个月，而本工程的 minimind 一张消费级显卡就够了？差距到底卡在哪？</td></tr>
+      <tr><td>本节主张</td><td>卡在两面墙。显存墙：混合精度 Adam 下每个参数要占 16 字节，70B 模型光模型状态就超过 1.1 TB，一张 80GB 卡差 14 倍。算力墙：按 C≈6ND 换算，100B 参数配 1T token 要 6×10²³ FLOPs，一张 H100 满血也要跑约 19 年，实际几十年。破局只有一条路：用并行把墙拆开，分摊给成百上千张卡。</td></tr>
+      <tr><td>一句话结论</td><td>显存决定「装不装得下」，算力决定「跑不跑得完」；大模型训练工程的全部内容，就是把这两面单卡翻不过的墙，用数据、张量、流水线、ZeRO、序列五种并行拆给整个集群。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>模型状态</span><span>16 字节法则</span><span>激活</span><span>梯度重计算</span><span>C ≈ 6ND</span><span>MFU</span><span>并行技术地图</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　第 6 章把预训练的「账本」算清楚了：目标是下一个 token 预测，优化靠 AdamW 加 cosine 调度，规模有 Scaling Law 兜底，6.3.5 还算出 GPT-3 一次训练要 3.14×10²³ FLOPs、折合数百个卡年。账本知道了，问题跟着来了：这笔账要怎么兑付？一张显卡只有几十 GB 显存、每秒一千万亿次运算，凭什么撑起几千亿参数、几万亿 token 的训练？本章就回答这个工程问题，而第一节先把困难本身摆到台面上：单卡面前立着两面墙，一面装不下，一面跑不完。</p>
+
+<p>　　本节沿「先立墙、再找路」的顺序展开，最后落回本工程的 minimind，看清小模型为什么天然免疫这两面墙：</p>
+
+<ol>
+  <li><strong>显存墙：模型状态到底占多少显存</strong>（7.1.1）：把训练时显存里的四户住客逐个拆开，推出「每参数 16 字节」的经验法则，算出 70B 模型 1.1 TB 的账；</li>
+  <li><strong>算力墙：训练一次要多少 FLOPs</strong>（7.1.2）：复用第 6 章的 C≈6ND，对照 H100 的真实峰值与 MFU，算出单卡几十年的结论；</li>
+  <li><strong>并行技术地图：把一面墙拆给几百张卡</strong>（7.1.3）：数据、张量、流水线、ZeRO、序列五种并行各切什么、治哪面墙，一页总览，细节指给 7.2 与 7.3；</li>
+  <li><strong>minimind 对照：64M 参数为什么单卡能跑</strong>（7.1.4）：把同一套公式代回 64M 小模型，看墙的高度如何随参数量缩回平地。</li>
+</ol>
+
+<p>　　读完本节，你应该拿到两把随身尺子：估显存用「16N 字节」，估时间用「C 除以有效算力」——任何训练配置先过这两把尺子，再谈工程。</p>
+
+<h2>7.1.1 显存墙：模型状态到底占多少显存</h2>
+
+<p>　　先建立直觉。推理时，显存里只需放一份模型参数，装得下权重就能跑。训练完全不同：它像一间同时开工的后厨，灶台上除了菜谱（参数），还摊着每张订单的批改笔记（梯度）、助教手里的两本台账（优化器状态），以及案板上越堆越高的半成品（每层的中间结果）。前三样只要训练不停就一直在那，合起来有个专门的名字：</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">模型状态 Model States</span>
+    <span class="term-en">model states = 参数 + 梯度 + 优化器状态，训练期间常驻显存的三类张量</span>
+  </div>
+  <div class="term-body">
+    <p>ZeRO 论文（Rajbhandari et al., 2019）把训练显存分成两大块：<strong>模型状态</strong>与<strong>激活</strong>。模型状态包括参数本身、每个参数的梯度、以及优化器为每个参数维护的状态（对 Adam 来说是一份 fp32 主权重加一阶、二阶动量）。它们的体积只跟参数量有关，与 batch 大小、序列长短无关——模型多大，这三样就有多大，雷打不动。</p>
+    <div class="term-analogy">就像一家公司的固定资产：设备（参数）、待办工单（梯度）、财务的两本台账（优化器状态），只要公司开着门就一直在那，不随当天订单多少而增减。随订单变化的案板占用，是下面要讲的激活。</div>
+  </div>
+</div>
+
+<p>　　这三样各自占多少？按当前主流的混合精度训练（6.3 节讲过：前向用 16 位浮点求快，参数更新留在 32 位主副本上求稳），配合 Adam 优化器，每个参数背后跟着五份数据：</p>
+
+<div class="formula-card">
+  \[ M_{\text{states}} \approx \underbrace{2N}_{\text{fp16 参数}} + \underbrace{2N}_{\text{fp16 梯度}} + \underbrace{4N}_{\text{fp32 主权重}} + \underbrace{4N}_{\text{Adam } m} + \underbrace{4N}_{\text{Adam } v} = 16N \;(\text{字节}) \tag{1} \]
+  <div class="formula-note">公式 (1)：混合精度 Adam 训练的显存账本——每个参数名义上只有 2 字节，背后却拖着 16 字节的全部家当。符号说明：\(M_{\text{states}}\) 是模型状态的总显存占用，单位字节；\(N\) 是模型参数量；第一项 2N 是 fp16/bf16 参数本体（两种格式都是 2 字节）；第二项 2N 是同精度的梯度；第三项 4N 是 fp32 主权重（master weights），混合精度下参数更新在这份 32 位副本上进行，否则小步走的学习会被 16 位精度直接舍掉；最后两项 4N 是 Adam 的一阶动量 \(m\) 与二阶动量 \(v\)（见 6.2 节公式 (3)），每个参数各一份、fp32 存储。fp16 与 bf16 字节数相同，账本一样，差别只在数值范围（6.3 节：fp16 需要 GradScaler 防梯度下溢，bf16 不需要）。</div>
+</div>
+
+<p>　　把这笔账代到一个 70B（700 亿参数）模型上：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>成分</th><th>精度</th><th>每参数字节</th><th>70B 模型占用</th></tr></thead>
+    <tbody>
+      <tr><td>参数</td><td>fp16 / bf16</td><td>2</td><td>140 GB</td></tr>
+      <tr><td>梯度</td><td>fp16 / bf16</td><td>2</td><td>140 GB</td></tr>
+      <tr><td>主权重（master weights）</td><td>fp32</td><td>4</td><td>280 GB</td></tr>
+      <tr><td>Adam 一阶动量 \(m\)</td><td>fp32</td><td>4</td><td>280 GB</td></tr>
+      <tr><td>Adam 二阶动量 \(v\)</td><td>fp32</td><td>4</td><td>280 GB</td></tr>
+      <tr><td><strong>模型状态合计</strong></td><td>—</td><td><strong>16</strong></td><td><strong>1120 GB ≈ 1.1 TB</strong></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　1120 GB 是什么概念？当前顶级训练卡 H100、A100 的单卡显存都是 80 GB。光模型状态就是单卡容量的 14 倍——模型还没开始算，家当就装不下了。而且注意账目的分布：参数本体只占 140 GB，真正的吞金兽是优化器状态（840 GB，占四分之三）。这个分布直接决定了后面 ZeRO 的刀法：先砍优化器状态。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <!-- 左柱：70B 模型状态堆叠，4 GB = 1 px -->
+    <rect x="90" y="70" width="160" height="70" fill="#155e75"/>
+    <text x="170" y="100" text-anchor="middle" font-size="12.5" fill="#fff">Adam 动量 v（fp32）</text>
+    <text x="170" y="118" text-anchor="middle" font-size="12.5" fill="#fff">280 GB</text>
+    <rect x="90" y="140" width="160" height="70" fill="#0e7490"/>
+    <text x="170" y="170" text-anchor="middle" font-size="12.5" fill="#fff">Adam 动量 m（fp32）</text>
+    <text x="170" y="188" text-anchor="middle" font-size="12.5" fill="#fff">280 GB</text>
+    <rect x="90" y="210" width="160" height="70" fill="#0891b2"/>
+    <text x="170" y="240" text-anchor="middle" font-size="12.5" fill="#fff">fp32 主权重</text>
+    <text x="170" y="258" text-anchor="middle" font-size="12.5" fill="#fff">280 GB</text>
+    <rect x="90" y="280" width="160" height="35" fill="#7c3aed"/>
+    <text x="170" y="302" text-anchor="middle" font-size="12" fill="#fff">梯度 fp16：140 GB</text>
+    <rect x="90" y="315" width="160" height="35" fill="#6d28d9"/>
+    <text x="170" y="337" text-anchor="middle" font-size="12" fill="#fff">参数 fp16：140 GB</text>
+    <!-- 激活（示意，不按比例） -->
+    <rect x="90" y="36" width="160" height="28" fill="#fef3c7" stroke="#d97706" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="170" y="54" text-anchor="middle" font-size="12" fill="#b45309">激活（示意）</text>
+    <!-- 右侧标注 -->
+    <text x="270" y="92" font-size="14" fill="#6d28d9" font-weight="bold">模型状态合计 1120 GB ≈ 1.1 TB</text>
+    <text x="270" y="200" font-size="12.5" fill="#0e7490">优化器状态 840 GB</text>
+    <text x="270" y="218" font-size="12.5" fill="#0e7490">占模型状态的四分之三</text>
+    <text x="270" y="330" font-size="12.5" fill="#6d28d9">参数 + 梯度 280 GB</text>
+    <text x="270" y="48" font-size="11.5" fill="#b45309">随 batch 与序列长增长，柱高未按比例</text>
+    <!-- 右柱：单卡 H100 -->
+    <rect x="500" y="330" width="110" height="20" fill="#dc2626"/>
+    <text x="555" y="322" text-anchor="middle" font-size="12.5" fill="#dc2626">单卡 H100：80 GB</text>
+    <text x="555" y="130" text-anchor="middle" font-size="13.5" fill="#dc2626" font-weight="bold">70B 的训练状态</text>
+    <text x="555" y="150" text-anchor="middle" font-size="13.5" fill="#dc2626" font-weight="bold">是单卡显存的 14 倍</text>
+    <line x1="555" y1="165" x2="555" y2="310" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <!-- 底线与说明 -->
+    <line x1="70" y1="350" x2="650" y2="350" stroke="#999" stroke-width="1.5"/>
+    <text x="360" y="374" text-anchor="middle" font-size="12" fill="#666">柱高与显存占用等比（4 GB = 1 像素；激活除外，仅示意）</text>
+  </svg>
+  <div class="diagram-caption">图示：70B 模型在混合精度 Adam 下的显存账。左柱是模型状态与激活（训练时的全部家当），右柱是单张 H100 的 80 GB 显存——左侧任何一段单独拿出来，都几乎顶满一张卡。</div>
+</div>
+
+<p>　　模型状态只是第一户住客，第二户是<strong>激活</strong>。反向传播算梯度时要用到前向传播的中间结果（每层的输出、注意力分数、MLP 的中间向量），所以训练必须把它们暂存在显存里，backward 用完才能释放。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">激活值 Activations</span>
+    <span class="term-en">activation = 前向传播中每一层产出的中间结果</span>
+  </div>
+  <div class="term-body">
+    <p>激活与模型状态的性格完全不同：它跟参数量关系不大，随 <strong>batch 大小 × 序列长度 × 层数 × 隐藏维度</strong>线性增长。batch 翻倍，激活就近乎翻倍；序列从 2K 拉到 128K，激活跟着膨胀几十倍。大 batch、长序列的大模型训练里，激活显存可以达到数百 GB，比模型状态还凶。</p>
+    <div class="term-analogy">就像后厨案板上的半成品：厨师（参数）只有一套，台账（优化器状态）只有两本，但同时开工的订单（batch）越多、每单的工序（序列）越长，案板占的地方就越大。</div>
+  </div>
+</div>
+
+<p>　　治激活有一招经典的时间换空间：<strong>梯度重计算</strong>（gradient checkpointing，Chen et al., 2016）。思路是只保存少数检查点处的激活，其余全部丢掉；backward 需要某段激活时，从最近的检查点把那段前向重新跑一遍。\(n\) 层网络的激活显存从 \(O(n)\) 降到 \(O(\sqrt{n})\)，代价是大约多算一次前向，总算力上涨约三成。显存不够算力凑，这笔交换在大模型训练里几乎必做。</p>
+
+<div class="highlight-box info">
+  梯度重计算的「检查点」与 6.3 节存盘的 checkpoint 不是一回事：前者是显存里少数几层的激活快照，反向时用来重放前向；后者是写到磁盘上的完整训练状态，用于断点续训。名字相同，各管各的。
+</div>
+
+<div class="highlight-box">
+  本节第一把尺子：<strong>16 字节法则</strong>。混合精度 Adam 训练时，先按 16N 字节估算模型状态，再按 batch 与序列长估激活；装不进单卡，才轮到并行与各种省显存技术登场。70B 模型的 1.1 TB 对 80 GB，就是最典型的「装不下」。
+</div>
+
+<h2>7.1.2 算力墙：训练一次要多少 FLOPs</h2>
+
+<p>　　显存管「装不装得下」，算力管「跑不跑得完」。就算显存问题解决了，第二个问题还在：训练一次到底要做多少运算，一张卡每秒能做多少运算，一除要多少年？总量那把尺子第 6 章已经用过两次（6.3.5 与 6.4.2），这里直接请出来：</p>
+
+<div class="formula-card">
+  \[ C \approx 6\,N\,D \tag{2} \]
+  <div class="formula-note">公式 (2)：训练总算力的账本（Kaplan et al., 2020）。符号说明：\(C\) 是训练消耗的总浮点运算次数（FLOPs）；\(N\) 是参数量；\(D\) 是训练 token 总数；系数 6 来自每个 token 前向约 \(2N\)、反向约 \(4N\) 次运算的逐参数估算，具体推导留到 7.5 节。取一个当代主流配置的例子：\(N = 10^{11}\)（100B 参数）、\(D = 10^{12}\)（1T token），得 \(C \approx 6 \times 10^{23}\) FLOPs。</div>
+</div>
+
+<p>　　再看一张卡每秒能搬多少。以当前两代主流训练卡为例，官方规格里与训练最相关的一行是 BF16 张量算力：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>GPU</th><th>显存</th><th>BF16 稠密峰值</th><th>BF16 稀疏峰值（2:4）</th></tr></thead>
+    <tbody>
+      <tr><td>A100 80GB（SXM）</td><td>80 GB</td><td>312 TFLOPS</td><td>624 TFLOPS</td></tr>
+      <tr><td>H100 80GB（SXM）</td><td>80 GB</td><td>989 TFLOPS</td><td>1,979 TFLOPS</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box info">
+  NVIDIA 官网醒目标注的 1,979 TFLOPS 是带 2:4 结构化稀疏的数字，稠密峰值是它的一半。稀疏要求权重按特定格式裁剪才能兑现，通用训练一般吃不到，所以估算训练时间一律按稠密口径。1 TFLOPS 等于每秒 \(10^{12}\) 次浮点运算。
+</div>
+
+<p>　　峰值是理想值，真实训练还要打一个大大的折扣：计算单元要停下来等显存读写、等卡间通信、做非矩阵乘的杂活。实际能兑现的比例有个专门指标：</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">MFU 算力利用率</span>
+    <span class="term-en">MFU = Model FLOPs Utilization，实际有效算力 ÷ 理论峰值算力</span>
+  </div>
+  <div class="term-body">
+    <p>MFU 衡量一套训练系统把硬件潜力榨出了几成。优化良好的大模型训练，MFU 通常在 30% 到 50% 之间——也就是说，一张标称 989 TFLOPS 的 H100，真正用于模型计算的大约只有 300 到 500 TFLOPS。MFU 是衡量训练工程水平的核心指标，第 7 章后面的并行与通信优化，很大程度就是在跟它较劲。</p>
+    <div class="term-analogy">就像货车的额定载重与实际月均载重：装货、卸货、加油、等红灯都占时间，跑一个月下来，实际运力远低于「额定 × 天数」。</div>
+  </div>
+</div>
+
+<p>　　总量除以有效速度，就是训练时间：</p>
+
+<div class="formula-card">
+  \[ T \approx \frac{C}{R_{\text{peak}} \times \eta_{\text{MFU}}} \tag{3} \]
+  <div class="formula-note">公式 (3)：训练时间的估算式。符号说明：\(T\) 是训练耗时；\(C\) 是公式 (2) 的总算力；\(R_{\text{peak}}\) 是单卡峰值算力（H100 按 BF16 稠密取 \(9.89 \times 10^{14}\) FLOPS）；\(\eta_{\text{MFU}}\) 是算力利用率。代入 100B × 1T 的例子：满血（\(\eta = 1\)）时 \(T \approx 6.1 \times 10^{8}\) 秒 ≈ 19 年；按 40% MFU 的乐观实际值，约 48 年。</div>
+</div>
+
+<p>　　结论冷冰冰：100B 级模型配 1T token，一张 H100 要训几十年——一个人从入职干到退休，一张卡还没跑完。而同样的总算力摊到 1000 张卡上（仍按 40% MFU），时间立刻缩到约 18 天。单卡绝无可能，集群轻而易举，中间隔着的只是「并行」两个字。</p>
+
+<div class="highlight-box">
+  本节第二把尺子：先按 \(C \approx 6ND\) 算总量，再按 \(T \approx C / (R_{\text{peak}} \times \eta_{\text{MFU}})\) 算时间。100B × 1T 对单张 H100 是几十年，对千卡集群是几周——算力墙不是靠更快的单卡翻过去的，是靠把算力拼起来翻过去的。
+</div>
+
+<h2>7.1.3 并行技术地图：把一面墙拆给几百张卡</h2>
+
+<p>　　墙立清楚了，接下来是拆法。并行技术有五样主兵器，切的维度各不相同：有的切数据，有的切矩阵，有的切层，有的切状态，有的切序列。它们不互斥，实战里是组合使用。本页只给地图，每条路的走法与坑留给 7.2 与 7.3 两节。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr71" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 单元格 1：数据并行 -->
+    <rect x="12" y="12" width="226" height="156" rx="10" fill="#faf9ff" stroke="#c4b5fd" stroke-width="1.2"/>
+    <text x="125" y="34" text-anchor="middle" font-size="13.5" fill="#6d28d9" font-weight="bold">数据并行 DP</text>
+    <rect x="32" y="52" width="54" height="40" rx="4" fill="#6d28d9"/>
+    <text x="59" y="76" text-anchor="middle" font-size="10.5" fill="#fff">全量模型</text>
+    <rect x="98" y="52" width="54" height="40" rx="4" fill="#6d28d9"/>
+    <text x="125" y="76" text-anchor="middle" font-size="10.5" fill="#fff">全量模型</text>
+    <rect x="164" y="52" width="54" height="40" rx="4" fill="#6d28d9"/>
+    <text x="191" y="76" text-anchor="middle" font-size="10.5" fill="#fff">全量模型</text>
+    <line x1="59" y1="108" x2="59" y2="94" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <line x1="125" y1="108" x2="125" y2="94" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <line x1="191" y1="108" x2="191" y2="94" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <rect x="32" y="108" width="186" height="16" fill="#fef3c7" stroke="#d97706" stroke-width="1"/>
+    <line x1="94" y1="108" x2="94" y2="124" stroke="#d97706" stroke-width="1"/>
+    <line x1="156" y1="108" x2="156" y2="124" stroke="#d97706" stroke-width="1"/>
+    <text x="125" y="120" text-anchor="middle" font-size="10" fill="#b45309">同一批数据切成 3 份</text>
+    <text x="125" y="144" text-anchor="middle" font-size="11" fill="#555">复制完整模型，各卡喂不同数据</text>
+    <text x="125" y="159" text-anchor="middle" font-size="11" fill="#555">扩算力，不减单卡显存</text>
+    <!-- 单元格 2：张量并行 -->
+    <rect x="244" y="12" width="226" height="156" rx="10" fill="#faf9ff" stroke="#c4b5fd" stroke-width="1.2"/>
+    <text x="357" y="34" text-anchor="middle" font-size="13.5" fill="#6d28d9" font-weight="bold">张量并行 TP</text>
+    <rect x="264" y="52" width="186" height="44" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <line x1="326" y1="52" x2="326" y2="96" stroke="#6d28d9" stroke-width="1.2"/>
+    <line x1="388" y1="52" x2="388" y2="96" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="357" y="78" text-anchor="middle" font-size="10.5" fill="#6d28d9">同一层矩阵乘，纵切三份</text>
+    <line x1="295" y1="96" x2="295" y2="110" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <line x1="357" y1="96" x2="357" y2="110" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <line x1="419" y1="96" x2="419" y2="110" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <rect x="277" y="112" width="36" height="18" rx="3" fill="#6d28d9"/>
+    <rect x="339" y="112" width="36" height="18" rx="3" fill="#6d28d9"/>
+    <rect x="401" y="112" width="36" height="18" rx="3" fill="#6d28d9"/>
+    <text x="357" y="144" text-anchor="middle" font-size="11" fill="#555">把单层矩阵乘切给多卡协同</text>
+    <text x="357" y="159" text-anchor="middle" font-size="11" fill="#555">通信密集，一般限节点内 NVLink</text>
+    <!-- 单元格 3：流水线并行 -->
+    <rect x="482" y="12" width="226" height="156" rx="10" fill="#faf9ff" stroke="#c4b5fd" stroke-width="1.2"/>
+    <text x="595" y="34" text-anchor="middle" font-size="13.5" fill="#6d28d9" font-weight="bold">流水线并行 PP</text>
+    <rect x="500" y="52" width="56" height="52" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="528" y="74" text-anchor="middle" font-size="10.5" fill="#155e75">第 1 段</text>
+    <text x="528" y="90" text-anchor="middle" font-size="10" fill="#155e75">若干层</text>
+    <rect x="566" y="52" width="56" height="52" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="594" y="74" text-anchor="middle" font-size="10.5" fill="#155e75">第 2 段</text>
+    <text x="594" y="90" text-anchor="middle" font-size="10" fill="#155e75">若干层</text>
+    <rect x="632" y="52" width="56" height="52" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="660" y="74" text-anchor="middle" font-size="10.5" fill="#155e75">第 3 段</text>
+    <text x="660" y="90" text-anchor="middle" font-size="10" fill="#155e75">若干层</text>
+    <line x1="556" y1="78" x2="564" y2="78" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arr71)"/>
+    <line x1="622" y1="78" x2="630" y2="78" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arr71)"/>
+    <circle cx="560" cy="70" r="3" fill="#dc2626"/>
+    <circle cx="626" cy="86" r="3" fill="#dc2626"/>
+    <text x="595" y="120" text-anchor="middle" font-size="10" fill="#dc2626">micro-batch 在段间流动</text>
+    <text x="595" y="144" text-anchor="middle" font-size="11" fill="#555">按层切段，分给不同卡</text>
+    <text x="595" y="159" text-anchor="middle" font-size="11" fill="#555">通信少，但有气泡空转</text>
+    <!-- 单元格 4：ZeRO -->
+    <rect x="130" y="196" width="226" height="156" rx="10" fill="#faf9ff" stroke="#c4b5fd" stroke-width="1.2"/>
+    <text x="243" y="218" text-anchor="middle" font-size="13.5" fill="#6d28d9" font-weight="bold">ZeRO：切状态</text>
+    <rect x="156" y="232" width="28" height="24" fill="#155e75"/>
+    <rect x="156" y="256" width="28" height="24" fill="#0e7490"/>
+    <rect x="156" y="280" width="28" height="24" fill="#0891b2"/>
+    <line x1="184" y1="244" x2="216" y2="240" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <line x1="184" y1="268" x2="216" y2="268" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <line x1="184" y1="292" x2="216" y2="296" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <rect x="220" y="230" width="64" height="20" rx="3" fill="#6d28d9"/>
+    <text x="252" y="244" text-anchor="middle" font-size="9.5" fill="#fff">卡 1 存 1/3</text>
+    <rect x="220" y="258" width="64" height="20" rx="3" fill="#6d28d9"/>
+    <text x="252" y="272" text-anchor="middle" font-size="9.5" fill="#fff">卡 2 存 1/3</text>
+    <rect x="220" y="286" width="64" height="20" rx="3" fill="#6d28d9"/>
+    <text x="252" y="300" text-anchor="middle" font-size="9.5" fill="#fff">卡 3 存 1/3</text>
+    <text x="140" y="272" text-anchor="middle" font-size="10" fill="#155e75">模型</text>
+    <text x="140" y="285" text-anchor="middle" font-size="10" fill="#155e75">状态</text>
+    <text x="243" y="322" text-anchor="middle" font-size="11" fill="#555">优化器状态 / 梯度 / 参数分片存</text>
+    <text x="243" y="337" text-anchor="middle" font-size="11" fill="#555">用通信换显存，分三档</text>
+    <!-- 单元格 5：序列并行 -->
+    <rect x="366" y="196" width="226" height="156" rx="10" fill="#faf9ff" stroke="#c4b5fd" stroke-width="1.2"/>
+    <text x="479" y="218" text-anchor="middle" font-size="13.5" fill="#6d28d9" font-weight="bold">序列并行 SP</text>
+    <rect x="386" y="240" width="186" height="20" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <line x1="448" y1="240" x2="448" y2="260" stroke="#6d28d9" stroke-width="1.2"/>
+    <line x1="510" y1="240" x2="510" y2="260" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="479" y="254" text-anchor="middle" font-size="10" fill="#6d28d9">一条长序列切成 3 段</text>
+    <line x1="417" y1="260" x2="417" y2="274" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <line x1="479" y1="260" x2="479" y2="274" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <line x1="541" y1="260" x2="541" y2="274" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr71)"/>
+    <rect x="399" y="276" width="36" height="18" rx="3" fill="#6d28d9"/>
+    <rect x="461" y="276" width="36" height="18" rx="3" fill="#6d28d9"/>
+    <rect x="523" y="276" width="36" height="18" rx="3" fill="#6d28d9"/>
+    <text x="479" y="322" text-anchor="middle" font-size="11" fill="#555">沿序列维切激活，治长序列显存</text>
+    <text x="479" y="337" text-anchor="middle" font-size="11" fill="#555">与张量并行搭档（7.2 细讲）</text>
+  </svg>
+  <div class="diagram-caption">图示：五种并行技术各切一个维度。数据并行复制模型切数据；张量并行把单层矩阵切开；流水线并行按层分段；ZeRO 把模型状态分片；序列并行沿序列维切激活。实战中它们组合使用，而不是五选一。</div>
+</div>
+
+<p>　　把五样兵器摆进一张分工表，「切什么、治哪面墙、代价是什么」一目了然：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>并行技术</th><th>切什么</th><th>主要治哪面墙</th><th>主要代价</th><th>出处</th></tr></thead>
+    <tbody>
+      <tr><td>数据并行 DP</td><td>数据：每卡一份完整模型，各喂不同 batch</td><td>算力墙</td><td>不减单卡显存；梯度需跨卡同步</td><td>经典方案，PyTorch DDP</td></tr>
+      <tr><td>张量并行 TP</td><td>单层矩阵：沿行 / 列切给多卡协同</td><td>显存墙（参数与激活）</td><td>每步通信频繁，一般限节点内 NVLink</td><td>Megatron-LM</td></tr>
+      <tr><td>流水线并行 PP</td><td>层：把模型按段分给不同卡</td><td>显存墙（参数）</td><td>段间有空转气泡，靠 micro-batch 填缝</td><td>GPipe</td></tr>
+      <tr><td>ZeRO</td><td>模型状态：优化器状态 / 梯度 / 参数逐档分片</td><td>显存墙（状态）</td><td>用通信换显存，分片越深通信越重</td><td>ZeRO（DeepSpeed）</td></tr>
+      <tr><td>序列并行 SP</td><td>序列维：把长序列的激活切段</td><td>显存墙（激活）</td><td>只覆盖部分算子，需与 TP 搭档</td><td>Megatron-SP</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　实战中的大训练是组合拳：节点内 8 卡之间用张量并行加序列并行（通信密但带宽高），跨节点用流水线并行（通信少），最外层再套数据并行加 ZeRO——业界俗称 <strong>3D 并行</strong>。比如 7.1.1 那笔 70B 的账，一种典型拆法是 64 卡：节点内 8 路 TP，跨节点 8 路 PP，每卡只扛约 1.1B 参数对应的状态，1.1 TB 的大山就此化整为零。每种拆法的原理、通信量分析与 ZeRO 的三档细节，正是 7.2 与 7.3 的内容。</p>
+
+<div class="highlight-box info">
+  注意一个容易混淆的点：数据并行治的是算力墙（更多卡同时搬），对显存墙毫无帮助——每张卡仍要存全量模型状态。单卡装不下的模型，堆再多数据并行也装不下，必须上 TP、PP 或 ZeRO。选并行方案的第一步，永远是先分清自己在翻哪面墙。
+</div>
+
+<h2>7.1.4 minimind 对照：64M 参数为什么单卡能跑</h2>
+
+<p>　　现在回答开头问题的另一半：同样是这套架构与训练循环，为什么本工程的 minimind 一张消费级显卡就够？把两把尺子代回去就明白了。第一把尺子：64M 参数的模型状态是 \(64 \times 10^{6} \times 16 \approx 1.0\) GB。第二把尺子：默认配置 batch 32、序列长 340、8 层 768 维，激活显存粗估在 2 GB 上下。两样加起来 3 GB 出头，一张 24 GB 的 RTX 3090 装得绰绰有余，连梯度重计算都不用开。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>账本项</th><th>minimind-3</th><th>70B 级模型</th></tr></thead>
+    <tbody>
+      <tr><td>参数量</td><td>64M（8 层 × 768 维，词表 6400）</td><td>70B，约为前者的 1100 倍</td></tr>
+      <tr><td>模型状态（16N 法则）</td><td>约 1.0 GB</td><td>约 1120 GB</td></tr>
+      <tr><td>激活（各自默认配置）</td><td>约 2 GB 量级（batch 32 × 序列 340）</td><td>随 batch 与序列长可达数百 GB</td></tr>
+      <tr><td>单卡可行性</td><td>24 GB 消费卡轻松装下</td><td>80 GB 卡差 14 倍，必须并行</td></tr>
+      <tr><td>预训练硬件（6.3 节实测）</td><td>单卡 RTX 3090 约 1.2 小时</td><td>千卡级集群数周</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　对照到这一步，「为什么大公司要几千张卡」就不再神秘了：墙的高度随参数量线性长，64M 时墙只有脚踝高，一步就跨过去；70B 时墙高 14 倍于单卡，只能靠并行工程把墙拆开。大模型训练里那些令人望而生畏的技术——张量并行、流水线、ZeRO、重计算——没有一样是装饰品，全是在这两面墙下逼出来的出路。</p>
+
+<p>　　接下来的路线：7.2 节展开数据并行、张量并行与序列并行的原理与通信账，7.3 节讲流水线并行与 ZeRO 的三档分片，7.5 节把本页直接引用的 \(C \approx 6ND\) 推导出来。带着两把尺子往后走，每个技术你都能自己算出它省下了什么、花掉了什么。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">混合精度 Adam 下，为什么每个参数要按 16 字节估算显存？</div>
+    <div class="sc-key">fp16 参数 2 字节 + fp16 梯度 2 字节 + fp32 主权重 4 字节 + Adam 一阶、二阶动量各 4 字节，合计 16 字节。70B 模型仅模型状态就达 1.1 TB，是 80GB 单卡的 14 倍，其中优化器状态占四分之三。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">怎么用 C≈6ND 与 MFU 估算一次训练的时间？</div>
+    <div class="sc-key">总量 \(C \approx 6ND\)，时间 \(T \approx C / (R_{\text{peak}} \times \eta_{\text{MFU}})\)。100B × 1T tokens 约 6×10²³ FLOPs，H100 满血约 19 年，40% MFU 约 48 年；摊到 1000 张卡约 18 天。单卡几十年、集群几周，这就是并行存在的理由。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">五种并行各切什么、各治哪面墙？</div>
+    <div class="sc-key">数据并行切数据治算力墙；张量并行切单层矩阵、流水线并行切层、ZeRO 切模型状态、序列并行切序列维的激活，后四样治显存墙的不同成分。实战组合成 3D 并行，细节在 7.2 与 7.3。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+<p>　　本节的算账不需要任何 GPU，一个 Python 解释器就够。先算显存账——把公式 (1) 代到你感兴趣的模型上：</p>
+<pre><code>python -c "N=7e9; print(f'{N*16/1e9:.0f} GB 模型状态（7B 模型，混合精度 Adam）')"</code></pre>
+<p>　　预期输出 <code>112 GB 模型状态</code>——哪怕「只有」7B，全量训练状态也装不进一张 80GB 卡，这就是 7B 微调也要 ZeRO 或 LoRA（第 9 章）的原因。再算时间账：</p>
+<pre><code>python -c "C=6*100e9*1e12; R=989e12; print(f'{C:.1e} FLOPs；H100 满血 {C/R/3.156e7:.0f} 年，40% MFU 约 {C/(R*0.4)/3.156e7:.0f} 年，千卡 {C/(R*0.4*1000)/86400:.0f} 天')"</code></pre>
+<p>　　预期输出 <code>6.0e+23 FLOPs；H100 满血 19 年，40% MFU 约 48 年，千卡 18 天</code>。把 100e9 换成 64e6（minimind 的参数量），同样的 1T token 满血只要约 4.5 天——小模型与大模型的工程难度，就藏在这一串指数里。</p>
+<p>　　代码侧的对照（出处：minimind 工程，Apache 2.0 协议）在 <code>trainer/train_pretrain.py</code>：第 33–36 行 autocast 前向与 loss 除以累积步数（混合精度省显存的落点）；第 84 行 <code>accumulation_steps</code> 默认 8；第 114 行 <code>autocast_ctx</code>（默认 bfloat16）；第 129 行 <code>GradScaler</code> 仅 fp16 启用；第 146 行 <code>DistributedDataParallel</code> 包装——多卡训练时，7.1.3 地图里的数据并行就是这一行代码。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Micikevicius et al., 2018. Mixed Precision Training（混合精度训练与 fp32 主权重的原始论文，arXiv:1710.03740，ICLR 2018）。</li>
+  <li>Rajbhandari, Rasley, Ruwase &amp; He, 2019. ZeRO: Memory Optimizations Toward Training Trillion Parameter Models（「每参数 16 字节」账本、模型状态与激活的区分、ZeRO 分片的出处，arXiv:1910.02054）。</li>
+  <li>Chen, Xu, Zhang &amp; Guestrin, 2016. Training Deep Nets with Sublinear Memory Cost（梯度重计算的原始论文，激活显存 O(n) 降 O(√n)、约三成额外算力，arXiv:1604.06174）。</li>
+  <li>Shoeybi et al., 2019. Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism（张量并行，arXiv:1909.08053）。</li>
+  <li>Huang et al., 2018. GPipe: Efficient Training of Giant Neural Networks using Pipeline Parallelism（流水线并行与 micro-batch，arXiv:1811.06965）。</li>
+  <li>Korthikanti et al., 2022. Reducing Activation Recomputation in Large Transformer Models（序列并行与激活显存分析，arXiv:2205.05198）。</li>
+  <li>Kaplan et al., 2020. Scaling Laws for Neural Language Models（训练算力估算式 C ≈ 6ND 的出处，arXiv:2001.08361）。</li>
+  <li>NVIDIA H100 Tensor Core GPU 官方规格页（H100 SXM：80GB HBM3；BF16 张量峰值 1,979 TFLOPS 为 2:4 稀疏口径，稠密约 989 TFLOPS）：https://www.nvidia.com/en-us/data-center/h100/ 。</li>
+  <li>NVIDIA A100 Tensor Core GPU 官方规格页（A100 80GB：BF16 稠密 312 / 稀疏 624 TFLOPS）：https://www.nvidia.com/en-us/data-center/a100/ 。</li>
+  <li>minimind 工程（gongjy/minimind，Apache 2.0 协议）：README 模型配置表（minimind-3：64M、8 层、768 维、词表 6400）与 trainer/train_pretrain.py。行号以本工程实读版本为准。</li>
+</ul>
+
+</article>

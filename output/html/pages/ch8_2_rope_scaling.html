@@ -1,0 +1,297 @@
+﻿<article class="content">
+<h1>8.2 长上下文扩展 I：位置编码缩放</h1>
+<p class="subtitle">本页范围：第 8 章第 2 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>预训练在 4K / 8K 窗口里完成的模型，凭什么能读 128K 长文？把位置编码的“刻度”改一改就行吗，具体改哪里、改完还要补多少训练？</td></tr>
+      <tr><td>本节主张</td><td>所有主流方案是同一个思想的变体：把超出训练范围的位置“缩回”模型熟悉的刻度，外推变内插。差别只在缩什么——压位置编号（PI）、改基频（NTK 家族）、还是出厂就预留余量（调大 base），以及缩完补多少长文训练。</td></tr>
+      <tr><td>一句话结论</td><td>改刻度负责“读得下”，长文续训负责“读得懂”；DeepSeek-V3 用 YaRN 加每阶段仅 1000 步的续训，就把窗口从 4K 两级扩到 128K。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>长度外推</span><span>Position Interpolation</span><span>NTK 缩放</span><span>YaRN</span><span>RoPE base</span><span>中间训练</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　第 7 章收官时，预训练工程已经能稳定产出一个在 4K 或 8K 窗口里训练好的基座模型。但应用很快就不满足了：整个代码仓库、几百页财报、几十轮长对话，样样都超出窗口。第 8 章的主题——中间训练（Mid-training），正是预训练之后、后训练之前的针对性补训，而长上下文扩展是它最典型的任务。3.5 节曾给过一张方法地图，指出所有方案的共性是“把外推偷换成内插”；本节把这张地图逐格放大，讲清每种方法动了哪个旋钮、为什么有效、各付什么代价：</p>
+
+<ol>
+  <li><strong>外推失效：训练 4K 的模型硬读 128K 会发生什么</strong>（8.2.1）：从困惑度爆炸的现象，追到三角基展开“区间内听话、区间外撒野”的机理；</li>
+  <li><strong>Position Interpolation：把位置坐标等比压回训练区间</strong>（8.2.2）：最直白的改刻度方案，千步微调换 16 倍窗口，代价是近邻分辨力；</li>
+  <li><strong>NTK 家族：高频少动、低频多缩</strong>（8.2.3）：从 NTK-aware 的一行配置，到 YaRN 的分频段插值加温度补偿，再到 LongRoPE 的搜索式缩放；</li>
+  <li><strong>调大 base 的朴素 trick：出厂自带的温和缩放</strong>（8.2.4）：Llama 3 把 base 从一万提到五十万，为什么这一个数字就管用。</li>
+</ol>
+
+<p>　　读完本节，你应当能打开任何一个开源模型的 config.json，一眼认出 <code>rope_theta</code> 与 <code>rope_scaling</code> 两个字段各自对应哪套方案，并说清它们为什么这样填。下一节（长上下文扩展 II）再解决另一半问题：刻度改好之后，用什么样的长文数据把模型真正练出长程本领。</p>
+
+<h2>8.2.1 外推失效：训练 4K 的模型硬读 128K 会发生什么</h2>
+
+<p>　　先建立一个具体场景。Llama 2 的预训练窗口是 4096（4K），现在直接把一篇 128K token 的长文档塞进去——位置编号从 0 一路排到 131071，是训练上限的 32 倍。3.4 节讲过 RoPE 的工作原理：位置 \(m\) 的 query、key 向量被旋转角度 \(m\theta_i\)。位置 131071 意味着每个维度组都要转出训练时从未出现过的角度，而模型对“转了那么多圈之后向量朝向什么样”毫无经验。</p>
+
+<p>　　现象有多惨？证据最干净的一组实验来自 PI 论文：LLaMA 的训练窗口只有 2048，不做任何处理直接外推到 8192，困惑度（PPL，衡量模型对下文的预测能力，越低越好，第 6 章细讲）会从个位数一路冲破 \(10^3\)——是训练窗口内正常水平的几百倍。换句话说，越过训练窗口的那一刻，模型就不是“变笨了”，而是“不会说话了”。</p>
+
+<p>　　为什么崩得这么彻底？PI 论文给了一个锋利的视角。3.4 节说过，RoPE 下两个 token 的注意力分数只依赖相对距离 \(s = m - n\)。把这个分数按频率展开：</p>
+
+<div class="formula-card">
+  \[ a(s) = \mathrm{Re}\Big[\sum_{j=0}^{d/2-1} h_j\, e^{\mathrm{i}\, s\, \theta_j}\Big] \tag{1} \]
+  <div class="formula-note">公式 (1)：注意力分数是一条以相对距离 \(s\) 为自变量的曲线，由 \(d/2\) 个不同频率的三角波叠加而成。训练只约束了这条曲线在 \(s \in [0, L]\) 区间内的形状，区间之外它完全自由。符号说明：\(a(s)\) 是相对距离为 \(s\) 的一对 query-key 算出的注意力分数（进 softmax 之前）；\(h_j\) 是由 query、key 第 \(j\) 组分量决定的复系数，随输入内容变化；\(\theta_j = \mathrm{base}^{-2j/d}\) 是第 \(j\) 组维度的旋转角速度（同 3.4 节公式 (2)）；\(\mathrm{i}\) 是虚数单位；\(\mathrm{Re}[\cdot]\) 表示取实部。</div>
+</div>
+
+<p>　　训练只保证这条曲线在 \(s \in [0, L]\) 里听话：论文实测，区间内分数被压在 ±1 量级。可三角函数基是万能逼近器，同样的基在区间外完全可以拼出任意大的值——论文把拟合出的分数曲线往区间外一延，数值轻松突破 8000。softmax 的输入里出现八千量级的异常分数，注意力分布瞬间塌成一根尖刺，后续计算跟着连锁崩溃。论文还从理论上证明：内插的误差上界比外推小约 600 倍——这从数学上解释了为什么“把位置缩回区间”是条活路。</p>
+
+<p>　　还有一个反直觉的细节值得记住：崩溃的表现不是“看不到远处”。PI 论文指出，把证据放在位置 2900、问题放在位置 3000——两者相距只有 100 token，是一对近邻，但因为落在了训练窗口（2048）之外，模型照样答错。异常分数污染的是整个注意力机制，近处信息一样读不了。</p>
+
+<div class="highlight-box danger">
+  易错理解：把外推崩溃当成“模型只是感知不到远处的内容”。实际是超出范围的旋转角让注意力分数本身失控（可超 8000，而正常范围是 ±1 量级），整个注意力机制失灵，近处、远处的信息一起报废。
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">有效上下文窗口 Effective Context Window</span>
+    <span class="term-en">模型实际能用上的窗口，常常小于名义窗口</span>
+  </div>
+  <div class="term-body">
+    <p>名义窗口是架构允许的最大输入长度，有效窗口是模型真正能从中取出信息的最远距离。测量方法之一是 passkey 检索：把一串随机数字藏进长文的某个位置，让模型找出来；藏得越远越考功力，稳定找不到的距离就划出了有效窗口的边界。一个模型可以“名义 128K、有效 8K”——长文喂得进去，但远处的信息它已经拿不回来了。</p>
+    <div class="term-analogy">就像图书馆号称藏书百万册（名义窗口），但管理员只找得到最近借过的那一架（有效窗口），其余的书等于不存在。</div>
+  </div>
+</div>
+
+<p>　　那“不改编码、直接用长文硬训”行不行？PI 论文的对照实验泼了冷水：在 8192 窗口上直接续训 LLaMA，一万步之后用 passkey 检索测有效窗口，只从 2048 挪到 2560，几乎没有进展。模型不是不想学长上下文，是陌生刻度上的异常分数让它无从下手。这说明问题出在刻度上，钥匙也在刻度上——后面三节就是三把（及一把半）钥匙。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="extArrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="extArrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <!-- 训练区间底色 -->
+    <rect x="70" y="30" width="150" height="270" fill="#ede9fe" fill-opacity="0.55"/>
+    <text x="145" y="46" text-anchor="middle" font-size="12" fill="#6d28d9">训练时见过的区间</text>
+    <!-- 坐标轴 -->
+    <line x1="70" y1="300" x2="70" y2="20" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#extArrP)"/>
+    <line x1="60" y1="300" x2="700" y2="300" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#extArrP)"/>
+    <text x="70" y="14" text-anchor="middle" font-size="12" fill="#666">PPL（越低越好）</text>
+    <text x="390" y="334" text-anchor="middle" font-size="12" fill="#666">上下文长度（token）</text>
+    <!-- x 轴刻度 -->
+    <text x="70" y="318" text-anchor="middle" font-size="11" fill="#666">0</text>
+    <text x="220" y="318" text-anchor="middle" font-size="11" fill="#6d28d9">L=2048</text>
+    <text x="370" y="318" text-anchor="middle" font-size="11" fill="#666">4096</text>
+    <text x="668" y="318" text-anchor="middle" font-size="11" fill="#666">8192</text>
+    <!-- 训练窗口虚线 -->
+    <line x1="220" y1="30" x2="220" y2="300" stroke="#6d28d9" stroke-width="1" stroke-dasharray="5,4" opacity="0.7"/>
+    <!-- 直接外推：爆炸曲线 -->
+    <polyline fill="none" stroke="#dc2626" stroke-width="2.5" points="70,232 120,231 170,230 220,228 245,214 265,192 285,160 300,124 312,88 322,54" marker-end="url(#extArrR)"/>
+    <text x="345" y="60" font-size="12.5" fill="#dc2626">直接外推：越过 L 立刻爆炸</text>
+    <text x="345" y="78" font-size="11.5" fill="#dc2626">PPL 突破 10³（接近未训练模型）</text>
+    <!-- PI：平稳曲线 -->
+    <polyline fill="none" stroke="#0891b2" stroke-width="2.5" points="70,232 220,230 370,236 520,242 668,247"/>
+    <text x="428" y="272" font-size="12.5" fill="#0891b2">PI 改刻度 + 千步微调：平稳读完全程</text>
+  </svg>
+  <div class="diagram-caption">图示：困惑度随输入上下文长度的变化（定性示意，曲线形状依据 PI 论文报告的实验结果绘制）。红色：直接外推，输入一越过训练窗口 L，困惑度几乎垂直起飞；青色：位置插值改刻度并短训后，模型在长上下文上保持平稳，甚至因可参考的信息变多而略有下降。</div>
+</div>
+
+<h2>8.2.2 Position Interpolation：把位置坐标等比压回训练区间</h2>
+
+<p>　　既然崩溃的根源是“位置编号超出了模型熟悉的范围”，最直白的对策就是别让编号出圈。2023 年 Meta 的 Chen 等人提出位置插值（Position Interpolation，PI）：把位置坐标整体除以缩放系数，长文的全部位置等比压回训练区间：</p>
+
+<div class="formula-card">
+  \[ f_{\mathrm{PI}}(\mathbf{x}, m) = f\!\left(\mathbf{x}, \frac{mL}{L'}\right) = f\!\left(\mathbf{x}, \frac{m}{s}\right), \qquad s = \frac{L'}{L} \tag{2} \]
+  <div class="formula-note">公式 (2)：位置 \(m\) 的 token 不再按 \(m\) 编码，而是按压缩后的 \(m/s\) 编码，原来落在 \(0\) 到 \(L'-1\) 的位置恰好压回 \(0\) 到 \(L-1\)。符号说明：\(f(\mathbf{x}, m)\) 是 RoPE 对向量 \(\mathbf{x}\) 施加位置 \(m\) 旋转的编码函数；\(f_{\mathrm{PI}}\) 是插值后的新编码；\(m\) 是原始位置编号；\(L\) 是训练窗口长度，\(L'\) 是目标推理窗口长度；\(s = L'/L\) 是扩展倍数（如 2048 扩到 8192 时 \(s = 4\)）。</div>
+</div>
+
+<p>　　打个比方：RoPE 的位置刻度像一把尺子，模型在训练时认熟了这把尺子的每一格。直接外推是把尺子往空白处硬接 32 倍长，接出来的部分模型一格都不认识；PI 则是把刻度的数字改小——原来 1 毫米一格，现在 32 毫米共用一个刻度数字，尺子总长不变，整篇 128K 长文却能在这把“改了标度的尺”上从头量到尾。token 的先后顺序、相对结构原样保留，只是每个位置的“名字”变小了。</p>
+
+<p>　　改动只有一行缩放，但有两个后续问题要交代。第一，\(m/s\) 通常是小数：原来位置 100 和 101 变成 25.00 和 25.03，相邻 token 的位置间距被挤小了 \(s\) 倍，模型需要适应这种更密的刻度。PI 论文的处方是在新刻度上<strong>少量继续训练</strong>：LLaMA 7B 到 65B，在 Pile 语料上微调约 1000 步（开销只是预训练的零头），窗口就能从 2048 稳定扩到 16384 乃至 32768，最高 16 倍；passkey 检索测试甚至显示，200 步微调后有效窗口就已拉满目标长度。第二，短文本有轻微代价：原窗口内的基准任务平均退化 2% 以内——原本宽裕的 2048 个整数刻度，如今被压进更窄的数值区间，分辨力自然受损。</p>
+
+<div class="highlight-box info">
+  PI 在范式上的贡献比方法本身更大：它确立了“先改刻度、再短训适应”的两步骨架——改编码让长文读得下，少量续训让模型适应新刻度。后面的 NTK 家族、工业界的分阶段扩展，全都沿用这个骨架，只是改刻度的手法越来越精细。
+</div>
+
+<p>　　PI 把外推变成了内插，但它对所有维度一视同仁地压缩，连带压坏了模型区分相邻 token 的能力——就像缩印后的书页，字还是那些字，挤在一起就不好认了。这个代价提示了下一步的方向：位置编码内部其实分工明确，不该一刀切。</p>
+
+<h2>8.2.3 NTK 家族：高频少动、低频多缩</h2>
+
+<p>　　回忆 3.4 节的结论：RoPE 的 \(d/2\) 个维度组各有转速 \(\theta_i = \mathrm{base}^{-2i/d}\)，第 0 组转得最快，最后一组最慢。换一把更直观的尺子来量——每个维度组转过一整圈需要多少个 token，即<strong>波长</strong>：</p>
+
+<div class="formula-card">
+  \[ \lambda_i = \frac{2\pi}{\theta_i} = 2\pi \cdot \mathrm{base}^{\,2i/d} \tag{3} \]
+  <div class="formula-note">公式 (3)：第 \(i\) 组维度转过一整圈所需的 token 数，转速越慢的组波长越长。符号说明：\(\lambda_i\) 是第 \(i\) 组的波长（周期），单位是 token；\(\theta_i\) 是该组的旋转角速度（同公式 (1)）；\(\mathrm{base}\) 是 RoPE 基数；\(d\) 是注意力头维度；\(i\) 是维度组编号，从 0 到 \(d/2-1\)。</div>
+</div>
+
+<p>　　代入典型数值（base 取 10000、头维度 \(d = 128\)）：最快维度约 6 个 token 转一圈，4K 训练里它见过几百个完整周期，对“圈上任何角度”都经验丰富；最慢维度约 6.3 万个 token 才转一圈，训练窗口里它连半圈都没转过——模型对它的陌生程度远超快维度。这就是 NTK 家族的洞察：<strong>外推失效主要集中在慢维度（低频分量），快维度见多识广，不需要动。</strong></p>
+
+<p>　　2023 年，社区研究者 bloc97 提出的 NTK-aware 缩放第一个把这个洞察写成公式：不压位置编号，改 RoPE 的基数：</p>
+
+<div class="formula-card">
+  \[ \mathrm{base}' = \mathrm{base} \cdot \alpha^{\frac{d}{d-2}} \;\;\Longrightarrow\;\; \theta'_{d/2-1} = \frac{\theta_{d/2-1}}{\alpha}, \qquad \theta'_{0} = \theta_0 \tag{4} \]
+  <div class="formula-note">公式 (4)：把基数按扩展倍数 \(\alpha\) 放大后，最慢维度的转速恰好被除以 \(\alpha\)——和 PI 对它的处理一致；最快维度纹丝不动；中间维度平滑过渡。“高频少动、低频多缩”自动成立。符号说明：\(\mathrm{base}\) 是原基数（如 10000）；\(\mathrm{base}'\) 是新基数；\(\alpha\) 是目标扩展倍数；\(\theta'_i\) 是修改后第 \(i\) 组的角速度。推导只需一行：\(\theta'_i = (\mathrm{base}\cdot\alpha^{d/(d-2)})^{-2i/d}\)，当 \(i = d/2 - 1\) 时 \(\alpha\) 的指数恰为 \(-1\)（即除以 \(\alpha\)），当 \(i = 0\) 时 \(\theta'_0 = 1\) 不受影响。</div>
+</div>
+
+<p>　　这个改法只动一行配置，不训练也有一定效果（原帖标题就写着“无需微调”），因此在 llama.cpp 等社区工具里迅速普及。名字里的 NTK 来自其推导借用的理论视角，用的时候记住“改 base、保高频”六个字就够了。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">NTK（Neural Tangent Kernel，神经正切核）</span>
+    <span class="term-en">一种分析神经网络训练行为的理论工具</span>
+  </div>
+  <div class="term-body">
+    <p>NTK 理论研究“宽神经网络在梯度下降下如何演化”，其中一条结论是：高频成分（变化快的函数）比低频成分更难外推。bloc97 借用这个视角分析 RoPE：不同维度组就是不同频率的成分，外推灾难主要来自高频维度被压坏后的连锁反应——准确的说是低频维度没见过完整周期，而 PI 一刀切又伤了高频。于是对症下药：只缩低频、保住高频。名字唬人，思想就是这么一句。</p>
+  </div>
+</div>
+
+<p>　　NTK-aware 的 \(\alpha\) 是固定值，社区很快给出更灵活的版本——Dynamic NTK（emozilla，2023）：按本次输入的实际长度动态决定缩放力度：</p>
+
+<div class="formula-card">
+  \[ \alpha(l) = \max\!\Big(1,\; \frac{l}{L}\Big) \tag{5} \]
+  <div class="formula-note">公式 (5)：输入没超过训练窗口就一切照旧（\(\alpha = 1\)）；超过多少倍，就把 base 按公式 (4) 放大多少倍。短文本完全不受影响，长文本自动获得匹配的缩放。符号说明：\(\alpha(l)\) 是随输入长度变化的扩展倍数；\(l\) 是本次推理的实际输入长度；\(L\) 是训练窗口长度。注意这是社区工程方案而非论文方法，Qwen 系列在推理侧采用了它，配合 LogN 注意力缩放与窗口注意力，把 2K 训练的窗口扩到 8K 以上。</div>
+</div>
+
+<p>　　同年，Peng 等人的 YaRN（Yet another RoPE extensioN）把“按频段区别对待”做到精细极致，关键改进有两处。第一是<strong>分频段插值</strong>：给每个维度组算一个比值 \(r_i = L / \lambda_i\)——训练窗口里能容纳几个完整周期——按比值分三段处理：</p>
+
+<div class="formula-card">
+  \[ \theta'_i = (1-\gamma_i)\,\frac{\theta_i}{s} + \gamma_i\,\theta_i, \qquad \gamma_i = \begin{cases} 0, &amp; r_i &lt; 1 \\ \dfrac{r_i - 1}{32 - 1}, &amp; 1 \le r_i \le 32 \\ 1, &amp; r_i &gt; 32 \end{cases} \tag{6} \]
+  <div class="formula-note">公式 (6)：波长长过整个训练窗口的慢维度（\(r_i &lt; 1\)，连一个周期都没见过）按 PI 方式全量压缩 \(\theta_i / s\)；波长不足窗口 1/32 的快维度（\(r_i &gt; 32\)，身经百战）原样保留；中间维度按线性斜坡平滑过渡。符号说明：\(\theta'_i\) 是修改后第 \(i\) 组的角速度；\(s\) 是扩展倍数；\(\gamma_i\) 是“保留原样”的插值系数（0 为全压缩，1 为不动）；\(r_i = L / \lambda_i\) 中 \(L\) 是训练窗口、\(\lambda_i\) 是公式 (3) 的波长；阈值 1 与 32 是 YaRN 论文在 LLaMA 设定下的取值（对应实现配置里的 beta_slow 与 beta_fast）。实现时常用相反的斜坡记号——快维度斜坡为 0 保持原频率、慢维度斜坡为 1 除以 factor，与本式等价（如 minimind 第 72-73 行）。</div>
+</div>
+
+<p>　　第二是<strong>温度补偿</strong>。位置被压缩后，相对距离整体变小，注意力分数彼此拉近，softmax 出来的分布会变平、注意力变“散”。YaRN 给注意力分数乘上一个随扩展倍数对数增长的系数，把尖锐度补回来：</p>
+
+<div class="formula-card">
+  \[ \sqrt{\frac{1}{t}} \;=\; 0.1 \ln s + 1 \tag{7} \]
+  <div class="formula-note">公式 (7)：温度因子随扩展倍数 \(s\) 对数增大，乘在注意力分数上，补偿插值带来的分布变平。符号说明：\(t\) 是注意力温度，\(\sqrt{1/t}\) 是实际乘在 logits 上的系数；\(s\) 是扩展倍数；\(\ln\) 是自然对数；常数 0.1 与 1 是 YaRN 论文给出的取值。工程实现里它通常被折算进 cos / sin 表（如 minimind 第 76-77 行的 attn_factor）。</div>
+</div>
+
+<p>　　两招合用的回报是实打实的训练预算：YaRN 论文报告，达到同等效果所需 token 比 PI 少约 10 倍、训练步数少约 2.5 倍。它因此成了开源社区扩上下文的标准件：DeepSeek-V3 在 4K 预训练完成后，用 YaRN 连做两级扩展（4K → 32K → 128K），每级只续训 1000 步；Qwen2 官方支持推理时用 YaRN 把 32K 训练窗口扩到 128K。</p>
+
+<p>　　这条线还有更激进的后续：2024 年微软的 LongRoPE 不再手调分段规则，而是用搜索算法逐维度找出非均匀的缩放系数，配合渐进式扩展，把 LLaMA2 的窗口一路推到 2048K（200 万 token）。它提示我们：“每个维度缩多少”本身就是一个可以优化的自由度。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 405" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="specArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 面板 1：原始 -->
+    <text x="210" y="47" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">① 原始：转速随维度几何衰减</text>
+    <line x1="60" y1="60" x2="60" y2="190" stroke="#d4d4d8" stroke-width="1"/>
+    <line x1="60" y1="190" x2="360" y2="190" stroke="#d4d4d8" stroke-width="1"/>
+    <line x1="60" y1="65" x2="360" y2="155" stroke="#6d28d9" stroke-width="2.5"/>
+    <text x="66" y="60" font-size="10.5" fill="#666">快维度 θ≈1</text>
+    <text x="356" y="172" text-anchor="end" font-size="10.5" fill="#666">慢维度 θ≈10⁻⁴</text>
+    <!-- 面板 2：PI -->
+    <text x="550" y="47" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">② PI：整条下移，全部维度变慢 s 倍</text>
+    <line x1="400" y1="60" x2="400" y2="190" stroke="#d4d4d8" stroke-width="1"/>
+    <line x1="400" y1="190" x2="700" y2="190" stroke="#d4d4d8" stroke-width="1"/>
+    <line x1="400" y1="65" x2="700" y2="155" stroke="#999999" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <line x1="400" y1="100" x2="700" y2="190" stroke="#6d28d9" stroke-width="2.5"/>
+    <line x1="550" y1="110" x2="550" y2="141" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#specArr)"/>
+    <text x="558" y="130" font-size="10.5" fill="#6d28d9">÷s</text>
+    <!-- 面板 3：NTK / 调大 base -->
+    <text x="210" y="222" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">③ NTK / 调大 base：快端钉住，慢端下压</text>
+    <line x1="60" y1="235" x2="60" y2="365" stroke="#d4d4d8" stroke-width="1"/>
+    <line x1="60" y1="365" x2="360" y2="365" stroke="#d4d4d8" stroke-width="1"/>
+    <line x1="60" y1="240" x2="360" y2="330" stroke="#999999" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <line x1="60" y1="240" x2="360" y2="365" stroke="#6d28d9" stroke-width="2.5"/>
+    <circle cx="60" cy="240" r="3.5" fill="#6d28d9"/>
+    <text x="70" y="232" font-size="10.5" fill="#6d28d9">快端不动</text>
+    <text x="210" y="352" text-anchor="middle" font-size="10.5" fill="#6d28d9">慢端压低</text>
+    <!-- 面板 4：YaRN -->
+    <text x="550" y="222" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">④ YaRN：左不动、右全压、中间过渡</text>
+    <line x1="400" y1="235" x2="400" y2="365" stroke="#d4d4d8" stroke-width="1"/>
+    <line x1="400" y1="365" x2="700" y2="365" stroke="#d4d4d8" stroke-width="1"/>
+    <line x1="400" y1="240" x2="700" y2="330" stroke="#999999" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <line x1="400" y1="275" x2="700" y2="365" stroke="#999999" stroke-width="1.5" stroke-dasharray="2,3"/>
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2.5" points="400,240 500,270 600,335 700,365"/>
+    <line x1="500" y1="270" x2="500" y2="365" stroke="#d4d4d8" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="600" y1="335" x2="600" y2="365" stroke="#d4d4d8" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="450" y="380" text-anchor="middle" font-size="10" fill="#666">快：不动</text>
+    <text x="550" y="380" text-anchor="middle" font-size="10" fill="#666">过渡</text>
+    <text x="650" y="380" text-anchor="middle" font-size="10" fill="#666">慢：全压</text>
+    <!-- 公共坐标说明 -->
+    <text x="360" y="399" text-anchor="middle" font-size="11" fill="#666">横轴：维度组（左快右慢）　纵轴：转速 θᵢ　（灰色虚线＝原始谱，紫色实线＝修改后）</text>
+  </svg>
+  <div class="diagram-caption">图示：四种方法对 RoPE 转速谱的修改方式。PI 把所有维度一起变慢（压位置的效果）；NTK 与调大 base 钉住快端、压低慢端；YaRN 快段不动、慢段全压、中间平滑过渡，另加注意力温度补偿（图中未画出）。</div>
+</div>
+
+<h2>8.2.4 调大 base 的朴素 trick：出厂自带的温和缩放</h2>
+
+<p>　　最后登场的方法朴素到几乎不像一个“方法”：什么都不推导，直接把 RoPE 的 base 调大。Llama 3 把 base 从 Llama 2 时代的 10000 提到 <strong>500000</strong>，技术报告只用一句话交代动机——“这让我们能更好地支持长上下文”。minimind 的默认 base 是 \(10^6\)，同属这个思路。</p>
+
+<p>　　为什么一个数字就管用？把波长公式 (3) 对新旧两个 base 各写一遍，取个比值立刻现形：</p>
+
+<div class="formula-card">
+  \[ \lambda'_i = \lambda_i \cdot \left(\frac{\mathrm{base}'}{\mathrm{base}}\right)^{2i/d} \tag{8} \]
+  <div class="formula-note">公式 (8)：base 放大后，第 \(i\) 组维度的波长按 \(2i/d\) 次幂被拉伸——最快维度（\(i = 0\)）纹丝不动，最慢维度（\(i \approx d/2\)）的周期被放大 \(\mathrm{base}'/\mathrm{base}\) 倍（10⁴ 提到 5×10⁵ 即 50 倍）。符号说明：\(\lambda'_i\) 是新 base 下第 \(i\) 组的波长；\(\lambda_i\) 是原波长（公式 (3)）；\(\mathrm{base}\)、\(\mathrm{base}'\) 是修改前后的 RoPE 基数；\(i\)、\(d\) 含义同前。</div>
+</div>
+
+<p>　　这意味着：慢维度转一整圈所需的文本长度变成原来的 50 倍，同样 4K / 8K 的训练窗口内，“没转过的陌生角度”大幅减少——效果与 NTK-aware 同源（慢维度温和缩放、快维度不动），只是不按某个目标窗口精确计算，而是出厂时就预留一份宽松余量。用尺子的话说：不是事后改刻度，而是直接买一把刻度更疏的尺子。</p>
+
+<p>　　天下没有免费的余量。base 调大后慢维度的转角整体变小，相邻位置在慢维度上的朝向差异也随之变小，模型区分“相距很远的两个位置”的精细度被稀释。这是一笔交换：牺牲一点远程分辨力，换外推稳定性。所以目标窗口真拉到 128K 时，单靠大 base 并不够，还要叠加显式缩放与长文续训——Llama 3.1 正是大 base 加分阶段继续训练（约 800B token）才把窗口从 8K 推到 128K，这套流水线 3.5 节已有全景介绍。</p>
+
+<div class="highlight-box warn">
+  训练与推理的 base 必须一致。base 是旋转角的“出厂参数”，预训练用 10⁴、推理时改成 10⁶，等于趁模型不注意换了一把尺子——读数全部错位。想换 base，必须在同一 base 下续训让模型重新适应。
+</div>
+
+<div class="highlight-box">
+  四种方法同属一张谱系：PI 压位置编号、NTK-aware 改基频、YaRN 分频段插值加温度补偿、调大 base 出厂预留余量——全部服务于同一件事：把位置编码的读数维持在模型见过的范围内，外推变内插。改刻度让长文“读得下”；要“读得懂”，还需长文续训这另一半，正是下一节的主题。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么 RoPE 模型直接把 128K 长文塞进去会翻车？</div>
+    <div class="sc-key">注意力分数是三角基叠加出的曲线，训练只约束了 \([0, L]\) 区间，区间外分数可冲到数千（正常仅 ±1 量级），softmax 被异常分数冲垮，PPL 突破 \(10^3\)，整个注意力机制失灵——不只是“看不到远处”。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">PI 和 NTK 家族（NTK-aware / YaRN）的差别在哪？</div>
+    <div class="sc-key">PI 把所有位置等比压缩，连高频维度的近邻分辨力一起压坏；NTK 家族按频率区别对待：快维度不动保近邻、慢维度压缩装长文，YaRN 再加分段精确控制与注意力温度补偿，训练量比 PI 小一个量级。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">既然 NTK 缩放零训练也有效，为什么还要长文续训？</div>
+    <div class="sc-key">改刻度只保证“不翻车”，模型从未练习过在几万 token 上组织信息。DeepSeek-V3 每阶段 1000 步、Llama 3.1 约 800B token 的分阶段续训说明：刻度是入场券，长文集训才是长程本领本身。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本节的两个旋钮在 minimind 中都有实物（minimind 工程，Apache 2.0 协议），集中在 <code>model/model_minimind.py</code>：</p>
+
+<ul>
+  <li>8.2.4 的“调大 base”旋钮：第 29 行 <code>self.rope_theta = kwargs.get("rope_theta", 1e6)</code>——默认值就是 \(10^6\)，改这个配置项就是调 base；第 210 行把它传给 <code>precompute_freqs_cis</code> 的 <code>rope_base</code> 参数。</li>
+  <li>8.2.3 的 YaRN 全套实现：第 62-78 行 <code>precompute_freqs_cis</code>。其中第 63 行是 3.4 节的 \(\theta_i = \mathrm{base}^{-2i/d}\)；第 70-73 行按波长求分段边界并生成线性斜坡，第 73 行 <code>freqs * (1 - ramp + ramp / factor)</code> 正是本节公式 (6) 的代码形态；第 76-77 行把 <code>attn_factor</code> 乘在 cos / sin 上，对应公式 (7) 的温度补偿。开关在第 31-39 行：<code>inference_rope_scaling</code> 置真后启用内置 YaRN 配置（factor 16、original_max_position_embeddings 2048、beta_fast 32、beta_slow 1——正是公式 (6) 的两个阈值）。</li>
+</ul>
+
+<p>　　不动模型也能先获得手感。下面这段命令直接计算 8 维 toy 设置下、两种 base 各自的四组旋转频率（即 \(\theta_i\)）：</p>
+
+<pre><code>cd minimind-master
+python -c "import torch; f=lambda b: 1.0/(b**(torch.arange(0,8,2).float()/8)); print('base=1e4:', f(1e4).tolist()); print('base=1e6:', f(1e6).tolist())"
+# 实测输出：
+# base=1e4: [1.0, 0.1, 0.01, 0.001]
+# base=1e6: [1.0, 0.0316, 0.001, 3.16e-05]</code></pre>
+
+<p>　　对照两组数字：最快一组频率恒为 1（快端钉住），越慢的组被压得越狠，最慢一组从 \(10^{-3}\) 压到 \(3.2 \times 10^{-5}\)——公式 (8) 的“高频少动、低频多缩”，就写在这行输出里。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Chen et al., 2023. Extending Context Window of Large Language Models via Positional Interpolation（位置插值 PI 原始论文，arXiv:2306.15595），公式 (1)(2)、直接外推 PPL 突破 \(10^3\)、注意力分数区间外超 8000、内插外推上界约 600 倍之差、千步微调与 passkey 有效窗口实验均出自该文。</li>
+  <li>bloc97, 2023. NTK-Aware Scaled RoPE allows LLaMA models to have extended (8k+) context size without any finetuning and minimal perplexity degradation（NTK-aware 缩放的社区原始出处，Reddit 帖），公式 (4) 出自该帖。</li>
+  <li>emozilla, 2023. Dynamically Scaled RoPE further increases performance of long context LLaMA with zero finetuning（Dynamic NTK 的社区原始出处，Reddit 帖），公式 (5) 的动态缩放思想出自该帖。</li>
+  <li>Peng et al., 2023. YaRN: Efficient Context Window Extension of Large Language Models（YaRN 原始论文，arXiv:2309.00071），分频段插值公式 (6)、温度补偿公式 (7) 与“比 PI 省约 10 倍 token、2.5 倍步数”的结论出自该文。</li>
+  <li>Ding et al., 2024. LongRoPE: Extending LLM Context Window Beyond 2 Million Tokens（LongRoPE 原始论文，arXiv:2402.13753），搜索式非均匀缩放与 2048K 窗口出自该文。</li>
+  <li>Grattafiori et al.（Meta）, 2024. The Llama 3 Herd of Models（Llama 3 系列技术报告，arXiv:2407.21783），RoPE base 提到 500000、Llama 3.1 分阶段续训约 800B token 扩到 128K 出自该文。</li>
+  <li>DeepSeek-AI, 2024. DeepSeek-V3 Technical Report（DeepSeek-V3 技术报告，arXiv:2412.19437），YaRN 两级扩展 4K → 32K → 128K、每级 1000 步出自该文。</li>
+  <li>Bai et al., 2023. Qwen Technical Report（Qwen 技术报告，arXiv:2309.16609），NTK-aware 插值、LogN 注意力缩放与窗口注意力的推理侧组合出自该文；Yang et al., 2024. Qwen2 Technical Report（arXiv:2407.10671），YaRN 推理扩展到 128K 出自该文。</li>
+  <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864），频率公式 \(\theta_i = \mathrm{base}^{-2i/d}\) 的出处，详见 3.4 节。</li>
+  <li>minimind 工程 model/model_minimind.py（Apache 2.0），rope_theta 配置、YaRN 实现与“动手验证”区块的出处。</li>
+</ul>
+
+</article>

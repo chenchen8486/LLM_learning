@@ -1,0 +1,199 @@
+﻿<article class="content">
+<h1>A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</h1>
+<p class="subtitle">本页范围：附录 A 第 2 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>注意力靠点积给 token 两两打分，可模型里的向量是几十上百维的，点积的数值会不会出问题？比语义时为什么不直接用点积，而要用余弦相似度？</td></tr>
+      <tr><td>本节主张</td><td>维度每涨一倍，点积的波动就按 √d 放大，必须除以 √d 把数值拉回温和区间，这就是 4.2 节那个“莫名其妙的除法”的来历；比语义时向量长度装着词频等杂音，方向才装语义，所以要用余弦相似度把长度抽掉、只比方向。</td></tr>
+      <tr><td>一句话结论</td><td>√d 缩放与余弦归一化，本质是同一件事的两面：都不让“箭有多长”干扰“箭朝哪指”的判断。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>点积</span><span>√d 缩放</span><span>方差</span><span>余弦相似度</span><span>注意力打分</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　A.1.5 已经在平面上把点积算清楚了：对应位置相乘再求和，几何上是“影子长度乘对方长度”。注意力机制做的正是这件事——query 与每个 key 做点积，谁的分高就多关注谁（4.2 节）。但 A.1.5 的例子只有 2 维，真实模型的向量是 96 维、768 维甚至更高。维度一高，一个隐蔽的问题就冒出来了：点积的数值会随着维度一起膨胀。本节先把这个问题算出来，再讲工程上怎么压住它，最后把注意力打分的完整一步走一遍。</p>
+
+<ol>
+  <li><strong>高维里的点积：数值为什么会失控</strong>（A.2.1）：从方差的角度推出“标准差 = √d”，看懂为什么必须除以 √d；</li>
+  <li><strong>余弦相似度：把长度抽掉，只比方向</strong>（A.2.2）：词向量比语义时的标准做法，值域固定在 −1 到 1；</li>
+  <li><strong>把注意力打分完整走一遍</strong>（A.2.3）：从一个 query 对四个 key 的原始点积，到缩放、到权重，接上 A.3 的 softmax。</li>
+</ol>
+
+<p>　　读完应能讲清两件事：4.2 节公式里那个 √d 不是经验玄学，而是让分数方差恒为 1 的必然选择；余弦相似度与点积的差别只在“有没有先各自除以长度”。</p>
+
+<h2>A.2.1 高维里的点积：数值为什么会失控</h2>
+
+<p>　　先看一个朴素的事实：点积是“逐项相乘再求和”，维度 d 就是相加的项数。项数越多，和自然就越大——这不是模型的毛病，是加法的本性。把它说得更准确一点，需要借助方差（方差就是“数值围绕平均值波动的剧烈程度”，A.6 节细讲，这里先当“波动大小”用）。</p>
+
+<p>　　做个理想化假设：query 与 key 的每个分量都是独立的随机数，平均值为 0、方差为 1。那么每一对分量相乘，乘积的平均值仍是 0、方差是 1；d 对乘积加在一起，和的方差就是 d。开平方得到标准差：</p>
+
+<div class="formula-card">
+  \[ \mathrm{std}(q \cdot k) = \sqrt{d} \tag{1} \]
+  <div class="formula-note">公式 (1)：理想假设下点积的波动幅度。符号说明：\(\mathrm{std}\) 是标准差（波动大小的度量，方差开平方）；\(q \cdot k\) 是点积；\(d\) 是向量维度。推导一句话：d 个方差为 1 的独立项相加，和的方差是 d，标准差就是 \(\sqrt{d}\)。</div>
+</div>
+
+<p>　　代入真实数字感受一下。注意力头的维度 \(d = 96\)（minimind），点积的标准差约 9.8；词向量维度 \(d = 768\)，标准差约 27.7。也就是说，哪怕 query 和 key 本身都规规矩矩地分布在 0 附近，它们的点积动辄就是正负几十。下图把这条“\(\sqrt{d}\) 曲线”画了出来：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="sArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <line x1="110" y1="260" x2="110" y2="50" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#sArrG)"/>
+    <line x1="110" y1="260" x2="660" y2="260" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#sArrG)"/>
+    <circle cx="110" cy="260" r="2.6" fill="#94a3b8"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="198.3" y1="256" x2="198.3" y2="264"/>
+      <line x1="286.7" y1="256" x2="286.7" y2="264"/>
+      <line x1="375" y1="256" x2="375" y2="264"/>
+      <line x1="463.3" y1="256" x2="463.3" y2="264"/>
+      <line x1="551.7" y1="256" x2="551.7" y2="264"/>
+      <line x1="640" y1="256" x2="640" y2="264"/>
+      <line x1="106" y1="193.3" x2="114" y2="193.3"/>
+      <line x1="106" y1="126.7" x2="114" y2="126.7"/>
+      <line x1="106" y1="60" x2="114" y2="60"/>
+    </g>
+    <text x="196" y="278" font-size="11" fill="#64748b" text-anchor="middle">128</text>
+    <text x="284" y="278" font-size="11" fill="#64748b" text-anchor="middle">256</text>
+    <text x="373" y="278" font-size="11" fill="#64748b" text-anchor="middle">384</text>
+    <text x="461" y="278" font-size="11" fill="#64748b" text-anchor="middle">512</text>
+    <text x="549" y="278" font-size="11" fill="#64748b" text-anchor="middle">640</text>
+    <text x="640" y="278" font-size="11" fill="#64748b" text-anchor="middle">768</text>
+    <text x="100" y="264" font-size="11" fill="#64748b" text-anchor="end">0</text>
+    <text x="100" y="197" font-size="11" fill="#64748b" text-anchor="end">10</text>
+    <text x="100" y="131" font-size="11" fill="#64748b" text-anchor="end">20</text>
+    <text x="100" y="64" font-size="11" fill="#64748b" text-anchor="end">30</text>
+    <text x="666" y="264" font-size="12" fill="#64748b">d</text>
+    <text x="116" y="54" font-size="12" fill="#64748b">标准差</text>
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2.4" points="110.0,260.0 121.0,233.3 132.1,222.3 154.2,206.7 198.3,184.6 286.7,153.3 375.0,129.3 463.3,109.3 551.7,91.3 640.0,75.3"/>
+    <line x1="110" y1="253.3" x2="660" y2="253.3" stroke="#c2410c" stroke-width="2"/>
+    <circle cx="640" cy="75.3" r="3.4" fill="#6d28d9"/>
+    <text x="648" y="79" font-size="12" fill="#6d28d9">27.7</text>
+    <text x="230" y="96" font-size="12" fill="#6d28d9">未缩放：标准差 = √d，随维度一路涨</text>
+    <text x="320" y="240" font-size="12" fill="#c2410c">除以 √d 后：恒为 1，与维度无关</text>
+  </svg>
+  <div class="diagram-caption">图示：维度 d 与点积波动的关系。紫色曲线是未缩放点积的标准差，按 √d 增长，d = 768 时已达 27.7；橙色横线是除以 √d 之后的结果，恒为 1。横轴单位是维度数，纵轴是点积的标准差。</div>
+</div>
+
+<p>　　数值大到正负几十，会卡在 softmax 上。softmax 负责把分数变成权重（A.3 节细讲），它在输入很大或很小时会进入“饱和区”：输入 +30 与 +300 算出的权重几乎没区别，梯度趋近于 0，模型学不动（梯度的含义见 A.5 节）。工程对策就是把这个 √d 除回去：</p>
+
+<div class="formula-card">
+  \[ \mathrm{score}(q, k) = \frac{q \cdot k}{\sqrt{d}} \tag{2} \]
+  <div class="formula-note">公式 (2)：带缩放的注意力打分，4.2 节 Scaled Dot-Product Attention 里的那个除法。符号说明：\(\mathrm{score}(q, k)\) 是 query 对某个 key 的打分；\(q \cdot k\) 是点积；\(d\) 是注意力头的维度（minimind 为 96）。除以 \(\sqrt{d}\) 后，打分的标准差回到 1 附近，softmax 工作在敏感区间。</div>
+</div>
+
+<p>　　所以这个除法不是调出来的经验值，而是“让方差归一”的必然结果：√d 是点积天然膨胀的倍数，除回去正好抵消。后来也有一些工作探索不除 √d 的做法（配合其他归一化手段），但除以 √d 至今仍是绝对主流。</p>
+
+<h2>A.2.2 余弦相似度：把长度抽掉，只比方向</h2>
+
+<p>　　点积的另一个问题是：它同时混入了两支箭的长度和夹角。两个词向量点积很大，可能是因为语义真相近，也可能只是因为其中一支箭特别长。而词向量的长度往往被词频这类统计信息撑大，与语义好坏无关；真正装语义的是方向（3.1 节）。比较两个词义不义气，要把长度这个干扰抽掉：各自除以自身长度，再看点积。这个量就是余弦相似度——名字来自它的几何身份：它就是两箭夹角的余弦。</p>
+
+<div class="formula-card">
+  \[ \cos\theta = \frac{u \cdot v}{|u|\,|v|} \tag{3} \]
+  <div class="formula-note">公式 (3)：余弦相似度。符号说明：\(\theta\) 是两支箭的夹角；\(u \cdot v\) 是点积；\(|u|\)、\(|v|\) 是两箭各自的长度（见 A.1.5 公式 (6) 的注解）。\(u \cdot v\) 本身等于 \(|u||v|\cos\theta\)，两边同除长度即得此式，所以余弦相似度就是“抽掉长度后的点积”，值域固定在 −1（反向）到 1（同向），0 表示垂直、互不相关。</div>
+</div>
+
+<p>　　用词向量举个二维简化例子（真实是几百维，道理相同）：假设“猫”“狗”“汽车”三个词的方向如下图，“猫”与“狗”夹角 30 度，“猫”与“汽车”夹角 80 度：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="cArrP2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="cArrB2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+      </marker>
+      <marker id="cArrO2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/>
+      </marker>
+      <marker id="cArrG2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <line x1="230" y1="270" x2="230" y2="60" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cArrG2)"/>
+    <line x1="230" y1="270" x2="660" y2="270" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cArrG2)"/>
+    <circle cx="230" cy="270" r="2.6" fill="#94a3b8"/>
+    <text x="666" y="274" font-size="12" fill="#64748b">x</text>
+    <text x="236" y="64" font-size="12" fill="#64748b">y</text>
+    <path d="M 293.4 240.4 A 70 70 0 0 0 270.2 212.7" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+    <path d="M 316.1 229.8 A 95 95 0 0 0 205.4 178.2" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+    <text x="297" y="205" font-size="12" fill="#64748b">30°</text>
+    <text x="276" y="157" font-size="12" fill="#64748b">80°</text>
+    <line x1="230" y1="270" x2="365.9" y2="206.6" stroke="#6d28d9" stroke-width="2.2" marker-end="url(#cArrP2)"/>
+    <line x1="230" y1="270" x2="316" y2="147.1" stroke="#2563eb" stroke-width="2.2" marker-end="url(#cArrB2)"/>
+    <line x1="230" y1="270" x2="191.2" y2="125.1" stroke="#c2410c" stroke-width="2.2" marker-end="url(#cArrO2)"/>
+    <text x="373" y="211" font-size="13" fill="#6d28d9">猫</text>
+    <text x="324" y="142" font-size="13" fill="#2563eb">狗</text>
+    <text x="185" y="120" font-size="13" fill="#c2410c" text-anchor="end">汽车</text>
+    <text x="380" y="140" font-size="12" fill="#64748b">cos(猫, 狗) ≈ 0.87：方向接近，语义相近</text>
+    <text x="380" y="164" font-size="12" fill="#64748b">cos(猫, 汽车) ≈ 0.17：接近垂直，语义疏远</text>
+  </svg>
+  <div class="diagram-caption">图示：余弦相似度只看方向。三支箭分别是三个词的词向量方向（二维简化），夹角 30 度的“猫”与“狗”余弦相似度约 0.87，夹角 80 度的“猫”与“汽车”只有约 0.17。箭的长度在这张图里不起作用——比之前已各自归一。</div>
+</div>
+
+<p>　　读法很直观：相似度接近 1，两个词几乎同向、语义相近；接近 0，快垂直了、各说各话；接近 −1，方向相反。3.1 节用词向量做语义检索、5.x 节讲的一些分析，用的都是这把尺子。它与点积的关系也就一句话：余弦相似度 = 先把两支箭都按长度归一，再算点积。</p>
+
+<h2>A.2.3 把注意力打分完整走一遍</h2>
+
+<p>　　把 A.2.1 的缩放放回注意力的完整流程里过一遍数字。沿用“我爱中国”四个 token，以位置 1（爱）的 query 为例，它对四个 key 的原始点积、缩放结果、以及交给 softmax 之后得到的权重如下（softmax 的计算过程 A.3 节细讲，这里先看结果长什么样）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>key（被看的词）</th><th>原始点积</th><th>除以 √96 ≈ 9.8</th><th>softmax 权重</th></tr></thead>
+    <tbody>
+      <tr><td>我（位置 0）</td><td>9.8</td><td>1.00</td><td>0.474</td></tr>
+      <tr><td>爱（位置 1）</td><td>4.9</td><td>0.50</td><td>0.287</td></tr>
+      <tr><td>中（位置 2）</td><td>−9.8</td><td>−1.00</td><td>0.064</td></tr>
+      <tr><td>国（位置 3）</td><td>0.0</td><td>0.00</td><td>0.174</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　两行对比值得记住：不缩放时分数在 −9.8 到 9.8 之间晃，softmax 会被推入饱和区；缩放后落在 −1 到 1，正好是 softmax 最敏感的区间。最后一列四个权重加起来等于 1，这就是“爱”这个位置分配给四个词的注意力份额——0.474 给“我”，0.287 给自己，0.064 给“中”，0.174 给“国”。注意力机制的全部输出，就是按这份份额对四个 value 向量做加权平均（value 是什么见 4.2 节）。</p>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>章节</th><th>用到本节什么</th></tr></thead>
+    <tbody>
+      <tr><td>3.1 词向量</td><td>余弦相似度衡量两个词义不义气，语义检索的打分尺子</td></tr>
+      <tr><td>4.2 注意力机制</td><td>Scaled Dot-Product Attention 的打分公式 \(QK^{\top}/\sqrt{d}\)，√d 的来历</td></tr>
+      <tr><td>5.3 MLA</td><td>压缩后的 query、key 仍按同一套“点积 + 缩放”规则打分</td></tr>
+      <tr><td>A.3 softmax</td><td>本节缩放好分数之后，下一步就是交给 softmax 变成权重</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　下面的脚本复现 A.2.1 的曲线：随机生成大量向量，统计不同维度下点积的真实标准差。预期输出里，未缩放一列应分别接近 √2 ≈ 1.41、√96 ≈ 9.8、√768 ≈ 27.7，缩放后一列都回到 1 附近。</p>
+
+<pre><code>import math
+import numpy as np
+
+rng = np.random.default_rng(0)
+for d in (2, 96, 768):
+    q = rng.standard_normal((1000, d))
+    k = rng.standard_normal((1000, d))
+    dots = (q * k).sum(axis=1)          # 1000 对随机向量的点积
+    print(f'd={d:&gt;3}  未缩放 std={dots.std():6.2f}  缩放后 std={(dots/math.sqrt(d)):.2f}')</code></pre>
+
+<p>　　实测输出：</p>
+
+<pre><code>d=  2  未缩放 std=  1.45  缩放后 std=1.02
+d= 96  未缩放 std=  9.88  缩放后 std=1.01
+d=768  未缩放 std= 28.45  缩放后 std=1.03</code></pre>
+
+<p>　　与公式 (1) 的预测（1.41、9.8、27.7）基本吻合。真实的模型实现见 <code>minimind-master/model/model_minimind.py</code> 注意力类的 forward：打分一行写成 <code>scores = (xq @ xk.transpose(-2, -1)).float() / math.sqrt(self.head_dim)</code>，正是公式 (2) 的代码形态。</p>
+</article>

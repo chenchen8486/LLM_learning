@@ -158,16 +158,16 @@
     <span class="term-en">causal = 保证因果方向：现在的输出只由过去决定</span>
   </div>
   <div class="term-body">
-    <p>一个下三角形状的开关：位置 \(i\) 允许看 \(j\leq i\) 的位置（包括自己），\(j>i\) 的位置一律封死。实现上不动 softmax 本身，而是在 softmax 之前把非法位置的注意力分数改成 \(-\infty\)，让 softmax 替你把它们的权重清零。</p>
+    <p>一个下三角形状的开关：位置 \(i\) 允许看 \(j\leq i\) 的位置（包括自己），\(j&gt;i\) 的位置一律封死。实现上不动 softmax 本身，而是在 softmax 之前把非法位置的注意力分数改成 \(-\infty\)，让 softmax 替你把它们的权重清零。</p>
   </div>
 </div>
 
 <p>　　具体做法极简。在 \(QK^\top/\sqrt{d_k}\) 算出的分数矩阵上，给所有"看向未来"的格子加 \(-\infty\)（工程里也常用一个很大的负数，比如 \(-10^9\)）。softmax 对 \(-\infty\) 的处理是 \(e^{-\infty}=0\)，这些位置的权重被压成精确的 0。工程上常把这件事写成给分数矩阵加一个掩码矩阵 \(M\)：</p>
 
 <div class="formula-card">
-  \[ \mathrm{Attention}(Q,K,V)=\mathrm{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}+M\right)V,\qquad M_{ij}=\begin{cases}0, & j\leq i\\ -\infty, & j>i\end{cases} \tag{3} \]
+  \[ \mathrm{Attention}(Q,K,V)=\mathrm{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}+M\right)V,\qquad M_{ij}=\begin{cases}0, &amp; j\leq i\\ -\infty, &amp; j&gt;i\end{cases} \tag{3} \]
   \[ \mathrm{softmax}\big([\,2.0,\ 1.5,\ -\infty,\ -\infty,\ -\infty\,]\big)= [\,0.62,\ 0.38,\ 0,\ 0,\ 0\,] \tag{4} \]
-  <div class="formula-note">公式 (3)：掩码作为加法项进入 softmax 之前。公式 (4)：一行具体数字，位置 2 的分数被掩码截断后，权重只落在位置 1、2 上，未来位置精确为 0，不是约等于。符号说明：\(M\) 是掩码矩阵，与分数矩阵同形；\(M_{ij}\) 是它第 \(i\) 行第 \(j\) 列的元素——\(j\le i\)（允许回看的位置）取 0，加等于不加；\(j>i\)（未来位置）取 \(-\infty\)，softmax 后权重归零；其余符号同上一节公式 (1)。</div>
+  <div class="formula-note">公式 (3)：掩码作为加法项进入 softmax 之前。公式 (4)：一行具体数字，位置 2 的分数被掩码截断后，权重只落在位置 1、2 上，未来位置精确为 0，不是约等于。符号说明：\(M\) 是掩码矩阵，与分数矩阵同形；\(M_{ij}\) 是它第 \(i\) 行第 \(j\) 列的元素——\(j\le i\)（允许回看的位置）取 0，加等于不加；\(j&gt;i\)（未来位置）取 \(-\infty\)，softmax 后权重归零；其余符号同上一节公式 (1)。</div>
 </div>
 
 <div class="diagram">
@@ -276,7 +276,7 @@
   </div>
   <div class="socratic-qa">
     <div class="sc-q">掩码是怎么保证模型看不到未来的？</div>
-    <div class="sc-key">在 softmax 之前把 \(j>i\) 的分数置为 \(-\infty\)，softmax 后这些位置的权重精确为 0。位置 i 只能看 \(j\leq i\)，再配合解码器输入右移一位，预测第 i 个词时只依赖前 \(i-1\) 个已知输出。</div>
+    <div class="sc-key">在 softmax 之前把 \(j&gt;i\) 的分数置为 \(-\infty\)，softmax 后这些位置的权重精确为 0。位置 i 只能看 \(j\leq i\)，再配合解码器输入右移一位，预测第 i 个词时只依赖前 \(i-1\) 个已知输出。</div>
   </div>
 </div>
 

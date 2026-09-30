@@ -78,7 +78,7 @@
     <span class="term-en">Colossal Clean Crawled Corpus（T5 论文，2020）</span>
   </div>
   <div class="term-body">
-    <p>Google 在 T5 论文中从 Common Crawl 清洗出约 750GB 的英文文本，取名 C4。清洗手段包括只保留以句点结尾的成句文本、剔除含脏话与模板代码的页面、去重等。C4 是“网页必须认真清洗”这条路线最早的标准答案，至今仍是许多实验的默认起点。</p>
+    <p>Google 在 T5 论文中从 Common Crawl 清洗出约 750GB 的英文文本，取名 C4。清洗手段包括只保留以终止标点（句号、问号等）结尾的行、剔除含脏话与模板代码的页面、去重等。C4 是“网页必须认真清洗”这条路线最早的标准答案，至今仍是许多实验的默认起点。</p>
   </div>
 </div>
 
@@ -233,7 +233,7 @@
 
 <h2>参考来源</h2>
 <ul>
-  <li>Raffel et al., 2020. Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer（T5 论文，JMLR 2020，arXiv:1910.10683），C4 的构造与 750GB 规模出自该文附录。</li>
+  <li>Raffel et al., 2020. Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer（T5 论文，JMLR 2020，arXiv:1910.10683），C4 的构造与 750GB 规模出自该文正文 2.2 节。</li>
   <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3 论文，arXiv:2005.14165），数据配比与各数据集 epoch 数出自 Table 2.2。</li>
   <li>Gao et al., 2021. The Pile: An 800GB Dataset of Diverse Text for Language Modeling（arXiv:2101.00027），22 个子集与 Books3 规模出自该文。</li>
   <li>Penedo et al., 2023. The RefinedWeb Dataset for Falcon LLM: Outperforming Curated Corpora with Web Data, and Web Data Only（arXiv:2306.01116），5 万亿 token 与“纯网页足够强”的结论出自该文。</li>

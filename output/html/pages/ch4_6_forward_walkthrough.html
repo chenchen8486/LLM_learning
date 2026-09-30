@@ -41,7 +41,7 @@
       <tr><td><code>num_attention_heads</code>（\(h\)）</td><td>8</td><td>注意力头数（Q 头）</td></tr>
       <tr><td><code>num_key_value_heads</code></td><td>4</td><td>K / V 头数，GQA 分组（第 5 章细讲）</td></tr>
       <tr><td><code>head_dim</code>（\(d_k\)）</td><td>96</td><td>每个头的维度，等于 768 ÷ 8</td></tr>
-      <tr><td><code>intermediate_size</code></td><td>2432</td><td>FFN 中间层宽度，768 的 π 倍向上对齐到 64 的倍数</td></tr>
+      <tr><td><code>intermediate_size</code></td><td>2432</td><td>FFN 中间层宽度，取 768 的 π 倍再向上对齐到 64 的倍数（代码写法见 <code>model_minimind.py</code> 第 26 行）</td></tr>
       <tr><td><code>max_position_embeddings</code></td><td>32768</td><td>RoPE 预计算的最大位置数</td></tr>
       <tr><td><code>rope_theta</code></td><td>1e6</td><td>RoPE 的基底频率</td></tr>
       <tr><td><code>tie_word_embeddings</code></td><td>True</td><td>输入嵌入表与输出投影共享同一份权重</td></tr>
@@ -124,7 +124,7 @@
 
 <p>　　<strong>第 10 小步，残差相加。</strong>注意力的输出与这一半层的输入直接相加：两个 <code>[1, 10, 768]</code> 逐元素加，结果还是 <code>[1, 10, 768]</code>。</p>
 
-<p>　　<strong>所以这步在干嘛：</strong>新信息叠加在原向量上，原始信息一点不少。深层网络堆几十上百层还能训练得动，残差连接居首功（第 4.5 节）。</p>
+<p>　　<strong>所以这步在干嘛：</strong>新信息叠加在原向量上，原始信息一点不少。深层网络堆几十上百层还能训练得动，残差连接居首功（第 4.4 节）。</p>
 
 <div class="highlight-box info">
   工程实现里，minimind 默认走 PyTorch 的 <code>F.scaled_dot_product_attention</code> 融合算子（<code>flash_attn=True</code>，第 125–126 行），第 5 到 8 小步一步算完，数学结果与分步计算完全等价，只是不把 <code>[1, 8, 10, 10]</code> 的完整分数矩阵显式存下来。本文拆开来走，是为了让你看清里面发生了什么。
@@ -244,7 +244,7 @@
   <div class="formula-note">公式 (4)：本例一次前向约 1.3 GFLOPs。逐模块手算核对：8 层 Block 约 11.8 亿次（其中 FFN 占约四分之三），lm_head 约 0.98 亿次，合计约 12.8 亿次，与经验式一致。符号说明：\(C_{\text{forward}}\) 是前向一次的浮点运算量；\(N\) 是模型参数量（本例 63.9M）；\(T\) 是输入 token 数（本例 10）；系数 2 对应每个参数在一次矩阵乘法里的一次乘加（正文上一段）。</div>
 </div>
 
-<p>　　两点提醒。第一，这条经验式忽略了注意力分数那一步（\(2 h T^2 d_k\) 次运算）：本例 \(T=10\)，它只占约 0.3%，可以忽略；但它随 \(T\) 平方增长，序列一长就不可忽略，这是第 7 章（训练算力）和第 13 章（长序列推理、KV Cache）要正面处理的问题。第二，1.3 GFLOPs 听起来大，一块普通 GPU 每秒能算几十 TFLOPs，这台 64M 小模型前向一次只是眨眼功夫；真正的成本在训练时要对万亿 token 反复前向加反向，那是第 6、7 章的主题。</p>
+<p>　　两点提醒。第一，这条经验式忽略了注意力分数那一步（\(2 h T^2 d_k\) 次运算）：本例 \(T=10\)，它只占约 0.1%，可以忽略；但它随 \(T\) 平方增长，序列一长就不可忽略，这是第 7 章（训练算力）和第 13 章（长序列推理、KV Cache）要正面处理的问题。第二，1.3 GFLOPs 听起来大，一块普通 GPU 每秒能算几十 TFLOPs，这台 64M 小模型前向一次只是眨眼功夫；真正的成本在训练时要对万亿 token 反复前向加反向，那是第 6、7 章的主题。</p>
 
 <p>　　至此，从 <code>[1, 10]</code> 的整数编号到 <code>[1, 6400]</code> 的概率分布，每一步的形状、每一类参数的去向、每一份算力的花销都摆在了台面上。第 5 章将看到，RMSNorm、SwiGLU、GQA 这些"现代变体"为什么能全面取代原论文的初代设计——你已经有了评判它们的全部基础。</p>
 
@@ -295,7 +295,7 @@ python forward_walkthrough.py
 # 总参数量: 63,912,192 ≈ 63.91M
 # 最后位置概率分布: (6400,) 概率和: 1.0</code></pre>
 
-<p>　　脚本不加载任何训练权重：形状与参数量由配置唯一决定，随机初始化的模型同样能核对本文每一笔账。需先按 minimind 的 README 装好依赖（torch、transformers 等）。以上脚本已在 CPU 环境（torch 2.x、transformers 5.x）实测，输出与预期一致。代码引用自 minimind 工程（jingyaogong/minimind），遵循 Apache 2.0 协议。</p>
+<p>　　脚本不加载任何训练权重：形状与参数量由配置唯一决定，随机初始化的模型同样能核对本文每一笔账。脚本不依赖 GPU，按 minimind 的 README 装好 torch 与 transformers 后，即可在 CPU 环境复现上述输出（`model_minimind.py` 会导入 transformers）。代码引用自 minimind 工程（jingyaogong/minimind），遵循 Apache 2.0 协议。</p>
 
 <h2>参考来源</h2>
 <ul>

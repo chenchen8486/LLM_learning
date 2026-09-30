@@ -1,0 +1,326 @@
+﻿<article class="content">
+<h1>7.4 混合精度与训练稳定性：快而不炸</h1>
+<p class="subtitle">本页范围：第 7 章第 4 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>训练要提速、显存要减半，能不能全程用 16 位甚至 8 位浮点？为什么把模型直接转成半精度训练很容易翻车？大模型训练中途 loss 突然蹿升（loss spike），又该怎么救？</td></tr>
+      <tr><td>本节主张</td><td>混合精度的核心是一笔「分工账」：矩阵乘用半精度求快，参数、归一化、softmax 留 FP32 求稳；训练稳定性则靠事前保险（初始化、warmup、梯度裁剪）与事后急救（回滚跳批）双管齐下。</td></tr>
+      <tr><td>一句话结论</td><td>FP32 主权重 + BF16 autocast + 算子黑白名单是当前 LLM 预训练的默认配置，FP8 正在超大规模模型上落地；面对 loss spike，业界最成熟的急救方案是 PaLM 式「回到健康 checkpoint、跳过可疑数据」。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>FP16</span><span>BF16</span><span>FP8</span><span>混合精度</span><span>loss scaling</span><span>autocast</span><span>loss spike</span><span>checkpoint 回滚</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　6.3.4 走查训练循环时见过 autocast 和 GradScaler 这两道保险，当时只讲了它们在循环里干什么，原理留到本节；6.2 末尾还埋了个伏笔：大模型训练常见 loss spike，急救三招只给了清单没给细节。本节把两笔账一起结掉。先从一个更根本的问题切入：训练为什么不干脆全程用 16 位浮点，要快到底？答案藏在浮点数的位宽分配里。</p>
+
+<p>　　本节沿三个问题展开，路线图如下：</p>
+
+<ol>
+  <li><strong>浮点格式对比：FP32 / TF32 / FP16 / BF16 / FP8</strong>（7.4.1）：指数位管范围、尾数位管精度，五种格式各自怎么分配手里的比特，配原创位宽布局示意图；</li>
+  <li><strong>混合精度三件套：主权重、损失缩放、黑白名单</strong>（7.4.2）：全 FP16 训练的三个坑，以及 2017 年那篇经典论文给出的三个补丁；</li>
+  <li><strong>训练稳定性实战：loss spike 与急救手册</strong>（7.4.3）：PaLM 约 20 次 spike 的回滚跳批策略、OPT-175B 的 35 次手动重启，外加初始化、warmup、梯度裁剪三道事前保险。</li>
+</ol>
+
+<p>　　读完本节，你应该能回答动手验证里那道思考题：为什么 minimind 默认用 bfloat16，而 GradScaler 对它完全关闭。</p>
+
+<h2>7.4.1 浮点格式对比：FP32 / TF32 / FP16 / BF16 / FP8</h2>
+
+<p>　　先补一点浮点数基础。不管哪种格式，计算机里的浮点数都由同一个公式描述：</p>
+
+<div class="formula-card">
+  \[ x = (-1)^{s} \times 1.f \times 2^{\,e - b} \tag{1} \]
+  <div class="formula-note">公式 (1)：浮点数 = 符号 × 尾数 × 2 的指数次幂，是科学计数法的二进制版。符号说明：\(s\) 是符号位（1 比特，0 正 1 负）；\(f\) 是尾数域，占 \(M\) 个比特，正规数默认前面隐含一个 1，即有效数字共 \(M+1\) 位；\(e\) 是指数域，占 \(E\) 个比特的无符号整数；\(b\) 是偏置常数，让指数域能同时表达正、负指数（FP16 取 15，FP8 E4M3 取 7）。\(E\) 越大，2 的幂次覆盖越宽，能表示的数范围越大；\(M\) 越大，同一指数档位内相邻两数的间隔 \(2^{-M}\) 越小，精度越高。</div>
+</div>
+
+<p>　　一句话记住：<strong>指数位管「能表示多大、多小的数」（范围），尾数位管「相邻两个数差多少」（精度）</strong>。比特总数固定时，两者是零和博弈：多给指数一位，尾数就少一位。下面五种格式的全部差异，就是这道分配题的不同答案：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <!-- 表头 -->
+    <text x="120" y="20" font-size="11" fill="#666">位宽布局（格宽与比特数成正比，格内数字为比特数）</text>
+    <text x="585" y="20" font-size="11" fill="#666">关键数值</text>
+    <!-- FP32 -->
+    <text x="8" y="46" font-size="12" font-weight="bold" fill="#333">FP32</text>
+    <text x="8" y="59" font-size="9.5" fill="#999">E8M23 · 32 位</text>
+    <rect x="120" y="34" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="51" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="34" width="112" height="26" fill="#6d28d9"/>
+    <text x="190" y="51" text-anchor="middle" font-size="11" fill="#fff">8</text>
+    <rect x="246" y="34" width="322" height="26" fill="#0891b2"/>
+    <text x="407" y="51" text-anchor="middle" font-size="11" fill="#fff">23</text>
+    <text x="585" y="45" font-size="10" fill="#555">上限 ≈3.4×10³⁸</text>
+    <text x="585" y="58" font-size="10" fill="#555">老牌基准格式</text>
+    <!-- TF32 -->
+    <text x="8" y="90" font-size="12" font-weight="bold" fill="#333">TF32</text>
+    <text x="8" y="103" font-size="9.5" fill="#999">E8M10 · 19 位</text>
+    <rect x="120" y="78" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="95" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="78" width="112" height="26" fill="#6d28d9"/>
+    <text x="190" y="95" text-anchor="middle" font-size="11" fill="#fff">8</text>
+    <rect x="246" y="78" width="140" height="26" fill="#0891b2"/>
+    <text x="316" y="95" text-anchor="middle" font-size="11" fill="#fff">10</text>
+    <text x="585" y="89" font-size="10" fill="#555">仅内部计算使用</text>
+    <text x="585" y="102" font-size="10" fill="#555">存储仍为 FP32</text>
+    <!-- FP16 -->
+    <text x="8" y="134" font-size="12" font-weight="bold" fill="#333">FP16</text>
+    <text x="8" y="147" font-size="9.5" fill="#999">E5M10 · 16 位</text>
+    <rect x="120" y="122" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="139" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="122" width="70" height="26" fill="#6d28d9"/>
+    <text x="169" y="139" text-anchor="middle" font-size="11" fill="#fff">5</text>
+    <rect x="204" y="122" width="140" height="26" fill="#0891b2"/>
+    <text x="274" y="139" text-anchor="middle" font-size="11" fill="#fff">10</text>
+    <text x="585" y="133" font-size="10" fill="#555">上限 65504</text>
+    <text x="585" y="146" font-size="10" fill="#555">最小正规数 ≈6×10⁻⁵</text>
+    <!-- BF16 -->
+    <text x="8" y="178" font-size="12" font-weight="bold" fill="#333">BF16</text>
+    <text x="8" y="191" font-size="9.5" fill="#999">E8M7 · 16 位</text>
+    <rect x="120" y="166" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="183" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="166" width="112" height="26" fill="#6d28d9"/>
+    <text x="190" y="183" text-anchor="middle" font-size="11" fill="#fff">8</text>
+    <rect x="246" y="166" width="98" height="26" fill="#0891b2"/>
+    <text x="295" y="183" text-anchor="middle" font-size="11" fill="#fff">7</text>
+    <text x="585" y="177" font-size="10" fill="#555">范围同 FP32</text>
+    <text x="585" y="190" font-size="10" fill="#555">精度只剩约 2 位</text>
+    <!-- E4M3 -->
+    <text x="8" y="222" font-size="12" font-weight="bold" fill="#333">E4M3</text>
+    <text x="8" y="235" font-size="9.5" fill="#999">FP8 · 8 位</text>
+    <rect x="120" y="210" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="227" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="210" width="56" height="26" fill="#6d28d9"/>
+    <text x="162" y="227" text-anchor="middle" font-size="11" fill="#fff">4</text>
+    <rect x="190" y="210" width="42" height="26" fill="#0891b2"/>
+    <text x="211" y="227" text-anchor="middle" font-size="11" fill="#fff">3</text>
+    <text x="585" y="221" font-size="10" fill="#555">上限 448</text>
+    <text x="585" y="234" font-size="10" fill="#555">用于权重·激活</text>
+    <!-- E5M2 -->
+    <text x="8" y="266" font-size="12" font-weight="bold" fill="#333">E5M2</text>
+    <text x="8" y="279" font-size="9.5" fill="#999">FP8 · 8 位</text>
+    <rect x="120" y="254" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="271" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="254" width="70" height="26" fill="#6d28d9"/>
+    <text x="169" y="271" text-anchor="middle" font-size="11" fill="#fff">5</text>
+    <rect x="204" y="254" width="28" height="26" fill="#0891b2"/>
+    <text x="218" y="271" text-anchor="middle" font-size="11" fill="#fff">2</text>
+    <text x="585" y="265" font-size="10" fill="#555">上限 57344</text>
+    <text x="585" y="278" font-size="10" fill="#555">用于梯度</text>
+    <!-- 图例 -->
+    <rect x="120" y="306" width="12" height="12" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="138" y="316" font-size="10" fill="#555">符号位：正负</text>
+    <rect x="252" y="306" width="12" height="12" fill="#6d28d9"/>
+    <text x="270" y="316" font-size="10" fill="#555">指数位：决定范围</text>
+    <rect x="404" y="306" width="12" height="12" fill="#0891b2"/>
+    <text x="422" y="316" font-size="10" fill="#555">尾数位：决定精度</text>
+  </svg>
+  <div class="diagram-caption">图示：六种浮点格式的位宽分配。从 FP32 到 FP8，省位主要砍在尾数上；BF16 与 E5M2 保住了指数位（范围），FP16 与 E4M3 则偏向尾数位（精度）。</div>
+</div>
+
+<p>　　把五种格式摆进同一张表，各自的角色就清楚了：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>格式</th><th>位宽（符号+指数+尾数）</th><th>动态范围</th><th>相邻数间隔 \(2^{-M}\)</th><th>训练中的角色</th></tr></thead>
+    <tbody>
+      <tr><td>FP32（E8M23）</td><td>1 + 8 + 23 = 32</td><td>上限 ≈3.4×10³⁸</td><td>≈1.2×10⁻⁷（约 7 位十进制）</td><td>老牌基准：主权重与敏感算子的落账格式</td></tr>
+      <tr><td>TF32（E8M10）</td><td>1 + 8 + 10 = 19</td><td>同 FP32</td><td>≈1×10⁻³（约 3 位）</td><td>NVIDIA Ampere 起 FP32 矩阵乘的内部计算格式，用户无感提速</td></tr>
+      <tr><td>FP16（E5M10）</td><td>1 + 5 + 10 = 16</td><td>上限 65504；最小正规数 ≈6×10⁻⁵</td><td>≈1×10⁻³（约 3 位）</td><td>混合精度初代主角，必须配 loss scaling 使用</td></tr>
+      <tr><td>BF16（E8M7）</td><td>1 + 8 + 7 = 16</td><td>同 FP32</td><td>≈7.8×10⁻³（约 2 位）</td><td>Google 为 TPU 设计，LLM 预训练当前默认</td></tr>
+      <tr><td>FP8 E4M3</td><td>1 + 4 + 3 = 8</td><td>上限 448</td><td>0.125（不足 1 位）</td><td>权重与激活（2022 年 NVIDIA/Arm/Intel 联合提案）</td></tr>
+      <tr><td>FP8 E5M2</td><td>1 + 5 + 2 = 8</td><td>上限 57344</td><td>0.25（不足 1 位）</td><td>梯度</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　逐个看几个关键取舍。<strong>FP16</strong> 是 IEEE 754 标准半精度：10 位尾数给出约三位十进制精度，对深度学习其实够用，软肋在范围——最大 65504，比它大的数直接变 inf（上溢）；最小正规数约 \(6 \times 10^{-5}\)，次正规数也只能撑到约 \(6 \times 10^{-8}\)，训练中大量梯度比这还小，直接被压成 0（下溢）。</p>
+
+<p>　　<strong>BF16</strong>（bfloat16，brain floating point）是 Google 为 TPU 设计的「截短版 FP32」：指数与 FP32 同为 8 位，动态范围原样保留，代价是尾数从 23 位砍到 7 位，精度只剩约两位十进制。它赌的是一个深度学习数值格式的核心经验——网络对尾数噪声的忍耐力，远强于对范围溢出的忍耐力。这个赌赢了：BF16 成了当前 LLM 预训练的主流 16 位格式。</p>
+
+<p>　　<strong>TF32</strong> 是 NVIDIA 在 Ampere 架构（A100）引入的内部计算格式：张量仍按 FP32 存储，矩阵乘进入 Tensor Core 时内部舍成 19 位 TF32 计算、FP32 累加。范围同 FP32、精度同 FP16，不用改一行代码就能加速 FP32 训练。</p>
+
+<p>　　<strong>FP8</strong> 把 8 个比特掰成两份用（Micikevicius et al., 2022，arXiv:2209.05433）：E4M3 精度优先，给权重与激活；E5M2 范围优先，给梯度。E4M3 还做了个小手术：不表示无穷大、NaN 只留一个编码，把省下的位型换成正常数值，上限从 240 抬到 448。2024 年底的 DeepSeek-V3 首次在 671B 的超大规模 MoE 模型上验证了 FP8 混合精度训练：全程统一用 E4M3，靠细粒度缩放（激活按 1×128 小块、权重按 128×128 方块各自配缩放因子）和更高精度的累加弥补范围不足，敏感算子（Embedding、输出头、归一化）则保留高精度。</p>
+
+<div class="highlight-box info">
+  为什么范围比精度更「要命」？精度不足只是每个数带一点噪声，网络对噪声有免疫力；范围不足是灾难性的——大数变 inf、小数变 0，信息直接清零。这就是 BF16 敢把尾数砍到 7 位、却不敢动指数位的原因。
+</div>
+
+<h2>7.4.2 混合精度三件套：主权重、损失缩放、黑白名单</h2>
+
+<p>　　知道了 FP16 的短板，2017 年 NVIDIA 与百度的联合论文《Mixed Precision Training》（Micikevicius et al., arXiv:1710.03740）给出了系统解法。当时的痛点很具体：Volta 架构 Tensor Core 的 FP16 矩阵乘吞吐数倍于 FP32，显存还省一半，但直接全 FP16 训练，精度会掉。论文的做法不是单点修补，而是一套三件套，每件堵一个坑：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>① 主权重 master weights</h4><p>参数始终保存一份 FP32 主副本，堵「更新量被舍入吞掉」。</p></div>
+  <div class="concept-card"><h4>② 损失缩放 loss scaling</h4><p>反传前把 loss 乘一个大常数，堵「梯度下溢成 0」。</p></div>
+  <div class="concept-card"><h4>③ 算子黑白名单</h4><p>矩阵乘走半精度、敏感算子留 FP32，堵「算子数值失真」。</p></div>
+</div>
+
+<p>　　<strong>坑一：参数更新量太小，半精度存不住。</strong>AdamW 一步的更新量（学习率乘梯度）往往比参数本身小几个数量级；FP16 的相邻数间隔约 \(10^{-3}\)，一个取值为 1 的参数，小于 \(10^{-3}\) 的更新直接被舍入吞掉——参数原地踏步，白算一步。解法是让参数始终保存一份 FP32 主副本（master weights）：前向反向时临时转成 FP16 参与计算，梯度转回 FP32 后才落到主副本上。显存多一份参数副本，换来更新不丢。</p>
+
+<p>　　<strong>坑二：梯度下溢。</strong>FP16 能表示的最小正数（次正规）约 \(6 \times 10^{-8}\)，训练中后期大量梯度比这还小，反传回来一片 0，对应参数永远学不到东西。解法出奇地便宜：反传之前，把 loss 先乘一个大常数 \(S\)：</p>
+
+<div class="formula-card">
+  \[ g_{\mathrm{scaled}} = \frac{\partial (S\,\mathcal{L})}{\partial \theta} = S \cdot \frac{\partial \mathcal{L}}{\partial \theta} = S \cdot g \tag{2} \]
+  <div class="formula-note">公式 (2)：链式法则是线性的——loss 放大 \(S\) 倍，所有梯度自动跟着放大 \(S\) 倍，不用碰任何网络结构。符号说明：\(\mathcal{L}\) 是原始损失；\(S\) 是缩放因子（常取 2 的幂，如 \(2^{16} = 65536\)，乘 2 的幂在二进制浮点下不产生舍入误差）；\(\theta\) 是模型参数；\(g\) 是原始梯度；\(g_{\mathrm{scaled}}\) 是放大后的梯度。反传完成后、更新参数前，再把梯度除以 \(S\) 原样还回，数学上与从未缩放完全等价。</div>
+</div>
+
+<p>　　\(S\) 取多大没有先验答案：取小了救不回下溢，取大了反而制造溢出。实践用<strong>动态损失缩放</strong>，规则一句话——宁大勿小、出事就退：</p>
+
+<div class="formula-card">
+  \[ S_{t+1} = \begin{cases} S_t / 2, &amp; \text{本步梯度出现 inf/NaN（并跳过本次更新）} \\[4pt] 2\,S_t, &amp; \text{连续 } N \text{ 步无溢出} \\[4pt] S_t, &amp; \text{其余情况} \end{cases} \tag{3} \]
+  <div class="formula-note">公式 (3)：动态缩放让 \(S\) 贴着「够用且不溢出」的水位自动巡航。符号说明：\(S_t\) 是第 \(t\) 步的缩放因子；\(N\) 是连续无溢出步数的阈值（PyTorch 默认 2000 步，初始 \(S\) 默认 65536）。「跳过本次更新」不是浪费：溢出说明这一步的梯度已经不可信，硬更新反而把参数带飞。</div>
+</div>
+
+<div class="highlight-box info">
+  PyTorch 的 <code>GradScaler</code> 就是这套算法的现成实现：<code>scale</code> → <code>unscale_</code> → <code>step</code> → <code>update</code> 四连调用，溢出检测、减半、翻倍全自动。minimind 里的具体用法见本页「动手验证」。
+</div>
+
+<p>　　<strong>坑三：不是所有算子都适合半精度。</strong>矩阵乘是吞吐大头、对输入精度不敏感，而且乘加可以用 FP32 累加，适合半精度；softmax、LayerNorm 这类含指数、开方、大归约的算子数值敏感，保留 FP32 才稳。这就是<strong>算子黑白名单</strong>：论文时代要手工指定，今天 PyTorch 的 <code>autocast</code> 内置了名单——<code>with autocast_ctx:</code> 包住的区域里，matmul/conv/linear 自动落到半精度，softmax、layer_norm、cross_entropy 等自动留在 FP32，分流由框架完成。</p>
+
+<div class="highlight-box danger">
+  易错：不要把 <code>model.half()</code> 当混合精度。把整个模型直接转半精度，等于三件套全丢——参数没了 FP32 主副本，敏感算子也掉进半精度，轻则精度掉点，重则 loss 起飞。正确姿势是模型保持 FP32，只用 autocast 包住 forward，让框架按黑白名单自动分流。
+</div>
+
+<div class="highlight-box">
+  混合精度的哲学是一笔分工账：计算过程（矩阵乘）用半精度求快求省，落账环节（参数、归一化、概率归一）用 FP32 求稳。算得快与训得稳不矛盾，前提是别让 16 位浮点去碰它处理不了的数值。
+</div>
+
+<h2>7.4.3 训练稳定性实战：loss spike 与急救手册</h2>
+
+<p>　　数值精度只是稳定性的一半战场。就算混合精度配得天衣无缝，大模型训练中途仍可能出事：平稳下降的 loss 曲线突然蹿起一根尖刺，有时自己回落，有时一路发散到 NaN。这就是 6.2、6.3 都点到过的 <strong>loss spike</strong>。模型越大越常见：PaLM 训练 540B 时，即使开着梯度裁剪，仍观察到约 20 次 spike，时间点毫无规律，训练后期也会冒出来。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">loss spike 损失尖刺</span>
+    <span class="term-en">spike = 尖刺，loss 曲线上的突然蹿升</span>
+  </div>
+  <div class="term-body">
+    <p>训练 loss 在个别 step 突然放大几倍、甚至变成 NaN 的现象。诱因通常不是单一的：异常数据、学习率与参数状态的共振、底层硬件抖动都可能有份，很难提前预测。</p>
+    <div class="term-analogy">就像长跑时突然崴了一下脚：多数时候缓两步能继续跑，但崴狠了（loss 站上新高位甚至 NaN）就得退回去，从上一个状态完好的位置重跑这一段。</div>
+  </div>
+</div>
+
+<p>　　spike 怎么救？PaLM 论文给出的答案朴素得出人意料，却已是业界事实标准——不治本，先绕过：发现 spike 后，从 spike 开始前约 100 步的 checkpoint 重启训练，并跳过约 200–500 个覆盖事故现场的 batch。处理过的 spike 没有在同一位置复发。</p>
+
+<p>　　为什么跳过数据有用？PaLM 团队做过关键消融：把 spike 现场附近的那批数据，换一个更早的 checkpoint 重新喂进去，结果不再 spike。这说明 spike 并不是「这批数据有毒」，而是<strong>特定的数据 batch 撞上特定的参数状态</strong>才会引爆——就像同一级台阶，只有脚步落在某个特定角度才会崴脚。所以回滚加跳批有效：换一批数据，等于换一种脚步落点。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 370" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-sp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arr-rb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <!-- 跳过区域底色 -->
+    <rect x="372" y="30" width="98" height="270" fill="#fef3c7" fill-opacity="0.65"/>
+    <!-- 坐标轴 -->
+    <line x1="70" y1="300" x2="70" y2="22" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-sp)"/>
+    <line x1="60" y1="300" x2="700" y2="300" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-sp)"/>
+    <text x="42" y="28" font-size="11" fill="#666">loss</text>
+    <text x="700" y="322" text-anchor="end" font-size="11" fill="#666">训练步数 step</text>
+    <!-- 健康段曲线 -->
+    <path d="M 78,80 C 150,192 240,216 330,228 L 372,234" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- checkpoint 点 -->
+    <circle cx="300" cy="224" r="5" fill="#0891b2"/>
+    <text x="148" y="150" font-size="11.5" fill="#0891b2">① 健康 checkpoint</text>
+    <text x="148" y="165" font-size="10" fill="#0891b2">spike 前约 100 步</text>
+    <line x1="232" y1="168" x2="294" y2="218" stroke="#0891b2" stroke-width="1"/>
+    <!-- spike -->
+    <polyline points="372,234 384,96 396,238" fill="none" stroke="#dc2626" stroke-width="2.5"/>
+    <text x="400" y="92" font-size="12" fill="#dc2626">② loss spike 突刺</text>
+    <!-- 回滚虚线箭头 -->
+    <path d="M 384,98 C 340,92 302,140 302,216" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-rb)"/>
+    <text x="322" y="122" font-size="10.5" fill="#dc2626">回滚</text>
+    <!-- 跳过区域标注 -->
+    <text x="421" y="146" text-anchor="middle" font-size="10.5" fill="#b45309">③ 跳过可疑</text>
+    <text x="421" y="160" text-anchor="middle" font-size="10.5" fill="#b45309">batch 约</text>
+    <text x="421" y="174" text-anchor="middle" font-size="10.5" fill="#b45309">200–500 个</text>
+    <!-- 恢复曲线 -->
+    <circle cx="470" cy="240" r="4" fill="#6d28d9"/>
+    <path d="M 470,240 C 535,244 600,251 666,258" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <text x="440" y="286" font-size="11" fill="#333">④ 换一段数据续训，回到下降轨道</text>
+  </svg>
+  <div class="diagram-caption">图示：PaLM 式 spike 处置流程——发现 loss 突刺后，回到 spike 前约 100 步的健康 checkpoint，跳过覆盖事故现场的 200–500 个 batch，换一段数据继续训练。</div>
+</div>
+
+<p>　　如果说 PaLM 的记录是「成功处置案例」，Meta 的 OPT-175B 就是一份「事故现场全记录」。论文连同 100 余页训练日志（logbook）一起公开：992 块 A100 上约两个月的训练里，硬件故障贡献了至少 35 次手动重启、轮换超过 100 台主机；loss spike、梯度爆炸、中途调整优化方案，全都记在日志里。这份日志至今是理解大规模训练工程现实的最佳一手材料：大模型训练不是按下回车等结果，而是一场需要全天候值班的持久战。</p>
+
+<p>　　急救之外，更重要的是事前少出事。三道保险的前两道在 6.2 已经细讲过，这里只点出它们与稳定性的关系：</p>
+
+<ul>
+  <li><strong>梯度裁剪</strong>：把全局梯度范数压回阈值内（惯例 1.0），个别 batch 的异常大梯度不至于一步把参数带飞，是 spike 的第一道防线。注意 PaLM 开着它仍出了约 20 次 spike，可见它只是减伤，不是免疫。</li>
+  <li><strong>LR warmup</strong>：开局几百到几千步学习率从 0 线性爬升，避开参数随机、Adam 统计量未攒够时大步乱走的危险期（细节见 6.2.2）。</li>
+  <li><strong>初始化尺度</strong>：权重初始方差要随层宽缩放，惯例是 fan-in 初始化 \(W \sim \mathcal{N}(0, 1/\sqrt{n_{\mathrm{in}}})\)（\(n_{\mathrm{in}}\) 是该层的输入维度），让前向激活与反向梯度的方差在各层保持稳定。初始方差过大，激活逐层膨胀，训练开局就炸，warmup 也救不回来。</li>
+</ul>
+
+<div class="highlight-box info">
+  PaLM 还用了几个架构级的稳定化手段：所有线性层与 LayerNorm 不用偏置（no biases）；\(\beta_2\) 不取常数 0.99，而是按 \(1 - k^{-0.8}\) 随步数 \(k\) 逐渐变大；外加一项 z_loss 辅助损失（\(10^{-4} \cdot \log^2 Z\)，\(Z\) 是 softmax 的归一化常数），把 logits 的整体尺度往 0 拉，抑制其无节制膨胀。这些细节说明：稳定性是初始化、优化器、架构、数值格式一起凑出来的系统工程。
+</div>
+
+<div class="highlight-box">
+  大模型训练的稳定性没有银弹：事前靠初始化尺度、warmup、梯度裁剪压低出事概率，事中靠混合精度的数值纪律不添乱，事后靠勤存 checkpoint 加回滚跳批快速复活。三层合起来，才把「万亿 token 不翻车」从运气变成工程。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">FP16 和 BF16 同为 16 位，为什么 LLM 预训练默认 BF16？</div>
+    <div class="sc-key">FP16 尾数多 3 位，但指数只有 5 位：上限 65504、最小约 \(6 \times 10^{-8}\)，训练中上溢下溢都常见，必须配 loss scaling。BF16 指数与 FP32 同为 8 位，范围原样保留；精度虽只剩约两位十进制，但网络对尾数噪声远比对溢出宽容，连 scaler 都可以省掉。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">混合精度三件套各自堵的是哪个坑？</div>
+    <div class="sc-key">主权重 FP32 堵「参数更新量太小被舍入吞掉」；loss scaling 堵「梯度下溢成 0」（loss 乘 \(S\)、反传后除以 \(S\) 还原，溢出就减半跳过）；黑白名单堵「敏感算子失真」——矩阵乘走半精度，softmax、LayerNorm 留 FP32。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">训练中遇到 loss spike 的标准处置流程是什么？</div>
+    <div class="sc-key">从 spike 前约 100 步的健康 checkpoint 重启，跳过覆盖事故现场的 200–500 个 batch 再续训（PaLM 方案）。消融表明 spike 是特定数据撞上特定参数状态的组合事故，换批数据即可避开；同时检查学习率，必要时调低。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+<p>　　本节机制在 minimind 中的对应实现（出处：minimind 工程，Apache 2.0 协议），集中在 <code>trainer/train_pretrain.py</code>：</p>
+<ul>
+  <li>第 82 行：<code>--dtype</code> 参数默认 <code>bfloat16</code>、可选 <code>float16</code>——混合精度类型只是一个命令行开关；</li>
+  <li>第 113–114 行：dtype 选择与 <code>autocast_ctx</code> 的构造：GPU 上是 <code>torch.cuda.amp.autocast(dtype=dtype)</code>，CPU 上退化为 <code>nullcontext()</code>（不启用混合精度）。6.3.4 见过它在第 33 行包住 forward；</li>
+  <li>第 129 行：<code>scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))</code>——只有选 float16 才启用动态损失缩放；</li>
+  <li>第 38、41、44、45 行：scaler 生命周期的四个动作——<code>scale(loss).backward()</code> 放大反传、<code>unscale_</code> 还原梯度（紧跟着第 42 行梯度裁剪，裁的是还原后的真实梯度）、<code>step</code> 执行更新（内部先查溢出，有 inf/NaN 就跳过）、<code>update</code> 调整缩放因子；</li>
+  <li>第 67、137 行：checkpoint 保存与恢复 <code>scaler</code> 状态——缩放因子是训练状态的一部分，断点续训时一起恢复。</li>
+</ul>
+
+<p>　　再做两个不用 GPU 的小实验，亲手感受 FP16 的下溢与上溢（需装好 torch）：</p>
+
+<pre><code>cd minimind-master
+python -c "import torch; print('1e-9 的 FP16 →', torch.tensor([1e-9]).half().item(), '；BF16 →', torch.tensor([1e-9], dtype=torch.bfloat16).item())"
+python -c "import torch; print('70000 的 FP16 →', torch.tensor([70000.]).half().item(), '；BF16 →', torch.tensor([70000.], dtype=torch.bfloat16).item())"</code></pre>
+
+<p>　　预期结果：第一行 FP16 打印 <code>0.0</code>（下溢成 0）、BF16 打印 <code>9.97e-10</code>（约等于 1e-9，下溢不存在）；第二行 FP16 打印 <code>inf</code>（撞上 65504 上限）、BF16 打印 <code>70144.0</code>——不溢出，但 70000 被舍入到最近的可表示数，因为尾数只有 7 位。两条命令把指数位的「生死簿」与尾数位的「舍入墙」各演示了一遍。</p>
+
+<p>　　最后是一道思考题，建议先自己想再看答案：minimind 第 129 行里，为什么选 bfloat16 时 GradScaler 可以完全关闭？</p>
+
+<div class="highlight-box info">
+  参考答案：loss scaling 治的病是梯度下溢——FP16 指数只有 5 位，最小正数约 \(6 \times 10^{-8}\)，训练梯度动辄比它小，会被压成 0，所以要乘 \(S\) 把梯度「抬」进可表示范围。BF16 的指数位与 FP32 同为 8 位，可表示的最小正数低到约 \(10^{-38}\) 量级，比训练中任何真实梯度都小几十个数量级，下溢这种病根本不存在，自然不用吃药。这也是 129 行里 <code>enabled=False</code> 时 <code>scaler.scale(...)</code> 与 <code>scaler.step(...)</code> 只是原样透传的原因。
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Micikevicius et al., 2017. Mixed Precision Training（混合精度训练原始论文，arXiv:1710.03740，ICLR 2018）：FP32 主权重、损失缩放、FP32 累加三件套的出处。</li>
+  <li>Micikevicius et al., 2022. FP8 Formats for Deep Learning（arXiv:2209.05433，NVIDIA/Arm/Intel 联合提案）：E4M3/E5M2 编码设计、各自适用范围（E4M3 给权重与激活、E5M2 给梯度）与 per-tensor 缩放；E4M3 上限 448、E5M2 上限 57344 出自该文 Table 1。</li>
+  <li>Kalamkar et al., 2019. A Study of BFLOAT16 for Deep Learning（arXiv:1905.12322）：BF16 训练精度的系统研究。</li>
+  <li>NVIDIA, 2020. Accelerating AI Training with NVIDIA TF32 Tensor Cores（NVIDIA 开发者博客）：TF32 格式与 Ampere Tensor Core 的官方说明。</li>
+  <li>Chowdhery et al., 2022. PaLM: Scaling Language Modeling with Pathways（arXiv:2204.02311）：§5.1 约 20 次 loss spike 与「回滚约 100 步、跳过 200–500 个 batch」策略及消融结论；§5 的 fan-in 初始化、z_loss、无偏置、\(\beta_2\) 调度等稳定化手段。</li>
+  <li>Zhang et al., 2022. OPT: Open Pre-trained Transformer Language Models（arXiv:2205.01068）及随附 100 余页训练 logbook：992 块 A100、约两个月内至少 35 次手动重启、轮换超 100 台主机的硬件故障记录。</li>
+  <li>DeepSeek-AI, 2024. DeepSeek-V3 Technical Report（arXiv:2412.19437）：§3.3 FP8 混合精度训练——全程 E4M3、细粒度缩放（激活 1×128 tile、权重 128×128 block）与高精度累加。</li>
+  <li>PyTorch 官方文档：torch.cuda.amp（autocast 算子黑白名单；GradScaler 默认参数 init_scale=65536、growth_interval=2000、growth/backoff 为 2.0/0.5）。</li>
+  <li>minimind 工程（Apache 2.0 协议）：trainer/train_pretrain.py，行号以本工程实读版本为准。</li>
+</ul>
+
+</article>

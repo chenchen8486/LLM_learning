@@ -1,0 +1,273 @@
+﻿<article class="content">
+<h1>8.3 长上下文扩展 II：数据与训练工程</h1>
+<p class="subtitle">本页范围：第 8 章第 3 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>位置编码改好只解决「能不能表示 128K」，模型并不会自动学会利用 128K 里的信息。要让长上下文能力真正长出来，训练数据与训练流程该怎么设计？</td></tr>
+      <tr><td>本节主张</td><td>主流方案高度一致：预训练全程用短序列省钱，中后期用少量 token 分阶段拉长；数据侧把天然长文本上采样、同主题拼接、跨文档加掩码，再用合成数据逼模型调用远距离信息。</td></tr>
+      <tr><td>一句话结论</td><td>DeepSeek-V3 用不到预训练 1% 的 token 把 4K 扩到 128K——长上下文是「后期唤醒」而非「从头训练」的能力；而检验标准不是平均困惑度，是大海捞针和 RULER 这类直接考远程信息利用的测试。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>长度课程</span><span>YaRN</span><span>长文档上采样</span><span>packing</span><span>跨文档掩码</span><span>合成数据</span><span>大海捞针</span><span>RULER</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　8.2 节解决了长上下文扩展的前半段：改造 RoPE（位置插值、NTK 缩放、YaRN），让模型在数学上「表示得了」超出训练长度的位置。但表示得了不等于用得上——一个只见过 4K 文本的模型，就算把 128K 文档塞进去，它也更可能只盯着开头结尾，对中间的内容视而不见。本节讲后半段：训练侧的工程，回答三个环环相扣的问题——先短后长怎么安排、长数据从哪来、怎么证明模型真学会了。</p>
+
+<p>　　本节沿四个小节展开，路线图如下：</p>
+
+<ol>
+  <li><strong>长度课程：为什么先短后长</strong>（8.3.1）：算一笔经济账，看长序列训练贵在哪，以及 DeepSeek-V3、Llama 3 如何用分阶段课程把成本压下来；</li>
+  <li><strong>长上下文数据从哪来</strong>（8.3.2）：天然长文本的采集与上采样、文档拼接的讲究、跨文档注意力掩码的作用；</li>
+  <li><strong>合成长上下文数据：逼模型用上远距离信息</strong>（8.3.3）：天然长数据不等于长依赖数据，看 Llama 3 如何用自动生成的问答与代码任务补上这一课；</li>
+  <li><strong>怎么证明长上下文真学会了</strong>（8.3.4）：大海捞针测试与 RULER 基准，以及为什么平均困惑度说了不算。</li>
+</ol>
+
+<p>　　读完本节，你应该能看懂任何一份技术报告里「Long Context Extension」那一节在写什么，并能判断一个宣称 128K 的模型到底有没有真本事。</p>
+
+<h2>8.3.1 长度课程：为什么先短后长</h2>
+
+<p>　　先回答最直觉的问题：既然目标是 128K 上下文，为什么不从头到尾都用 128K 序列训练？答案只有一个字：贵。</p>
+
+<p>　　Llama 3 技术报告把原因写得很直白：之所以不在预训练早期用长序列，是因为<strong>自注意力层的计算量随序列长度平方增长</strong>。序列从 4K 拉到 128K，长度涨了 32 倍，注意力部分的计算量就要涨 \(32^2 = 1024\) 倍。打个生活化的比方：30 人的会议室里两两握手，一共 435 次；换成 1000 人的大礼堂，两两握手接近 50 万次——人多了 33 倍，握手次数多了一千多倍。注意力就是这样一笔「两两握手」的账。当然，FFN 等其余部分的计算只随长度线性增长，会摊薄总账；但激活显存同样随长度成倍上涨，综合下来，同样训练一个 token，128K 序列上的开销是 4K 序列上的好几倍。</p>
+
+<p>　　DeepSeek-V3 的真实账单可以直接验证这个结论。它的预训练全程用 4K 序列，吃掉 14.8 万亿 token，花了 2664K H800 GPU 小时；之后的上下文扩展只处理约 1260 亿 token（不到预训练的 1%），却花了 119K GPU 小时——折算成单位 token 成本，扩展阶段约为预训练主体的 5 倍。若全程按 128K 的标准训练 14.8 万亿 token，账单将膨胀到任何团队都无法接受。于是主流做法形成了共识，被称为<strong>长度课程</strong>（length curriculum）：预训练用短序列把语言与知识学扎实，中后期再花少量 token 逐步拉长。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">长度课程 Length Curriculum</span>
+    <span class="term-en">curriculum = 课程，先易后难、循序渐进的学习安排</span>
+  </div>
+  <div class="term-body">
+    <p>指「先短后长、分阶段拉长序列」的训练安排：预训练主体用 4K 或 8K 短序列完成，中期或末期用远少于主体的 token 量，分一个或多个阶段把序列长度逐步扩到 32K、128K 甚至更长。它是 6.2 节学习率调度的同门思路——不同训练阶段用不同配置，把昂贵的资源花在刀刃上。</p>
+    <div class="term-analogy">就像训练长跑运动员：日常大量的是普通配速跑（短序列打基础），只在赛前几周安排少量高强度的长距离拉练（长序列扩展），全程按长距离标准练，身体（预算）先垮。</div>
+  </div>
+</div>
+
+<p>　　DeepSeek-V3 的长度课程是两段式的，报告 4.3 节给出了完整配方。预训练在 4K 上下文上完成后，应用 8.2 节讲过的 YaRN 方法，追加两个各 1000 步的训练阶段：第一阶段把序列长度设为 32K，batch size 1920 条；第二阶段把序列长度提到 128K，batch size 相应缩到 480 条（保持每步 token 总量大致相当），学习率沿用预训练收尾时的 \(7.3 \times 10^{-6}\)。两阶段共用同一组 YaRN 超参：缩放因子 \(s = 40\)、\(\alpha = 1\)、\(\beta = 32\)，且 YaRN 只施加在 MLA 中携带 RoPE 的解耦键 \(\mathbf{k}_t^R\) 上。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>阶段</th><th>序列长度</th><th>步数 × batch</th><th>token 量（换算）</th><th>备注</th></tr></thead>
+    <tbody>
+      <tr><td>预训练主体</td><td>4K</td><td>—</td><td>14.8T</td><td>2664K H800 GPU 小时</td></tr>
+      <tr><td>扩展阶段一</td><td>32K</td><td>1000 × 1920 条</td><td>约 63B（1000 × 1920 × 32K）</td><td rowspan="2">两阶段合计 119K GPU 小时；lr 均为 7.3×10⁻⁶</td></tr>
+      <tr><td>扩展阶段二</td><td>128K</td><td>1000 × 480 条</td><td>约 63B（1000 × 480 × 128K）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-cur" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 三个阶段框 -->
+    <rect x="30" y="60" width="200" height="130" rx="10" fill="#ede9fe" fill-opacity="0.6" stroke="#6d28d9" stroke-width="1.8"/>
+    <text x="130" y="86" text-anchor="middle" font-size="14" fill="#6d28d9">预训练主体</text>
+    <text x="130" y="112" text-anchor="middle" font-size="12.5" fill="#333">序列 4K · 14.8T token</text>
+    <text x="130" y="134" text-anchor="middle" font-size="12.5" fill="#333">约 2664K GPU 小时</text>
+    <text x="130" y="158" text-anchor="middle" font-size="12" fill="#666">语言与知识在此成型</text>
+
+    <rect x="275" y="60" width="200" height="130" rx="10" fill="#ecfeff" fill-opacity="0.7" stroke="#0891b2" stroke-width="1.8"/>
+    <text x="375" y="86" text-anchor="middle" font-size="14" fill="#0891b2">扩展阶段一（YaRN）</text>
+    <text x="375" y="112" text-anchor="middle" font-size="12.5" fill="#333">序列 32K · 1000 步 × 1920 条</text>
+    <text x="375" y="134" text-anchor="middle" font-size="12.5" fill="#333">约 63B token</text>
+    <text x="375" y="158" text-anchor="middle" font-size="12" fill="#666">token 量不到主体 0.5%</text>
+
+    <rect x="520" y="60" width="180" height="130" rx="10" fill="#ecfeff" fill-opacity="0.7" stroke="#0891b2" stroke-width="1.8"/>
+    <text x="610" y="86" text-anchor="middle" font-size="14" fill="#0891b2">扩展阶段二（YaRN）</text>
+    <text x="610" y="112" text-anchor="middle" font-size="12.5" fill="#333">序列 128K · 1000 步 × 480 条</text>
+    <text x="610" y="134" text-anchor="middle" font-size="12.5" fill="#333">约 63B token</text>
+    <text x="610" y="158" text-anchor="middle" font-size="12" fill="#666">batch 缩 4 倍保每步量</text>
+    <!-- 箭头 -->
+    <line x1="230" y1="125" x2="268" y2="125" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr-cur)"/>
+    <line x1="475" y1="125" x2="513" y2="125" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr-cur)"/>
+    <!-- 底部成本对比条 -->
+    <text x="40" y="228" font-size="12.5" fill="#333">token 量对比：</text>
+    <rect x="40" y="240" width="560" height="20" rx="4" fill="#6d28d9" fill-opacity="0.85"/>
+    <rect x="600" y="240" width="8" height="20" rx="2" fill="#dc2626"/>
+    <text x="40" y="278" font-size="11.5" fill="#666">紫条：预训练 14.8T　｜　红条：扩展两阶段合计约 126B（不到 1%）</text>
+    <text x="40" y="304" font-size="12.5" fill="#333">成本折算：扩展阶段单位 token 的 GPU 开销约为主体 4~5 倍——全程按 128K 训练是天文数字</text>
+  </svg>
+  <div class="diagram-caption">图示：DeepSeek-V3 的两段式长度课程——4K 预训练打底，YaRN 两阶段各约 630 亿 token 扩到 128K。扩展阶段 token 占比不到 1%，单位成本却是主体数倍，这正是「先短后长」的经济学依据。</div>
+</div>
+
+<p>　　另一个参照系是 Llama 3，它的课程更平缓：长上下文预训练分<strong>六个阶段</strong>，从最初的 8K 逐步扩到 128K，全程约 8000 亿 token。值得注意的是它的阶段晋级判据——不是步数到了就翻篇，而是每个长度都要训到两个条件同时满足：短上下文基准成绩完全恢复，且该长度下大海捞针测试全部答对。这个判据本身就预告了 8.3.4 的主题：长没长本事，要用考试来验。</p>
+
+<div class="highlight-box">
+  长上下文能力的主流获得方式是「后期唤醒」：预训练用短序列学知识与语言，中后期用少量 token 分阶段拉长。DeepSeek-V3 用不到预训练 1% 的 token 完成了 4K 到 128K 的扩展——先短后长不是妥协，是成本约束下的最优解。
+</div>
+
+<div class="highlight-box info">
+  DeepSeek 后来发布的 V3.1 把这套课程的剂量加大：32K 扩展阶段扩到 6300 亿 token（约 10 倍）、128K 阶段扩到 2090 亿 token。可见「少量 token 够用」的边界是活的——剂量越大，长上下文表现通常越扎实，成本也同步上涨。
+</div>
+
+<h2>8.3.2 长上下文数据从哪来</h2>
+
+<p>　　课程安排定了，接下来的问题是：拉长阶段喂什么数据？把原来的短文本数据原样再喂一遍行不行？答案是不行——模型在 32K 序列上训练，序列里装的却是互不相关的短文档碎片，它学到的只是「在一堆噪声里做局部预测」，远程依赖的信号依然稀缺。长上下文训练需要货真价实的长数据。</p>
+
+<p>　　第一来源是<strong>天然长文本</strong>。普通网页平均只有几百到一两千 token，但语料库里天然存在一批长家伙：书籍、学术论文、长文档网页、以及代码仓库（一个仓库的文件合起来常常几万到几十万 token）。做法是把这批数据在训练混合中的占比提上来，即<strong>长文档上采样</strong>（upsampling）。Fu 等人 2024 年的系统研究给这个做法提供了底气：他们的实验表明，「在输入任意位置利用信息」这项能力在大规模预训练中已经基本习得，续训阶段用对的数据做轻量训练，就能把 4K 模型扩展到 128K——数据工程的关键不在量大，而在让模型真的见到足够长的连贯文本。</p>
+
+<p>　　第二来源是<strong>拼接</strong>。即便上采样，天然长文档也未必够填满 128K 的序列，工程上通行的做法是把多个文档首尾相接塞进一条序列，即 packing（序列打包）。拼接不是随便拼：Shi 等人的 In-Context Pretraining 研究表明，把<strong>语义相关的同主题文档</strong>拼进同一条序列，效果优于随机拼接——相邻文档互相提供上下文，模型在训练时就练习了「利用前文信息理解后文」，而不是把每个文档当作孤岛。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">序列打包 Packing</span>
+    <span class="term-en">pack = 装箱，把多条文档首尾相接塞进一条定长序列</span>
+  </div>
+  <div class="term-body">
+    <p>训练时序列长度是固定的（如 32K），而文档长短不一。packing 的做法是把一篇篇文档顺着接龙，接满一条序列为止，避免用 padding 填充浪费算力。代价是一条序列里会挤进多个互不相关的文档，边界处理就成了学问：要不要告诉模型「这里换了一篇」。</p>
+    <div class="term-analogy">就像集装箱码头装箱：大小货物（长短文档）混装进标准集装箱（定长序列），空间利用率最高；但装得太随意，易碎品（文档边界）可能被压坏。</div>
+  </div>
+</div>
+
+<p>　　边界处理的代表手段是<strong>跨文档注意力掩码</strong>：在注意力计算时禁止一个位置去注意同序列里前一个文档的内容，从机制上切断「串台」。Llama 3 报告记录了它的实际效果：这个掩码在常规预训练中影响有限，但在长序列续训中很重要——序列越长，一条序列里挤进的异质文档越多，不相关上下文互相干扰的问题越被放大，掩码的价值也就越大。</p>
+
+<div class="highlight-box danger">
+  长序列续训时若沿用「随机拼接 + 不加掩码」的短文本打包习惯，模型会被迫在海量无关上下文的干扰中学习，远程依赖的信号被稀释。长上下文数据工程的三件套——长文档上采样、同主题拼接、跨文档掩码——解决的是同一个问题：让「远处的信息有用」这个信号在训练数据里真实存在。
+</div>
+
+<h2>8.3.3 合成长上下文数据：逼模型用上远距离信息</h2>
+
+<p>　　有了天然长数据还不够。一个微妙的问题：文档长，不等于任务需要远程信息。一本小说的局部段落，往往只看前后几句就能续写下去——模型完全可以「人在长文里，眼睛只盯着附近」，照样把困惑度刷得很好看。要让模型真正练习远程检索与推理，数据里的任务必须设计成<strong>不看远处就答不出来</strong>。</p>
+
+<p>　　Llama 3 在后训练阶段踩过的坑最能说明问题。报告记载：直接沿用只有短上下文数据的 SFT 配方，预训练阶段辛苦获得的长上下文能力出现了<strong>显著退化</strong>。而让人工标注员去读长文档、写标注，成本高到不现实，于是团队转向合成数据——用早期版本的 Llama 3 自动生成长上下文训练样本，覆盖三类用例：</p>
+
+<ul>
+  <li><strong>长文档问答</strong>：从预训练语料精选长文档，切成 8K 的块，让模型针对随机选中的块生成问答对；训练时把<strong>完整文档</strong>作为上下文——答案藏在哪里不一定，模型必须学会翻遍全文。</li>
+  <li><strong>层级摘要</strong>：先用 8K 上下文的分块模型给每块写摘要，再把摘要的摘要汇总；训练时给出全文，要求模型在保留所有重要细节的前提下做全文摘要，并基于全文理解生成问答。</li>
+  <li><strong>代码仓库推理</strong>：解析 Python 文件的 import 依赖，挑出一个被至少五个文件依赖的关键文件并删掉，让模型回答哪些文件依赖了它、并补写出缺失代码——不看遍仓库根本答不了。</li>
+</ul>
+
+<p>　　这批合成样本还按长度分桶（16K / 32K / 64K / 128K），以便精细控制各长度档的训练配比。最让人意外的是用量：报告发现，只需把 <strong>0.1%</strong> 的合成长上下文数据混进原有的短上下文 SFT 数据，短任务与长任务的成绩就能同时保住。长上下文能力的维持，靠的不是堆量，是持续地「提醒」模型远处有信息可用。</p>
+
+<div class="highlight-box info">
+  合成数据的设计判据只有一条：任务必须依赖远距离信息。问答的答案要分散在全文，摘要要覆盖全局细节，代码任务要跨文件依赖——凡是只看局部就能混过去的任务，都练不出长上下文。
+</div>
+
+<h2>8.3.4 怎么证明长上下文真学会了</h2>
+
+<p>　　训练做完，怎么验收？沿用预训练的困惑度指标是第一个本能反应，但它恰恰是这里最不可靠的尺子。长文困惑度是所有 token 的平均，而绝大多数 token 靠局部上下文就能预测——一个对远程信息视而不见的模型，平均困惑度照样可以很漂亮。真正有效的验收必须直接考「远程信息利用」。</p>
+
+<p>　　最流行的考法是<strong>大海捞针测试</strong>（Needle-in-a-Haystack，NIAH），由 Greg Kamradt 在 2023 年底提出：把一句与上下文完全无关的话——经典版本是「在旧金山最棒的事，是晴天坐在 Dolores 公园里吃三明治」——插进一叠长文档（原版用的是 Paul Graham 的散文集）的任意深度，然后问模型「在旧金山最好玩的事是什么」。把插入深度和上下文总长度都扫一遍，就能画出一张二维热力图：绿色表示答对，红色表示这根针没捞着。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 352" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-niah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 坐标轴 -->
+    <text x="360" y="314" text-anchor="middle" font-size="12" fill="#666">上下文总长度 →（1K / 8K / 32K / 64K / 128K）</text>
+    <text x="30" y="300" font-size="12" fill="#666" transform="rotate(-90 30 300)">针插入深度（0% 开头 → 100% 结尾）</text>
+    <!-- 网格：5 列 x 5 行 -->
+    <g>
+      <rect x="80" y="40" width="112" height="50" fill="#86efac"/>
+      <rect x="192" y="40" width="112" height="50" fill="#86efac"/>
+      <rect x="304" y="40" width="112" height="50" fill="#86efac"/>
+      <rect x="416" y="40" width="112" height="50" fill="#86efac"/>
+      <rect x="528" y="40" width="112" height="50" fill="#86efac"/>
+      <rect x="80" y="90" width="112" height="50" fill="#86efac"/>
+      <rect x="192" y="90" width="112" height="50" fill="#86efac"/>
+      <rect x="304" y="90" width="112" height="50" fill="#fde68a"/>
+      <rect x="416" y="90" width="112" height="50" fill="#86efac"/>
+      <rect x="528" y="90" width="112" height="50" fill="#86efac"/>
+      <rect x="80" y="140" width="112" height="50" fill="#86efac"/>
+      <rect x="192" y="140" width="112" height="50" fill="#fde68a"/>
+      <rect x="304" y="140" width="112" height="50" fill="#fca5a5"/>
+      <rect x="416" y="140" width="112" height="50" fill="#fde68a"/>
+      <rect x="528" y="140" width="112" height="50" fill="#86efac"/>
+      <rect x="80" y="190" width="112" height="50" fill="#86efac"/>
+      <rect x="192" y="190" width="112" height="50" fill="#86efac"/>
+      <rect x="304" y="190" width="112" height="50" fill="#fde68a"/>
+      <rect x="416" y="190" width="112" height="50" fill="#86efac"/>
+      <rect x="528" y="190" width="112" height="50" fill="#86efac"/>
+      <rect x="80" y="240" width="112" height="50" fill="#86efac"/>
+      <rect x="192" y="240" width="112" height="50" fill="#86efac"/>
+      <rect x="304" y="240" width="112" height="50" fill="#86efac"/>
+      <rect x="416" y="240" width="112" height="50" fill="#86efac"/>
+      <rect x="528" y="240" width="112" height="50" fill="#86efac"/>
+    </g>
+    <!-- 针的标注 -->
+    <rect x="304" y="140" width="112" height="50" fill="none" stroke="#dc2626" stroke-width="2.5"/>
+    <text x="360" y="132" text-anchor="middle" font-size="11.5" fill="#dc2626">针藏在「32K × 深度 50%」</text>
+    <!-- 图例 -->
+    <rect x="660" y="40" width="14" height="14" fill="#86efac"/>
+    <text x="666" y="70" text-anchor="middle" font-size="11" fill="#333">答对</text>
+    <rect x="660" y="90" width="14" height="14" fill="#fde68a"/>
+    <text x="666" y="120" text-anchor="middle" font-size="11" fill="#333">不稳定</text>
+    <rect x="660" y="140" width="14" height="14" fill="#fca5a5"/>
+    <text x="666" y="170" text-anchor="middle" font-size="11" fill="#333">答错</text>
+    <!-- 底部问答示意 -->
+    <text x="90" y="338" font-size="11.5" fill="#333">问：在旧金山最好玩的事是什么？　答：晴天在 Dolores 公园吃三明治 ✔</text>
+  </svg>
+  <div class="diagram-caption">图示：大海捞针测试的热力图读法——横轴扫上下文长度、纵轴扫插入深度，每格一次测验。常见薄弱区在长文档的中段：开头结尾容易记住，藏在正中间的针最容易丢。</div>
+</div>
+
+<p>　　NIAH 如今是长上下文模型的标配体检：DeepSeek-V3 报告用扩展后模型的 NIAH 全绿作为 128K 扩展成功的证据，Llama 3 则把它写进了长度课程每个阶段的晋级判据。但 NIAH 的天花板也很明显——它只考<strong>单句检索</strong>，是长上下文能力里最浅的一层。NIAH 满分，只说明模型「找得到」，不说明「用得好」。</p>
+
+<p>　　RULER 基准（Hsieh et al., 2024）正是为捅破这层天花板设计的。它把考试升级成四个科目：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>任务类别</th><th>考什么</th><th>与 NIAH 的关系</th></tr></thead>
+    <tbody>
+      <tr><td>检索 Retrieval</td><td>多种类型、多根针、多键多值的捞针变体</td><td>NIAH 的加难版</td></tr>
+      <tr><td>多跳追踪 Multi-hop Tracing</td><td>变量追踪：沿一连串赋值链追某个变量的最终值，模拟跨位置关联</td><td>超出单点检索</td></tr>
+      <tr><td>聚合 Aggregation</td><td>从全文提取高频词、共性词，模拟「通读全文再归纳」</td><td>考全局整合</td></tr>
+      <tr><td>问答 QA</td><td>在短文档问答里掺入大量无关干扰文本，考抗噪定位</td><td>逼近真实场景</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　RULER 用 13 个任务考了 17 个宣称长上下文的模型，结果给行业泼了一盆冷水：这些模型在原始 NIAH 上几乎满分，但随上下文变长、任务变难，成绩几乎全线大幅下滑；宣称支持 32K 以上的模型中，只有约一半能在 32K 长度上保住满意表现。「宣称的上下文长度」与「能可靠使用的上下文长度」，是两回事。</p>
+
+<div class="highlight-box warn">
+  平均困惑度证明不了长上下文能力。长文 PPL 被海量「只看局部就能预测」的 token 稀释，对远程依赖极不敏感。验收长上下文必须上直接考远程信息利用的测试：NIAH 测检索、RULER 测追踪聚合与抗噪问答，二者结合才算数。
+</div>
+
+<p>　　这也为解读技术报告提供了一把标尺：看到「支持 128K」的宣传时，先翻报告里有没有 NIAH 热力图、有没有 RULER 或同类硬基准的成绩，再看扩展阶段用了多少 token 训练——三者齐全，这个数字才站得住。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么不能全程用 128K 序列预训练？</div>
+    <div class="sc-key">自注意力计算量随序列长度平方增长，128K 是 4K 的 32 倍长，注意力项贵上千倍，激活显存也成倍上涨。DeepSeek-V3 的实测账：扩展阶段单位 token 成本约为预训练主体的 4~5 倍，全程长序列训练的预算无人承受得起。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">长上下文训练的数据侧有哪三个关键动作？</div>
+    <div class="sc-key">天然长文档（书籍、代码仓库、长网页）上采样；同主题文档拼接优于随机拼接；packing 时加跨文档注意力掩码防干扰——Llama 3 证实掩码在长序列续训中作用关键。此外还有合成数据：Llama 3 用 0.1% 的合成长数据（长文问答、层级摘要、仓库级代码推理）就保住了长短两端能力。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么说平均困惑度证明不了长上下文能力？</div>
+    <div class="sc-key">长文 PPL 是所有 token 的平均，大多数 token 靠局部上下文即可预测，远程依赖的信号被稀释。有效的验收是直接考远程信息利用：NIAH 考任意深度的单句检索，RULER 进一步考多跳追踪、全文聚合与抗噪问答——RULER 显示宣称 32K+ 的模型只有一半在 32K 上真正可靠。</div>
+  </div>
+</div>
+
+<div class="highlight-box info">
+  动手验证提示：本工程 minimind 恰是「没有长数据就没有长能力」的反面教材——它的预训练数据全部是短文本，<code>trainer/train_pretrain.py</code> 第 90 行 <code>--max_seq_len</code> 默认值仅 340 token。这个规模足够验证训练流程，但任何长上下文技巧（RoPE 插值、YaRN）在它身上都无从谈起：数据里根本没有长距离依赖可学。
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>DeepSeek-AI, 2024. DeepSeek-V3 Technical Report（arXiv:2412.19437；两阶段长度课程、YaRN 配置与 batch/学习率见 4.3 节，训练成本见 Table 1，NIAH 结果见 Figure 8）。</li>
+  <li>AI@Meta, 2024. The Llama 3 Herd of Models（arXiv:2407.21783；长上下文预训练六阶段与晋级判据见 3.4.2 节，跨文档注意力掩码说明见第 3 节架构部分，SFT 合成长上下文数据与 0.1% 配比见 4.3.4 节）。</li>
+  <li>Peng, Quesnelle, Fan &amp; Shippole, 2023. YaRN: Efficient Context Window Extension of Large Language Models（arXiv:2309.00071）。</li>
+  <li>Fu, Panda, Niu, Yue, Hajishirzi, Kim &amp; Peng, 2024. Data Engineering for Scaling Language Models to 128K Context（长上下文续训的数据工程研究，arXiv:2402.10171，ICML 2024）。</li>
+  <li>Shi et al., 2024. In-Context Pretraining: Language Modeling Beyond Document Boundaries（语义相关文档拼接优于随机拼接，arXiv:2310.10638，ICLR 2024）。</li>
+  <li>Hsieh et al., 2024. RULER: What's the Real Context Size of Your Long-Context Language Models?（arXiv:2404.06654，COLM 2024）。</li>
+  <li>Kamradt, 2023. Needle In A Haystack 测试（GitHub: gkamradt/LLMTest_NeedleInAHaystack；Paul Graham 散文集 + 旧金山三明治针句的原始实现）。</li>
+  <li>minimind 工程代码：<code>trainer/train_pretrain.py</code>（Apache 2.0 协议）。</li>
+</ul>
+
+</article>

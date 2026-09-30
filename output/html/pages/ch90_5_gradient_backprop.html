@@ -1,0 +1,215 @@
+﻿<article class="content">
+<h1>A.5 梯度下降与反向传播：模型怎么从损失里学东西</h1>
+<p class="subtitle">本页范围：附录 A 第 5 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>A.4 节把“模型答得多差”算成了一个数（损失）。接下来呢？几百万个参数，每个该往哪个方向调、调多少，是谁算出来的？</td></tr>
+      <tr><td>本节主张</td><td>梯度是损失对每个参数的“责任清单”，反向传播用链式法则把这份清单从损失一层层分回每个参数；梯度下降再按清单往反方向各走一小步。学习率决定步长，太大发散、太小磨蹭。</td></tr>
+      <tr><td>一句话结论</td><td>训练 = 反复做四件事：正向算损失 → 反向传梯度 → 沿负梯度走一小步 → 清零再来。6.3 节的训练循环就是这十二个字。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>导数</span><span>梯度</span><span>梯度下降</span><span>学习率</span><span>链式法则</span><span>反向传播</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　A.4 节结束时，手里有了一个损失数字，比如 9。这个数字本身不会教模型任何东西，它只是“体温计”。真正教模型的是下一步：算出每个参数对这个 9 各负多少责，然后各自修正。负责“算责任”的是反向传播，负责“修正”的是梯度下降。本节用能口算的小例子把两件事都过一遍——真实的 LLM 训练与这些小例子在数学上没有任何区别，只是参数从 1 个变成了几百万到几千亿个。</p>
+
+<ol>
+  <li><strong>梯度：损失曲面的坡度</strong>（A.5.1）：从抛物线的切线斜率说起，梯度就是“每个参数的斜率”拼成的向量；</li>
+  <li><strong>梯度下降：顺着下坡小步走</strong>（A.5.2）：更新规则、学习率，以及步子太大太小的两种下场；</li>
+  <li><strong>反向传播：链式法则逐层分责任</strong>（A.5.3）：一个三步计算图，手算出和 PyTorch 一字不差的梯度。</li>
+</ol>
+
+<p>　　读完应能手算一个三步计算图的梯度，并讲清残差连接为什么能帮梯度穿过几十层。</p>
+
+<h2>A.5.1 梯度：损失曲面的坡度</h2>
+
+<p>　　先看只有一个参数的情形。设损失是 \(y = x^2\)（把 \(x\) 当成参数，\(y\) 当成损失），要回答的问题是：当前 \(x = 3\)，把 \(x\) 调大一点，损失会怎么变？答案由切线斜率给出：这一点斜率是 6，意味着 \(x\) 每加 1，损失约涨 6；反过来 \(x\) 每减 1，损失约降 6。斜率为正，说明该往左走；斜率的绝对值 6，说明这里坡很陡、值得大步走。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="gdArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <line x1="360" y1="250" x2="360" y2="40" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#gdArrG)"/>
+    <line x1="60" y1="250" x2="660" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#gdArrG)"/>
+    <circle cx="360" cy="250" r="2.6" fill="#94a3b8"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="240" y1="246" x2="240" y2="254"/>
+      <line x1="300" y1="246" x2="300" y2="254"/>
+      <line x1="420" y1="246" x2="420" y2="254"/>
+      <line x1="480" y1="246" x2="480" y2="254"/>
+      <line x1="540" y1="246" x2="540" y2="254"/>
+      <line x1="356" y1="190" x2="364" y2="190"/>
+      <line x1="356" y1="130" x2="364" y2="130"/>
+      <line x1="356" y1="70" x2="364" y2="70"/>
+    </g>
+    <text x="240" y="266" font-size="11" fill="#64748b" text-anchor="middle">−2</text>
+    <text x="300" y="266" font-size="11" fill="#64748b" text-anchor="middle">−1</text>
+    <text x="420" y="266" font-size="11" fill="#64748b" text-anchor="middle">1</text>
+    <text x="480" y="266" font-size="11" fill="#64748b" text-anchor="middle">2</text>
+    <text x="540" y="266" font-size="11" fill="#64748b" text-anchor="middle">3</text>
+    <text x="352" y="194" font-size="11" fill="#64748b" text-anchor="end">5</text>
+    <text x="352" y="134" font-size="11" fill="#64748b" text-anchor="end">10</text>
+    <text x="352" y="74" font-size="11" fill="#64748b" text-anchor="end">15</text>
+    <text x="666" y="254" font-size="12" fill="#64748b">x</text>
+    <text x="366" y="44" font-size="12" fill="#64748b">y</text>
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2.4" points="180.0,142.0 210.0,175.0 240.0,202.0 270.0,223.0 300.0,238.0 330.0,247.0 360.0,250.0 390.0,247.0 420.0,238.0 450.0,223.0 480.0,202.0 510.0,175.0 540.0,142.0"/>
+    <line x1="480" y1="214" x2="600" y2="70" stroke="#c2410c" stroke-width="2" stroke-dasharray="7 5"/>
+    <circle cx="540" cy="142" r="3.6" fill="#c2410c"/>
+    <text x="548" y="150" font-size="12" fill="#c2410c">切点 (3, 9)</text>
+    <text x="90" y="70" font-size="12" fill="#c2410c">切线斜率 = 6：x 每加 1，y 约涨 6</text>
+    <text x="90" y="96" font-size="12" fill="#64748b">斜率为正 → 想让损失降，x 该往左（负方向）走</text>
+  </svg>
+  <div class="diagram-caption">图示：导数就是切线斜率。紫色抛物线是损失 \(y = x^2\)，橙色虚线是 \(x = 3\) 处的切线，斜率 6。斜率的正负告诉该往哪边走，斜率的大小告诉坡有多陡。</div>
+</div>
+
+<p>　　真实模型里参数不是一个而是 \(N\) 个。损失对每个参数各有一个斜率（叫偏导数），把这 \(N\) 个斜率按顺序排成一排，就是梯度：</p>
+
+<div class="formula-card">
+  \[ \nabla L = \left( \frac{\partial L}{\partial w_1},\ \frac{\partial L}{\partial w_2},\ \dots,\ \frac{\partial L}{\partial w_N} \right) \tag{1} \]
+  <div class="formula-note">公式 (1)：梯度。符号说明：\(L\) 是损失；\(w_1, w_2, \dots, w_N\) 是模型的全部参数，\(N\) 从几百万到几千亿不等；\(\frac{\partial L}{\partial w_i}\) 是损失对第 \(i\) 个参数的偏导数（只动 \(w_i\)、其余参数按住不动时，损失的变化率）；\(\nabla L\) 是梯度，与参数等长的向量。它的几何身份：损失上升最快方向上的“坡度向量”，所以调参要沿它的反方向走。</div>
+</div>
+
+<h2>A.5.2 梯度下降：顺着下坡小步走</h2>
+
+<p>　　有了梯度，更新规则只有一行：</p>
+
+<div class="formula-card">
+  \[ w \leftarrow w - \eta \cdot \frac{\partial L}{\partial w} \tag{2} \]
+  <div class="formula-note">公式 (2)：梯度下降更新。符号说明：\(w\) 是某个参数；\(\eta\) 是学习率（一个小的正数，控制步长，6.2 节细讲它的调度）；\(\frac{\partial L}{\partial w}\) 是损失对该参数的偏导；\(\leftarrow\) 表示“用右边的值替换左边”。负号的含义：导数为正说明往右走上坡，那就往左走；导数为负则往右走——永远朝下坡方向迈一步。</div>
+</div>
+
+<p>　　步长由 \(\eta\) 与斜率共同决定。还是 \(y = x^2\)，从 \(x = 3\) 出发，看两种学习率的实际轨迹（斜率是 \(2x\)，所以每步 \(x \leftarrow x - 2\eta x\)）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="gdArrO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/>
+      </marker>
+      <marker id="gdArrG2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="40" y="24" font-size="13" fill="#333">① 学习率合适（η = 0.15）：稳步下行</text>
+    <text x="400" y="24" font-size="13" fill="#333">② 学习率太大（η = 1.1）：来回跳、发散</text>
+    <line x1="190" y1="250" x2="190" y2="70" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#gdArrG2)"/>
+    <line x1="40" y1="250" x2="340" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#gdArrG2)"/>
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2" points="100.0,106.0 130.0,186.0 160.0,234.0 190.0,250.0 220.0,234.0 250.0,186.0 280.0,106.0"/>
+    <circle cx="280" cy="106" r="3.4" fill="#6d28d9"/>
+    <polyline fill="none" stroke="#c2410c" stroke-width="1.8" points="280.0,106.0 253.0,179.4 234.1,215.4 220.9,233.0 211.6,241.7 205.0,246.0" marker-end="url(#gdArrO)"/>
+    <text x="46" y="46" font-size="11" fill="#64748b">越靠近谷底斜率越小，步子自动变短</text>
+    <text x="46" y="284" font-size="11" fill="#64748b">x：3 → 2.1 → 1.47 → 1.03 → 0.72 → …，收敛</text>
+    <line x1="550" y1="250" x2="550" y2="70" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#gdArrG2)"/>
+    <line x1="400" y1="250" x2="700" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#gdArrG2)"/>
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2" points="474.0,77.0 490.0,142.0 510.0,202.0 530.0,238.0 550.0,250.0 570.0,238.0 590.0,202.0 610.0,142.0 626.0,77.0"/>
+    <circle cx="610" cy="142" r="3.4" fill="#6d28d9"/>
+    <polyline fill="none" stroke="#c2410c" stroke-width="1.8" points="610.0,142.0 478.0,94.5 636.4,26.1" marker-end="url(#gdArrO)"/>
+    <text x="406" y="46" font-size="11" fill="#64748b">每步都跨过谷底冲到对面，幅度越放越大</text>
+    <text x="406" y="284" font-size="11" fill="#64748b">x：3 → −3.6 → 4.32 → −5.18 → 6.22 → …，发散</text>
+  </svg>
+  <div class="diagram-caption">图示：学习率的两种下场。紫色抛物线是损失曲面，紫色圆点是起点 x = 3，橙色折线是逐步轨迹。左图 η = 0.15，每步砍掉当前 x 的 30%，平滑逼近谷底；右图 η = 1.1，步长超过谷底宽度，每步冲到对面更高处，损失不降反升。</div>
+</div>
+
+<p>　　6.2 节会讲工程上怎么伺候这个旋钮：学习率先 warmup 再衰减、用 Adam 给每个参数配自适应步长。那些技巧的地基都是这一小节：方向由梯度定，步长由学习率定。</p>
+
+<h2>A.5.3 反向传播：链式法则逐层分责任</h2>
+
+<p>　　最后一个问题：梯度怎么算出来？模型是几十层函数的复合，损失对第一层某个参数的偏导，没法直接写公式。链式法则解决了它：复合函数求导等于各环导数相乘。看一个能口算的三步例子。参数 \(w = 2\)，输入 \(x = 2\)，目标 \(y = 1\)。正向算三步：先 \(\hat{y} = w x = 4\)，再 \(e = \hat{y} - y = 3\)，最后 \(L = e^2 = 9\)。反向分责任：</p>
+
+<div class="formula-card">
+  \[ \frac{\partial L}{\partial w} = \frac{\partial L}{\partial e} \cdot \frac{\partial e}{\partial \hat{y}} \cdot \frac{\partial \hat{y}}{\partial w} = 2e \cdot 1 \cdot x = 6 \times 1 \times 2 = 12 \tag{3} \]
+  <div class="formula-note">公式 (3)：链式法则。符号说明：\(\hat{y}\) 是模型的预测值；\(e\) 是预测与目标的差；\(L\) 是损失；三个偏导分别是每一环“输出对输入的变化率”：\(\frac{\partial L}{\partial e} = 2e = 6\)，\(\frac{\partial e}{\partial \hat{y}} = 1\)，\(\frac{\partial \hat{y}}{\partial w} = x = 2\)。三环相乘，损失对最早那个参数的责任就分出来了：\(\frac{\partial L}{\partial w} = 12\)。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="bpArrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="bpArrO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/>
+      </marker>
+    </defs>
+    <rect x="40" y="46" width="80" height="36" rx="6" fill="#f5f3ff" stroke="#6d28d9"/>
+    <text x="80" y="69" font-size="13" fill="#333" text-anchor="middle">w = 2</text>
+    <rect x="40" y="126" width="80" height="36" rx="6" fill="#f5f3ff" stroke="#6d28d9"/>
+    <text x="80" y="149" font-size="13" fill="#333" text-anchor="middle">x = 2</text>
+    <line x1="120" y1="64" x2="177" y2="97" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#bpArrP)"/>
+    <line x1="120" y1="144" x2="177" y2="113" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#bpArrP)"/>
+    <circle cx="190" cy="105" r="16" fill="#6d28d9"/>
+    <text x="190" y="110" font-size="14" fill="#fff" text-anchor="middle">×</text>
+    <line x1="206" y1="105" x2="250" y2="105" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#bpArrP)"/>
+    <rect x="250" y="87" width="80" height="36" rx="6" fill="#f5f3ff" stroke="#6d28d9"/>
+    <text x="290" y="110" font-size="13" fill="#333" text-anchor="middle">ŷ = 4</text>
+    <line x1="330" y1="105" x2="360" y2="105" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#bpArrP)"/>
+    <circle cx="376" cy="105" r="16" fill="#6d28d9"/>
+    <text x="376" y="110" font-size="14" fill="#fff" text-anchor="middle">−</text>
+    <text x="362" y="140" font-size="11" fill="#64748b">y = 1</text>
+    <line x1="392" y1="105" x2="430" y2="105" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#bpArrP)"/>
+    <rect x="430" y="87" width="80" height="36" rx="6" fill="#f5f3ff" stroke="#6d28d9"/>
+    <text x="470" y="110" font-size="13" fill="#333" text-anchor="middle">e = 3</text>
+    <line x1="510" y1="105" x2="540" y2="105" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#bpArrP)"/>
+    <circle cx="556" cy="105" r="16" fill="#6d28d9"/>
+    <text x="556" y="110" font-size="14" fill="#fff" text-anchor="middle">²</text>
+    <line x1="572" y1="105" x2="610" y2="105" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#bpArrP)"/>
+    <rect x="610" y="87" width="80" height="36" rx="6" fill="#f5f3ff" stroke="#6d28d9"/>
+    <text x="650" y="110" font-size="13" fill="#333" text-anchor="middle">L = 9</text>
+    <path d="M 650 123 V 196 H 20 V 64 H 34" fill="none" stroke="#c2410c" stroke-width="1.8" marker-end="url(#bpArrO)"/>
+    <text x="470" y="182" font-size="12" fill="#c2410c">∂L/∂e = 2e = 6</text>
+    <text x="310" y="182" font-size="12" fill="#c2410c">∂e/∂ŷ = 1</text>
+    <text x="168" y="182" font-size="12" fill="#c2410c">∂ŷ/∂w = x = 2</text>
+    <text x="40" y="176" font-size="11" fill="#64748b">x 是数据，不求梯度</text>
+    <text x="230" y="236" font-size="13" fill="#c2410c">连乘得 ∂L/∂w = 6 × 1 × 2 = 12</text>
+  </svg>
+  <div class="diagram-caption">图示：反向传播就是沿计算图回传偏导。紫色是正向（算损失）：w 与 x 相乘得 ŷ，减 y 得 e，平方得 L。橙色是反向（传梯度）：从 L 出发逐环节乘，最终算出 ∂L/∂w = 12。</div>
+</div>
+
+<p>　　反向传播就是把这个过程自动化：正向时把每环的中间值存下来，反向时从损失出发沿图回传，每经过一环就乘上该环的局部导数。一次反向走完，全部参数的偏导同时到手——这是它配得上“高效”二字的原因，几百万个参数只走一遍图。</p>
+
+<p>　　最后补一个深层网络躲不开的麻烦：梯度要穿过几十层连乘，每层因子若普遍小于 1，连乘下来趋近于 0，前几层几乎收不到信号（梯度消失）；因子若普遍大于 1，连乘爆炸（梯度爆炸）。残差连接 \(x + F(x)\) 能缓解，是因为它对梯度开了一条恒等通道：\(\frac{\partial (x + F(x))}{\partial x}\) 里恒有一项是 1，梯度可以原样穿层而过，不被连乘衰减——这是 4.4 节每个子层都带残差的深层原因。工程上再加一道保险：梯度裁剪，把超阈值的梯度整体按比例缩回去（6.3 节）。</p>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>章节</th><th>用到本节什么</th></tr></thead>
+    <tbody>
+      <tr><td>6.2 优化器与学习率</td><td>Adam、warmup、余弦衰减都是公式 (2) 的工程增强版</td></tr>
+      <tr><td>6.3 训练流程</td><td>forward → loss → backward → step 的循环就是本节四件事</td></tr>
+      <tr><td>4.4 残差与归一化</td><td>残差连接的恒等通道缓解梯度消失，是结构设计的动机之一</td></tr>
+      <tr><td>A.4 交叉熵</td><td>反向传播的起点是 A.4 定义的损失，两节上下游相接</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　A.5.3 的手算结果可以用 PyTorch 的自动微分复核，逐字一致：</p>
+
+<pre><code>import torch
+
+w = torch.tensor(2.0, requires_grad=True)
+x, y = 2.0, 1.0
+y_hat = w * x            # ŷ = wx
+L = (y_hat - y) ** 2     # L = (ŷ − y)²
+L.backward()             # 反向传播：自动算 ∂L/∂w
+print('ŷ =', y_hat.item(), ' L =', L.item(), ' ∂L/∂w =', w.grad.item())</code></pre>
+
+<p>　　实测输出：</p>
+
+<pre><code>ŷ = 4.0  L = 9.0  ∂L/∂w = 12.0</code></pre>
+
+<p>　　与公式 (3) 的手算完全相同。真实训练里的同一段逻辑见 <code>minimind-master/trainer/train_pretrain.py</code> 的训练循环：<code>scaler.scale(loss).backward()</code>（混合精度下的反向传播，混合精度见 7.4 节）之后接 <code>torch.nn.utils.clip_grad_norm_</code>（梯度裁剪）与 <code>scaler.step(optimizer)</code>（公式 (2) 的 Adam 版），一个训练步就齐了。</p>
+</article>

@@ -8,7 +8,7 @@
     <tbody>
       <tr><td>核心问题</td><td>损失函数只给出「考卷分数」，谁来决定每个参数每一步往哪走、走多远？数千亿 token 的预训练，该按什么节奏一口一口喂给模型？</td></tr>
       <tr><td>本节主张</td><td>现代 LLM 预训练的优化方案高度收敛：AdamW 负责「每一步怎么走」，线性 warmup 加 cosine 衰减的学习率调度负责「步子随时间怎么变」，梯度裁剪兜底防爆炸；随模型规模变化的只是量级，骨架不变。</td></tr>
-      <tr><td>一句话结论</td><td>AdamW + 线性 warmup + cosine 衰减到峰值 10% + 全局梯度裁剪 1.0，这套配方从几十 M 的玩具模型到 175B 的 GPT-3 通用，大模型与小模型的差别主要是学习率更小、batch 更大。</td></tr>
+      <tr><td>一句话结论</td><td>AdamW + 线性 warmup + cosine 衰减到峰值 10% + 全局梯度裁剪 1.0，这套配方的骨架从几十 M 的玩具模型到 175B 的 GPT-3 通用——具体组件可按规模取舍（GPT-3 用 Adam，minimind 无 warmup，见 6.2.3 对照表），大模型与小模型的差别主要是学习率更小、batch 更大。</td></tr>
       <tr><td>关键词</td><td>
         <div class="keywords"><span>SGD</span><span>动量</span><span>Adam</span><span>AdamW</span><span>warmup</span><span>cosine 衰减</span><span>梯度裁剪</span><span>超参数</span></div>
       </td></tr>
@@ -106,11 +106,11 @@
 <p>　　直觉用开车来建立：起步时慢给油，速度起来了再全速巡航，快到目的地提前减速入位。对应到训练：开局时参数是随机数，梯度又大方向又乱，Adam 的动量统计量还没攒够，步长估计最不可靠，此刻迈大步容易一脚踩空——实践中，大模型省略 warmup 直接在峰值学习率开局，常在最初几百步就 loss 爆炸甚至 NaN。训练末期则相反：损失已经接近谷底，需要小碎步精细收敛，大步只会在谷底上方反复横跳。</p>
 
 <div class="formula-card">
-  \[ \eta_t = \begin{cases} \eta_{\max} \cdot \dfrac{t}{T_{\mathrm{warm}}}, & t \le T_{\mathrm{warm}} \\[6pt] \eta_{\min} + \dfrac{1}{2}\big(\eta_{\max} - \eta_{\min}\big)\Big(1 + \cos\big(\pi \cdot \dfrac{t - T_{\mathrm{warm}}}{T - T_{\mathrm{warm}}}\big)\Big), & t > T_{\mathrm{warm}} \end{cases} \tag{5} \]
-  <div class="formula-note">公式 (5)：学习率的完整一生，分两段。第一段是 warmup：从 0 线性爬到峰值，通常几百到几千步。第二段是 cosine 衰减：沿余弦曲线平滑下滑到 \(\eta_{\min}\)，形状是余弦函数的上半拱，前期降得慢、后期降得快。符号说明：\(\eta_t\) 是第 \(t\) 步实际使用的学习率；\(\eta_{\max}\) 是峰值学习率；\(\eta_{\min}\) 是收尾学习率，GPT-3 取峰值的 10%（即 \(0.1\,\eta_{\max}\)）；\(T_{\mathrm{warm}}\) 是 warmup 持续的步数；\(T\) 是训练总步数；\(t\) 是当前步数。</div>
+  \[ \eta_t = \begin{cases} \eta_{\max} \cdot \dfrac{t}{T_{\mathrm{warm}}}, &amp; t \le T_{\mathrm{warm}} \\[6pt] \eta_{\min} + \dfrac{1}{2}\big(\eta_{\max} - \eta_{\min}\big)\Big(1 + \cos\big(\pi \cdot \dfrac{t - T_{\mathrm{warm}}}{T - T_{\mathrm{warm}}}\big)\Big), &amp; t &gt; T_{\mathrm{warm}} \end{cases} \tag{5} \]
+  <div class="formula-note">公式 (5)：学习率的完整一生，分两段。第一段是 warmup：从 0 线性爬到峰值，通常几百到几千步。第二段是 cosine 衰减：沿余弦曲线平滑下滑到 \(\eta_{\min}\)，形状是余弦函数的半拱，峰值附近与收尾附近平缓、中段最陡。符号说明：\(\eta_t\) 是第 \(t\) 步实际使用的学习率；\(\eta_{\max}\) 是峰值学习率；\(\eta_{\min}\) 是收尾学习率，GPT-3 取峰值的 10%（即 \(0.1\,\eta_{\max}\)）；\(T_{\mathrm{warm}}\) 是 warmup 持续的步数；\(T\) 是训练总步数；\(t\) 是当前步数。</div>
 </div>
 
-<p>　　为什么是 cosine 而不是线性一降到底？余弦拱形在峰值附近平缓，让模型在较大学习率下多赶一段路；接近收尾时坡度变陡，快速压到小碎步——把时间更多花在了「还能大步前进」的阶段。GPT-3 的方案就是公式 (5) 的实例：线性 warmup 覆盖前 3.75 亿 token，随后用 2600 亿 token 按 cosine 衰减到峰值的 10%，之后保持在 10% 继续训练到结束。</p>
+<p>　　为什么是 cosine 而不是线性一降到底？余弦拱形在峰值附近平缓，让模型在较大学习率下多赶一段路；中段坡度最陡，把学习率快速压下来；收尾处再度放缓，平滑落到小碎步——把时间更多花在了「还能大步前进」的阶段。GPT-3 的方案就是公式 (5) 的实例：线性 warmup 覆盖前 3.75 亿 token，随后用 2600 亿 token 按 cosine 衰减到峰值的 10%，之后保持在 10% 继续训练到结束。</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>

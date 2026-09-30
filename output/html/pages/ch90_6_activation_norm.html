@@ -1,0 +1,205 @@
+﻿<article class="content">
+<h1>A.6 激活函数与归一化：让网络既会弯、又稳得住</h1>
+<p class="subtitle">本页范围：附录 A 第 6 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>矩阵乘矩阵还是矩阵，一百层线性叠起来和一层没区别——深度的意义从哪来？另外，几十层之间数值尺度一路漂移，训练怎么稳得住？</td></tr>
+      <tr><td>本节主张</td><td>激活函数逐元素施加非线性，是“深度”真正起效的原因；归一化把每层输入的均值和波动拉回标准尺度，是深层网络训得动的工程基石。LLM 的选型很集中：激活用 SwiGLU（门是 SiLU），归一化用 RMSNorm。</td></tr>
+      <tr><td>一句话结论</td><td>ReLU 管“会不会弯”，归一化管“稳不稳”——FFN 里的激活函数和每个子层旁的 Norm，分别对应 4.4 节与 5.1 节。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>非线性</span><span>ReLU</span><span>GELU</span><span>SiLU / SwiGLU</span><span>均值与方差</span><span>LayerNorm / RMSNorm</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　A.5 节讲了梯度怎么传，但有两个工程问题没解决。第一，如果每层只是矩阵乘法，层数再多也白搭——复合一千次线性变换，结果仍是一次线性变换。第二，数值在几十层之间传来传去，尺度会越放越大或越缩越小，梯度跟着失控。Transformer 对这两个问题的回答分别是：FFN 里的激活函数，和每个子层旁边的归一化层。本节把这两个小件讲透。</p>
+
+<ol>
+  <li><strong>激活函数：没有它，一百层等于一层</strong>（A.6.1）：ReLU、GELU、SiLU 三条曲线，以及 SwiGLU 的门控思路；</li>
+  <li><strong>均值、方差与归一化</strong>（A.6.2）：三个数的手算例子，LayerNorm 与 RMSNorm 的差别。</li>
+</ol>
+
+<p>　　读完应能讲清两件事：非线性为什么是深度的前提，以及 RMSNorm 比 LayerNorm 少做了什么、为什么够用。</p>
+
+<h2>A.6.1 激活函数：没有它，一百层等于一层</h2>
+
+<p>　　矩阵乘法是线性的：输入放大两倍，输出也放大两倍；两次线性变换复合，等于一次新的线性变换（\(W_2(W_1 x) = (W_2 W_1) x\)）。这意味着一个只由矩阵乘法堆起来的网络，无论多少层，表达能力都等价于单层——学不出“弯曲的”规律。破解办法是在层与层之间插一个逐元素的非线性函数，这就是激活函数。它作用在向量的每个分量上，各自独立，不混合维度。</p>
+
+<p>　　最经典的是 ReLU，规则一句话：负数归零，正数原样通过。</p>
+
+<div class="formula-card">
+  \[ \mathrm{ReLU}(x) = \max(0, x) \tag{1} \]
+  <div class="formula-note">公式 (1)：ReLU（Rectified Linear Unit，修正线性单元）。符号说明：\(x\) 是向量某一个分量的数值；\(\max(0, x)\) 表示取 0 与 \(x\) 中较大者。它在 0 处有一个折点，正是这个折点提供了非线性。代价是负半轴一刀切，负区间的梯度恒为 0（见 A.5 节，梯度为 0 意味着参数收不到更新信号）。</div>
+</div>
+
+<p>　　LLM 更常用平滑版。GELU 与 SiLU 都在原点附近留了一段平滑的“下坡再抬头”，负区间不是死零，梯度处处可传。SiLU 的定义里出现 sigmoid（\(\sigma(x) = 1/(1+e^{-x})\)，把任意实数压进 0 到 1 的 S 形函数）：</p>
+
+<div class="formula-card">
+  \[ \mathrm{SiLU}(x) = x \cdot \sigma(x) = \frac{x}{1 + e^{-x}} \tag{2} \]
+  <div class="formula-note">公式 (2)：SiLU（也叫 Swish）。符号说明：\(x\) 是分量数值；\(\sigma(x)\) 是 sigmoid 函数；\(e \approx 2.718\)。读法：用 sigmoid 当“阀门”，x 越大阀门越开（\(\sigma\) 趋近 1，输出接近 x），x 越负阀门越关（输出趋近 0），中间平滑过渡。GELU 形状几乎一样，只是用高斯累积分布函数当阀门，定义涉及积分，这里不展开。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="afArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <line x1="360" y1="260" x2="360" y2="40" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#afArrG)"/>
+    <line x1="60" y1="180" x2="660" y2="180" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#afArrG)"/>
+    <circle cx="360" cy="180" r="2.6" fill="#94a3b8"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="240" y1="176" x2="240" y2="184"/>
+      <line x1="480" y1="176" x2="480" y2="184"/>
+      <line x1="600" y1="176" x2="600" y2="184"/>
+      <line x1="356" y1="140" x2="364" y2="140"/>
+      <line x1="356" y1="100" x2="364" y2="100"/>
+      <line x1="356" y1="60" x2="364" y2="60"/>
+      <line x1="356" y1="220" x2="364" y2="220"/>
+    </g>
+    <text x="240" y="206" font-size="11" fill="#64748b" text-anchor="middle">−2</text>
+    <text x="480" y="206" font-size="11" fill="#64748b" text-anchor="middle">2</text>
+    <text x="600" y="206" font-size="11" fill="#64748b" text-anchor="middle">4</text>
+    <text x="120" y="206" font-size="11" fill="#64748b" text-anchor="middle">−4</text>
+    <text x="352" y="144" font-size="11" fill="#64748b" text-anchor="end">1</text>
+    <text x="352" y="104" font-size="11" fill="#64748b" text-anchor="end">2</text>
+    <text x="352" y="64" font-size="11" fill="#64748b" text-anchor="end">3</text>
+    <text x="352" y="224" font-size="11" fill="#64748b" text-anchor="end">−1</text>
+    <text x="666" y="184" font-size="12" fill="#64748b">x</text>
+    <text x="366" y="44" font-size="12" fill="#64748b">y</text>
+    <polyline fill="none" stroke="#94a3b8" stroke-width="2.4" points="120.0,180.0 360.0,180.0 390.0,160.0 420.0,140.0 450.0,120.0 480.0,100.0 510.0,80.0 540.0,60.0 570.0,40.0"/>
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2.4" points="120.0,180.0 180.0,180.1 210.0,180.6 240.0,181.8 270.0,184.0 300.0,186.4 330.0,186.2 360.0,180.0 390.0,166.2 420.0,146.4 450.0,124.0 480.0,101.8 510.0,81.0 540.0,60.2 570.0,40.0"/>
+    <polyline fill="none" stroke="#2563eb" stroke-width="2.4" points="120.0,182.9 180.0,185.7 210.0,187.6 240.0,189.5 270.0,190.9 300.0,190.8 330.0,187.6 360.0,180.0 390.0,167.6 420.0,150.8 450.0,131.0 480.0,109.5 510.0,87.7 540.0,65.7 570.0,43.5"/>
+    <text x="70" y="60" font-size="12" fill="#94a3b8">ReLU：负数一刀切</text>
+    <text x="70" y="84" font-size="12" fill="#6d28d9">GELU：平滑过渡</text>
+    <text x="70" y="108" font-size="12" fill="#2563eb">SiLU：SwiGLU 的“阀门”</text>
+    <text x="70" y="284" font-size="12" fill="#64748b">注意负半轴：GELU 与 SiLU 在原点附近先小幅下凹再抬头，负区间仍有梯度可传</text>
+  </svg>
+  <div class="diagram-caption">图示：三种激活函数。横轴是输入，纵轴是输出。ReLU（灰）在负半轴贴死 0；GELU（紫）与 SiLU（蓝）在原点附近平滑下凹、处处可导，正半轴三者都近似 y = x。</div>
+</div>
+
+<p>　　5.1 节的 SwiGLU 更进一步，走“门控”路线：把输入分两路，一路过 SiLU 当阀门，一路原样当内容，两路逐元素相乘再投影回去。阀门由数据自己决定开多大，比固定形状的激活函数多一层表达能力。minimind 与 LLaMA 系列的 FFN 用的都是它。</p>
+
+<h2>A.6.2 均值、方差与归一化</h2>
+
+<p>　　归一化要用到两个统计量。均值是数据的中心位置，方差是数据围绕中心波动的剧烈程度：</p>
+
+<div class="formula-card">
+  \[ \mu = \frac{1}{n} \sum_{i=1}^{n} x_i, \qquad \sigma^2 = \frac{1}{n} \sum_{i=1}^{n} (x_i - \mu)^2 \tag{3} \]
+  <div class="formula-note">公式 (3)：均值与方差。符号说明：\(x_1, \dots, x_n\) 是一组数（比如一个向量的各分量，或一批样本）；\(\mu\) 是均值；\(\sigma^2\) 是方差，\(\sigma\) 开平方叫标准差，与原始数据同量纲。方差的读法：每个数离均值多远，距离平方再平均——平方是为了让正负偏差都算作“远”。</div>
+</div>
+
+<p>　　归一化就是把数据中心挪到 0、波动压到 1：</p>
+
+<div class="formula-card">
+  \[ \hat{x}_i = \frac{x_i - \mu}{\sigma} \tag{4} \]
+  <div class="formula-note">公式 (4)：标准化（归一化）。符号说明：\(\hat{x}_i\) 是归一化后的值；其余符号同公式 (3)。变换之后，这组数的均值恰好为 0、标准差恰好为 1。拿三个数手算一遍：\([10, 20, 30]\) 的均值是 20、标准差约 8.16，归一化后得 \([-1.22, 0, 1.22]\)——中心到 0，波动到 1。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="nmArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+      <marker id="nmArrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="70" y="24" font-size="13" fill="#333">① 原始数据：均值 20，点与点隔 10</text>
+    <line x1="80" y1="100" x2="640" y2="100" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#nmArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="80" y1="96" x2="80" y2="104"/>
+      <line x1="230" y1="96" x2="230" y2="104"/>
+      <line x1="380" y1="96" x2="380" y2="104"/>
+      <line x1="530" y1="96" x2="530" y2="104"/>
+    </g>
+    <text x="80" y="118" font-size="11" fill="#64748b" text-anchor="middle">0</text>
+    <text x="230" y="118" font-size="11" fill="#64748b" text-anchor="middle">10</text>
+    <text x="380" y="118" font-size="11" fill="#64748b" text-anchor="middle">20</text>
+    <text x="530" y="118" font-size="11" fill="#64748b" text-anchor="middle">30</text>
+    <circle cx="230" cy="100" r="5" fill="#6d28d9"/>
+    <circle cx="380" cy="100" r="5" fill="#2563eb"/>
+    <circle cx="530" cy="100" r="5" fill="#c2410c"/>
+    <text x="230" y="84" font-size="12" fill="#6d28d9" text-anchor="middle">10</text>
+    <text x="380" y="84" font-size="12" fill="#2563eb" text-anchor="middle">20</text>
+    <text x="530" y="84" font-size="12" fill="#c2410c" text-anchor="middle">30</text>
+    <line x1="360" y1="140" x2="360" y2="172" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#nmArrP)"/>
+    <text x="372" y="162" font-size="12" fill="#6d28d9">减均值 20，再除标准差 8.16</text>
+    <text x="70" y="150" font-size="13" fill="#333">② 归一化后：均值 0，标准差 1</text>
+    <line x1="80" y1="220" x2="680" y2="220" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#nmArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="80" y1="216" x2="80" y2="224"/>
+      <line x1="230" y1="216" x2="230" y2="224"/>
+      <line x1="380" y1="216" x2="380" y2="224"/>
+      <line x1="530" y1="216" x2="530" y2="224"/>
+      <line x1="680" y1="216" x2="680" y2="224"/>
+    </g>
+    <text x="80" y="238" font-size="11" fill="#64748b" text-anchor="middle">−2</text>
+    <text x="230" y="238" font-size="11" fill="#64748b" text-anchor="middle">−1</text>
+    <text x="380" y="238" font-size="11" fill="#64748b" text-anchor="middle">0</text>
+    <text x="530" y="238" font-size="11" fill="#64748b" text-anchor="middle">1</text>
+    <text x="680" y="238" font-size="11" fill="#64748b" text-anchor="middle">2</text>
+    <circle cx="197" cy="220" r="5" fill="#6d28d9"/>
+    <circle cx="380" cy="220" r="5" fill="#2563eb"/>
+    <circle cx="563" cy="220" r="5" fill="#c2410c"/>
+    <text x="197" y="204" font-size="12" fill="#6d28d9" text-anchor="middle">−1.22</text>
+    <text x="380" y="204" font-size="12" fill="#2563eb" text-anchor="middle">0</text>
+    <text x="563" y="204" font-size="12" fill="#c2410c" text-anchor="middle">1.22</text>
+  </svg>
+  <div class="diagram-caption">图示：归一化前后对照。上面数轴是原始三个数 [10, 20, 30]，中心在 20；下面数轴是同一组数归一化后的位置 [−1.22, 0, 1.22]，中心到 0，三点相对间隔不变，只是整体平移并缩放。</div>
+</div>
+
+<p>　　Transformer 在每个子层旁放一个归一化层（4.4 节），用意是让每层拿到的输入尺度始终稳定：数值不随层数漂移，梯度的大小也就不会随层数失控（衔接 A.5 节的消失与爆炸问题）。归一化在向量自己的维度上做：每个 token 的向量各算各的均值方差，互不干扰。</p>
+
+<p>　　原版 Transformer 用 LayerNorm，就是公式 (3)(4) 的完整版，外加可学习的缩放和平移参数。5.1 节讲的 RMSNorm 是它的精简版：不减均值、不算方差，只除以分量的均方根：</p>
+
+<div class="formula-card">
+  \[ \hat{x}_i = \frac{x_i}{\sqrt{\frac{1}{d}\sum_{j=1}^{d} x_j^2 + \varepsilon}} \tag{5} \]
+  <div class="formula-note">公式 (5)：RMSNorm（Root Mean Square Normalization）。符号说明：\(x\) 是一个 token 的向量，\(d\) 是它的维度；分母是所有分量平方的平均再开方（即均方根 RMS），\(\varepsilon\) 是防止除零的小常数（如 \(10^{-6}\)）；\(\hat{x}_i\) 是归一化后的分量。少了“减均值”这一步，计算更省，实测效果与 LayerNorm 相当，这是现代 LLM 普遍换用它的原因（5.1 节）。与 LayerNorm 相同，RMSNorm 外面也挂一个可学习的逐维度缩放参数。</div>
+</div>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>章节</th><th>用到本节什么</th></tr></thead>
+    <tbody>
+      <tr><td>4.4 FFN 与归一化</td><td>FFN 里的激活函数、子层旁的 LayerNorm，原版架构的两个小件</td></tr>
+      <tr><td>5.1 现代变体</td><td>RMSNorm 与 SwiGLU 相对原版的改动，动机与收益</td></tr>
+      <tr><td>6.3 训练稳定性</td><td>归一化稳定数值尺度，与梯度裁剪同属稳定性手段</td></tr>
+      <tr><td>A.5 梯度与反向传播</td><td>激活函数的形状决定梯度能否穿过（负半轴死区的代价）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　下面的脚本复现 A.6.2 的手算，并顺手验证三个激活函数在几个点的取值。</p>
+
+<pre><code>import numpy as np
+
+x = np.array([10.0, 20.0, 30.0])
+mu, sigma = x.mean(), x.std()
+print('均值', mu, ' 标准差', round(sigma, 3))
+print('归一化后', np.round((x - mu) / sigma, 3))
+
+def silu(v): return v / (1 + np.exp(-v))
+v = np.array([-2.0, 0.0, 2.0])
+print('ReLU', np.maximum(0, v), ' SiLU', np.round(silu(v), 3))</code></pre>
+
+<p>　　实测输出：</p>
+
+<pre><code>均值 20.0  标准差 8.165
+归一化后 [-1.225  0.      1.225]
+ReLU [0. 0. 2.]  SiLU [-0.238  0.      1.762]</code></pre>
+
+<p>　　真实实现见 <code>minimind-master/model/model_minimind.py</code>：<code>RMSNorm</code> 类就是公式 (5) 的代码（含可学习缩放参数），FFN 类里的 <code>silu</code> 门控与两路相乘就是 SwiGLU。</p>
+</article>

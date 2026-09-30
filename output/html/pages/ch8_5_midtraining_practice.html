@@ -1,0 +1,229 @@
+﻿<article class="content">
+<h1>8.5 中间训练实战剖面与全章收束</h1>
+<p class="subtitle">本页范围：第 8 章第 5 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>中间训练在真实模型身上长什么样？Llama 3、Qwen2.5、DeepSeek-V3、MiniCPM 四家方案各怎么做？个人玩家手里的小模型要不要、又怎么做？过程中盯哪些风险？</td></tr>
+      <tr><td>本节主张</td><td>四家方案细节各异、骨架相同：主训用短上下文省钱，中期续训扩长度、调配比、退火收尾。这套分阶段策略本质是资源约束下的工程权衡，规模越小越可以简化。</td></tr>
+      <tr><td>一句话结论</td><td>中间训练交付的是一个能力补强、上下文达标的 base model；通用、长文、领域三线评测防遗忘、防跷跷板，然后把接力棒交给第 9 章的 SFT。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>Llama 3</span><span>Qwen2.5</span><span>DeepSeek-V3</span><span>MiniCPM</span><span>长上下文扩展</span><span>退火</span><span>遗忘</span><span>评测组合</span><span>minimind</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　8.4 节把退火讲完，中间训练的四个构件——定位（8.1）、位置编码缩放（8.2）、长数据构造（8.3）、退火收尾（8.4）——就都摆上了台面。剩下的问题是：这些构件在真实工程里长什么样？纸面方案和大厂实做之间，往往差着一堆只写在技术报告附录里的取舍。</p>
+
+<p>　　本节做三件事收尾全章：先把公开细节最充分的四份技术报告摆进同一张表横向对比，再俯身回答一个个人玩家的问题——本工程的 minimind 小模型要不要、能不能做中间训练，最后给出中期训练的风险监控清单，并把整个第 8 章打包交棒给后训练。路线图如下：</p>
+
+<ol>
+  <li><strong>四家方案对比：同一个配方，四种写法</strong>（8.5.1）：Llama 3、Qwen2.5、DeepSeek-V3、MiniCPM 的主训规模、上下文扩展路径、RoPE 缩放手法与退火收尾，全部联网核对后横向摆开；</li>
+  <li><strong>minimind 视角：小模型要不要中间训练</strong>（8.5.2）：给 minimind 做一次「体检」，开出把它从 340 token 扩到 2K 上下文的可操作实验清单；</li>
+  <li><strong>风险与监控清单</strong>（8.5.3）：遗忘、长短能力跷跷板、退火数据污染三大风险，配通用、长文、领域三线评测组合；</li>
+  <li><strong>全章收束与下一站</strong>（8.5.4）：中间训练交付了什么，为什么接下来该 SFT 登场。</li>
+</ol>
+
+<p>　　读完本节，你应该能看懂任何一份模型技术报告里「预训练配方」那几页在说什么，也能亲手给 minimind 设计一次中期续训实验。</p>
+
+<h2>8.5.1 四家方案对比：同一个配方，四种写法</h2>
+
+<p>　　本节挑的四家是公开资料里中期训练细节最充分的代表：Meta 的 Llama 3.1（arXiv:2407.21783，三阶段配方写得最完整）、阿里的 Qwen2.5（arXiv:2412.15115，渐进式扩展与推理侧外推的组合拳）、深度求索的 DeepSeek-V3（arXiv:2412.19437，把扩展成本压到极限）、面壁智能与清华的 MiniCPM（arXiv:2404.06395，小模型方法论模板，WSD 调度器的出处）。关键事实全部取自各家技术报告原文，横向对比如下：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>维度</th><th>Llama 3.1（405B）</th><th>Qwen2.5</th><th>DeepSeek-V3</th><th>MiniCPM（2.4B）</th></tr></thead>
+    <tbody>
+      <tr><td>主预训练</td><td>15.6T token，8K 上下文</td><td>18T token，4K 起步</td><td>14.8T token，4K 上下文</td><td>约 1T token（稳定阶段），4K</td></tr>
+      <tr><td>中期上下文扩展</td><td>六轮递增 8K → 128K，约 800B token；每轮两道验收：短上下文能力完全恢复 ＋ 该长度大海捞针满分</td><td>收尾阶段 4K → 32K（Turbo 除外）；Turbo 四阶段渐进 32K → 64K → 128K → 256K，每阶段 40% 满长序列 ＋ 60% 短序列</td><td>YaRN 两阶段各 1000 步：4K → 32K（每步 1920 条序列）、32K → 128K（每步 480 条），学习率沿用主训收尾值 \(7.3 \times 10^{-6}\)，不重新 warmup</td><td>MiniCPM-128K：复用稳定段 checkpoint，44% 长数据（书、百科、论文）＋ 56% 短数据，续训到 128K</td></tr>
+      <tr><td>RoPE 缩放手法</td><td>架构期一步到位：基频直接定为 50 万</td><td>ABF：基频 1 万 → 100 万（Turbo 1000 万）；推理侧再叠 YARN ＋ DCA 外推 4 倍，开源系标称 131K</td><td>YaRN 只作用于 MLA 的解耦共享键，\(s=40\)、\(\alpha=1\)、\(\beta=32\)</td><td>4K → 32K 用 ABF，32K → 128K 用 NTK-Aware ＋ 课程学习</td></tr>
+      <tr><td>退火与高质量收尾</td><td>最后 40M token 学习率线性降到 0，保持 128K 上下文，上采样极高质量数据源，对退火段 checkpoint 做 Polyak 平均出终模</td><td>预训练分阶段切换数据配比；报告未设独立退火章节</td><td>最后 500B token 两段收尾：前 333B 恒定 \(2.2 \times 10^{-5}\)，后 167B 线性降到 \(7.3 \times 10^{-6}\)；后期上调数学与编程样本比例</td><td>WSD 调度：稳定段结束后退火约 10% token（5000 步、20B token），指数衰减，退火段混入高质量 SFT 数据</td></tr>
+      <tr><td>特色技术</td><td>长上下文逐轮验收；退火还兼任「新数据源质检员」（8B 退火涨分 24%，405B 几乎不涨）</td><td>用自家 Qwen2-Instruct 当数据质量过滤器与领域分类器</td><td>长度扩展仅耗 11.9 万 H800 GPU 小时，约占主训的 4.5%</td><td>模型风洞实验（0.009B 到 0.5B）定超参；WSD 让 scaling law 测量成本从平方级降到线性</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　表格装的是骨架，逐家补一段血肉。<strong>Llama 3.1</strong> 是「照章办事」的典范：预训练明确分 initial pre-training、long context pre-training、annealing 三段。长上下文段分六轮、消耗约 800B token，每升一档长度都要先过两道验收关才进下一轮。最有反差感的是退火：只用最后 40M token（相对 15.6T 主训连零头都算不上），就把 8B 模型在 GSM8k 和 MATH 验证集上的成绩分别相对拉高 24.0% 和 6.4%；而 405B 旗舰几乎不涨，Meta 的解读是旗舰的上下文学习能力已经足够强，不需要这种定向投喂。Meta 还发明了退火的副业——评估新数据源的质量：把 50% 训完的 8B 模型在 40B token 上退火，新数据按 30% 混入，涨不涨分一测便知。</p>
+
+<p>　　<strong>Qwen2.5</strong> 把「分阶段」玩出了花样。开源系在预训练收尾阶段一次把 4K 扩到 32K，同时用 ABF 把 RoPE 基频从 1 万抬到 100 万；Turbo 则是四阶段渐进，每阶段的训练数据固定为 40% 当前满长序列加 60% 更短序列——长短混喂，明确保住短任务。更值得注意的是它的「训练 32K、标称 131K」组合：训练侧只扩到 32K，推理侧再叠 YARN 与 DCA 把可用长度外推 4 倍。训练扩展与推理外推分工，正是 8.2 节两条路线的合体实战。</p>
+
+<p>　　<strong>DeepSeek-V3</strong> 是省钱教科书。长度扩展两阶段合计只耗 11.9 万 H800 GPU 小时，约占主训 266.4 万小时的 4.5%，就把 4K 主训模型变成 128K。省钱的诀窍有三：YaRN 只施加在 MLA 的解耦共享键这一条位置支路上；每阶段只训 1000 步；学习率不做任何调整，直接沿用主训收尾的 \(7.3 \times 10^{-6}\)，不重新 warmup。它的主训学习率本身也是分段式的（恒定 → cosine 衰减 → 末段 500B 再分两小步降到 \(7.3 \times 10^{-6}\)），与 MiniCPM 的 WSD 异曲同工——稳定段占绝对大头，衰减集中在末尾。</p>
+
+<p>　　<strong>MiniCPM</strong> 是小模型玩家的方法论模板，两个原创贡献都直击资源痛点。一是「模型风洞实验」：像飞机设计吹风洞一样，先在 0.009B 到 0.5B 的小模型上把 batch、学习率扫干净，再外推到 2.4B（实测最优学习率稳定在 0.01 附近，不随规模漂移）。二是 WSD 调度器：稳定段想训多久训多久，需要交货时退火约 10% token 就出终模，中间 checkpoint 全部可复用；配套消融还证明了一条重要经验——高质量数据放在退火段，比匀进整个预训练或只留给 SFT 收益更大。它家的 MiniCPM-128K 则完整示范了「稳定段 checkpoint → 44% 长数据续训 → 128K」的链路，2.4B 体量在 ∞Bench 上超过 6B 的 ChatGLM3-128K。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Polyak 平均（checkpoint 平均）</span>
+    <span class="term-en">Polyak averaging = 把一段训练轨迹上的多个 checkpoint 权重求平均</span>
+  </div>
+  <div class="term-body">
+    <p>Llama 3.1 在退火阶段每隔一段存一个 checkpoint，终模不取最后一个点，而是取这些权重的逐参数平均。末段学习率虽小，参数仍在一个极小值盆地边缘来回晃动，平均相当于把晃动抵消掉，落在盆地更平坦的中心，泛化通常更好。</p>
+    <div class="term-analogy">就像评定期末成绩不看最后一次模拟考，而取最近几次的平均分——单次发挥有运气成分，平均下来才是真实水平。</div>
+  </div>
+</div>
+
+<div class="highlight-box">
+  四份方案，骨架惊人一致：主训阶段用短上下文把算力花在刀刃上，中期再花小钱扩长度；长上下文一律靠「改 RoPE ＋ 长数据短训」获得，没有一家为此从头重训；收尾一律上高质量数据（退火），并用 checkpoint 复用或平均榨干主训价值。差异只在工程取舍：扩多长、分几段、混多少长数据、退火多陡。
+</div>
+
+<h2>8.5.2 minimind 视角：小模型要不要中间训练</h2>
+
+<p>　　看完大厂，镜头拉回本工程。minimind 的「中间训练量」是多少？答案是零：预训练脚本把每条样本截断到 340 token（<code>--max_seq_len</code> 默认值，<code>train_pretrain.py</code> 第 90 行，注释写明「中文 1 token ≈ 1.5 到 1.7 字符」，340 token 大约五百来个汉字），配套预训练数据也全是清洗后的短文本。这个模型从出生起就没见过超过 340 token 的序列。</p>
+
+<p>　　但先别急着说它「先天不足」——翻翻配置会发现作者把弹药提前备好了。<code>MiniMindConfig</code> 里 RoPE 基频默认 \(10^6\)、位置表预算到 32768（<code>model_minimind.py</code> 第 29、27 行），频率表从初始化那天起就覆盖 32K 个位置；配置里还躺着一个 YaRN 开关（第 31 到 39 行）：打开 <code>inference_rope_scaling</code>，就按「原始长度 2048、放大 16 倍」做推理期缩放。也就是说，位置编码这一侧万事俱备，缺的只有数据和训练。</p>
+
+<p>　　于是「把 minimind 从 340 扩到 2048」这个假想实验，改动清单短得惊人：</p>
+
+<ol>
+  <li><strong>数据侧（核心改动）</strong>：按 8.3 节的手法构造长数据——把短文档拼接、或收集真正的长文档，做出一份平均长度覆盖 2K 的预训练 jsonl；训练时把 <code>--max_seq_len</code> 从 340 改成 2048，数据集类的截断与补齐逻辑会自动适配。</li>
+  <li><strong>位置编码侧（不用改）</strong>：2048 只是 340 的 6 倍，而按 8.2 节算过的账，基频 \(10^6\) 的最长波长足以覆盖数万位置，2K 远在安全区内。想演示 ABF 才需要动基频，本实验不必。推理期想再往外推，打开内置 YaRN 开关即可。</li>
+  <li><strong>训练侧（续训而非重训）</strong>：用 <code>--from_weight</code> 从预训练 checkpoint 接着训，学习率比主训的 \(5 \times 10^{-4}\) 低一个量级（比如 \(5 \times 10^{-5}\) 到 \(10^{-4}\)），几百步收工——这正是 DeepSeek-V3「沿用收尾学习率、不重新 warmup」思路的微缩版。</li>
+  <li><strong>验收（双测）</strong>：短文本能力不能退（对比续训前后的短文本困惑度与生成体感）；长文要能捞针（在 2K 长文里藏一个事实，看模型找不找得回）。</li>
+</ol>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-mid" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 现状节点 -->
+    <rect x="30" y="110" width="165" height="86" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="112" y="144" text-anchor="middle" font-size="13" fill="#6d28d9">现状：预训练完成</text>
+    <text x="112" y="164" text-anchor="middle" font-size="12" fill="#333">训练截断 340 token</text>
+    <text x="112" y="182" text-anchor="middle" font-size="12" fill="#333">模型只见过短文本</text>
+    <!-- 改动一 -->
+    <rect x="275" y="30" width="210" height="70" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="58" text-anchor="middle" font-size="12.5" fill="#0891b2">改动① 数据侧</text>
+    <text x="380" y="78" text-anchor="middle" font-size="12" fill="#333">截断 340 → 2048，换长数据</text>
+    <!-- 改动二 -->
+    <rect x="275" y="125" width="210" height="70" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="153" text-anchor="middle" font-size="12.5" fill="#0891b2">改动② 位置编码</text>
+    <text x="380" y="173" text-anchor="middle" font-size="12" fill="#333">RoPE 基频 10⁶ 已覆盖 2K，不动</text>
+    <!-- 改动三 -->
+    <rect x="275" y="220" width="210" height="70" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="248" text-anchor="middle" font-size="12.5" fill="#0891b2">改动③ 训练侧</text>
+    <text x="380" y="268" text-anchor="middle" font-size="12" fill="#333">从预训练权重低学习率续训</text>
+    <!-- 产物节点 -->
+    <rect x="545" y="60" width="150" height="80" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="620" y="92" text-anchor="middle" font-size="13" fill="#6d28d9">产物：2K 上下文</text>
+    <text x="620" y="112" text-anchor="middle" font-size="12" fill="#333">minimind 增强版</text>
+    <!-- 验收节点 -->
+    <rect x="545" y="190" width="150" height="90" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="620" y="218" text-anchor="middle" font-size="13" fill="#b45309">验收：双测过关</text>
+    <text x="620" y="238" text-anchor="middle" font-size="12" fill="#333">短文本能力不退</text>
+    <text x="620" y="256" text-anchor="middle" font-size="12" fill="#333">长文捞针能捞到</text>
+    <!-- 箭头：现状 → 三改动 -->
+    <line x1="196" y1="145" x2="268" y2="65" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-mid)"/>
+    <line x1="196" y1="153" x2="268" y2="160" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-mid)"/>
+    <line x1="196" y1="161" x2="268" y2="255" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-mid)"/>
+    <!-- 箭头：三改动 → 产物 -->
+    <line x1="486" y1="65" x2="538" y2="95" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-mid)"/>
+    <line x1="486" y1="160" x2="538" y2="105" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-mid)"/>
+    <line x1="486" y1="255" x2="538" y2="115" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-mid)"/>
+    <!-- 箭头：产物 → 验收 -->
+    <line x1="620" y1="141" x2="620" y2="183" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-mid)"/>
+  </svg>
+  <div class="diagram-caption">图示：minimind 从 340 扩到 2048 的实验流程——三处改动里位置编码完全不动，实质动作只有「换长数据 ＋ 低学习率短续训」，最后长短双测验收。图中的具体参数名（max_seq_len、rope_theta、inference_rope_scaling、from_weight）与代码行号见本节正文和文末「动手验证」。</div>
+</div>
+
+<p>　　回到小节标题的问题：小模型要不要中间训练？答案是「看需求，但随时能做」。minimind 这类几十 M 的玩具模型，预训练一共就跑几个小时，「主训省钱、中期补强」的分阶段收益本来就不大；但真遇到长文本需求，它的中期训练也简单——不用分六轮、不用算 YaRN 参数，换一份长数据、低学习率续训几百步就完事。</p>
+
+<div class="highlight-box info">
+  中间训练的本质是资源约束下的分阶段策略：主训承担最贵的通用能力养成，中期用小钱补长上下文、领域配比与数据质量收尾。规模越小，要补的课越少、流程越可以简化——minimind 扩 2K 连 RoPE 都不用碰。这正是 6.2 节「模型越小、配方越可以粗放」在中期训练上的翻版。
+</div>
+
+<h2>8.5.3 风险与监控清单</h2>
+
+<p>　　中期训练改了数据、改了长度、动了收尾配比，任何一刀都可能切伤已有能力。工程上盯三类风险：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>灾难性遗忘</h4><p>长文或领域数据占比一升高，通用能力可能回退。对策：中期前后各跑一次通用基准，并保留主训 checkpoint 做对照组。</p></div>
+  <div class="concept-card"><h4>长短能力跷跷板</h4><p>加长上下文后短任务变差是常见病——Llama 3 才把「短上下文评测完全恢复」列为每轮验收的第一条。对策：长短混喂（Qwen2.5 Turbo 的 40% ＋ 60% 配方），两侧同时监控。</p></div>
+  <div class="concept-card"><h4>退火数据失控</h4><p>退火段 token 量小，单条数据影响被放大；混入低质内容或评测集内容，都会直接刻进终模。对策：退火数据单独设质量门槛，并与评测集严格去重。</p></div>
+</div>
+
+<p>　　风险要靠评测组合来抓，单跑一个基准等于蒙眼开车。推荐三线并行的监控组合：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>监控线</th><th>代表基准</th><th>防什么</th></tr></thead>
+    <tbody>
+      <tr><td>通用能力线</td><td>MMLU、BBH、GSM8K 等通用知识与推理基准</td><td>遗忘：中期训练后通用能力回退</td></tr>
+      <tr><td>长文能力线</td><td>大海捞针（NIAH）、RULER、∞Bench、ZeroSCROLLS</td><td>标称长度注水：RULER 的实测显示，多家模型捞针满分、真实长文任务却明显掉分——只过捞针不代表长文能用</td></tr>
+      <tr><td>领域能力线</td><td>目标领域专属集（代码 HumanEval、数学 MATH，或行业自建集）</td><td>适配跑偏：领域提升是否兑现、代价是多大</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box warn">
+  别拿训练 loss 当验收标准。中期训练换了数据分布，新 loss 和主训 loss 没有可比性——长文数据上 loss 低，可能只是数据好猜。唯一可信的验收是上面这套评测组合。
+</div>
+
+<div class="highlight-box danger">
+  去污染是红线，退火段尤其要命：好数据常和评测题同源。Qwen2.5 的做法可作参考——训练序列与任一评测序列的最长公共子序列达到 13 token 且占较短一侧的 60% 以上，整条剔除。退火数据里混进评测集，分数再高也是自欺欺人。
+</div>
+
+<h2>8.5.4 全章收束与下一站</h2>
+
+<p>　　回看第 8 章走过的路：8.1 节给中间训练定位——它是预训练与后训练之间的一条补强带；8.2 节解决「位置装不下」的问题，ABF、NTK、YaRN 三种 RoPE 缩放手法各有适用面；8.3 节解决「长数据从哪来」，拼接、收集、合成三条路；8.4 节讲退火，把学习率与数据质量在收尾段一起拧到位；本节则把四条线落到四个真实方案与一份 minimind 实验清单上。</p>
+
+<p>　　走完这一章，手里的模型已经今非昔比：上下文长度达标、领域配比修正、高质量数据收尾，checkpoint 还做了平均。但请冷静——它依然只会「续写」：给它半句话它接下半句，可你对它说「请帮我总结这段话」，它很可能把你的指令也当成待续写的文本，自顾自往下编。会知识与会听话是两回事，中间训练管的是前者。</p>
+
+<div class="highlight-box">
+  第 8 章一句话：中间训练是大模型流水线的补强带——花预训练零头的算力，把上下文长度、领域配比、数据质量收尾三件事补齐，为后训练交出一个更值钱的 base model。
+</div>
+
+<p>　　让模型从「会续写」变成「听指挥」，靠的是下一章的主角：监督微调（SFT）。第 9 章会讲指令数据怎么构造、对话模板怎么套，以及个人玩家的救星 LoRA——只训百分之几的参数就能完成微调，让 minimind 这样的小模型在单张消费级显卡上也能学会听指令。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">四家中期训练方案的共同骨架是什么？</div>
+    <div class="sc-key">主训用短上下文省钱，中期靠「改 RoPE ＋ 长数据短训」扩长度，收尾一律高质量数据退火并复用或平均 checkpoint；没有一家为长上下文从头重训，差异只在分几段、混多少长数据、退火多陡。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">把 minimind 从 340 扩到 2048 上下文，最不需要动的是哪部分？</div>
+    <div class="sc-key">位置编码——配置里 RoPE 基频已是 10⁶、频率表预算到 32K，2K 远在覆盖区内，连 YaRN 开关都已内置。真正要动的只有数据侧（换长数据）与训练侧（从 checkpoint 低学习率续训几百步）。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么中期训练必须同时监控通用、长文、领域三条评测线？</div>
+    <div class="sc-key">改数据分布会带来遗忘与长短跷跷板风险，单看一条线必然顾此失彼；且大海捞针单测会被「标称长度注水」骗过（RULER 实测：捞针满分不代表真实长文任务可用），三线合起来才分得清真提升与障眼法。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+<p>　　把 8.5.2 的假想实验落成可执行清单（出处：minimind 工程，Apache 2.0 协议）。三处改动对应的代码位置：</p>
+<ul>
+  <li><strong>数据侧</strong>：<code>trainer/train_pretrain.py</code> 第 90 行 <code>--max_seq_len</code>（默认 340）改为 2048；第 93 行 <code>--data_path</code> 指向自行构造的长文本 jsonl。截断与补齐逻辑在 <code>dataset/lm_dataset.py</code> 第 52 到 54 行（按 max_length 截断、加 BOS/EOS、padding），长度参数一变即自动适配，无需改代码。</li>
+  <li><strong>位置编码侧（验证「不用改」）</strong>：<code>model/model_minimind.py</code> 第 29 行 <code>rope_theta</code> 默认 1e6，第 27 行 <code>max_position_embeddings</code> 默认 32768；第 210 行模型初始化时按这两个值预算频率表。想体验推理期外推，把第 31 行 <code>inference_rope_scaling</code> 设为 True，即启用第 32 到 39 行内置的 YaRN 配置（原始长度 2048、放大 16 倍）。</li>
+  <li><strong>训练侧</strong>：<code>train_pretrain.py</code> 第 94 行 <code>--from_weight</code> 传入 <code>pretrain</code>；<code>trainer/trainer_utils.py</code> 第 121 到 129 行的 <code>init_model</code> 会据此加载 <code>../out/pretrain_768.pth</code>（strict=False），从预训练权重接着训而非从头开始。</li>
+</ul>
+<p>　　一份可直接修改运行的参考命令（长数据文件需自备）：</p>
+<pre><code>cd minimind-master
+python trainer/train_pretrain.py --max_seq_len 2048 --from_weight pretrain \
+    --learning_rate 1e-4 --epochs 1 --data_path ../dataset/pretrain_long.jsonl</code></pre>
+<p>　　两点说明：其一，<code>pretrain_long.jsonl</code> 仓库并未附带，需按 8.3 节的方法自行构造（拼接短文档或收集长文档，格式与原预训练数据一致，每条一个 <code>text</code> 字段）；其二，几百步后即可停训验收——先对比续训前后短文本上的困惑度确认没遗忘，再在 2K 长文里藏一个事实做捞针自测。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Llama Team, AI @ Meta, 2024. The Llama 3 Herd of Models（arXiv:2407.21783；三阶段配方见 §3.4，退火数据与 8B 涨点实验见 §3.1.3）。</li>
+  <li>Yang et al., 2024. Qwen2.5 Technical Report（arXiv:2412.15115；长上下文预训练见 §3.3，评测去污染见 §5）。</li>
+  <li>DeepSeek-AI, 2024. DeepSeek-V3 Technical Report（arXiv:2412.19437；学习率调度与超参见 §4.2，YaRN 两阶段扩展见 §4.3，成本见 Table 1）。</li>
+  <li>Hu et al., 2024. MiniCPM: Unveiling the Potential of Small Language Models with Scalable Training Strategies（arXiv:2404.06395；WSD 见 §4，两阶段预训练与退火消融见 §5，MiniCPM-128K 见 §7.2）。</li>
+  <li>Peng et al., 2023. YaRN: Efficient Context Window Extension of Large Language Models（arXiv:2309.00071）。</li>
+  <li>Xiong et al., 2023. Effective Long-Context Scaling of Foundation Models（ABF 原始论文，arXiv:2309.16039）。</li>
+  <li>Qwen Team, 2025. Qwen2.5-1M Technical Report（渐进式长上下文训练与稀疏注意力，arXiv:2501.15383）。</li>
+  <li>Hsieh et al., 2024. RULER: What's the Real Context Size of Your Long-Context Language Models?（arXiv:2404.06654）。</li>
+  <li>Zhang et al., 2024. ∞Bench: Extending Long Context Evaluation Beyond 100K Tokens（arXiv:2402.13718）。</li>
+  <li>Shaham et al., 2023. ZeroSCROLLS: A Zero-Shot Benchmark for Long Text Understanding（arXiv:2305.14196）。</li>
+  <li>Mid-Training of Large Language Models: A Survey（arXiv:2510.06826，2025；中期训练概念与各家数据配比综述）。</li>
+  <li>minimind 工程代码（Apache 2.0 协议）：<code>model/model_minimind.py</code>、<code>trainer/train_pretrain.py</code>、<code>trainer/trainer_utils.py</code>、<code>dataset/lm_dataset.py</code>。</li>
+</ul>
+
+</article>

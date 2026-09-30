@@ -7,7 +7,7 @@
   <table class="doc-meta">
     <tbody>
       <tr><td>核心问题</td><td>BPE 和 Unigram 的原始实现都假设文本已被预分词（切成词）后才输入。对中文、日文这类没有空格的语言，这一步本身就做不到位，怎么办？</td></tr>
-      <tr><td>本节主张</td><td>SentencePiece 把输入当作原始 Unicode 字符流，连空格也转义成普通字符 <code>▁</code>（U+2581）一起参与切分，彻底取消预分词环节，并且分词过程可逆无损。</td></tr>
+      <tr><td>本节主张</td><td>SentencePiece 把输入当作原始 Unicode 字符流，连空格也转义成普通字符 <code>▁</code>（U+2581）一起参与切分，彻底取消预分词环节，分词过程可逆（对归一化后的文本无损）。</td></tr>
       <tr><td>一句话结论</td><td>SentencePiece 是一个语言无关、端到端的分词工具，同一个框架支持 BPE 和 Unigram 两种算法后端，T5、ALBERT、XLNet 和 LLaMA 系模型都用它训练分词器。</td></tr>
       <tr><td>关键词</td><td>
         <div class="keywords"><span>SentencePiece</span><span>预分词</span><span>▁ U+2581</span><span>可逆分词</span><span>字符覆盖率</span></div>
@@ -38,7 +38,7 @@
 
 <ul>
   <li><strong>对无空格语言不友好</strong>。中文、日文、泰文的文字是连续书写的，没有空格标出词边界。“先按空格切词”对它们根本不成立，必须额外接一个语言相关的分词模块（比如中文要用 jieba 这类工具先切词），而这个模块本身的错误会带进下游。</li>
-  <li><strong>预分词不可逆</strong>。预分词阶段会丢弃原始的空白信息：两个空格被压成一个、制表符和换行的区别被抹掉。分词之后再想还原原文，已经做不到了。对代码、格式化文本这类空白本身就携带信息的场景，这是实打实的数据损失。</li>
+  <li><strong>预分词往往不可逆</strong>。Moses 这类经典预分词会丢弃原始的空白信息：两个空格被压成一个、制表符和换行的区别被抹掉，分词之后再想还原原文已经做不到了。对代码、格式化文本这类空白本身就携带信息的场景，这是实打实的数据损失。（GPT-2 的正则预切只切段、不丢字符，仍然可逆，属于例外，2.4.5 节详述。）</li>
 </ul>
 
 <div class="highlight-box warn">
@@ -60,10 +60,10 @@
 <div class="term-card">
   <div class="term-name">
     <span class="term-zh">可逆分词（Lossless Tokenization）</span>
-    <span class="term-en">detokenize 能逐字节还原原文</span>
+    <span class="term-en">detokenize 能还原（归一化后的）原文</span>
   </div>
   <div class="term-body">
-    <p>由于所有空白都被转义成 <code>▁</code> 保留在 token 序列里，SentencePiece 的分词是<strong>完全可逆</strong>的：把 token 序列拼起来、把 <code>▁</code> 换回空格，就能逐字节还原原始文本。连续多个空格、换行、制表符都不会丢。这个性质叫 lossless tokenization，是 SentencePiece 论文明确提出的设计目标。</p>
+    <p>由于空白被逐个转义成 <code>▁</code> 保留在 token 序列里，SentencePiece 的分词是<strong>可逆</strong>的：把 token 序列拼起来、把 <code>▁</code> 换回空格，就能还原出原文，连续多个空格的数量和位置都不会丢。严格说，论文承诺的 lossless tokenization 针对的是归一化后的文本：默认配置先做 Unicode NFKC 归一化，且制表符、换行与空格被统一转义为 <code>▁</code>，所以「这里原本是制表符还是空格」这类差别依然保不住。可逆无损是 SentencePiece 论文明确提出的设计目标，只是它的适用范围比字面看起来更窄一点。</p>
   </div>
 </div>
 
@@ -115,7 +115,7 @@
       <tr><td>预分词</td><td>完全不需要</td><td>需要，用正则按类别预切片段</td></tr>
       <tr><td>空格处理</td><td>转义为普通字符 ▁，参与合并</td><td>通常并入后随单词（如 <code>Ġworld</code>），由正则规则决定</td></tr>
       <tr><td>跨片段合并</td><td>无此概念（没有片段边界）</td><td>禁止，字母与标点不互相合并</td></tr>
-      <tr><td>可逆性</td><td>可逆无损</td><td>可逆（字节级天然无损）</td></tr>
+      <tr><td>可逆性</td><td>可逆（对归一化后的文本无损）</td><td>可逆（字节级天然无损）</td></tr>
       <tr><td>代表用户</td><td>T5、ALBERT、XLNet、LLaMA</td><td>GPT-2 及之后的 GPT 系</td></tr>
     </tbody>
   </table>
@@ -181,11 +181,11 @@
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
   <div class="socratic-qa">
     <div class="sc-q">BPE / Unigram 的经典实现所依赖的预分词有什么问题？</div>
-    <div class="sc-key">两个硬伤：一是假设文本能按空格或语言规则切成词，对中文、日文、泰文等无空格语言不成立，得额外接语言相关的分词模块；二是预分词不可逆，原始空白信息（多空格、制表符等）被丢弃，无法还原原文。</div>
+    <div class="sc-key">两个硬伤：一是假设文本能按空格或语言规则切成词，对中文、日文、泰文等无空格语言不成立，得额外接语言相关的分词模块；二是经典预分词往往不可逆，原始空白信息（多空格、制表符等）被丢弃，无法还原原文。</div>
   </div>
   <div class="socratic-qa">
     <div class="sc-q">▁（U+2581）这个符号解决了什么？</div>
-    <div class="sc-key">它把空格从特殊的“词边界标记”转义成一个普通字符，与其他字符平等参与子词合并。词边界信息被保留在 token 内部，于是预分词环节可以整个取消，且 detokenize 能逐字节还原原文，实现无损可逆分词。</div>
+    <div class="sc-key">它把空格从特殊的“词边界标记”转义成一个普通字符，与其他字符平等参与子词合并。词边界信息被保留在 token 内部，于是预分词环节可以整个取消，且 detokenize 能还原文本（对归一化后的文本无损）。</div>
   </div>
   <div class="socratic-qa">
     <div class="sc-q">为什么 LLaMA 选 BPE 后端而 T5 选 Unigram 后端？</div>

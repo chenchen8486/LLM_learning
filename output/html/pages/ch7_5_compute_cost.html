@@ -1,0 +1,297 @@
+﻿<article class="content">
+<h1>7.5 算力估算与成本核算：6ND 法则</h1>
+<p class="subtitle">本页范围：第 7 章第 5 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>训练一个 LLM 到底要做多少次计算？需要几张卡、跑多少天、花多少钱，能不能在按下启动键之前先算出来？</td></tr>
+      <tr><td>本节主张</td><td>能。Transformer 的训练算力有一条极简经验法则 C≈6ND——参数量乘训练 token 数再乘 6；再配上 MFU 这把「折扣尺」，训练天数与账单金额都能在开训前估到量级。</td></tr>
+      <tr><td>一句话结论</td><td>6ND 负责算「总工作量」，MFU 负责算「机器实际出几成力」，两者一除得到训练时间，乘上卡时单价就是钱——大模型预算桌上的数字全是这么估出来的。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>FLOPs</span><span>6ND 法则</span><span>MFU</span><span>H100</span><span>训练天数</span><span>卡时成本</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　6.3.5 节第一次亮出 \(C \approx 6ND\) 这把尺子，用它量过 minimind 和 GPT-3 的账单，但当时只管用、没推导。本章前几节把「怎么把训练跑起来」讲完了：并行策略把模型摊到成百上千张卡上，混合精度把显存和吞吐抠出来，稳定性手段守住几个月的长跑。本节换一个更现实的视角：在按下启动键之前，怎么把账先算出来——总计算量是多少、机器能出几成力、折成天数和金额又是多少。</p>
+
+<p>　　本节沿四个问题展开：</p>
+
+<ol>
+  <li><strong>FLOPs 推导：一次前向要多少计算</strong>（7.5.1）：从矩阵乘法的乘加次数一路推到 C≈6ND，看清系数 6 的三块拼图；</li>
+  <li><strong>MFU：理论峰值与实际吞吐</strong>（7.5.2）：规格表上的 989 TFLOPS 为什么到手只剩四五成，GPT-3、PaLM 等真实模型的实测利用率对照；</li>
+  <li><strong>成本核算实战：两个案例</strong>（7.5.3）：100B 模型配 1024 张 H100 的完整账单推演，以及 minimind 64M 的三条线索互证；</li>
+  <li><strong>训练与推理的算力对称性</strong>（7.5.4）：训练每 token 花 6N、推理只花 2N，一次性投入与随调用量累积是两种成本结构。</li>
+</ol>
+
+<p>　　读完全节，你手里会多一把随身计算器：给一个模型规模、一份数据量、一批卡，三分钟估出训练要多少天、多少钱。</p>
+
+<h2>7.5.1 FLOPs 推导：一次前向要多少计算</h2>
+
+<p>　　拆 6ND 之前，先回到最基础的算术：一次矩阵乘法要做多少次运算。设 \(C = AB\)，其中 \(A\) 是 \(m \times k\) 矩阵，\(B\) 是 \(k \times n\) 矩阵。结果 \(C\) 有 \(m \times n\) 个元素，每个元素是长度为 \(k\) 的点积：\(k\) 次乘法加 \(k-1\) 次加法，约 \(2k\) 次运算。于是：</p>
+
+<div class="formula-card">
+  \[ \mathrm{FLOPs}(C{=}AB) \approx 2\,m\,n\,k \tag{1} \]
+  <div class="formula-note">公式 (1)：矩阵乘的运算量约等于「输出元素个数 × 每个元素的乘加次数 × 2」。符号说明：\(m, k\) 是左矩阵 \(A\) 的行数与列数；\(k, n\) 是右矩阵 \(B\) 的行数与列数（两矩阵在 \(k\) 维上对齐）；\(m \times n\) 是输出矩阵的元素个数；系数 2 来自「每个输出元素一次乘加」（\(k\) 次乘、约 \(k\) 次加）。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">FLOPs 与 FLOPS</span>
+    <span class="term-en">FLOPs = 浮点运算次数（总量）；FLOPS = 每秒浮点运算次数（速度）</span>
+  </div>
+  <div class="term-body">
+    <p>小写 s 结尾的 FLOPs 是「做了多少功」的总量单位，大写 S 结尾的 FLOPS 是「跑多快」的速度单位，一对大小写之差经常被混用。算力估算的全部游戏，就是拿总量（FLOPs）除以速度（FLOPS）得到时间。</p>
+    <div class="term-analogy">就像搬家：总箱数是 FLOPs，货车每小时能搬几箱是 FLOPS，两数一除，就是搬完要花几小时。</div>
+  </div>
+</div>
+
+<p>　　Transformer 的绝大多数参数住在线性层里：Q/K/V 投影、注意力输出投影、FFN 的两层、最后的 logits 投影，全是 \(y = Wx\) 的形状。一个 token 流过线性层，相当于做一次「矩阵 × 向量」乘法——套公式 (1) 时令 \(n = 1\)：</p>
+
+<div class="formula-card">
+  \[ \mathrm{FLOPs}_{\text{线性层}}^{\text{每 token}} = 2\,d_{\text{in}}\, d_{\text{out}} = 2 \times (\text{该层参数量}) \tag{2} \]
+  <div class="formula-note">公式 (2)：线性层每处理一个 token，运算量恰好是它参数量的两倍——每个参数对这个 token 做一次乘加。符号说明：\(d_{\text{in}}\)、\(d_{\text{out}}\) 是该层的输入、输出维度；权重矩阵 \(W\) 有 \(d_{\text{in}} \times d_{\text{out}}\) 个元素，这就是该层的参数量。</div>
+</div>
+
+<p>　　把全网的线性层加起来：每处理一个 token，前向传播的运算量约等于全部参数量的两倍。Embedding 层是查表（3.1 节），几乎不耗算力，所以严格说 \(N\) 指非 Embedding 参数；词表 logits 投影的开销单独归入后面的修正项。于是有最常用的一句口诀：</p>
+
+<div class="formula-card">
+  \[ C_{\text{fwd}} \approx 2N \quad (\text{每 token}) \tag{3} \]
+  <div class="formula-note">公式 (3)：前向一次，每个 token 花 \(2N\) 次运算。符号说明：\(C_{\text{fwd}}\) 是前向传播运算量（FLOPs）；\(N\) 是模型参数量（严格取非 Embedding 部分）；「每 token」指处理一个 token 的开销，与序列长短无关。</div>
+</div>
+
+<p>　　再看反向传播。它的贵是结构决定的，不是经验拟合：对同一个线性层 \(y = Wx\)，链式法则要算两个梯度——对输入 \(x\) 的梯度（把误差传向上一层），是一次 \(W^{\top}\) 与上游误差的乘法，规模与前向相同；对权重 \(W\) 的梯度（用来更新参数），是上游误差与 \(x\) 的外积，规模也与前向相同。两次同规模矩阵乘，反向恰好是前向的两倍：</p>
+
+<div class="formula-card">
+  \[ C_{\text{bwd}} \approx 4N \ (\text{每 token}), \qquad C \approx 6\,N\,D \tag{4} \]
+  <div class="formula-note">公式 (4)：每个 token 前向花 \(2N\)、反向花 \(4N\)，合计 \(6N\)；乘上整份训练数据的 token 总数，就是一次预训练的总算力。符号说明：\(C_{\text{bwd}}\) 是反向传播运算量；\(C\) 是训练总算力（FLOPs）；\(D\) 是训练消耗的 token 总数；系数 6 = 前向 2 + 反向 4。拿 GPT-3 验证：\(N = 1.746 \times 10^{11}\)、\(D = 3 \times 10^{11}\)，得 \(C \approx 3.14 \times 10^{23}\)，与论文附录给出的数字分毫不差（6.3.5 节已对照过这笔账）。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-6nd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 反向括号 -->
+    <path d="M265,42 L265,32 L685,32 L685,42" fill="none" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="475" y="22" text-anchor="middle" font-size="13" fill="#0891b2">反向传播 ≈ 4N（恰好是前向的 2 倍）</text>
+    <!-- 前向 -->
+    <rect x="30" y="48" width="200" height="68" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="130" y="78" text-anchor="middle" font-size="14" fill="#6d28d9">前向传播</text>
+    <text x="130" y="100" text-anchor="middle" font-size="12.5" fill="#333">每 token ≈ 2N FLOPs</text>
+    <!-- 反向 · 对激活求梯度 -->
+    <rect x="260" y="48" width="200" height="68" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="2"/>
+    <text x="360" y="70" text-anchor="middle" font-size="13.5" fill="#0891b2">反向 · 对激活求梯度</text>
+    <text x="360" y="87" text-anchor="middle" font-size="11.5" fill="#555">（把误差往上一层传）</text>
+    <text x="360" y="106" text-anchor="middle" font-size="12.5" fill="#333">每 token ≈ 2N FLOPs</text>
+    <!-- 反向 · 对参数求梯度 -->
+    <rect x="490" y="48" width="200" height="68" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="2"/>
+    <text x="590" y="70" text-anchor="middle" font-size="13.5" fill="#0891b2">反向 · 对参数求梯度</text>
+    <text x="590" y="87" text-anchor="middle" font-size="11.5" fill="#555">（用来更新权重）</text>
+    <text x="590" y="106" text-anchor="middle" font-size="12.5" fill="#333">每 token ≈ 2N FLOPs</text>
+    <!-- 汇聚箭头 -->
+    <line x1="130" y1="116" x2="300" y2="156" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arr-6nd)"/>
+    <line x1="360" y1="116" x2="360" y2="156" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arr-6nd)"/>
+    <line x1="590" y1="116" x2="420" y2="156" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arr-6nd)"/>
+    <!-- 每 token 合计 -->
+    <rect x="240" y="160" width="240" height="58" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="2.5"/>
+    <text x="360" y="184" text-anchor="middle" font-size="14" fill="#6d28d9">每个 token 合计</text>
+    <text x="360" y="206" text-anchor="middle" font-size="13" fill="#333">≈ 6N FLOPs</text>
+    <!-- × D 箭头 -->
+    <line x1="360" y1="218" x2="360" y2="258" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr-6nd)"/>
+    <text x="440" y="242" font-size="12.5" fill="#6d28d9">× D（训练 token 总数）</text>
+    <!-- 总算力 -->
+    <rect x="160" y="262" width="400" height="60" rx="8" fill="#6d28d9"/>
+    <text x="360" y="288" text-anchor="middle" font-size="14.5" fill="#ffffff">一次预训练的总算力</text>
+    <text x="360" y="310" text-anchor="middle" font-size="14" fill="#ffffff">C ≈ 6ND</text>
+    <!-- 底注 -->
+    <text x="360" y="352" text-anchor="middle" font-size="12" fill="#666">未计入：注意力二次项（约 s/6h）、logits 投影、激活重计算（计入 HFU 口径）</text>
+  </svg>
+  <div class="diagram-caption">图示：6ND 的构成——每个 token 前向约 2N 次运算；反向拆成两半，对激活、对参数各约 2N，合计 6N；乘上训练 token 总数 D，就是一次预训练的总算力 C≈6ND。</div>
+</div>
+
+<div class="highlight-box info">
+  严格说 6ND 是一阶近似，有三笔账被故意忽略。① <strong>注意力二次项</strong>：\(QK^{\top}\) 与加权求和的开销随上下文长度 \(s\) 增长，相对 6N 主体的比例约为 \(s/(6h)\)（\(h\) 为隐层宽度）。minimind（\(s=340, h=768\)）约 7%，GPT-3（\(s=2048, h=12288\)）约 3%，都可忽略；但 128K 长上下文配 \(h=8192\) 时比值达 2.7，注意力项反超主体——长上下文场景（第 8 章）不能再用 6ND。② <strong>logits 投影</strong>：词表很大时最后一层不可忽略，修正约 \(V/(16Lh)\)（\(V\) 词表大小、\(L\) 层数），主流模型在几个百分点以内。③ <strong>激活重计算</strong>：为省显存而重算激活，相当于最多多算一遍前向，系数从 6 抬到约 8。这笔开销计入「硬件实际执行的 FLOPs」，不计入 6ND 的模型账——这正是下一节 MFU 与 HFU 两个口径的差别。
+</div>
+
+<div class="highlight-box">
+  系数 6 的三块拼图：前向 2N、反向对激活 2N、反向对参数 2N。6ND 是估算尺而不是精密账——用它算量级从不失手，要抠百分之几的零头才轮到修正项出场。
+</div>
+
+<h2>7.5.2 MFU：理论峰值与实际吞吐</h2>
+
+<p>　　6ND 算出「要做多少功」，接下来的问题是「机器每秒能做多少功」。GPU 规格表会给一个峰值，比如 H100 的 BF16 稠密峰值是 989 TFLOPS（约 \(10^{15}\) FLOPS）。但任何真实训练都摸不到这个数，度量落差的尺子叫 MFU。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">MFU 模型算力利用率</span>
+    <span class="term-en">Model FLOPs Utilization = 模型账面算力 ÷ 硬件理论峰值</span>
+  </div>
+  <div class="term-body">
+    <p>把「6ND 除以实际训练秒数」得到的实测吞吐，与硬件峰值相除，就是 MFU。MFU 40% 的意思是：机器理论上一秒能做 100 份功，实际只有 40 份变成模型训练的有效计算，其余 60 份被各种开销吃掉。它还有个孪生指标 HFU（Hardware FLOPs Utilization），把激活重计算等重复劳动也算进分子，数字会更好看——PaLM 的 MFU 是 46.2%，HFU 则达 57.8%。</p>
+    <div class="term-analogy">就像工厂的理论产能与有效产能：机器铭牌写着日产 1000 件，扣掉换料、停机、返工，实际日产 460 件，MFU 就是 46%。</div>
+  </div>
+</div>
+
+<div class="formula-card">
+  \[ \mathrm{MFU} = \frac{\text{实测吞吐（FLOPS）}}{\text{硬件理论峰值（FLOPS）}}, \qquad t_{\text{train}} = \frac{6ND}{G \cdot P \cdot \mathrm{MFU}} \tag{5} \]
+  <div class="formula-note">公式 (5)：训练时长 = 总功 ÷（卡数 × 单卡峰值 × 有效利用率）。符号说明：分子 \(6ND\) 是模型账面算力（FLOPs）；\(G\) 是 GPU 卡数；\(P\) 是单卡理论峰值（FLOPS）；\(\mathrm{MFU}\) 是模型算力利用率；\(t_{\text{train}}\) 是训练时长（秒，除以 86400 得天数）。</div>
+</div>
+
+<div class="highlight-box warn">
+  算 MFU 前先看清峰值口径：H100 规格表上 BF16 有 989 TFLOPS（稠密）与 1979 TFLOPS（2:4 结构化稀疏）两个数，LLM 稠密训练只能用前者。拿稀疏口径当分母，MFU 会被凭空砍掉一半。
+</div>
+
+<p>　　公开论文里几个有代表性的实测值（前四行出自 PaLM 论文表 3，末行出自 Megatron-LM 论文）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型</th><th>参数量</th><th>硬件</th><th>MFU</th></tr></thead>
+    <tbody>
+      <tr><td>GPT-3</td><td>175B</td><td>V100</td><td>21.3%</td></tr>
+      <tr><td>Gopher</td><td>280B</td><td>4096 TPU v3</td><td>32.5%</td></tr>
+      <tr><td>Megatron-Turing NLG</td><td>530B</td><td>2240 A100</td><td>30.2%</td></tr>
+      <tr><td>PaLM</td><td>540B</td><td>6144 TPU v4</td><td>46.2%（HFU 57.8%）</td></tr>
+      <tr><td>Megatron-LM</td><td>1T</td><td>3072 A100</td><td>52%</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　读完这张表，最该问的是：剩下那一半算力去哪了？答案正是本章前几节讨论的所有工程摩擦的总和：</p>
+
+<ul>
+  <li><strong>通信</strong>：数据并行每步要同步梯度，张量并行每层都要交换激活，机间网络远比显存慢，GPU 常在等数据而不是在算；</li>
+  <li><strong>流水线气泡</strong>（7.3 节）：流水线并行开局与收尾的注排水阶段，设备空转；</li>
+  <li><strong>激活重计算</strong>：省显存的代价是重复劳动，PaLM 的 MFU 46.2% 与 HFU 57.8% 之间约 12 个百分点的差，正是重计算多算的那部分；</li>
+  <li><strong>访存受限的小算子</strong>：RMSNorm、softmax、RoPE、逐元素加减乘除，FLOPs 极少但读写显存不少，时间照花；</li>
+  <li><strong>故障与断点</strong>：数月长跑里的硬件故障、loss spike 回滚（6.2.4 节）、checkpoint 存盘，都是纯停表时间。</li>
+</ul>
+
+<p>　　所以本章前几节的工程手段，本质上都是同一场战役：并行策略与通信优化压前两项，选择性重计算压第三项，算子融合压第四项——把 MFU 从 GPT-3 时代的 21% 一路抬到 50% 上下。经验区间：优化到位的大规模训练 MFU 约 40%~55%，单卡小模型约 20%~40%（7.5.3 的案例二会用 minimind 的实测反推出 ≈31%）。</p>
+
+<h2>7.5.3 成本核算实战：两个案例</h2>
+
+<p>　　工具齐了，来算两笔账。方法固定三步：先用 6ND 算总量，再用峰值乘 MFU 折算有效吞吐，最后除出时间、乘出金额。</p>
+
+<h3>7.5.3.1 案例一：100B × 2T tokens 的旗舰账单</h3>
+
+<p>　　设想一个 100B（一千亿参数）模型，喂 2T（两万亿）token——这是当下旗舰预训练的典型量级。硬件用 1024 张 H100，MFU 取 40%（优化良好的大规模训练的中性假设）。逐步代入公式 (5)：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>步骤</th><th>算式</th><th>结果</th></tr></thead>
+    <tbody>
+      <tr><td>① 总算力</td><td>\(6ND = 6 \times 10^{11} \times 2 \times 10^{12}\)</td><td>\(1.2 \times 10^{24}\) FLOPs</td></tr>
+      <tr><td>② 集群峰值</td><td>\(1024 \times 989\) TFLOPS</td><td>\(\approx 1.01 \times 10^{18}\) FLOPS</td></tr>
+      <tr><td>③ 有效吞吐</td><td>② × MFU 40%</td><td>\(\approx 4.05 \times 10^{17}\) FLOPS</td></tr>
+      <tr><td>④ 训练时间</td><td>① ÷ ③</td><td>\(\approx 2.96 \times 10^{6}\) 秒 ≈ 34 天</td></tr>
+      <tr><td>⑤ GPU 时</td><td>1024 卡 × 34.3 天 × 24 时</td><td>≈ 84 万卡时</td></tr>
+      <tr><td>⑥ 租金</td><td>⑤ × 2~4 美元/卡时</td><td>170 万~340 万美元</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　结论：这样一次训练要约 34 天、84 万卡时；按 2026 年公有云 H100 按需价（中位数约 3.4 美元/卡时，常见区间约 2~4 美元），账单落在 170 万到 340 万美元，折合人民币千万元级。注意这只是「一次成功」的价格——加上超参探索、失败重跑与中间评估，真实项目的总投入通常是它的数倍。</p>
+
+<div class="highlight-box info">
+  云算力价格随供需波动很大，本节金额一律按 2026 年前后的公开按需报价取量级，只用于感受规模，不作为采购依据。卡时单价这个变量的不确定性，往往比 MFU 还大。
+</div>
+
+<h3>7.5.3.2 案例二：minimind 64M 的三条线索互证</h3>
+
+<p>　　再看小极端。minimind 的预训练，6.3.5 节给过「量级在 \(10^{17}\) FLOPs 上下（待查证）」的粗估，现在把这笔账算细。\(N = 64\text{M} = 6.4 \times 10^{7}\)。\(D\) 没有公开数字，用数据集体积反推：预训练语料 pretrain_t2t_mini.jsonl 约 1.2 GB，训练脚本里注明「中文 1 token ≈ 1.5~1.7 字符」；UTF-8 下一个汉字占 3 字节，1.2 GB 约含 4 亿字符，折合约 2.4~2.7 亿 token（忽略 JSON 包装开销）。代入：</p>
+
+<div class="formula-card">
+  \[ C \approx 6 \times (6.4 \times 10^{7}) \times (2.5 \times 10^{8}) \approx 9.6 \times 10^{16} \approx 10^{17}\ \text{FLOPs} \]
+</div>
+
+<p>　　与 6.3.5 的粗估同量级——由于 \(D\) 是体积反推而不是分词器实测，待查证标注继续沿用。</p>
+
+<p>　　更有意思的是三角互证。README 实测：单卡 RTX 3090 跑完这轮预训练用 1.21 小时。3090 的 BF16 稠密峰值约 71 TFLOPS，1.21 小时满打满算是 \(3.1 \times 10^{17}\) FLOPs；用 \(10^{17}\) 去除，隐含 MFU ≈ 31%——恰好落在单卡小模型的典型区间 20%~40% 内。三条独立线索（数据体积 → token 数 → 算力、实测时长、典型 MFU 区间）在同一个量级上交汇，这个粗估就可以放心用了。成本则是 1.21 小时 × 1.3 元/卡时 ≈ 1.6 元：一瓶水的钱，够从零训出一个会说话的模型。</p>
+
+<div class="highlight-box info">
+  README 还说 8×H100 能把它压到「分钟级」，验证一下：\(10^{17}\) FLOPs ÷（8 × 989 TFLOPS × MFU 20%）≈ 63 秒——哪怕对极小模型的利用率打个对折再对折，结论仍在分钟量级，说法与估算自洽。
+</div>
+
+<div class="highlight-box">
+  成本核算三步法：6ND 定总量 → 峰值 × MFU 定有效吞吐 → 时间 × 卡时单价定账单。N、D、卡数、MFU 四个数在手，任何训练计划都能先算后练。
+</div>
+
+<h2>7.5.4 训练与推理的算力对称性</h2>
+
+<p>　　6ND 里还藏着一个常用推论。训练每个 token 花 \(6N\)，是因为「前向 + 反向」；推理只做前向，每生成一个 token 的成本就是 \(2N\)：</p>
+
+<div class="formula-card">
+  \[ C_{\text{infer}} \approx 2N \times D_{\text{serve}} \tag{6} \]
+  <div class="formula-note">公式 (6)：推理账单 = 每 token 2N × 服务期累计处理的 token 总量。符号说明：\(C_{\text{infer}}\) 是推理侧算力（FLOPs）；\(N\) 是模型参数量；\(D_{\text{serve}}\) 是服务期处理的 token 总数（输入与输出合计）；没有反向传播，系数是 2 而不是 6。</div>
+</div>
+
+<p>　　两个数字构成一对对称：推理单 token 成本恰是训练的三分之一。真正的不对称在计费方式上——训练是一次性投入，6ND 算完就是天花板；推理是按调用量累积的流水，没有上限。拿案例一的 100B 模型举例：它若一年服务 1 万亿 token，推理算力就是 \(2 \times 10^{23}\) FLOPs，约等于当初训练算力的六分之一；调用量再翻几倍，推理总账就反超训练。用户越多的产品，成本重心越从训练侧滑向推理侧。</p>
+
+<p>　　这把「每 token \(2N\)」的成本地板，正是第 13 章全部推理优化技术的靶子：KV Cache 避免每步重算历史（省注意力的重复账）、量化把每次乘加变便宜（压 \(N\) 的有效大小）、投机采样让小模型打草稿、大模型验收（摊薄前向次数）、推理时扩展则反其道而行——主动多花算力换答案质量。训练侧的账本节算完了；推理侧的账，第 13 章接着算。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">6ND 法则里的 6 是怎么来的？</div>
+    <div class="sc-key">每个 token 前向约 2N 次运算（线性层逐参数一次乘加）；反向传播要对激活、对参数各求一次梯度，合计 4N，恰为前向两倍。前向加反向得 6N，乘训练 token 总数 D 即 C≈6ND。注意力二次项、logits 投影、激活重计算是被忽略的一阶修正。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么实测训练吞吐远低于 GPU 规格表峰值？</div>
+    <div class="sc-key">落差由 MFU 度量：通信等待、流水线气泡、激活重计算、访存受限小算子、故障断点都在吃算力。GPT-3 只有 21.3%，优化到位的 PaLM 达 46.2%（含重算的 HFU 57.8%），Megatron-LM 在 3072 张 A100 上报到 52%。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">训练 6N 与推理 2N 的关系意味着什么？</div>
+    <div class="sc-key">推理只做前向，单 token 成本是训练的 1/3；但训练是一次性投入，推理随调用量累积无上限——100B 模型一年服务 1 万亿 token 就要烧掉训练算力约 1/6，调用量大的产品推理总账会反超训练。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+<p>　　本节的核心交付是一个可以带走的估算器。把下面这段脚本贴进任意 Python 环境，代入你关心的参数量、token 数、卡数与 MFU，就能算出训练天数与账单——脚本只做算术，没有任何依赖：</p>
+<pre><code># 6ND 训练成本估算器：改参数即可算自己的账
+N     = 100e9    # 参数量（100B）
+D     = 2e12     # 训练 token 总数（2T）
+G     = 1024     # GPU 卡数
+P     = 989e12   # 单卡峰值 FLOPS（H100 BF16 稠密口径）
+MFU   = 0.40     # 模型算力利用率
+price = 3.0      # 单卡时租金（美元，随市场波动）
+
+C    = 6 * N * D                     # 总算力（FLOPs）
+days = C / (G * P * MFU) / 86400     # 训练天数
+cost = days * 24 * G * price         # 租金总额
+print(f"总算力:   {C:.2e} FLOPs")
+print(f"训练时间: {days:.1f} 天")
+print(f"GPU 时:   {days*24*G:,.0f} 卡时")
+print(f"租金估算: {cost/1e4:.0f} 万美元")</code></pre>
+<p>　　预期输出（即案例一的数字）：</p>
+<pre><code>总算力:   1.20e+24 FLOPs
+训练时间: 34.3 天
+GPU 时:   842,602 卡时
+租金估算: 253 万美元</code></pre>
+<p>　　再试一组：代入 minimind 的参数（<code>N=6.4e7, D=2.5e8, G=1, P=71e12, MFU=0.31</code>），会得到约 0.05 天 ≈ 1.2 小时，正好对上 README 的实测——案例二的三角互证可以亲手复现。本节用到的两处 minimind 事实（出处：minimind 工程，Apache 2.0 协议）：</p>
+<ul>
+  <li><code>trainer/train_pretrain.py</code> 第 90 行注释「中文 1 token ≈ 1.5~1.7 字符」：案例二把 1.2 GB 语料折成 token 数的换算依据；</li>
+  <li>同文件第 82 行 <code>--dtype</code> 默认 <code>bfloat16</code>：案例二因此按 3090 的 BF16 峰值 71 TFLOPS 取分母。</li>
+</ul>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Kaplan et al., 2020. Scaling Laws for Neural Language Models（arXiv:2001.08361）：训练算力估算规则 C ≈ 6ND 与前向 2N 的出处。</li>
+  <li>Narayanan et al., 2021. Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM（arXiv:2104.04473）：逐层 FLOPs 细化推导（注意力二次项 s/(6h)、logits 项 V/(16Lh) 的口径）；1T 模型在 3072 张 A100 上达 52% MFU。</li>
+  <li>Korthikanti et al., 2022. Reducing Activation Recomputation in Large Transformer Models（arXiv:2205.05198）：全量激活重计算把每 token 系数从 6 抬到约 8 的口径，MFU 与 HFU 的区分。</li>
+  <li>Chowdhery et al., 2022. PaLM: Scaling Language Modeling with Pathways（arXiv:2204.02311）：表 3 各模型 MFU 实测（GPT-3 21.3%、Gopher 32.5%、Megatron-Turing NLG 30.2%、PaLM 46.2%），PaLM HFU 57.8%。</li>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3，arXiv:2005.14165）：附录 D 的训练算力 3.14×10^23 FLOPs，用作公式 (4) 的验证锚点。</li>
+  <li>NVIDIA H100 Tensor Core GPU 产品规格页（nvidia.com/en-us/data-center/h100/）：BF16 稠密峰值 989 TFLOPS（2:4 稀疏口径 1979 TFLOPS）。</li>
+  <li>RTX 3090 规格数据（computecomparison.com/gpu/rtx-3090）：BF16/FP16 稠密峰值约 71 TFLOPS。</li>
+  <li>getdeploying.com 的 H100 云租价聚合（2026 年 9 月查）：按需中位数约 3.4 美元/卡时，常见区间约 2~4 美元。</li>
+  <li>minimind 工程（gongjy/minimind，Apache 2.0 协议）：README「训练开销」实测表（64M 预训练单卡 3090 约 1.21 小时、约 1.57 元，3090 租卡约 1.3 元/时）；trainer/train_pretrain.py 第 82、90 行。</li>
+  <li>待核实事项：minimind 预训练 token 数 D（约 2.5 亿）为按数据体积与「1 token ≈ 1.5~1.7 字符」的粗估，未经分词器实测，故 C≈10^17 FLOPs 的量级沿用 6.3.5 节的待查证标注；隐含 MFU≈31% 的反推同样建立在该粗估之上。</li>
+</ul>
+
+</article>

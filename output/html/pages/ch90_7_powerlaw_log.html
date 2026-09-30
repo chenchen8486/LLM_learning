@@ -1,0 +1,190 @@
+﻿<article class="content">
+<h1>A.7 幂律与对数坐标：Scaling Law 的图怎么读</h1>
+<p class="subtitle">本页范围：附录 A 第 7 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>6.4 节的 Scaling Law 图，横轴纵轴都标着 10 的几次方，曲线被画成一条直线。为什么要这样画图？直线的斜率又告诉我们什么？</td></tr>
+      <tr><td>本节主张</td><td>幂律是“按倍数算账”的关系：算力每翻 10 倍，损失恒乘同一个因子。它在普通坐标下是曲棍球杆，在双对数坐标下是一条直线——斜率就是那个指数。看懂这一条直线，就掌握了读一切 Scaling Law 图的方法。</td></tr>
+      <tr><td>一句话结论</td><td>双对数坐标下，幂律变直线，外推变延长线；线性纵轴下的“越来越平”多半是幂律的本性，不要轻易读成“撞墙”。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>幂律</span><span>指数</span><span>对数坐标</span><span>Scaling Law</span><span>外推</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　手册里有两类图反复出现：一类横轴是“10 的 18 到 24 次方”的算力，一类纵轴的损失被拉成一条直线。它们用的是同一套读图技术：幂律加对数坐标。这套技术不难，但不点破就很容易误读——比如把幂律曲线的自然走平读成“方法失效”。本节把它补齐，作为 6.4 节与 7.1 节的读图基础。</p>
+
+<ol>
+  <li><strong>幂律：按倍数算账的关系</strong>（A.7.1）：什么是指数，为什么“翻 10 倍”是幂律的基本单位；</li>
+  <li><strong>对数坐标：把幂律拉直</strong>（A.7.2）：同一条曲线在两种坐标下的两副面孔，直线的斜率怎么读；</li>
+  <li><strong>读 Scaling Law 图的两个心法</strong>（A.7.3）：按倍数心算收益，以及“曲线走平”为什么不等于撞墙。</li>
+</ol>
+
+<p>　　读完应能拿起一张 Scaling Law 图，心算出“算力再翻 10 倍，损失大约降到几”。</p>
+
+<h2>A.7.1 幂律：按倍数算账的关系</h2>
+
+<p>　　幂律长这样：</p>
+
+<div class="formula-card">
+  \[ y = a \cdot x^{-b} \tag{1} \]
+  <div class="formula-note">公式 (1)：负指数幂律。符号说明：\(x\) 是投入量（算力、数据量、参数量）；\(y\) 是结果量（损失）；\(a\) 是比例系数；\(b\) 是指数（正数），控制下降的快慢。负号表示 \(x\) 越大 \(y\) 越小。代入具体数字：\(a = 100\)、\(b = 0.5\) 时，\(x = 1\) 得 \(y = 100\)，\(x = 100\) 得 \(y = 10\)，\(x = 10000\) 得 \(y = 1\)。</div>
+</div>
+
+<p>　　幂律最重要的脾气：它按倍数算账，不按增量算账。上面的例子里，\(x\) 每翻 100 倍，\(y\) 恒除以 10——不管这 100 倍是从 1 到 100，还是从 100 到 10000。换个说法：\(x\) 每翻 10 倍，\(y\) 恒除以 \(10^{0.5} \approx 3.16\)。投入每上一个数量级，收益的比例一模一样。这与线性关系（每加同样的量，减同样的数）是根本不同的两种世界。</p>
+
+<p>　　这个脾气直接决定了投入产出的感受：收益永不为零，但每 10 倍投入只换来固定比例的下降。想再降一半，代价是再翻若干倍——这就是“Scale 换性能”的数学底色（6.4 节），也是“扩展墙”争论的战场（7.1 节）。</p>
+
+<h2>A.7.2 对数坐标：把幂律拉直</h2>
+
+<p>　　对公式 (1) 两边取对数（以 10 为底）：</p>
+
+<div class="formula-card">
+  \[ \log_{10} y = \log_{10} a - b \cdot \log_{10} x \tag{2} \]
+  <div class="formula-note">公式 (2)：幂律的对数形态。符号说明：\(\log_{10}\) 是以 10 为底的对数，\(\log_{10} 10^k = k\)；其余符号同公式 (1)。把 \(\log_{10} x\) 看成新横轴、\(\log_{10} y\) 看成新纵轴，这是一个一次函数：纵轴 = 常数 − \(b\) × 横轴。所以双对数坐标下幂律必为直线，直线斜率的绝对值就是指数 \(b\)。</div>
+</div>
+
+<p>　　同一条曲线 \(y = 100 \cdot x^{-0.5}\)，在两种坐标下的样子：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="plArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="40" y="24" font-size="13" fill="#333">① 线性坐标：曲棍球杆，规律被压扁</text>
+    <line x1="90" y1="250" x2="90" y2="50" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#plArrG)"/>
+    <line x1="90" y1="250" x2="330" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#plArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="86" y1="150" x2="94" y2="150"/>
+      <line x1="86" y1="50" x2="94" y2="50"/>
+    </g>
+    <text x="82" y="254" font-size="11" fill="#64748b" text-anchor="end">0</text>
+    <text x="82" y="154" font-size="11" fill="#64748b" text-anchor="end">50</text>
+    <text x="82" y="54" font-size="11" fill="#64748b" text-anchor="end">100</text>
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2.4" points="90.0,50.0 91.3,210.0 92.6,221.7 95.2,230.0 100.4,235.9 110.8,240.0 136.9,243.3 220.1,246.0 330.0,248.0"/>
+    <text x="100" y="80" font-size="11" fill="#64748b">x 从 1 到 10000，前 100 就跌完了</text>
+    <text x="100" y="100" font-size="11" fill="#64748b">后面 9900 全挤在底部，看不清</text>
+    <text x="380" y="24" font-size="13" fill="#333">② 双对数坐标：一条直线，斜率 = −b</text>
+    <line x1="420" y1="250" x2="420" y2="50" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#plArrG)"/>
+    <line x1="420" y1="250" x2="660" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#plArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="480" y1="246" x2="480" y2="254"/>
+      <line x1="540" y1="246" x2="540" y2="254"/>
+      <line x1="600" y1="246" x2="600" y2="254"/>
+      <line x1="416" y1="150" x2="424" y2="150"/>
+      <line x1="416" y1="50" x2="424" y2="50"/>
+    </g>
+    <text x="420" y="266" font-size="11" fill="#64748b" text-anchor="middle">1</text>
+    <text x="480" y="266" font-size="11" fill="#64748b" text-anchor="middle">10</text>
+    <text x="540" y="266" font-size="11" fill="#64748b" text-anchor="middle">100</text>
+    <text x="600" y="266" font-size="11" fill="#64748b" text-anchor="middle">1000</text>
+    <text x="412" y="254" font-size="11" fill="#64748b" text-anchor="end">1</text>
+    <text x="412" y="154" font-size="11" fill="#64748b" text-anchor="end">10</text>
+    <text x="412" y="54" font-size="11" fill="#64748b" text-anchor="end">100</text>
+    <line x1="420" y1="50" x2="660" y2="250" stroke="#6d28d9" stroke-width="2.4"/>
+    <circle cx="540" cy="150" r="3.4" fill="#c2410c"/>
+    <circle cx="600" cy="200" r="3.4" fill="#c2410c"/>
+    <text x="435" y="212" font-size="11" fill="#c2410c">x 翻 10 倍：100 → 1000</text>
+    <text x="435" y="230" font-size="11" fill="#c2410c">y 除以 3.16：10 → 3.16</text>
+    <text x="470" y="80" font-size="11" fill="#64748b">斜率 −0.5，就是指数 b</text>
+  </svg>
+  <div class="diagram-caption">图示：同一条幂律曲线 \(y = 100 \cdot x^{-0.5}\) 的两副面孔。左图线性坐标，曲线一头栽到底部，大量信息挤在角落；右图双对数坐标，曲线变成直线，每翻 10 倍的固定比例下降读得清清楚楚。</div>
+</div>
+
+<p>　　对数坐标的读法要点：轴上“1、10、100、1000”每格距离相等，因为每格都是 10 倍。直线一画，外推就成了延长线——这是 Scaling Law 能“预测”更大规模表现的原理：用小算力的点拟合出直线，延长到大算力读数（6.4 节）。斜率 \(b\) 则回答“每 10 倍投入换几折收益”：\(b = 0.5\) 意味着 10 倍换 3.16 折，\(b\) 越小，同样投入换的折扣越少。</p>
+
+<h2>A.7.3 读 Scaling Law 图的两个心法</h2>
+
+<p>　　把这套技术用到一张典型的图上。下图是虚构的示意数据：横轴是算力（对数刻度），纵轴是损失（线性刻度）。它画出了读 Scaling Law 时最常见的两个坎：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="slArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <line x1="90" y1="260" x2="90" y2="40" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#slArrG)"/>
+    <line x1="90" y1="260" x2="640" y2="260" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#slArrG)"/>
+    <circle cx="90" cy="260" r="2.6" fill="#94a3b8"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="174.6" y1="256" x2="174.6" y2="264"/>
+      <line x1="259.2" y1="256" x2="259.2" y2="264"/>
+      <line x1="343.8" y1="256" x2="343.8" y2="264"/>
+      <line x1="428.4" y1="256" x2="428.4" y2="264"/>
+      <line x1="513" y1="256" x2="513" y2="264"/>
+      <line x1="597.6" y1="256" x2="597.6" y2="264"/>
+      <line x1="86" y1="218" x2="94" y2="218"/>
+      <line x1="86" y1="176" x2="94" y2="176"/>
+      <line x1="86" y1="134" x2="94" y2="134"/>
+      <line x1="86" y1="92" x2="94" y2="92"/>
+      <line x1="86" y1="50" x2="94" y2="50"/>
+    </g>
+    <text x="90" y="276" font-size="10" fill="#64748b" text-anchor="middle">10¹⁸</text>
+    <text x="174.6" y="276" font-size="10" fill="#64748b" text-anchor="middle">10¹⁹</text>
+    <text x="259.2" y="276" font-size="10" fill="#64748b" text-anchor="middle">10²⁰</text>
+    <text x="343.8" y="276" font-size="10" fill="#64748b" text-anchor="middle">10²¹</text>
+    <text x="428.4" y="276" font-size="10" fill="#64748b" text-anchor="middle">10²²</text>
+    <text x="513" y="276" font-size="10" fill="#64748b" text-anchor="middle">10²³</text>
+    <text x="597.6" y="276" font-size="10" fill="#64748b" text-anchor="middle">10²⁴</text>
+    <text x="82" y="222" font-size="11" fill="#64748b" text-anchor="end">2</text>
+    <text x="82" y="180" font-size="11" fill="#64748b" text-anchor="end">2.5</text>
+    <text x="82" y="138" font-size="11" fill="#64748b" text-anchor="end">3</text>
+    <text x="82" y="96" font-size="11" fill="#64748b" text-anchor="end">3.5</text>
+    <text x="82" y="54" font-size="11" fill="#64748b" text-anchor="end">4</text>
+    <text x="646" y="264" font-size="12" fill="#64748b">算力（FLOPs）</text>
+    <text x="96" y="44" font-size="12" fill="#64748b">loss</text>
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2.4" points="90.0,68.3 174.6,95.3 259.2,134.0 343.8,161.3 428.4,184.3 513.0,207.9 597.6,227.1"/>
+    <line x1="597.6" y1="227.1" x2="640" y2="235.7" stroke="#6d28d9" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="560" y="252" font-size="11" fill="#6d28d9">外推</text>
+    <circle cx="259.2" cy="134" r="3.4" fill="#c2410c"/>
+    <circle cx="343.8" cy="161.3" r="3.4" fill="#c2410c"/>
+    <text x="270" y="120" font-size="11" fill="#c2410c">10 倍算力：3.0 → 2.67（×0.89）</text>
+    <text x="200" y="52" font-size="11" fill="#64748b">曲线越来越平 ≠ 撞墙：纵轴换对数它仍是直线，</text>
+    <text x="200" y="70" font-size="11" fill="#64748b">只是幂律“每 10 倍换固定比例”的本性</text>
+  </svg>
+  <div class="diagram-caption">图示：读 Scaling Law 的两个心法（示意数字，非真实实验数据）。心法一，横轴按 10 倍一格读，心算每格收益；心法二，纵轴线性时曲线自然走平，不要误读为失效，换双对数坐标才能看出它还在不在那条直线上。</div>
+</div>
+
+<p>　　两个心法展开说。心法一：横轴的每一格是 10 倍投入，不是“加一份”。从 \(10^{20}\) 到 \(10^{21}\) 与从 \(10^{23}\) 到 \(10^{24}\) 在图上都是一格，但后者的真实成本是前者的 1000 倍——读收益时必须把格子的代价同时读出来。心法二：纵轴线性时，幂律注定越来越平，这是它的本性而不是疲态；判断是否还在正轨上的办法是换双对数坐标，看点子有没有离开那条直线。7.1 节关于“扩展墙”的争论，有一半就争在这两种读法上。</p>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>章节</th><th>用到本节什么</th></tr></thead>
+    <tbody>
+      <tr><td>6.4 Scaling Law</td><td>损失随算力、数据、参数按幂律下降，图表的读法</td></tr>
+      <tr><td>7.1 扩展墙</td><td>“曲线走平是不是撞墙”的争论，本质是两种坐标的读法差异</td></tr>
+      <tr><td>6.5 涌现</td><td>涌现与平滑外推之争，同样要分清在哪套坐标下看</td></tr>
+      <tr><td>A.4 交叉熵与困惑度</td><td>损失与困惑度本身差一个指数，换算时也要按倍数想</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　下面的脚本复现 A.7.1 的数字：幂律按倍数下降，对数坐标下等距——等差数列就是直线的证据。</p>
+
+<pre><code>import numpy as np
+
+x = np.array([1, 10, 100, 1000, 10000], dtype=float)
+y = 100 * x ** (-0.5)
+print('y      =', np.round(y, 2))
+print('log10y =', np.round(np.log10(y), 2))   # 每步减 0.5：直线的斜率</code></pre>
+
+<p>　　实测输出：</p>
+
+<pre><code>y      = [100.    31.62  10.     3.16   1.  ]
+log10y = [2.   1.5  1.   0.5  0. ]</code></pre>
+
+<p>　　\(\log_{10} y\) 每步恰好减 0.5，与公式 (2) 的斜率 \(-b = -0.5\) 一致。6.4 节讲 Chinchilla 等真实 Scaling Law 时，研究者正是对训练好的若干个小模型做这样的对数回归，再延长直线规划大模型的算力。</p>
+</article>

@@ -7,7 +7,7 @@
   <table class="doc-meta">
     <tbody>
       <tr><td>核心问题</td><td>绝对位置编码给每个 token 发一张“门牌号”，可注意力真正关心的是两个词之间隔多远。怎样让模型直接感知“相对距离”？</td></tr>
-      <tr><td>本节主张</td><td>RoPE 把 query / key 向量按位置旋转不同角度，让注意力内积自动只依赖相对距离；ALiBi 不碰向量，直接在注意力分数上按距离扣分。前者效果好、生态主流，后者外推朴素直接。</td></tr>
+      <tr><td>本节主张</td><td>RoPE 把注意力中用于匹配的 query / key 向量按位置旋转不同角度，让注意力内积自动只依赖相对距离；ALiBi 不碰向量，直接在注意力分数上按距离扣分。前者效果好、生态主流，后者外推朴素直接。</td></tr>
       <tr><td>一句话结论</td><td>RoPE 是当今 LLM 事实上的标准位置编码（Llama、Qwen、DeepSeek、minimind 全在用），ALiBi 以“训练短、测试长”的免续训外推占有一席之地。</td></tr>
       <tr><td>关键词</td><td>
         <div class="keywords"><span>相对位置编码</span><span>RoPE</span><span>旋转矩阵</span><span>远程衰减</span><span>ALiBi</span></div>
@@ -31,7 +31,7 @@
 
 <p>　　上一节讲的绝对位置编码，做法是给每个 token 发一张门牌号：位置 0 一个向量、位置 1 一个向量，把位置向量加在词向量上一起送进模型。这个方案能用，但有一个拧巴的地方——注意力真正关心的问题不是“你在哪”，而是“你离我有多远”。</p>
 
-<p>　　举个例子。句子“猫追狗，狗追猫”里，决定“追”和“猫”关系远近的，是它们中间隔了几个词，而不是“追”是第 2 个 token 还是第 20 个 token。一种合理的期待是：<strong>同样两个词，只要相隔距离相同，不管出现在句子哪个位置，它们在注意力里的相互作用就应该相同</strong>。绝对位置编码把这个信息拐了一道弯（先各自记门牌，再由模型学出门牌差），相对位置编码则开门见山：直接把“隔几站”告诉注意力。</p>
+<p>　　举个例子。句子“猫追狗，狗追猫”里，决定“追”和“猫”关系远近的，是“猫在追的左边隔 1 站”还是“右边隔 1 站”，而不是“追”是第 2 个 token 还是第 20 个 token。一种合理的期待是：<strong>同样两个词，只要相隔的站数和方向相同，不管出现在句子哪个位置，它们在注意力里的相互作用就应该相同</strong>。注意这里记的是带方向的位移，不是不带方向的距离：前半句里猫在追的左边隔 1 站，后半句里猫在追的右边隔 1 站，这是两个不同的相对位置，注意力完全区分得开——否则“猫追狗”和“狗追猫”就分不出来了。绝对位置编码把这个信息拐了一道弯（先各自记门牌，再由模型学出门牌差），相对位置编码则开门见山：直接把“隔几站、在哪边”告诉注意力。</p>
 
 <div class="term-card">
   <div class="term-name">
@@ -49,16 +49,22 @@
 
 <p>　　RoPE（Rotary Position Embedding，旋转位置编码）的想法一句话说清：<strong>位置每前进一格，就把 query 和 key 向量旋转一个固定角度</strong>。位置 5 的向量比位置 2 的多转 3 格角度，注意力一比对两个向量的朝向差，“隔了几站”自然就出来了。</p>
 
+<div class="highlight-box info">
+  <p><strong>先交代三个词。</strong>注意力机制里，每个 token 的向量会经各自的权重矩阵派生出三种角色：Query 是它拿去提问的向量，Key 是它亮出来供人匹配的索引，Value 是它实际提供的内容。提问与索引做匹配得到分数，分数决定从对方那里取多少内容。三者都是同一个 token 的向量，与词表的行、列无关。第 4 章会把整套机制拆开讲，本页只需要这个最小印象。</p>
+</div>
+
 <p>　　具体怎么转？RoPE 把每个注意力头的 query、key 向量（维度 \(d\)）两两分成 \(d/2\) 组，每组看成一个二维平面里的向量，按各自的位置编号分别旋转：</p>
 
 <div class="formula-card">
-  \[ \begin{pmatrix} x' \\ y' \end{pmatrix} = R(m\theta_i) \begin{pmatrix} x \\ y \end{pmatrix}, \qquad R(m\theta_i) = \begin{pmatrix} \cos m\theta_i & -\sin m\theta_i \\ \sin m\theta_i & \cos m\theta_i \end{pmatrix} \tag{1} \]
-  <div class="formula-note">公式 (1)：位置 \(m\) 的第 \(i\) 组维度被旋转角度 \(m\theta_i\)。位置越靠后，转角越大；旋转矩阵保证只改朝向、不改向量长度。符号说明：\(x, y\) 是同一维度组的两个分量（旋转前），\(x', y'\) 是旋转后的两个分量；\(m\) 是位置编号；\(\theta_i\) 是第 \(i\) 组的旋转角速度（由公式 (2) 给出）；\(R(m\theta_i)\) 是 2×2 旋转矩阵，作用是把二维向量旋转角度 \(m\theta_i\)。</div>
+  \[ \begin{pmatrix} x' \\ y' \end{pmatrix} = R(m\theta_i) \begin{pmatrix} x \\ y \end{pmatrix}, \qquad R(m\theta_i) = \begin{pmatrix} \cos m\theta_i &amp; -\sin m\theta_i \\ \sin m\theta_i &amp; \cos m\theta_i \end{pmatrix} \tag{1} \]
+  <div class="formula-note">公式 (1)：位置 \(m\) 的第 \(i\) 组维度被旋转角度 \(m\theta_i\)。位置越靠后，转角越大；旋转矩阵保证只改朝向、不改向量长度。符号说明：\(x, y\) 是同一维度组的两个分量（旋转前，配对约定见下文正文），\(x', y'\) 是旋转后的两个分量；\(m\) 是位置编号；\(\theta_i\) 是第 \(i\) 组的旋转角速度（由公式 (2) 给出）；\(R(m\theta_i)\) 是 2×2 旋转矩阵，作用是把二维向量旋转角度 \(m\theta_i\)。</div>
   \[ \theta_i = \mathrm{base}^{-\,2i/d}, \qquad i = 0,\,1,\,\dots,\,d/2 - 1 \tag{2} \]
   <div class="formula-note">公式 (2)：每组维度的“转速” \(\theta_i\) 按几何级数递减，base 通常取 10000：第 0 组 \(\theta_0 = 1\) 转得最快，最后一组降到 \(10^{-4}\) 量级，几乎不动。符号说明：\(\theta_i\) 是第 \(i\) 个维度组的旋转角速度，即位置每前进一格所转的角度；\(\mathrm{base}\) 是基数，论文取 10000；\(d\) 是注意力头的维度；\(i\) 是维度组编号，从 0 到 \(d/2-1\)。</div>
 </div>
 
-<p>　　把公式 (1) 和 (2) 合起来看：\(d\) 维向量被两两配对分成 \(d/2\) 组，每组以各自的角速度 \(\theta_i\) 随位置匀速旋转——靠前的组转得快，靠后的组转得慢，转速按几何级数逐组递减。\(d/2\) 组的转角组合起来，就是每个位置独一无二的旋转模式。</p>
+<p>　　把公式 (1) 和 (2) 合起来看：\(d\) 维向量被两两配对分成 \(d/2\) 组。以 minimind 的头维度 \(d=96\) 为例，96 个数正好配成 48 组，每组两个数看成一个平面上的坐标 \((x,y)\)，各自按角速度 \(\theta_i\) 随位置匀速旋转——靠前的组转得快，靠后的组转得慢，转速按几何级数逐组递减。为什么必须两两一组？因为“旋转”只在二维平面里有定义：公式 (1) 的旋转矩阵是 2×2 的，一次只作用在两个数上，\(d\) 维向量没法整体转一个角度，只能拆成 48 个小平面各转各的。48 组的转角组合起来，就是每个位置独一无二的旋转模式。</p>
+
+<p>　　这里还要说清“两两配对”到底配哪两个，有两种数学上等价的约定。原始论文的公式按<strong>相邻两维</strong>配对，即第 0、1 个数一组，第 2、3 个数一组，依此类推；而 Llama、Hugging Face 以及 minimind 的实现按<strong>前后半配对</strong>，即第 \(i\) 个数与第 \(i+d/2\) 个数一组（minimind 里那个函数就叫 <code>rotate_half</code>，见 <code>model/model_minimind.py</code> 第 80 至 84 行）。两者只是把维度重新排了个序，旋转效果完全一样，读代码时不必被配对顺序绕住。</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -112,7 +118,7 @@
 
 <div class="formula-card">
   \[ \big\langle R_{m\theta_i}\, q,\; R_{n\theta_i}\, k \big\rangle \;=\; q^{\top} R_{(n-m)\theta_i}\, k \tag{3} \]
-  <div class="formula-note">公式 (3)：等式右边只含相对距离 \(n-m\)。不管这两个词在句子开头还是结尾，只要相隔距离相同，内积就相同——相对位置就这样免费进入了注意力。符号说明：\(q\)、\(k\) 分别是 query 与 key 向量在某个维度组上的二维分量；\(m\)、\(n\) 是两个 token 的位置编号；\(R_{m\theta_i}\)、\(R_{n\theta_i}\) 是按位置施加的旋转矩阵（同公式 (1)）；\(\langle\cdot,\cdot\rangle\) 表示向量内积；\(q^{\top}\) 是 \(q\) 的转置。</div>
+  <div class="formula-note">公式 (3)：等式右边只含带方向的相对位移 \(n-m\)。不管这两个词在句子开头还是结尾，只要相隔的站数和方向相同，内积就相同；方向对调（\(n-m\) 变号）时 \(\sin\) 项翻号，内积随之改变，所以“前方隔 1 站”和“后方隔 1 站”是可区分的两个信号——相对位置就这样免费进入了注意力。符号说明：\(q\)、\(k\) 分别是 query 与 key 向量在某个维度组上的二维分量；\(m\)、\(n\) 是两个 token 的位置编号；\(R_{m\theta_i}\)、\(R_{n\theta_i}\) 是按位置施加的旋转矩阵（同公式 (1)）；\(\langle\cdot,\cdot\rangle\) 表示向量内积；\(q^{\top}\) 是 \(q\) 的转置。</div>
 </div>
 
 <p>　　还有一个工程上很贴心的细节：RoPE 只旋转 query 和 key，<strong>value 向量完全不碰</strong>。位置信息只参与“找谁”（注意力权重），不污染“拿什么”（value 承载的内容），分工干净。</p>
@@ -160,7 +166,7 @@
 
 <p>　　对比一下两种手感：RoPE 是给每个词发一个随位置旋转的指南针，ALiBi 是给评委一把尺子——距离每多一格，印象分固定扣一档，简单、直接、可预测。</p>
 
-<p>　　这套设计的回报是惊人的外推能力。论文报告：一个 1.3B 参数的 ALiBi 模型在 1024 token 的序列上训练，<strong>直接在 2046 token 的序列上测试</strong>，困惑度与专门在 2046 上训练的正弦位置编码模型持平，而训练速度快 11%、显存占用少 11%。训练短、测试长（train short, test long），不需要任何续训或改刻度。BLOOM 与 MPT 两个知名开源模型正是看中这一点而采用 ALiBi。</p>
+<p>　　这套设计的回报是惊人的外推能力。论文报告：一个 1.3B 参数的 ALiBi 模型在 1024 token 的序列上训练，<strong>直接在 2048 token 的序列上测试</strong>，困惑度与专门在 2048 上训练的正弦位置编码模型持平，而训练速度快 11%、显存占用少 11%。训练短、测试长（train short, test long），不需要任何续训或改刻度。BLOOM 与 MPT 两个知名开源模型正是看中这一点而采用 ALiBi。</p>
 
 <p>　　代价同样明显：线性惩罚是一条写死的直线，表达力不如 RoPE 灵活；长距离的信息召回偏弱——扣分扣到最后，远处的 token 几乎永无出头之日。外推朴素直接的另一面，是“远了就真不看了”。</p>
 
@@ -216,7 +222,7 @@ python -c "from model.model_minimind import precompute_freqs_cis as p; c, s = p(
 <h2>参考来源</h2>
 <ul>
   <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864），旋转机制、频率公式 (2) 与相对位置性质公式 (3) 出自该文。</li>
-  <li>Press, Smith &amp; Lewis, 2022. Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation（ALiBi 原始论文，arXiv:2108.12409），线性偏置公式 (4)、斜率几何级数公式 (5) 与 1024 训练 / 2046 测试的外推实验出自该文。</li>
+  <li>Press, Smith &amp; Lewis, 2022. Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation（ALiBi 原始论文，arXiv:2108.12409），线性偏置公式 (4)、斜率几何级数公式 (5) 与 1024 训练 / 2048 测试的外推实验出自该文。</li>
   <li>苏剑林，2021. Transformer 升级之路：2、博采众长的旋转式位置编码（https://kexue.fm/archives/8265），RoPE 远程衰减性质的通俗分析。</li>
   <li>minimind 工程 model/model_minimind.py（Apache 2.0），RoPE 工程实现与“动手验证”区块的出处。</li>
 </ul>

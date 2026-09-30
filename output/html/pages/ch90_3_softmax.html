@@ -1,0 +1,239 @@
+﻿<article class="content">
+<h1>A.3 softmax 与温度：把分数变成概率</h1>
+<p class="subtitle">本页范围：附录 A 第 3 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>模型算出来的打分有正有负、大小任意，既不能当概率用，也没法按它抽样。注意力权重、下一个词的分布，都需要把任意分数变成“非负、总和为 1”的概率。softmax 就是这台转换器，温度则是它上面的一个旋钮。</td></tr>
+      <tr><td>本节主张</td><td>softmax 只做三件事：取指数、求和、归一。取指数既保证全部为正，又把分差拉成倍数差；归一让总和为 1。温度系数 T 在取指数前缩放分数：T 小分布变尖、强者通吃，T 大分布变平、大家雨露均沾。</td></tr>
+      <tr><td>一句话结论</td><td>凡是手册里出现“概率”“权重”“分布”的地方，上游几乎都站着一个 softmax；凡是出现“温度”“采样”的地方，拧的都是它的 T。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>logit</span><span>softmax</span><span>数值稳定</span><span>温度</span><span>概率分布</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　A.2.3 的走查表里有一步跳过去了：缩放后的分数 [1.00, 0.50, −1.00, 0.00] 是怎么变成权重 [0.474, 0.287, 0.064, 0.174] 的？中间那道工序就是 softmax。它是手册里出现频率最高的函数之一：注意力分数靠它变权重（4.2 节），输出层的打分靠它变下一个词的概率分布（6.1 节），解码时的温度采样拧的还是它（第 12 章）。本节把它拆开看清楚。</p>
+
+<ol>
+  <li><strong>softmax 在做什么：取指数、求和、归一</strong>（A.3.1）：从三个候选词的 logit 出发，一步步算出概率；</li>
+  <li><strong>数值稳定：先减最大值</strong>（A.3.2）：一个数学上恒等、工程上救命的改写；</li>
+  <li><strong>温度：一个旋钮控制分布形状</strong>（A.3.3）：同一个 logit，T 取 0.5、1、2 时分布各长什么样。</li>
+</ol>
+
+<p>　　读完应能手算一个小例子：给三个 logit，说出经过 softmax 谁拿大头、温度调高后份额往哪流。</p>
+
+<h2>A.3.1 softmax 在做什么：取指数、求和、归一</h2>
+
+<p>　　模型直接输出的打分叫 logit（中文常译“对数几率”或干脆直呼 logit）：它可以是任何实数，正、负、零都行。概率有三个硬要求：每一项非负、每一项不超过 1、全部加起来等于 1。logit 一条都不满足，所以需要转换。softmax 的公式是：</p>
+
+<div class="formula-card">
+  \[ p_i = \frac{e^{z_i}}{\sum_{j=1}^{n} e^{z_j}} \tag{1} \]
+  <div class="formula-note">公式 (1)：softmax。符号说明：\(z_i\) 是第 \(i\) 个候选的 logit；\(e^{z_i}\) 是自然指数（\(e \approx 2.718\)）；分母 \(\sum_{j=1}^{n} e^{z_j}\) 是把所有候选的指数加起来；\(p_i\) 是第 \(i\) 个候选最终分到的概率。整个式子读作“第 \(i\) 个候选的指数，占全部指数之和的份额”。</div>
+</div>
+
+<p>　　拆开看就是三步。第一步取指数：\(e^x\) 恒为正，负数 logit 也被映成小的正数，同时它把“分差”放大成“倍数差”——2.0 与 1.0 只差 1，但 \(e^{2.0} \approx 7.39\) 是 \(e^{1.0} \approx 2.72\) 的 2.7 倍，强者被明显放大。第二步求和：把所有指数加起来当总量。第三步归一：每个候选占总量的份额，自然满足非负、不超 1、总和为 1。</p>
+
+<p>　　拿三个候选词算一遍。假设模型对下一个词给出 logit：A 得 2.0、B 得 1.0、C 得 0.1：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>候选</th><th>logit \(z_i\)</th><th>取指数 \(e^{z_i}\)</th><th>归一（除以总和 11.21）</th></tr></thead>
+    <tbody>
+      <tr><td>A</td><td>2.0</td><td>7.389</td><td>0.659</td></tr>
+      <tr><td>B</td><td>1.0</td><td>2.718</td><td>0.242</td></tr>
+      <tr><td>C</td><td>0.1</td><td>1.105</td><td>0.099</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="smArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="60" y="24" font-size="13" fill="#333">① logit：模型直接输出的打分</text>
+    <text x="420" y="24" font-size="13" fill="#333">② softmax 之后：概率，总和为 1</text>
+    <line x1="90" y1="250" x2="90" y2="60" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#smArrG)"/>
+    <line x1="90" y1="250" x2="330" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#smArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="86" y1="155" x2="94" y2="155"/>
+      <line x1="86" y1="60" x2="94" y2="60"/>
+    </g>
+    <text x="82" y="254" font-size="11" fill="#64748b" text-anchor="end">0</text>
+    <text x="82" y="159" font-size="11" fill="#64748b" text-anchor="end">4</text>
+    <text x="82" y="64" font-size="11" fill="#64748b" text-anchor="end">8</text>
+    <rect x="120" y="202.5" width="36" height="47.5" fill="#6d28d9"/>
+    <rect x="180" y="226.2" width="36" height="23.8" fill="#2563eb"/>
+    <rect x="240" y="247.6" width="36" height="2.4" fill="#c2410c"/>
+    <text x="138" y="196" font-size="12" fill="#6d28d9" text-anchor="middle">2.0</text>
+    <text x="198" y="220" font-size="12" fill="#2563eb" text-anchor="middle">1.0</text>
+    <text x="258" y="241" font-size="12" fill="#c2410c" text-anchor="middle">0.1</text>
+    <text x="138" y="266" font-size="12" fill="#64748b" text-anchor="middle">A</text>
+    <text x="198" y="266" font-size="12" fill="#64748b" text-anchor="middle">B</text>
+    <text x="258" y="266" font-size="12" fill="#64748b" text-anchor="middle">C</text>
+    <line x1="348" y1="155" x2="404" y2="155" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#smArrG)"/>
+    <text x="352" y="146" font-size="12" fill="#64748b">softmax</text>
+    <line x1="450" y1="250" x2="450" y2="60" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#smArrG)"/>
+    <line x1="450" y1="250" x2="690" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#smArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="446" y1="155" x2="454" y2="155"/>
+      <line x1="446" y1="60" x2="454" y2="60"/>
+    </g>
+    <text x="442" y="254" font-size="11" fill="#64748b" text-anchor="end">0</text>
+    <text x="442" y="159" font-size="11" fill="#64748b" text-anchor="end">0.5</text>
+    <text x="442" y="64" font-size="11" fill="#64748b" text-anchor="end">1.0</text>
+    <rect x="480" y="124.8" width="36" height="125.2" fill="#6d28d9"/>
+    <rect x="540" y="204" width="36" height="46" fill="#2563eb"/>
+    <rect x="600" y="231.2" width="36" height="18.8" fill="#c2410c"/>
+    <text x="498" y="118" font-size="12" fill="#6d28d9" text-anchor="middle">0.659</text>
+    <text x="558" y="198" font-size="12" fill="#2563eb" text-anchor="middle">0.242</text>
+    <text x="618" y="225" font-size="12" fill="#c2410c" text-anchor="middle">0.099</text>
+    <text x="498" y="266" font-size="12" fill="#64748b" text-anchor="middle">A</text>
+    <text x="558" y="266" font-size="12" fill="#64748b" text-anchor="middle">B</text>
+    <text x="618" y="266" font-size="12" fill="#64748b" text-anchor="middle">C</text>
+  </svg>
+  <div class="diagram-caption">图示：softmax 的输入与输出。左图是三个候选的 logit，可正可负、量纲任意；右图是经过取指数、求和、归一之后的概率，三根柱子加起来正好是 1。A 的领先优势从“1 分”被放大成了“约 2.7 倍份额”。</div>
+</div>
+
+<p>　　A.2.3 那列权重也是这么来的：缩放后的分数 [1.00, 0.50, −1.00, 0.00] 取指数得 [2.72, 1.65, 0.37, 1.00]，总和 5.73，归一后就是 [0.474, 0.287, 0.064, 0.174]。注意负 logit 不会被“清零”，它只是分到较小的正份额——这是 softmax 与“把负数砍掉”的做法的本质区别。</p>
+
+<h2>A.3.2 数值稳定：先减最大值</h2>
+
+<p>　　公式 (1) 直接上机会出事：logit 稍大，\(e^{z}\) 就爆炸，\(e^{100}\) 已经是 10 的 43 次方量级，浮点数直接溢出成无穷大。好在 softmax 有一个恒等改写：所有 logit 同时减去任意常数，结果不变。证明只要一行——分子分母同乘 \(e^{-m}\) 即消掉：</p>
+
+<div class="formula-card">
+  \[ p_i = \frac{e^{z_i - m}}{\sum_{j=1}^{n} e^{z_j - m}}, \quad m = \max_j z_j \tag{2} \]
+  <div class="formula-note">公式 (2)：数值稳定版 softmax，与公式 (1) 数学上严格相等。符号说明：\(m\) 取全体 logit 中的最大值；减完之后最大的一项变成 \(e^0 = 1\)，其余都是小于 1 的正数，溢出通道被彻底堵死。所有深度学习框架的 softmax 实现内部都是这么算的。</div>
+</div>
+
+<h2>A.3.3 温度：一个旋钮控制分布形状</h2>
+
+<p>　　在取指数之前，把 logit 先除以一个正数 T，就得到了带温度的 softmax：</p>
+
+<div class="formula-card">
+  \[ p_i = \frac{e^{z_i / T}}{\sum_{j=1}^{n} e^{z_j / T}} \tag{3} \]
+  <div class="formula-note">公式 (3)：带温度的 softmax。符号说明：\(T\) 是温度系数（正实数），\(T = 1\) 时退化成公式 (1)；其余符号同前。T 小于 1 会放大 logit 之间的差距，分布变尖；T 大于 1 会压缩差距，分布变平。</div>
+</div>
+
+<p>　　还是用 A、B、C 三个候选，logit 固定为 [2.0, 1.0, 0.1]，只拧温度：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>温度 T</th><th>A（logit 2.0）</th><th>B（logit 1.0）</th><th>C（logit 0.1）</th><th>分布形态</th></tr></thead>
+    <tbody>
+      <tr><td>0.5</td><td>0.864</td><td>0.117</td><td>0.019</td><td>尖：强者通吃</td></tr>
+      <tr><td>1.0</td><td>0.659</td><td>0.242</td><td>0.099</td><td>原样</td></tr>
+      <tr><td>2.0</td><td>0.502</td><td>0.304</td><td>0.194</td><td>平：差距被抹匀</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="tpArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="40" y="24" font-size="13" fill="#333">T = 0.5：分布变尖</text>
+    <text x="270" y="24" font-size="13" fill="#333">T = 1：原始分布</text>
+    <text x="500" y="24" font-size="13" fill="#333">T = 2：分布变平</text>
+    <line x1="60" y1="250" x2="60" y2="70" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#tpArrG)"/>
+    <line x1="60" y1="250" x2="230" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#tpArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="56" y1="160" x2="64" y2="160"/>
+      <line x1="56" y1="70" x2="64" y2="70"/>
+    </g>
+    <text x="52" y="164" font-size="11" fill="#64748b" text-anchor="end">0.5</text>
+    <text x="52" y="74" font-size="11" fill="#64748b" text-anchor="end">1.0</text>
+    <rect x="80" y="94.5" width="30" height="155.5" fill="#6d28d9"/>
+    <rect x="130" y="228.9" width="30" height="21.1" fill="#2563eb"/>
+    <rect x="180" y="246.6" width="30" height="3.4" fill="#c2410c"/>
+    <text x="95" y="88" font-size="11" fill="#6d28d9" text-anchor="middle">0.864</text>
+    <text x="145" y="222" font-size="11" fill="#2563eb" text-anchor="middle">0.117</text>
+    <text x="195" y="240" font-size="11" fill="#c2410c" text-anchor="middle">0.019</text>
+    <text x="95" y="266" font-size="12" fill="#64748b" text-anchor="middle">A</text>
+    <text x="145" y="266" font-size="12" fill="#64748b" text-anchor="middle">B</text>
+    <text x="195" y="266" font-size="12" fill="#64748b" text-anchor="middle">C</text>
+    <line x1="290" y1="250" x2="290" y2="70" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#tpArrG)"/>
+    <line x1="290" y1="250" x2="460" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#tpArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="286" y1="160" x2="294" y2="160"/>
+      <line x1="286" y1="70" x2="294" y2="70"/>
+    </g>
+    <text x="282" y="164" font-size="11" fill="#64748b" text-anchor="end">0.5</text>
+    <text x="282" y="74" font-size="11" fill="#64748b" text-anchor="end">1.0</text>
+    <rect x="310" y="131.4" width="30" height="118.6" fill="#6d28d9"/>
+    <rect x="360" y="206.4" width="30" height="43.6" fill="#2563eb"/>
+    <rect x="410" y="232.2" width="30" height="17.8" fill="#c2410c"/>
+    <text x="325" y="125" font-size="11" fill="#6d28d9" text-anchor="middle">0.659</text>
+    <text x="375" y="200" font-size="11" fill="#2563eb" text-anchor="middle">0.242</text>
+    <text x="425" y="226" font-size="11" fill="#c2410c" text-anchor="middle">0.099</text>
+    <text x="325" y="266" font-size="12" fill="#64748b" text-anchor="middle">A</text>
+    <text x="375" y="266" font-size="12" fill="#64748b" text-anchor="middle">B</text>
+    <text x="425" y="266" font-size="12" fill="#64748b" text-anchor="middle">C</text>
+    <line x1="520" y1="250" x2="520" y2="70" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#tpArrG)"/>
+    <line x1="520" y1="250" x2="690" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#tpArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="516" y1="160" x2="524" y2="160"/>
+      <line x1="516" y1="70" x2="524" y2="70"/>
+    </g>
+    <text x="512" y="164" font-size="11" fill="#64748b" text-anchor="end">0.5</text>
+    <text x="512" y="74" font-size="11" fill="#64748b" text-anchor="end">1.0</text>
+    <rect x="540" y="159.6" width="30" height="90.4" fill="#6d28d9"/>
+    <rect x="590" y="195.3" width="30" height="54.7" fill="#2563eb"/>
+    <rect x="640" y="215.1" width="30" height="34.9" fill="#c2410c"/>
+    <text x="555" y="153" font-size="11" fill="#6d28d9" text-anchor="middle">0.502</text>
+    <text x="605" y="189" font-size="11" fill="#2563eb" text-anchor="middle">0.304</text>
+    <text x="655" y="209" font-size="11" fill="#c2410c" text-anchor="middle">0.194</text>
+    <text x="555" y="266" font-size="12" fill="#64748b" text-anchor="middle">A</text>
+    <text x="605" y="266" font-size="12" fill="#64748b" text-anchor="middle">B</text>
+    <text x="655" y="266" font-size="12" fill="#64748b" text-anchor="middle">C</text>
+  </svg>
+  <div class="diagram-caption">图示：同一组 logit [2.0, 1.0, 0.1] 在三种温度下的分布。T = 0.5 时 A 独占 0.864，接近“只选第一名”；T = 2 时三者份额拉近，弱势候选也能分到近 0.2。纵轴是概率，横轴是三个候选。</div>
+</div>
+
+<p>　　两个极限值得记住：T 趋近 0 时，最大 logit 那一项的概率趋近 1，其余趋近 0，softmax 退化成“只取最大值”，这就是贪心解码；T 越拉越大，所有份额趋近均匀分布 \(1/n\)，采样就近似瞎蒙。解码章的温度采样、top-p 采样（第 12 章细讲）都是在这个分布上做文章：温度调分布的形状，top-k、top-p 调候选的范围。</p>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>章节</th><th>用到本节什么</th></tr></thead>
+    <tbody>
+      <tr><td>4.2 注意力机制</td><td>缩放后的打分经 softmax 变成总和为 1 的注意力权重</td></tr>
+      <tr><td>6.1 预训练目标</td><td>输出层对整个词表做 softmax 得到下一个词的分布，与真实答案算损失（接 A.4）</td></tr>
+      <tr><td>第 12 章 解码策略</td><td>温度采样、贪心、top-k / top-p 的操作对象就是本节这个分布</td></tr>
+      <tr><td>A.2 点积与缩放</td><td>√d 缩放把分数控制在 softmax 敏感区间，两节是一根流水线的前后工序</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　下面的脚本复现 A.3.3 的整张表，顺便用上 A.3.2 的数值稳定写法。预期输出与正文表格逐格一致。</p>
+
+<pre><code>import numpy as np
+
+z = np.array([2.0, 1.0, 0.1])
+for T in (0.5, 1.0, 2.0):
+    zT = z / T
+    e = np.exp(zT - zT.max())   # 先减最大值，数学上与原式恒等
+    print(f'T={T}: {np.round(e / e.sum(), 3)}')</code></pre>
+
+<p>　　实测输出：</p>
+
+<pre><code>T=0.5: [0.864 0.117 0.019]
+T=1.0: [0.659 0.242 0.099]
+T=2.0: [0.502 0.304 0.194]</code></pre>
+
+<p>　　真实生成代码里的温度见 <code>minimind-master/eval_llm.py</code> 的 <code>--temperature</code> 参数（默认 0.85）：训练完模型跑评估时，把它调成 0.1 与 2.0 各生成几段话，能直接看到分布变尖与变平对文风的影响。</p>
+</article>

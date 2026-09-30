@@ -1,0 +1,223 @@
+﻿<article class="content">
+<h1>8.1 什么是中间训练：预训练与后训练之间的缓冲带</h1>
+<p class="subtitle">本页范围：第 8 章第 1 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>预训练烧完上万亿 token、后训练开始教对话之前，2024 年以来的旗舰模型为什么还要插一段「中间训练」？它和预训练、SFT 的边界在哪里？</td></tr>
+      <tr><td>本节主张</td><td>中间训练是从预训练 checkpoint 出发、沿用 next-token 自监督目标继续训练的过渡阶段：目标函数不换，换的是数据配方与序列长度——把最高质量的数据留到末期退火，把长上下文留到后期扩展，把数学、代码等短板领域加重配比。</td></tr>
+      <tr><td>一句话结论</td><td>预训练解决广度，中间训练负责收口与补短，后训练负责听话；训练目标换不换，是中间训练与后训练的分界线。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>中间训练</span><span>continued pretraining</span><span>annealing</span><span>WSD</span><span>长上下文扩展</span><span>退火</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　第 6 章讲完了预训练的目标与配方，第 7 章讲完了支撑这场长跑的工程体系。按老黄历，接下来就该直接进入监督微调（SFT），教模型对话了。但翻开 Llama 3、MiniCPM、DeepSeek-V3 这些 2024 年以来的技术报告，会发现它们都在预训练与后训练之间插了一段过渡训练：有的叫 continued pre-training，有的叫 annealing，有的叫 long context extension。名字各不相同，做的却是同一类事——本章把它统称为<strong>中间训练</strong>（Mid-training），0.2 节的生命周期地图里已经给它留好了位置。</p>
+
+<p>　　本节是全章的开篇，先回答三个最朴素的问题：这段训练卡在流水线哪个位置、为什么现代模型非加它不可、各家是怎么做的。路线图如下：</p>
+
+<ol>
+  <li><strong>流水线位置：预训练之后、后训练之前</strong>（8.1.1）：中间训练与预训练共用同一个目标函数，与 SFT 的分界线在数据形态；</li>
+  <li><strong>为什么要加这一层：三个动机</strong>（8.1.2）：质量收口、长上下文太贵、领域短板，各对应一件预训练主阶段做不好的事；</li>
+  <li><strong>业界实践速览：三种叫法，一个物种</strong>（8.1.3）：Llama 3、MiniCPM、DeepSeek-V3 的真实配方，以及 continued pretraining / annealing / mid-training 的术语谱系；</li>
+  <li><strong>本章地图</strong>（8.1.4）：8.2 到 8.5 四节怎么分工。</li>
+</ol>
+
+<p>　　读完本节，你应该能给任何一份技术报告里的「继续训练」段落归类：它属于中间训练还是后训练，依据是什么。</p>
+
+<h2>8.1.1 流水线位置：预训练之后、后训练之前</h2>
+
+<p>　　先给定义。<strong>中间训练</strong>指从预训练 checkpoint 出发，沿用与预训练相同的目标函数——无标注语料上的 next-token 预测——继续训练的一段过渡阶段。模型还是那台文本续写机，训练方式还是自监督，变化发生在两处：数据配方换了（质量更高、领域配比更重、文档更长），序列长度换了（从几千 token 拉长到几万、十几万）。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">中间训练 Mid-training</span>
+    <span class="term-en">mid-training = 预训练与后训练之间的过渡训练</span>
+  </div>
+  <div class="term-body">
+    <p>从预训练 checkpoint 接着训，目标仍是 next-token 自监督，但数据换成精挑细选的配方：高质量语料负责收口，长文档负责拉长上下文窗口，数学、代码等领域数据负责补短板。产物是一个增强版 base model——能力更强，但依然不会对话。</p>
+    <div class="term-analogy">就像高考前的三轮复习：预训练是通读教材攒知识，中间训练是专题强化加真题冲刺，后训练（SFT）才是学答题规范。</div>
+  </div>
+</div>
+
+<p>　　把这条定义放到流水线两端看，边界就清楚了。与预训练相比，中间训练不换目标函数、不换架构，只换数据与长度，可以把它理解成预训练的「定向下半场」；与 SFT 相比，它的数据仍然是无标注文本，模型学的是「更好的续写」，而不是「按指令格式给出参考答案」——SFT 的每条样本都是一问一答的指令对，优化的是行为对齐。严格地说，SFT 逐 token 的损失形式仍是交叉熵，这一阶段换掉的是监督信号（从文本自身换成人工标注的参考答案）；到 RL、DPO 阶段才连优化目标本身也换掉。目标换不换，正是中间训练与后训练的分界线。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-pipe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#555"/>
+      </marker>
+    </defs>
+    <!-- 阶段一：预训练 -->
+    <rect x="20" y="28" width="270" height="252" rx="10" fill="#f5f3ff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="155" y="58" text-anchor="middle" font-size="16" font-weight="bold" fill="#6d28d9">预训练 Pre-training</text>
+    <line x1="40" y1="70" x2="270" y2="70" stroke="#6d28d9" stroke-width="1" opacity="0.5"/>
+    <text x="36" y="96" font-size="12.5" font-weight="bold" fill="#6d28d9">数据</text>
+    <text x="36" y="114" font-size="12.5" fill="#333">数万亿 token 通用网页语料</text>
+    <text x="36" y="132" font-size="12.5" fill="#333">无标注 · 量大 · 质量参差</text>
+    <text x="36" y="160" font-size="12.5" font-weight="bold" fill="#6d28d9">目标</text>
+    <text x="36" y="178" font-size="12.5" fill="#333">next-token 自监督</text>
+    <text x="36" y="196" font-size="12.5" fill="#333">学语言结构与世界知识</text>
+    <text x="36" y="224" font-size="12.5" font-weight="bold" fill="#6d28d9">产出</text>
+    <text x="36" y="242" font-size="12.5" fill="#333">base model（通用但偏科）</text>
+    <!-- 阶段二：中间训练（本章主角） -->
+    <rect x="545" y="10" width="76" height="22" rx="11" fill="#0891b2"/>
+    <text x="583" y="25" text-anchor="middle" font-size="11.5" fill="#fff">本章主角</text>
+    <rect x="345" y="28" width="270" height="252" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="3"/>
+    <text x="480" y="58" text-anchor="middle" font-size="16" font-weight="bold" fill="#0891b2">中间训练 Mid-training</text>
+    <line x1="365" y1="70" x2="595" y2="70" stroke="#0891b2" stroke-width="1" opacity="0.5"/>
+    <text x="361" y="96" font-size="12.5" font-weight="bold" fill="#0891b2">数据</text>
+    <text x="361" y="114" font-size="12.5" fill="#333">高质量精选 + 长文档</text>
+    <text x="361" y="132" font-size="12.5" fill="#333">数学 / 代码等领域加重配比</text>
+    <text x="361" y="160" font-size="12.5" font-weight="bold" fill="#0891b2">目标</text>
+    <text x="361" y="178" font-size="12.5" fill="#333">仍是 next-token 自监督</text>
+    <text x="361" y="196" font-size="12.5" fill="#333">收口质量 · 拉长窗口 · 补短板</text>
+    <text x="361" y="224" font-size="12.5" font-weight="bold" fill="#0891b2">产出</text>
+    <text x="361" y="242" font-size="12.5" fill="#333">增强版 base model</text>
+    <!-- 阶段三：后训练 -->
+    <rect x="670" y="28" width="270" height="252" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+    <text x="805" y="58" text-anchor="middle" font-size="16" font-weight="bold" fill="#b45309">后训练 Post-training</text>
+    <line x1="690" y1="70" x2="920" y2="70" stroke="#b45309" stroke-width="1" opacity="0.5"/>
+    <text x="686" y="96" font-size="12.5" font-weight="bold" fill="#b45309">数据</text>
+    <text x="686" y="114" font-size="12.5" fill="#333">指令对 / 偏好对（有标注）</text>
+    <text x="686" y="132" font-size="12.5" fill="#333">一问一答，带参考答案</text>
+    <text x="686" y="160" font-size="12.5" font-weight="bold" fill="#b45309">目标</text>
+    <text x="686" y="178" font-size="12.5" fill="#333">SFT 学会对话格式</text>
+    <text x="686" y="196" font-size="12.5" fill="#333">RL / DPO 对齐人类偏好</text>
+    <text x="686" y="224" font-size="12.5" font-weight="bold" fill="#b45309">产出</text>
+    <text x="686" y="242" font-size="12.5" fill="#333">instruct / reasoning model</text>
+    <!-- 阶段间箭头 -->
+    <line x1="296" y1="154" x2="339" y2="154" stroke="#555" stroke-width="2" marker-end="url(#arr-pipe)"/>
+    <line x1="621" y1="154" x2="664" y2="154" stroke="#555" stroke-width="2" marker-end="url(#arr-pipe)"/>
+    <!-- 底部括号：目标函数分界 -->
+    <line x1="30" y1="308" x2="605" y2="308" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="30" y1="308" x2="30" y2="316" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="605" y1="308" x2="605" y2="316" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="317" y="336" text-anchor="middle" font-size="13" fill="#6d28d9">目标函数相同：都是无标注语料的 next-token 自监督</text>
+    <line x1="680" y1="308" x2="930" y2="308" stroke="#b45309" stroke-width="1.5"/>
+    <line x1="680" y1="308" x2="680" y2="316" stroke="#b45309" stroke-width="1.5"/>
+    <line x1="930" y1="308" x2="930" y2="316" stroke="#b45309" stroke-width="1.5"/>
+    <text x="805" y="336" text-anchor="middle" font-size="13" fill="#b45309">目标切换：指令与偏好对齐（第 9 章起）</text>
+    <!-- 分界线 -->
+    <line x1="642" y1="296" x2="642" y2="348" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="642" y="366" text-anchor="middle" font-size="12" fill="#dc2626">分界线：目标函数换不换</text>
+  </svg>
+  <div class="diagram-caption">图示：LLM 训练三阶段流水线。预训练与中间训练共用同一个目标函数（无标注语料的 next-token 自监督），差别只在数据配方与序列长度；进入后训练，数据换成指令对、目标换成对齐，分界线由此划定。</div>
+</div>
+
+<p>　　需要坦白的是，这条边界在各家报告里并不整齐。Llama 3 把长上下文扩展叫作 continued pre-training，视为预训练的一部分；它的高质量数据退火（annealing）又发生在预训练末期的学习率衰减段里，更像预训练的收尾。MiniCPM 则干脆把衰减段从稳定段里拆出来，变成一个可以随时分岔、重复利用的独立阶段。命名归命名，本手册按三条判据划界：<strong>从预训练 checkpoint 出发、目标仍是 next-token 自监督、数据配方做过定向调整</strong>。三条同时满足，就归入中间训练。</p>
+
+<div class="highlight-box info">
+  判据的第三条是关键：如果只是原封不动地继续喂同一份预训练语料，那只是「预训练多训了一会儿」，谈不上中间训练。中间训练的「中间」二字，落点在配方的重新设计。
+</div>
+
+<div class="highlight-box">
+  中间训练 = 预训练的下半场 + 后训练的前奏：目标函数与预训练相同（无标注 next-token 自监督），数据配方为收口而重新设计（更高质量、更长上下文、领域加重），产物是增强版 base model。
+</div>
+
+<h2>8.1.2 为什么要加这一层：三个动机</h2>
+
+<p>　　既然目标函数和预训练一样，为什么不把这些数据直接混进预训练主阶段，一口气训完？因为有三件事，放在预训练主阶段做不好，留到后面才划算。三件事对应三个动机：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>动机一 · 质量收口</h4><p>最高质量的数据量太少，全程混喂会被稀释，留到末期低学习率阶段集中喂，效率最高。</p></div>
+  <div class="concept-card"><h4>动机二 · 长上下文</h4><p>注意力开销随序列长度平方增长，全程长序列预训练太贵，先短后长分阶段省钱。</p></div>
+  <div class="concept-card"><h4>动机三 · 领域补短</h4><p>通用配比里数学、代码天然占比低，末期定向加重，把短板补上。</p></div>
+</div>
+
+<h4>动机一：高质量细粮要留到收口阶段</h4>
+
+<p>　　预训练语料的质量是长尾分布的：海量普通网页之上，真正高质量的内容（教科书式讲解、精选数学与代码）占比很小。把这份「细粮」从第一天就混进主粮有两个问题：一是被海量普通数据稀释，同等算力下细粮的曝光次数太少；二是预训练要跑很多轮，小体量高质量数据被反复重复，有过拟合与记忆的风险。反过来，把它留到训练末期、学习率已经压低的阶段集中喂入，模型能在大步赶路结束之后，用小碎步把精华吃透——这就是<strong>退火</strong>（annealing）。</p>
+
+<p>　　这个判断有实验撑腰。Llama 3 在预训练末期用「上采样高质量代码与数学数据」的配方做退火：8B 模型在 GSM8k 和 MATH 验证集上分别相对提升了 24.0% 和 6.4%。有意思的是，405B 旗舰模型几乎无提升——论文的解释是，大模型的上下文学习能力已经足够强，不靠这点域内样本。MiniCPM 的消融实验更直接：同样一份高质量数据，放进衰减段训练，比只在 SFT 阶段喂的收益更大。两处证据指向同一个结论：高质量数据的喂入时机，和它的质量一样值钱。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">退火 Annealing</span>
+    <span class="term-en">annealing = 冶金术语，指金属加热后缓慢冷却</span>
+  </div>
+  <div class="term-body">
+    <p>借到训练里，指在末期把学习率快速压到接近零，同时换上精挑细选的高质量数据。学习率从高到低的过程像金属的缓慢冷却：高温（高学习率）阶段参数充分探索、大步赶路，冷却（低学习率）阶段参数在更优的位置附近精细定型。由于它总发生在训练收尾，又叫「退火段」「冷却段」。</p>
+    <div class="term-analogy">就像烧陶瓷：先用大火把器形烧出来，再转小火慢烧让釉色均匀——高温负责改变，低温负责稳定。</div>
+  </div>
+</div>
+
+<h4>动机二：长序列训练太贵，先短后长</h4>
+
+<p>　　第二笔账是算力账。自注意力的计算量随序列长度平方增长（\(O(n^2)\)，第 4 章）：把训练序列从 8K 拉到 128K，长度变为 16 倍，注意力计算量约变为 256 倍。而语言的基础技能——语法、常识、推理模式——在 4K、8K 的短序列上就能学会，没必要从第一天起就按 128K 的价钱付账。Llama 3 论文把话说得很直白：之所以不在更早的阶段用长序列训练，正是因为自注意力层的计算随序列长度平方增长。</p>
+
+<p>　　于是通行做法是<strong>先短后长</strong>：预训练全程用 4K 或 8K 窗口，末期再分阶段拉长。3.5 节讲过位置编码那侧的零件（NTK、YaRN 怎么改刻度），这里看训练侧的账：Llama 3 从 8K 渐进扩到 128K，续训消耗约 800B token；DeepSeek-V3 的账更极端——14.8T token 的预训练全部在 4K 窗口下完成，之后仅用两段各 1000 步的训练，就把窗口从 4K 扩到 32K、再扩到 128K。扩窗口的开销，连预训练的零头都不到。</p>
+
+<h4>动机三：领域短板要定向补</h4>
+
+<p>　　第三个动机来自配比。预训练的数据配比是为广度设计的：通用知识占大头，数学、代码只是配菜（第 1 章的数据配比）。可下游评测与实际使用，恰恰最看重数学和代码这类硬能力。回炉重训太贵，在主阶段全程加重又会挤占通用能力——中间训练阶段的解法是<strong>定向加重</strong>：Llama 3 在退火时上采样高质量代码与数学数据，MiniCPM 在衰减段混入 K12 题目、LeetCode 类指令数据。短板补齐不靠推倒重来，靠在正确的阶段调配方。</p>
+
+<div class="highlight-box">
+  三个动机背后是同一笔账：预训练负责广度，中间训练负责收口——最贵的资源（最高质量的数据、最长的序列）留到最后，用在刀刃上。
+</div>
+
+<h2>8.1.3 业界实践速览：三种叫法，一个物种</h2>
+
+<p>　　把三份 2024 年的代表性技术报告摆在一起：它们对「这段训练」的称呼、侧重各不相同，但骨架高度一致。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型（年份）</th><th>论文里的叫法</th><th>做了什么</th><th>关键数字</th></tr></thead>
+    <tbody>
+      <tr><td>Llama 3（2024）</td><td>continued pre-training + annealing</td><td>8K→128K 长上下文渐进续训；末期退火上采样高质量代码与数学</td><td>主预训练 15.6T token；长上下文续训约 800B token；退火使 8B 模型 GSM8k +24.0%</td></tr>
+      <tr><td>MiniCPM（2024）</td><td>WSD 衰减段（decay / annealing phase）</td><td>稳定段高学习率常态训练，衰减段短促收尾并混入高质量指令数据</td><td>稳定段约 1T token；衰减段约占总 token 的 10% 即够（2.5% 不足）；衰减段 loss 骤降</td></tr>
+      <tr><td>DeepSeek-V3（2024）</td><td>long context extension</td><td>预训练后接 YaRN 位置编码缩放 + 两段长上下文续训</td><td>预训练 14.8T token（4K 窗口）；两段各 1000 步，4K→32K→128K</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　三种叫法其实是同一物种的三个侧面。<strong>continued pretraining</strong>（继续预训练）强调动作：不换目标，接着预训练 checkpoint 往下训；<strong>annealing</strong>（退火）强调时机与学习率：发生在末期衰减段，配高质量数据；<strong>mid-training</strong>（中间训练）是 2025 年综述（Tu et al.）给出的统称，强调它在流水线中的位置。读论文时见到这些词，先用 8.1.1 的三条判据归类，就不会被命名差异误导。</p>
+
+<div class="highlight-box info">
+  MiniCPM 的 WSD（Warmup-Stable-Decay）值得单独记一笔：它把训练切成 warmup、稳定、衰减三段，稳定段学习率保持高位不变，checkpoint 可以随时取出来做一次短促衰减得到成品模型。这让中间训练从「一次性收尾」变成可重复、可分岔的标准工序——想加强某个领域，从稳定段 checkpoint 重新衰减一次即可，不必重跑预训练。这正是中间训练能独立成阶段的技术基础，8.4 节会展开。
+</div>
+
+<h2>8.1.4 本章地图</h2>
+
+<p>　　概念就位，本章后续四节按「机制 → 数据 → 配方 → 实战」推进：</p>
+
+<ul>
+  <li><strong>8.2 位置编码缩放</strong>：长上下文扩展的机制层——RoPE 基频、NTK 与 YaRN 怎么改刻度，让模型读得下超长输入；</li>
+  <li><strong>8.3 长上下文数据工程</strong>：长文档从哪来、配比怎么调，怎么避免「读得下却读不懂」；</li>
+  <li><strong>8.4 领域适配与退火</strong>：退火段的数据配方与学习率设计，WSD 调度怎么把收尾变成标准工序；</li>
+  <li><strong>8.5 实战剖面</strong>：把一个真实中间训练流程从头到尾剖开，把机制、数据、配方串成可复现的操作清单。</li>
+</ul>
+
+<p>　　下一节先下潜到机制层：位置编码的刻度不改，长上下文扩窗就是空谈。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">中间训练与预训练、SFT 的边界分别是什么？</div>
+    <div class="sc-key">与预训练共享 next-token 自监督目标，差别在数据配方与序列长度做了定向重配；与 SFT 的分界在数据形态——中间训练用无标注文本续训，SFT 用一问一答的指令对做行为对齐。三条判据：从预训练 checkpoint 出发、目标仍是自监督、配方做过定向调整。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么长上下文扩展不放在预训练一开始就做？</div>
+    <div class="sc-key">自注意力计算量随序列长度平方增长，8K 拉到 128K 注意力开销约 256 倍；而语言基础技能在短序列上就能学会。先短后长能把扩窗成本压到预训练的零头——DeepSeek-V3 只用两段各 1000 步就从 4K 扩到 128K。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">continued pretraining、annealing、mid-training 三个词是什么关系？</div>
+    <div class="sc-key">同一物种的三个侧面：continued pretraining 强调「接着训」的动作，annealing 强调「末期低学习率配高质量数据」的时机，mid-training 是统称、强调流水线位置。判归属不看名字，看目标函数与数据配方。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>AI@Meta, 2024. The Llama 3 Herd of Models（arXiv:2407.21783）：15.6T token、8K 窗口的主预训练（§2、§3）；长上下文续训到 128K、约 800B token，以及「不在早期用长序列训练是因为注意力开销随序列长度平方增长」的说明（§3.4.2）；退火数据实验与 8B 模型 GSM8k +24.0%、MATH +6.4%、405B 提升可忽略（§3.1.3）。</li>
+  <li>Hu et al., 2024. MiniCPM: Unveiling the Potential of Small Language Models with Scalable Training Strategies（arXiv:2404.06395）：WSD 调度、衰减段 10% 即够与 loss 骤降（§4）；衰减段混入高质量数据优于只在 SFT 阶段喂的两阶段预训练策略（§5）。</li>
+  <li>DeepSeek-AI, 2024. DeepSeek-V3 Technical Report（arXiv:2412.19437）：14.8T token 预训练；Long Context Extension：YaRN 加两段各 1000 步训练，4K→32K→128K。</li>
+  <li>Tu et al., 2025. A Survey on LLM Mid-training（arXiv:2510.23081）：中间训练的正式定义、与 continued pre-training 的关系及分类。</li>
+</ul>
+
+</article>

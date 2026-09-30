@@ -8,7 +8,7 @@
     <tbody>
       <tr><td>核心问题</td><td>词表应该建多大？词表里除了普通 token，为什么还有一批不对应任何文字的“特殊 token”？</td></tr>
       <tr><td>本节主张</td><td>词表大小是一场参数量与序列长度的交换；特殊 token 是词表里的“控制字符”，负责标记句首句尾、补齐对齐、承载对话结构，是分词器与模型协作的暗号。</td></tr>
-      <tr><td>一句话结论</td><td>词表越大序列越短但 Embedding 越重，主流 LLM 词表在 3 万到 20 万之间；用错特殊 token 或对话模板，是微调与推理中最常见的低级 bug。</td></tr>
+      <tr><td>一句话结论</td><td>词表越大序列越短但 Embedding 越重，主流 LLM 词表在 3 万到 25 万之间；用错特殊 token 或对话模板，是微调与推理中最常见的低级 bug。</td></tr>
       <tr><td>关键词</td><td>
         <div class="keywords"><span>词表大小</span><span>Embedding</span><span>BOS / EOS / PAD</span><span>Chat Template</span><span>ChatML</span></div>
       </td></tr>
@@ -69,7 +69,7 @@
   <div class="formula-note">公式 (2)：仅 Embedding 一层就是 1.31 亿参数。对 7B 级模型来说，词表相关参数已是不可忽略的一块。</div>
 </div>
 
-<p>　　这还没完。模型每生成一个 token，输出层都要对整个词表算一次 softmax，从 \(V\) 个候选里挑一个。这一步的计算量随词表大小<strong>线性增长</strong>，词表翻倍，每步解码的开销也跟着涨。小词表则恰好反过来：Embedding 轻、输出便宜，但序列被拉长，语义被打碎。</p>
+<p>　　这还没完。模型每生成一个 token，输出层都要对整个词表算一次 softmax（把一组打分归一化成概率分布），从 \(V\) 个候选里挑一个。这一步的计算量随词表大小<strong>线性增长</strong>，词表翻倍，每步解码的开销也跟着涨。小词表则恰好反过来：Embedding 轻、输出便宜，但序列被拉长，语义被打碎。</p>
 
 <h3>主流模型的词表规模</h3>
 

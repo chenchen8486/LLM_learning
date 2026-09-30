@@ -41,7 +41,7 @@
 
 <h2>1.2.2 启发式规则：C4 的七把筛子</h2>
 
-<p>　　最早也最便宜的办法是人写规则：凭经验列出垃圾文本的表面特征，逐条排查。代表作是 Google 的 C4（Colossal Clean Crawled Corpus）：在 T5 论文（Raffel et al., 2020）中，作者把 Common Crawl 的一个快照按一组人工规则洗了一遍，得到约 750 GB 的干净英文文本。这些规则写在论文附录里，每一条都瞄准一类典型的网页残留垃圾。</p>
+<p>　　最早也最便宜的办法是人写规则：凭经验列出垃圾文本的表面特征，逐条排查。代表作是 Google 的 C4（Colossal Clean Crawled Corpus）：在 T5 论文（Raffel et al., 2020）中，作者把 Common Crawl 的一个快照按一组人工规则洗了一遍，得到约 750 GB 的干净英文文本。这些规则写在论文正文 2.2 节里，每一条都瞄准一类典型的网页残留垃圾。</p>
 
 <div class="table-wrap">
   <table>
@@ -51,8 +51,8 @@
       <tr><td>删除含脏词的页面</td><td>屏蔽污言秽语，守住训练数据的安全底线</td></tr>
       <tr><td>删除含 “Javascript” 字样的行</td><td>这类行多半是“请开启 Javascript”之类的脚本警告，不是正文</td></tr>
       <tr><td>删除含 lorem ipsum 的页面</td><td>lorem ipsum 是排版用的占位假文，页面里没有任何真实内容</td></tr>
-      <tr><td>删除含花括号 <code>{ }</code> 的行</td><td>花括号几乎只出现在代码里，说明抓进来的可能是源码而非自然语言</td></tr>
-      <tr><td>页内行级去重</td><td>同一页面里重复出现的模板行（如页脚）只留一份</td></tr>
+      <tr><td>删除含花括号 <code>{ }</code> 的页面</td><td>花括号几乎只出现在代码里，说明整页抓进来的可能是源码而非自然语言</td></tr>
+      <tr><td>全库三句片段去重</td><td>整个数据集里重复出现的三句连续片段，只保留一份</td></tr>
       <tr><td>删除不足 5 句的页面</td><td>内容太稀薄的页面，几乎不承载可学习的知识</td></tr>
     </tbody>
   </table>
@@ -187,7 +187,7 @@ head -n 2 minimind-master/dataset/pretrain_t2t_mini.jsonl</code></pre>
 
 <h2>参考来源</h2>
 <ul>
-  <li>Raffel et al., 2020. Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer（T5 论文，arXiv:1910.10683），C4 语料及其清洗规则见论文附录。</li>
+  <li>Raffel et al., 2020. Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer（T5 论文，arXiv:1910.10683），C4 语料及其清洗规则见论文正文 2.2 节。</li>
   <li>Wenzek et al., 2020. CCNet: Extracting High Quality Monolingual Datasets from Web Crawl Data（arXiv:1911.00359），快照去重、语言识别、KenLM 困惑度过滤三级流水线出自该文。</li>
   <li>Penedo et al., 2024. The FineWeb Datasets: Decanting the Web for the Finest Text Data at Scale（arXiv:2406.17557），及 Hugging Face FineWeb-Edu 官方博客：Llama-3-70B 教育价值标注、蒸馏分类器、从 15T 筛出 1.3T 的细节出自该工作。</li>
   <li>Heafield, 2011. KenLM: Faster and Smaller Language Model Queries（KenLM 工具原始论文，WMT 2011 研讨会论文集）。</li>
