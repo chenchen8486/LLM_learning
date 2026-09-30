@@ -1,0 +1,253 @@
+﻿<article class="content">
+<h1>6.2 优化器与超参数：万亿 token 怎么喂</h1>
+<p class="subtitle">本页范围：第 6 章第 2 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>损失函数只给出「考卷分数」，谁来决定每个参数每一步往哪走、走多远？数千亿 token 的预训练，该按什么节奏一口一口喂给模型？</td></tr>
+      <tr><td>本节主张</td><td>现代 LLM 预训练的优化方案高度收敛：AdamW 负责「每一步怎么走」，线性 warmup 加 cosine 衰减的学习率调度负责「步子随时间怎么变」，梯度裁剪兜底防爆炸；随模型规模变化的只是量级，骨架不变。</td></tr>
+      <tr><td>一句话结论</td><td>AdamW + 线性 warmup + cosine 衰减到峰值 10% + 全局梯度裁剪 1.0，这套配方从几十 M 的玩具模型到 175B 的 GPT-3 通用，大模型与小模型的差别主要是学习率更小、batch 更大。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>SGD</span><span>动量</span><span>Adam</span><span>AdamW</span><span>warmup</span><span>cosine 衰减</span><span>梯度裁剪</span><span>超参数</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　6.1 节把预训练的目标定下来了：下一个 token 预测，损失函数是交叉熵。但损失只是写在考卷上的分数，真正把分数提上去的动作——每个参数每一步往哪个方向走、走多远——由优化器和学习率决定。预训练要消耗数千亿甚至上万亿 token，同样的数据，喂的节奏不同，训出来的模型天差地别；而一次大模型训练的算力开销以百万美元计，没有团队承受得起「超参调错、推倒重来」。</p>
+
+<p>　　本节沿三个问题展开：每一步怎么走（优化器如何从 SGD 进化到 AdamW）、步子随时间怎么变（学习率的完整一生）、不同规模的模型怎么配超参（摆在一起算总账）。路线图如下：</p>
+
+<ol>
+  <li><strong>从 SGD 到 AdamW：优化器的三次进化</strong>（6.2.1）：动量治震荡、自适应治一刀切、解耦衰减治 L2 失真，三步拼出现代 LLM 的标配优化器；</li>
+  <li><strong>学习率的一生：warmup 与 cosine 衰减</strong>（6.2.2）：开局慢给油、中期全速赶路、末期平滑减速，配一张原创的学习率曲线图；</li>
+  <li><strong>超参总账：GPT-3 与 minimind 对照</strong>（6.2.3）：把 GPT-3 175B 和本工程 minimind 的全套超参摆进同一张表，看骨架的一致与量级的差异；</li>
+  <li><strong>超参与模型规模的联动直觉</strong>（6.2.4）：为什么模型越大学习率越小、batch 越大，架构侧的 Pre-LN 与优化侧的稳定手段如何互相成就。</li>
+</ol>
+
+<p>　　读完本节，你应该能看懂任何一个开源 LLM 训练脚本里的 optimizer 配置块，并说出每个数字为什么是这个量级。</p>
+
+<h2>6.2.1 从 SGD 到 AdamW：优化器的三次进化</h2>
+
+<p>　　把训练想象成蒙眼下山：你看不到整座山的形状，只能蹲在原地摸一圈地面，朝最陡的下坡方向迈一步，再摸一圈，再迈一步。这就是最原始的优化器——随机梯度下降（SGD）：</p>
+
+<div class="formula-card">
+  \[ \theta_{t+1} = \theta_t - \eta\, g_t \tag{1} \]
+  <div class="formula-note">公式 (1)：每一步沿梯度的反方向走一小步，是全部优化器的共同骨架。符号说明：\(\theta_t\) 是第 \(t\) 步的模型参数（把全部参数看成一个向量）；\(g_t\) 是这一步的 batch 上算出的损失对参数的梯度，指向损失上升最快的方向，所以前面带负号；\(\eta\) 是学习率（learning rate），决定这一步走多远。</div>
+</div>
+
+<p>　　裸 SGD 有两个经典毛病。一是<strong>峡谷震荡</strong>：损失曲面常常像一条狭长的峡谷，两侧坡度陡、谷底坡度缓，沿最陡方向迈步会在两侧崖壁之间来回弹跳，前进缓慢。二是<strong>一刀切</strong>：所有参数共用同一个学习率，可有的参数梯度常年很大，有的参数几步才等来一次梯度（比如稀疏特征对应的 Embedding 行），同一个步长对前者太冒进、对后者太保守。</p>
+
+<p>　　第一次进化针对震荡，给下山的小球加上惯性：</p>
+
+<div class="formula-card">
+  \[ v_t = \beta\, v_{t-1} + g_t, \qquad \theta_{t+1} = \theta_t - \eta\, v_t \tag{2} \]
+  <div class="formula-note">公式 (2)：不再直接踩梯度，而是踩梯度的滑动平均——方向一致的步子越滚越大，来回震荡的分量彼此抵消。符号说明：\(v_t\) 是动量（momentum），即梯度的指数滑动平均，\(v_0\) 初始为 0；\(\beta\) 是动量系数（常取 0.9），越接近 1 记忆越久；\(\theta_t\)、\(\eta\)、\(g_t\) 含义同公式 (1)。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">动量 Momentum</span>
+    <span class="term-en">momentum = 物理里的「动量」，让更新方向带上惯性</span>
+  </div>
+  <div class="term-body">
+    <p>把参数更新想象成滚下山的雪球：每次的梯度只是轻轻推一把，雪球的实际速度是历次推力的累积。峡谷两侧的震荡推力方向相反、互相抵消，沿谷底的前进推力方向一致、越滚越快，小坑小包直接碾过去。</p>
+    <div class="term-analogy">就像骑自行车冲过减速带：车速（动量）够快时，路面的细小颠簸（梯度噪声）影响不了前进方向。</div>
+  </div>
+</div>
+
+<p>　　动量治好了震荡，一刀切的步长还在。2015 年 Kingma 和 Ba 提出的 Adam 补上了这一刀：给每个参数单独配一台「自动变速器」，不再全员共用一个学习率。</p>
+
+<div class="formula-card">
+  \[ m_t = \beta_1 m_{t-1} + (1-\beta_1)\, g_t, \qquad v_t = \beta_2 v_{t-1} + (1-\beta_2)\, g_t^{2} \]
+  \[ \hat{m}_t = \frac{m_t}{1-\beta_1^{t}}, \qquad \hat{v}_t = \frac{v_t}{1-\beta_2^{t}} \]
+  \[ \theta_{t+1} = \theta_t - \eta\, \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon} \tag{3} \]
+  <div class="formula-note">公式 (3)：Adam 的更新分三步——攒方向、攒尺度、相除得步长。第一行：\(m_t\) 是一阶动量，即梯度的滑动平均，回答「该往哪走」；\(v_t\) 是二阶动量，即梯度平方的滑动平均，回答「这个参数的梯度通常有多大」。第二行：\(m_t\) 和 \(v_t\) 从 0 起步，开头几步天然偏小，除以 \(1-\beta^{t}\) 把这份初始偏置校正回来（bias correction）。第三行：实际更新，梯度一贯大的参数 \(\sqrt{\hat{v}_t}\) 大、步长自动调小，梯度稀疏微弱的参数步长相对放大。符号说明：\(\beta_1\) 常取 0.9；\(\beta_2\) 在现代 LLM 中常取 0.95（GPT-3 即如此），PyTorch 默认 0.999；\(\epsilon\) 是防除零的小常数，常取 \(10^{-8}\)；每个参数都独立维护一份 \(m\) 和 \(v\)，所以「自适应」是逐参数的。</div>
+</div>
+
+<p>　　Adam 的名字来自 Adaptive Moment Estimation（自适应矩估计），「矩」就是统计学里的均值与方差，对应上面的 \(m\) 与 \(v\)。它很快成为深度学习的事实标准，直到今天，几乎所有 LLM 的预训练都用 Adam 或其变体。</p>
+
+<div class="highlight-box info">
+  GPT-3 用 \(\beta_2 = 0.95\) 而非当时的常见默认 0.999，论文没有解释原因。此后 Llama、OLMo 等大量模型沿用了 0.95，它已成 LLM 预训练的事实标准——更短的二阶动量窗口让自适应缩放更快跟上梯度的当前尺度。
+</div>
+
+<p>　　第三次进化要修的是「减肥失灵」。训练大模型通常要配合权重衰减（weight decay）防止参数无节制膨胀。在 Adam 里，老做法是把衰减项 \(\lambda\theta\) 加进梯度（数学上等价于 L2 正则），跟着梯度一起进 \(m\)、\(v\)。问题来了：这份衰减会被 \(\sqrt{\hat{v}}\) 除一遍——梯度大的参数衰减被稀释，梯度小的参数衰减被放大，每个参数实际受到的衰减力度参差不齐，和「按参数大小均匀收税」的初衷完全走样。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">权重衰减 Weight Decay</span>
+    <span class="term-en">weight decay = 每一步把参数按固定比例往 0 拉一点</span>
+  </div>
+  <div class="term-body">
+    <p>每次更新后，把所有参数乘以一个小于 1 的系数（如 \(1 - \eta\lambda\)），抑制参数无节制膨胀，是一种轻量正则。它鼓励模型用更小的权重完成任务，泛化往往更好。</p>
+    <div class="term-analogy">就像对参数「收房产税」：资产（权重）越大，每期交的税越多，没本事持续创收（持续获得梯度支持）的参数会被慢慢削平。</div>
+  </div>
+</div>
+
+<p>　　Loshchilov 和 Hutter 在 2019 年提出的 AdamW 给出了干净的解法：把权重衰减从梯度里拿出来，不经过 \(m\)、\(v\) 的滑动平均和自适应缩放，单独施加在参数上：</p>
+
+<div class="formula-card">
+  \[ \theta_{t+1} = \theta_t - \eta\, \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon} - \eta\, \lambda\, \theta_t \tag{4} \]
+  <div class="formula-note">公式 (4)：AdamW 与「Adam + L2」的唯一区别在最后一项——衰减不再混进梯度被 \(\sqrt{\hat{v}_t}\) 缩放，而是直接按比例从参数上扣掉。符号说明：\(\lambda\) 是权重衰减系数（GPT-3 用 0.1）；\(-\eta\lambda\theta_t\) 就是解耦的衰减项，参数越大扣得越多，与梯度统计量完全无关；其余符号同公式 (3)。</div>
+</div>
+
+<div class="highlight-box danger">
+  「Adam + L2 正则」和 AdamW 不是一回事：前者的衰减项被 \(\sqrt{\hat{v}}\) 逐参数缩放，后者的衰减与梯度完全解耦。Loshchilov &amp; Hutter 的实验表明这个看似微小的改动对泛化有实质影响，此后 AdamW 取代 Adam 成为 LLM 训练的默认选项。
+</div>
+
+<p>　　一句话总结三次进化：动量让更新带上惯性，二阶动量给每个参数自动调挡，解耦衰减让正则按原意执行。三样合起来，就是今天打开任何一份 LLM 训练代码都会看到的 AdamW。</p>
+
+<h2>6.2.2 学习率的一生：warmup 与 cosine 衰减</h2>
+
+<p>　　优化器定了「怎么走」，学习率定「走多远」。但一个固定的学习率撑不起整场训练，主流做法是让学习率走完一段完整的一生：出生（warmup 线性爬升）、壮年（峰值赶路）、暮年（cosine 平滑衰减）。</p>
+
+<p>　　直觉用开车来建立：起步时慢给油，速度起来了再全速巡航，快到目的地提前减速入位。对应到训练：开局时参数是随机数，梯度又大方向又乱，Adam 的动量统计量还没攒够，步长估计最不可靠，此刻迈大步容易一脚踩空——实践中，大模型省略 warmup 直接在峰值学习率开局，常在最初几百步就 loss 爆炸甚至 NaN。训练末期则相反：损失已经接近谷底，需要小碎步精细收敛，大步只会在谷底上方反复横跳。</p>
+
+<div class="formula-card">
+  \[ \eta_t = \begin{cases} \eta_{\max} \cdot \dfrac{t}{T_{\mathrm{warm}}}, & t \le T_{\mathrm{warm}} \\[6pt] \eta_{\min} + \dfrac{1}{2}\big(\eta_{\max} - \eta_{\min}\big)\Big(1 + \cos\big(\pi \cdot \dfrac{t - T_{\mathrm{warm}}}{T - T_{\mathrm{warm}}}\big)\Big), & t > T_{\mathrm{warm}} \end{cases} \tag{5} \]
+  <div class="formula-note">公式 (5)：学习率的完整一生，分两段。第一段是 warmup：从 0 线性爬到峰值，通常几百到几千步。第二段是 cosine 衰减：沿余弦曲线平滑下滑到 \(\eta_{\min}\)，形状是余弦函数的上半拱，前期降得慢、后期降得快。符号说明：\(\eta_t\) 是第 \(t\) 步实际使用的学习率；\(\eta_{\max}\) 是峰值学习率；\(\eta_{\min}\) 是收尾学习率，GPT-3 取峰值的 10%（即 \(0.1\,\eta_{\max}\)）；\(T_{\mathrm{warm}}\) 是 warmup 持续的步数；\(T\) 是训练总步数；\(t\) 是当前步数。</div>
+</div>
+
+<p>　　为什么是 cosine 而不是线性一降到底？余弦拱形在峰值附近平缓，让模型在较大学习率下多赶一段路；接近收尾时坡度变陡，快速压到小碎步——把时间更多花在了「还能大步前进」的阶段。GPT-3 的方案就是公式 (5) 的实例：线性 warmup 覆盖前 3.75 亿 token，随后用 2600 亿 token 按 cosine 衰减到峰值的 10%，之后保持在 10% 继续训练到结束。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-lr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 相位底色 -->
+    <rect x="60" y="30" width="80" height="250" fill="#ede9fe" fill-opacity="0.55"/>
+    <rect x="140" y="30" width="480" height="250" fill="#ecfeff" fill-opacity="0.55"/>
+    <rect x="620" y="30" width="70" height="250" fill="#fef3c7" fill-opacity="0.75"/>
+    <!-- 坐标轴 -->
+    <line x1="60" y1="285" x2="60" y2="22" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-lr)"/>
+    <line x1="50" y1="280" x2="700" y2="280" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-lr)"/>
+    <text x="60" y="16" text-anchor="middle" font-size="12" fill="#666">学习率 η</text>
+    <text x="380" y="322" text-anchor="middle" font-size="12" fill="#666">训练进度（消耗的 token 数）</text>
+    <!-- 参考虚线 -->
+    <line x1="60" y1="70" x2="690" y2="70" stroke="#6d28d9" stroke-width="1" stroke-dasharray="5 4" opacity="0.6"/>
+    <text x="556" y="62" font-size="12" fill="#6d28d9">峰值学习率 η_max</text>
+    <line x1="60" y1="259" x2="620" y2="259" stroke="#dc2626" stroke-width="1" stroke-dasharray="5 4" opacity="0.55"/>
+    <text x="250" y="252" font-size="12" fill="#dc2626">收尾水位 0.1·η_max</text>
+    <!-- warmup 直线 -->
+    <line x1="60" y1="280" x2="140" y2="70" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- cosine 衰减曲线 -->
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2.5" points="140,70 150,70 160,71 170,72 180,73 190,75 200,77 210,80 220,83 230,86 240,90 250,93 260,98 270,102 280,107 290,112 300,117 310,123 320,128 330,134 340,140 350,146 360,152 370,158 380,164 390,171 400,177 410,183 420,189 430,195 440,201 450,206 460,212 470,217 480,222 490,227 500,231 510,236 520,239 530,243 540,246 550,249 560,252 570,254 580,256 590,257 600,258 610,259 620,259"/>
+    <!-- 低水位平线 -->
+    <line x1="620" y1="259" x2="690" y2="259" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- 阶段标注 -->
+    <text x="182" y="46" font-size="12.5" fill="#6d28d9">① warmup：线性爬升</text>
+    <line x1="146" y1="54" x2="126" y2="102" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+    <text x="330" y="228" text-anchor="middle" font-size="13" fill="#0891b2">② cosine 衰减：从峰值降到 10%</text>
+    <text x="655" y="228" text-anchor="middle" font-size="12" fill="#b45309">③ 保持 10%</text>
+    <text x="655" y="244" text-anchor="middle" font-size="12" fill="#b45309">继续训练</text>
+  </svg>
+  <div class="diagram-caption">图示：学习率在一次预训练中的完整一生——先线性 warmup 爬到峰值，再沿 cosine 曲线平滑衰减到峰值的 10%，之后保持低水位继续训练。以 GPT-3 为例：warmup 覆盖前 3.75 亿 token，衰减段横跨 2600 亿 token。</div>
+</div>
+
+<div class="highlight-box warn">
+  warmup 不是装饰。大模型训练中省略它，开局阶段的巨大梯度加上尚未攒够的 Adam 统计量，很容易在最初几百步就把 loss 打飞（爆炸或 NaN）。模型越大越不能省。
+</div>
+
+<p>　　一句话总结：学习率的管理哲学是「先稳、再冲、后收」——warmup 防开局翻车，峰值负责赶路，cosine 负责平稳收工。</p>
+
+<h2>6.2.3 超参总账：GPT-3 与 minimind 对照</h2>
+
+<p>　　配方讲完，把两本真实账簿摆在一起：一本是 1750 亿参数的 GPT-3（论文附录 B 与表 2.1），一本是本工程自带、个人显卡就能跑的 minimind（预训练脚本默认值）。两者参数规模差约三个数量级，逐项对照如下：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>超参</th><th>GPT-3（175B）</th><th>minimind（预训练默认）</th></tr></thead>
+    <tbody>
+      <tr><td>优化器</td><td>Adam</td><td>AdamW（PyTorch 版）</td></tr>
+      <tr><td>\(\beta_1, \beta_2\)</td><td>0.9, 0.95</td><td>0.9, 0.999（PyTorch 默认）</td></tr>
+      <tr><td>\(\epsilon\)</td><td>\(10^{-8}\)</td><td>\(10^{-8}\)（PyTorch 默认）</td></tr>
+      <tr><td>权重衰减</td><td>0.1</td><td>0.01（PyTorch 默认）</td></tr>
+      <tr><td>峰值学习率</td><td>\(0.6 \times 10^{-4}\)</td><td>\(5 \times 10^{-4}\)</td></tr>
+      <tr><td>学习率调度</td><td>线性 warmup（3.75 亿 token）→ cosine 衰减到 10%（2600 亿 token）→ 保持 10%</td><td>纯 cosine：从峰值直接衰减到 10%，无 warmup</td></tr>
+      <tr><td>梯度裁剪</td><td>全局范数裁剪到 1.0</td><td>全局范数裁剪到 1.0</td></tr>
+      <tr><td>每步 token 数</td><td>从 3.2 万逐步加大到 320 万</td><td>32 条 × 8 步累积 × 340 长 ≈ 8.7 万</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　逐项读这张表，能读出两层信息。先看「不一样」：峰值学习率差了将近 10 倍，每步 token 数差了约 40 倍，权重衰减差 10 倍——量级全面拉开，这正是 6.2.4 要解释的联动规律。再看「一样」的部分，才是这张表真正的看点：两边都是 Adam 家族、都把梯度范数裁剪到 1.0、都用 cosine 衰减到峰值的 10%。</p>
+
+<div class="highlight-box">
+  从个人显卡上的玩具模型到 175B 的 GPT-3，优化配方的骨架惊人一致：Adam 家族优化器 + cosine 衰减到峰值 10% + 全局梯度裁剪 1.0。变化的只是随规模缩放的量级（学习率、batch），不变的是结构。这套骨架已是现代 LLM 预训练的事实标准。
+</div>
+
+<div class="highlight-box info">
+  minimind 的调度没有 warmup：它的 <code>get_lr</code> 从峰值直接开始 cosine 衰减（见「动手验证」）。几十 M 的小模型开局梯度折腾不出大浪，省掉 warmup 也稳；这正是「模型越小、配方越可以粗放」的一个例子。
+</div>
+
+<h2>6.2.4 超参与模型规模的联动直觉</h2>
+
+<p>　　对照表里「量级全面拉开」不是巧合，GPT-3 论文表 2.1 给出的八个模型，把这条规律画得清清楚楚：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型</th><th>参数量</th><th>峰值学习率</th><th>每步 token 数</th></tr></thead>
+    <tbody>
+      <tr><td>GPT-3 Small</td><td>125M</td><td>\(6.0 \times 10^{-4}\)</td><td>50 万</td></tr>
+      <tr><td>GPT-3 XL</td><td>1.3B</td><td>\(2.0 \times 10^{-4}\)</td><td>100 万</td></tr>
+      <tr><td>GPT-3 13B</td><td>13B</td><td>\(1.0 \times 10^{-4}\)</td><td>200 万</td></tr>
+      <tr><td>GPT-3（完整版）</td><td>175B</td><td>\(0.6 \times 10^{-4}\)</td><td>320 万</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　参数量每上一个台阶，峰值学习率就降一档，batch 就抬一档。直觉上怎么理解？</p>
+
+<p>　　<strong>大模型用小学习率。</strong>层数越深、参数越多，一步更新引起的损失变化越容易被逐层放大，同样的步子在大模型身上摔得更重。通行的经验解释是：规模越大，损失曲面越「陡」，必须换更小的步子走。好比船越大，舵打得越缓——万吨巨轮不能用快艇的舵速转向。</p>
+
+<p>　　<strong>大模型用大 batch。</strong>batch 越大，梯度估计越准，能支撑更精细的后期更新；工程上，也只有足够大的 batch 才能喂饱成千上万的 GPU。GPT-3 还用了 batch 爬坡：开局只用 3.2 万 token 的小 batch，在前几十亿 token 内逐步加大到满额。OpenAI 团队更早的实证研究给出过解释：训练前期模型变化快，小 batch 的梯度噪声尚可容忍；越到后期，越需要大 batch 压低噪声（McCandlish et al., 2018）。</p>
+
+<p>　　<strong>架构与优化是同一场战争的两条战线。</strong>5.1 节讲过 Pre-LN：把归一化挪到残差支路里，给梯度留一条恒等通路，是架构侧的稳定手段；本节的 warmup、梯度裁剪、随规模调低学习率，是优化侧的稳定手段。两边合力，才撑得起上百层的网络、几千亿 token 的长跑——梯度稳了，才敢把层数堆深、把 batch 开大。</p>
+
+<p>　　即便如此，大模型训练依然常见 <strong>loss spike</strong>：平稳下降的 loss 曲线突然窜起一根尖刺，处理不当会一路发散。实践中的急救三招是回滚到上一个健康 checkpoint、跳过可疑的异常 batch、临时调低学习率。这些稳定性话题连同分布式并行、混合精度一起，留到 6.3 节和第 7 章展开。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">AdamW 相比裸 SGD，多做了哪三件事？</div>
+    <div class="sc-key">一阶动量给更新加惯性，治峡谷震荡；二阶动量按参数的梯度尺度逐参数调步长，治一刀切；权重衰减从梯度中解耦单独施加，治 L2 在自适应缩放下的失真。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">学习率为什么要先 warmup 再 cosine 衰减？</div>
+    <div class="sc-key">开局参数是随机噪声、Adam 统计量没攒够，大步容易直接发散，所以线性爬升几百到几千步；中期用峰值赶路；末期沿 cosine 平滑降到峰值的 10% 精细收敛，余弦拱形让大学习率阶段待得更久。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">模型规模变大时，超参怎么联动调整？</div>
+    <div class="sc-key">峰值学习率随规模下降（GPT-3 从 125M 的 6×10⁻⁴ 降到 175B 的 0.6×10⁻⁴），每步 token 数随规模上升（50 万升到 320 万）；Adam 家族、cosine 衰减到 10%、梯度裁剪 1.0 这套骨架不变。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+<p>　　本节机制在 minimind 中的对应实现（出处：minimind 工程，Apache 2.0 协议）：</p>
+<ul>
+  <li><code>trainer/train_pretrain.py</code> 第 130 行：<code>optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)</code>——优化器本体，β、ε、权重衰减全部用 PyTorch 默认值（0.9/0.999、1e-8、0.01）；</li>
+  <li>同文件第 29–31 行：每一步先调 <code>get_lr(...)</code> 算学习率，再逐个写进 <code>optimizer.param_groups</code>——学习率调度是手动逐步驱动的；</li>
+  <li><code>trainer/trainer_utils.py</code> 第 42–43 行：<code>get_lr</code> 的完整实现就一行，\( \eta_t = \eta \cdot (0.1 + 0.45(1 + \cos(\pi t / T))) \)，起点是峰值、终点是峰值的 10%，纯 cosine 无 warmup；</li>
+  <li><code>train_pretrain.py</code> 第 42 行：<code>clip_grad_norm_(model.parameters(), args.grad_clip)</code>，配合第 85 行默认值 1.0，即「全局范数裁剪到 1.0」的落地代码。</li>
+</ul>
+<p>　　不装任何依赖，也能亲手复现 minimind 的学习率曲线——打印 10 步训练里每一步的学习率：</p>
+<pre><code>cd minimind-master
+python -c "import math; f=lambda t,T: 5e-4*(0.1+0.45*(1+math.cos(math.pi*t/T))); print([f'{f(t,10):.2e}' for t in range(11)])"</code></pre>
+<p>　　预期看到从 <code>5.00e-04</code> 一路平滑降到 <code>5.00e-05</code>（峰值的 10%）的一列数字——这就是公式 (5) 去掉 warmup 段后的样子。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Kingma &amp; Ba, 2015. Adam: A Method for Stochastic Optimization（Adam 原始论文，arXiv:1412.6980，ICLR 2015）。</li>
+  <li>Loshchilov &amp; Hutter, 2019. Decoupled Weight Decay Regularization（AdamW 原始论文，arXiv:1711.05101，ICLR 2019）。</li>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3，arXiv:2005.14165；优化器与学习率细节见附录 B，各规模超参见表 2.1）。</li>
+  <li>McCandlish et al., 2018. An Empirical Model of Large-Batch Training（batch 爬坡与梯度噪声尺度的实证研究，arXiv:1812.06162）。</li>
+  <li>minimind 工程代码：<code>trainer/train_pretrain.py</code>、<code>trainer/trainer_utils.py</code>（Apache 2.0 协议）。</li>
+</ul>
+
+</article>

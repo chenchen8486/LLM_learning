@@ -1,0 +1,308 @@
+﻿<article class="content">
+<h1>6.3 一次预训练长什么样：训练循环逐步走查</h1>
+<p class="subtitle">本页范围：第 6 章第 3 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>论文里的「预训练」只有一句话：在海量文本上做下一个 token 预测。落到代码里，一个 batch 从进来到参数更新，到底经过哪几步？</td></tr>
+      <tr><td>本节主张</td><td>预训练循环是一条七步流水线：取 batch、forward、算交叉熵损失、backward、梯度裁剪、优化器 step、周期性记录与存盘。「预测下一个 token」在代码里的形态，就是 labels 右移一位再算交叉熵。</td></tr>
+      <tr><td>一句话结论</td><td>把 minimind 的 train_pretrain.py 逐行拆开看，宏观叙事里的「预训练」就是一段几十行、可复现的循环：64M 小模型单卡几小时跑完一轮，GPT-3 量级则要数千卡月。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>训练循环</span><span>labels 右移</span><span>交叉熵</span><span>梯度裁剪</span><span>混合精度</span><span>梯度累积</span><span>checkpoint</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　前两节分别解决了「练什么」与「怎么调」：训练目标是下一个 token 预测，参数更新靠 AdamW 与学习率调度。本节把这两块拼起来，回答一个更具体的问题——一次真实的预训练，从启动脚本到存出权重，中间每一行代码在干什么。我们不用玩具代码，直接用本工程自带的 minimind 工程（64M 小模型，Apache 2.0 协议）做走查对象，它的 <code>train_pretrain.py</code> 与工业界大模型的训练脚本同构，只是规模小了六个数量级。</p>
+
+<p>　　本节沿四条线展开，读完后你应该能打开任何一个 LLM 训练脚本，一眼认出它的骨架：</p>
+
+<ol>
+  <li><strong>训练循环七步：从取数据到存盘</strong>（6.3.1）：把 train_epoch 函数逐行对照，认清七步流水线各自的代码位置；</li>
+  <li><strong>labels 右移：「预测下一个 token」的代码形态</strong>（6.3.2）：右移发生在哪一行、为什么要右移、padding 位置怎么剔除；</li>
+  <li><strong>loss 曲线怎么读</strong>（6.3.3）：开局陡降、长尾缓降、loss spike 各说明什么，验证 loss 背离意味着什么；</li>
+  <li><strong>混合精度与梯度累积：脚本里的两道保险</strong>（6.3.4）：autocast、GradScaler、accumulation 的用法点到为止；</li>
+  <li><strong>从玩具到巨兽：规模账本</strong>（6.3.5）：同一套循环，minimind 与 GPT-3 的算力账单差几个数量级。</li>
+</ol>
+
+<p>　　本节的落脚点是动手：末尾「动手验证」给出可直接运行的最小预训练命令，建议真的跑一次。</p>
+
+<h2>6.3.1 训练循环七步：从取数据到存盘</h2>
+
+<p>　　先给一个整体直觉。训练循环很像学生刷题：每轮拿一批题（取 batch），自己先做一遍（forward），对照答案算错得有多离谱（算损失），复盘错因、总结到笔记本上（backward 与优化器 step），每刷完一批就歇口气，记一笔进度、阶段性存档（日志与 checkpoint）。区别是学生靠脑子记，模型靠梯度更新参数。minimind 的 <code>trainer/train_pretrain.py</code> 里，<code>train_epoch</code> 函数（第 24 行起）就是这条流水线，核心循环只有二十来行：</p>
+
+<pre><code>for step, (input_ids, labels) in enumerate(loader, start=start_step + 1):
+    input_ids = input_ids.to(args.device)
+    labels = labels.to(args.device)
+    lr = get_lr(epoch * iters + step, args.epochs * iters, args.learning_rate)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+
+    with autocast_ctx:
+        res = model(input_ids, labels=labels)
+        loss = res.loss + res.aux_loss
+        loss = loss / args.accumulation_steps
+
+    scaler.scale(loss).backward()
+
+    if step % args.accumulation_steps == 0 or step == iters:
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+
+        scaler.step(optimizer)
+        scaler.update()
+
+        optimizer.zero_grad(set_to_none=True)</code></pre>
+
+<p>　　（节选自 <code>trainer/train_pretrain.py</code> 第 26–47 行，出处：minimind 工程，Apache 2.0 协议；行号以本工程实读版本为准，下同。）把这段代码拆开，正好是七步：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>步骤</th><th>干什么</th><th>minimind 对应位置</th></tr></thead>
+    <tbody>
+      <tr><td>① 取 batch</td><td>DataLoader 吐出一批 <code>input_ids</code> 与 <code>labels</code>，搬到 GPU。数据由 <code>PretrainDataset</code> 逐条提供（见 6.3.2）</td><td>train_pretrain.py 第 26–28 行；数据集定义在 dataset/lm_dataset.py 第 40–58 行</td></tr>
+      <tr><td>② forward 得 logits</td><td>模型前向跑一遍，得到每个位置对词表的打分（logits）</td><td>第 34 行 <code>model(input_ids, labels=labels)</code>；logits 的计算在 model/model_minimind.py 第 253 行</td></tr>
+      <tr><td>③ 算交叉熵损失</td><td>logits 与右移一位的 labels 算交叉熵，得到这一步的 loss</td><td>model_minimind.py 第 256–257 行（细节见 6.3.2）；第 35 行把 MoE 辅助损失加进来</td></tr>
+      <tr><td>④ backward 反传</td><td>对 loss 求梯度，一路反传回每个参数</td><td>第 38 行 <code>scaler.scale(loss).backward()</code></td></tr>
+      <tr><td>⑤ 梯度裁剪</td><td>梯度总范数超过阈值就整体缩放，防止个别 batch 把参数带飞</td><td>第 41–42 行，阈值 <code>grad_clip</code> 默认 1.0</td></tr>
+      <tr><td>⑥ 优化器 step</td><td>AdamW 按梯度更新参数，随后清零梯度，准备下一轮</td><td>第 44–47 行；AdamW 定义在第 130 行，初始学习率默认 5e-4</td></tr>
+      <tr><td>⑦ 周期性记录与存盘</td><td>每隔一段打印日志、保存 checkpoint，支持断点续训</td><td>日志：第 49–57 行，间隔 <code>log_interval</code>=100 步；存盘：第 59–69 行，间隔 <code>save_interval</code>=1000 步</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　几个容易看漏的细节。第 29–31 行每步都重算学习率：<code>get_lr</code>（trainer/trainer_utils.py 第 42–43 行）给出一条余弦曲线，让学习率从峰值平滑滑落到峰值的十分之一：</p>
+
+<div class="formula-card">
+  \[ \mathrm{lr}_t = \mathrm{lr}_{\max}\left[\,0.1 + 0.45\left(1 + \cos\frac{\pi t}{T}\right)\right] \tag{1} \]
+  <div class="formula-note">公式 (1)：余弦学习率调度——开局用满峰值学习率大胆走，训练后期步长越来越小，细调收敛。符号说明：\(\mathrm{lr}_t\) 是第 \(t\) 步实际使用的学习率；\(\mathrm{lr}_{\max}\) 是初始学习率（脚本默认 5e-4）；\(t\) 是全局步数（跨 epoch 累计，代码里就是 <code>epoch * iters + step</code>）；\(T\) 是计划的总步数。\(t=0\) 时括号内为 1，\(t=T\) 时 \(\cos\pi=-1\)、括号内为 0.1，正好从峰值降到十分之一。这个脚本没有单独的 warmup 预热段。</div>
+</div>
+
+<p>　　第 59–69 行的存盘动作也值得一看：每隔 1000 步把权重转成半精度（<code>v.half()</code>）存成 <code>out/pretrain_768.pth</code>，同时往 <code>checkpoints/</code> 目录写一份含优化器状态的完整检查点，训练中断后加 <code>--from_resume 1</code> 就能接着跑。一次预训练短则数小时、长则数月，checkpoint 是唯一的「存档点」，没有它，一次断电就意味着从头再来。</p>
+
+<div class="highlight-box info">
+  注意这段循环里没有「验证集」。预训练的数据量远大于模型能记住的规模，通常只训一两遍，过拟合不是主要矛盾，所以 minimind（和多数预训练脚本）不划分验证集，只用训练 loss 加周期性 checkpoint，效果交给训练后的下游评测确认。验证集的事在 6.3.3 还会回来讲。
+</div>
+
+<div class="highlight-box">
+  这七步是几乎所有 LLM 预训练脚本的共同骨架：换成 Megatron-LM 或工业界的内部代码，多的只是分布式、流水并行与容错机制，循环本身一模一样。读懂这二十行，就拿到了读一切训练脚本的钥匙。
+</div>
+
+<h2>6.3.2 labels 右移：「预测下一个 token」的代码形态</h2>
+
+<p>　　上一节说了训练目标是「预测下一个 token」：看到 <code>[x1, x2, …, xT]</code>，位置 \(t\) 要预测 \(x_{t+1}\)。这句话在代码里长什么样？答案分两半，一半在数据集，一半在模型。</p>
+
+<p>　　先看数据集。<code>PretrainDataset.__getitem__</code>（dataset/lm_dataset.py 第 50–58 行）把一条文本变成一对张量：</p>
+
+<pre><code>tokens = self.tokenizer(str(sample['text']), add_special_tokens=False, max_length=self.max_length - 2, truncation=True).input_ids
+tokens = [self.tokenizer.bos_token_id] + tokens + [self.tokenizer.eos_token_id]
+input_ids = tokens + [self.tokenizer.pad_token_id] * (self.max_length - len(tokens))
+input_ids = torch.tensor(input_ids, dtype=torch.long)
+labels = input_ids.clone()
+labels[input_ids == self.tokenizer.pad_token_id] = -100</code></pre>
+
+<p>　　（节选自 dataset/lm_dataset.py 第 52–57 行，Apache 2.0。）流程是：分词、首尾加上 BOS 与 EOS、用 PAD 补齐到固定长度。注意第 6 行：<strong>labels 就是 input_ids 的原样克隆，这里并没有右移</strong>。唯一的加工是最后一句：把 padding 位置的 label 改成 -100。</p>
+
+<p>　　右移发生在模型内部。<code>MiniMindForCausalLM.forward</code>（model/model_minimind.py）算完 logits 后，用两行代码完成对齐：</p>
+
+<pre><code>x, y = logits[..., :-1, :].contiguous(), labels[..., 1:].contiguous()
+loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)</code></pre>
+
+<p>　　（model_minimind.py 第 256–257 行，Apache 2.0。）<code>logits[..., :-1, :]</code> 切掉最后一个位置的预测，<code>labels[..., 1:]</code> 切掉第一个 token 的编号——两刀下去，位置 \(t\) 的预测正好对上位置 \(t+1\) 的真实 token。这就是「右移一位」：输入是 \([x_1, \dots, x_T]\)，标签实际上是 \([x_2, \dots, x_{T+1}]\)。</p>
+
+<p>　　用一句小例子落到纸面。假设「我爱北京」分词后是四个 token，加上首尾标记，一个样本的输入与每个位置的预测目标是这样错开一格的（token ID 为示意）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>位置</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
+    <tbody>
+      <tr><td>输入 input_ids</td><td>BOS</td><td>我</td><td>爱</td><td>北</td><td>京</td><td>EOS</td></tr>
+      <tr><td>该位置的预测目标</td><td>我</td><td>爱</td><td>北</td><td>京</td><td>EOS</td><td>—（被切掉，不参与）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　位置 0 只看到 BOS，要学会吐出「我」；位置 3 看到「BOS 我 爱 北」，要吐出「京」。一个 batch 里每个位置都是一道「接龙题」，一次 forward 就出了 \(T\) 道题，这就是语言模型训练数据利用率高的原因：一段文本不只提供一个监督信号，而是每个位置一个。</p>
+
+<p>　　这些题目的「判分标准」就是交叉熵损失：</p>
+
+<div class="formula-card">
+  \[ \mathcal{L} = -\frac{1}{T}\sum_{t=1}^{T} \log P_\theta\!\left(x_{t+1} \mid x_{\le t}\right) \tag{2} \]
+  <div class="formula-note">公式 (2)：下一个 token 预测的交叉熵——模型给正确下一个 token 的概率越高，\(\log\) 越接近 0，损失越小；整个序列取平均。符号说明：\(x_t\) 是序列第 \(t\) 个 token；\(x_{\le t}\) 表示位置 \(t\) 及其之前的全部 token（即模型能看到的历史）；\(P_\theta(x_{t+1} \mid x_{\le t})\) 是参数为 \(\theta\) 的模型在该历史下给正确 token 分配的概率，由 logits 过 softmax 得到；\(T\) 是参与计算的位置数。代码里的 <code>ignore_index=-100</code> 会把 padding 位置从求和与平均中剔除，让它们不算题、不计分。</div>
+</div>
+
+<div class="highlight-box danger">
+  两个易错点都藏在这两行代码里。其一，不要二次右移：minimind 的 labels 在数据集里不右移，右移由模型里的切片完成；如果有人在数据侧先把 labels 平移一格，模型再切一刀，预测和目标就错开两位，loss 会停在一个降不下去的高位。其二，padding 位必须置 -100：否则模型会被迫学习「句子结束后继续输出 PAD」，白白浪费容量。
+</div>
+
+<p>　　一句话总结这一节：所谓「预测下一个 token」，代码里就是 labels 克隆输入、模型里错开一格、交叉熵打分，外加用 -100 把 padding 踢出考场。</p>
+
+<h2>6.3.3 loss 曲线怎么读</h2>
+
+<p>　　训练跑起来后，屏幕上唯一持续跳动的就是 loss。它不是一串枯燥的数字，而是模型的「学习心电图」。读法有固定套路。</p>
+
+<p>　　先看起点。随机初始化的模型对词表里的 token 近乎均匀猜测，开局 loss 约等于 \(\ln V\)：minimind 词表 \(V=6400\)，所以第一步的 loss 通常在 \(\ln 6400 \approx 8.76\) 附近。如果开局远低于这个数，说明初始化或数据处理有问题；如果降不下去，先查 labels 对齐（6.3.2 的两个易错点）。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arr6r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <!-- 坐标轴 -->
+    <line x1="70" y1="300" x2="70" y2="25" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr6)"/>
+    <line x1="60" y1="300" x2="700" y2="300" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr6)"/>
+    <text x="40" y="30" font-size="12" fill="#666">loss</text>
+    <text x="700" y="322" text-anchor="end" font-size="12" fill="#666">训练步数 step</text>
+    <!-- 随机基线 -->
+    <line x1="70" y1="62" x2="690" y2="62" stroke="#0891b2" stroke-width="1" stroke-dasharray="6 4"/>
+    <text x="500" y="54" font-size="12" fill="#0891b2">随机基线 ln(6400) ≈ 8.76（均匀猜测）</text>
+    <!-- loss 曲线 -->
+    <path d="M 75,64 C 120,222 160,243 230,254 C 300,262 340,261 378,262 L 392,205 L 406,264 C 480,268 620,272 685,273" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- 开局陡降标注 -->
+    <text x="118" y="130" font-size="13" fill="#333">开局陡降</text>
+    <text x="102" y="148" font-size="11" fill="#666">先学词频与语法</text>
+    <line x1="150" y1="155" x2="138" y2="205" stroke="#999" stroke-width="1" marker-end="url(#arr6)"/>
+    <!-- 长尾缓降标注 -->
+    <text x="520" y="238" font-size="13" fill="#333">长尾缓降</text>
+    <text x="490" y="256" font-size="11" fill="#666">知识与推理模式慢慢磨合</text>
+    <!-- spike 标注 -->
+    <text x="330" y="192" font-size="13" fill="#dc2626">loss spike</text>
+    <text x="300" y="176" font-size="11" fill="#dc2626">突刺：回滚到上个 checkpoint</text>
+    <line x1="380" y1="196" x2="390" y2="204" stroke="#dc2626" stroke-width="1" marker-end="url(#arr6r)"/>
+  </svg>
+  <div class="diagram-caption">图示：预训练 loss 曲线的典型形态——从随机基线起步，开局陡降后进入长尾缓降，中途可能出现突刺（loss spike）。曲线形状为示意，非实测数据。</div>
+</div>
+
+<p>　　曲线的主体分两段，各讲一个故事：</p>
+
+<ul>
+  <li><strong>开局陡降</strong>：最初几百到几千步，loss 断崖式下跌。这一阶段模型在学「便宜」的统计规律：哪些 token 常见（词频分布）、标点怎么用、词序大致什么样。这些规律到处都是、信号极强，所以学得飞快。</li>
+  <li><strong>长尾缓降</strong>：陡降之后进入漫长的缓降期，曲线几乎贴着地面平移。这一段学的是知识、事实关联与推理模式——它们稀疏、难学，每降 0.1 都要喂进去海量 token。本章 Scaling Law 一节会告诉你，这段长尾的下降是幂律的：想再压低一点，算力就得翻着倍地加。</li>
+</ul>
+
+<p>　　再看异常。曲线上偶尔冒出的突刺叫 <strong>loss spike</strong>：loss 突然蹿升几倍再回落。常见诱因是学习率过高、遇上一批脏数据、或底层硬件抖动。偶尔一次 spike 不必惊慌，模型通常自己能爬回来；频繁 spike 或 spike 后 loss 站上新台阶，标准处置是回滚到最近一个健康的 checkpoint、调低学习率、跳过可疑数据再续训。Meta 训练 OPT-175B 时的公开日志记录了数十次这类中断与回滚，是这套做法最透明的第一手记录（见参考来源）。</p>
+
+<p>　　最后是训练 loss 与验证 loss 的关系。验证 loss 是在模型没见过的数据上算的同一个交叉熵：训练 loss 降、验证 loss 也降，说明学到的是通用规律；<strong>训练 loss 降而验证 loss 掉头向上，就是过拟合的经典信号</strong>——模型开始背诵训练集而不是学规律。不过在预训练阶段这个剧情很少上演：数据只过一两遍，模型还没来得及背。它真正的舞台是数据要反复过多遍的微调阶段（第 9 章会再用到这条判据）。</p>
+
+<div class="highlight-box warn">
+  读 loss 曲线时警惕「只看训练 loss」。训练 loss 单调下降只能证明模型在拟合训练数据，证明不了泛化。minimind 这类预训练脚本不内置验证集，补救手段是训完用评测脚本（如 <code>eval_llm.py</code>）和下游基准兜底；工业界大训练则会全程挂一条留出集的验证 loss。
+</div>
+
+<p>　　补一个换算关系：论文里常见的<strong>困惑度</strong>（perplexity，ppl）就是 \(\mathrm{ppl} = e^{\mathcal{L}}\)，把 loss 换回「平均在每个位置上面临多少个等概率候选」的直觉尺度。loss 从 8.76 降到 3，相当于候选从 6400 个收窄到约 20 个。</p>
+
+<h2>6.3.4 混合精度与梯度累积：脚本里的两道保险</h2>
+
+<p>　　七步循环里有几行代码不属于主线逻辑，却是每个现代训练脚本的标配：混合精度与梯度累积。这里只讲清「它们在循环里干什么」，深入原理留给第 7 章预训练工程。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">混合精度 Mixed Precision</span>
+    <span class="term-en">mixed precision = 前向计算用 16 位浮点，敏感部分保留 32 位</span>
+  </div>
+  <div class="term-body">
+    <p>脚本第 114 行建了 <code>autocast_ctx</code>（默认 bfloat16），第 33 行的 <code>with autocast_ctx:</code> 让前向的矩阵乘自动落到 16 位执行：显存占用近腰斩，吞吐显著提升，而参数与梯度的主副本仍是 32 位，精度不受致命影响。</p>
+    <div class="term-analogy">就像草稿纸上用速记符号、正式答卷上用工整楷体：计算过程求快，落账求稳。</div>
+  </div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">梯度累积 Gradient Accumulation</span>
+    <span class="term-en">accumulation = 攒若干个小 batch 的梯度，再一次性更新</span>
+  </div>
+  <div class="term-body">
+    <p>第 36 行把 loss 除以 <code>accumulation_steps</code>（默认 8），第 40 行的判断让梯度裁剪与优化器 step 每 8 步才执行一次：连续 8 个小 batch 的梯度先累加，再当成一个大 batch 更新。显存只装得下 batch=32，有效批量却是 \(32 \times 8 = 256\)，大 batch 的稳定性与小 batch 的显存开销兼得。</p>
+    <div class="term-analogy">就像零钱攒够一波再存银行：跑八趟柜台只办一次手续，账上的总数和一次性存一样。</div>
+  </div>
+</div>
+
+<div class="highlight-box info">
+  第 129 行有个反直觉的细节：<code>GradScaler(enabled=(args.dtype == 'float16'))</code>——只有选 float16 时才启用梯度缩放（防止 16 位下梯度下溢成 0），默认的 bfloat16 动态范围接近 32 位，不需要 scaler，此时 <code>scaler.scale(...)</code> 与 <code>scaler.step(...)</code> 是原样透传的安全壳。
+</div>
+
+<p>　　一句话总结：混合精度省显存、提速度，梯度累积用小显存伪造大 batch，两者合起来让 64M 模型能塞进一张消费级显卡。第 7 章会把它们和分布式并行放在一起细讲。</p>
+
+<h2>6.3.5 从玩具到巨兽：规模账本</h2>
+
+<p>　　同一套七步循环，喂不同的规模，账单完全不同。先给一把估算尺子：训练一个 Transformer 的总算力约等于参数量乘训练 token 数再乘 6：</p>
+
+<div class="formula-card">
+  \[ C \approx 6\,N\,D \tag{3} \]
+  <div class="formula-note">公式 (3)：训练算力的经验估算（Kaplan et al., 2020）——每个 token 前向约花 \(2N\) 次运算，反向再花约 \(4N\)，合计 \(6N\)。符号说明：\(C\) 是训练总浮点运算量（FLOPs）；\(N\) 是模型参数量；\(D\) 是训练 token 总数；系数 6 来自前向与反向传播的运算量比值。拿 GPT-3 验证：\(N = 1.746 \times 10^{11}\)、\(D = 3 \times 10^{11}\)，得 \(C \approx 3.14 \times 10^{23}\)，与论文附录给出的数字分毫不差。</div>
+</div>
+
+<p>　　用这把尺子量一量一大一小两个极端：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>账本项</th><th>minimind-3（64M）</th><th>GPT-3（175B）</th></tr></thead>
+    <tbody>
+      <tr><td>参数量</td><td>64M（6400×768 的 Embedding 加 8 层 Transformer）</td><td>1746 亿</td></tr>
+      <tr><td>训练数据</td><td>pretrain_t2t_mini.jsonl，约 1.2GB 文本</td><td>约 3000 亿 token</td></tr>
+      <tr><td>训练算力</td><td>未公开换算；量级在 \(10^{17}\) FLOPs 上下（待查证）</td><td>\(3.14 \times 10^{23}\) FLOPs，即 3640 PF-days（论文附录 D）</td></tr>
+      <tr><td>硬件与时间</td><td>单卡 RTX 3090 约 1.2 小时跑完一轮预训练（README 实测估算）</td><td>按 2020 年 V100 云实例折算约 355 个卡年，即四千多卡月（Lambda 测算）</td></tr>
+      <tr><td>一次成本</td><td>约 1.6 元租卡费（按 1.3 元/时）</td><td>约 460 万美元（Lambda 按 2020 年云价估算）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　3640 PF-days 这个单位值得展开：1 PF-day 指「以每秒千万亿次浮点运算的速度跑满一天」所做的功，GPT-3 一次训练要做 3640 份这样的功。V100 的实际有效吞吐远低于理论峰值，折算下来就是单卡跑约 355 年；换成一千张卡的集群，也要连续跑一个多月——这还没算 loss spike 回滚、硬件故障重训的损耗。</p>
+
+<p>　　两边对照着看，结论很直白：<strong>训练循环的代码不变，变的是每一项的规模，以及规模带来的工程难题</strong>。64M 模型一张消费卡、一杯咖啡的时间就能从随机权重跑到会说简单的话；175B 模型需要千卡集群、数月时间与数百万美元，还得养一支团队专门对付 spike、断训与硬件故障。从玩具到巨兽之间没有魔法，只有公式 (3) 里冷冰冰的乘法，以及第 7 章要讲的分布式工程。</p>
+
+<div class="highlight-box">
+  亲手跑一次 minimind 预训练的价值正在于此：同样的七步循环、同样的余弦学习率、同样的 checkpoint 机制，花一块六毛钱就能把 GPT-3 级别的训练流程完整体验一遍，把纸面知识变成手感。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">minimind 的 labels 为什么不在数据集里预先右移？</div>
+    <div class="sc-key">数据集只做克隆并把 padding 置 -100（lm_dataset.py 第 56–57 行）；错位发生在模型 forward 里：<code>logits[..., :-1, :]</code> 对 <code>labels[..., 1:]</code>（model_minimind.py 第 256 行）。两边各切一刀，位置 \(t\) 的预测正好对上 \(t+1\) 的真实 token。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">预训练 loss 曲线的三个阶段各说明什么？</div>
+    <div class="sc-key">开局从 \(\ln V\)（minimind 约 8.76）陡降，是在学词频与语法；长尾缓降是在磨知识与推理，每降一点都要成倍算力；中途突刺（loss spike）多由脏数据、学习率或硬件抖动引起，标准处置是回滚到健康 checkpoint 再续训。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">梯度累积为什么能用小显存跑出大 batch 的效果？</div>
+    <div class="sc-key">把一个大 batch 拆成 8 次小 forward/backward，loss 先除以 8 再反传，梯度在参数上原地累加，攒满 8 步才裁剪、step、清零。显存只占 batch=32 的份，有效批量却是 256。</div>
+  </div>
+</div>
+
+<h2>动手验证</h2>
+
+<p>　　本节走查的三个文件（出处：minimind 工程，Apache 2.0 协议），建议对照本页边读边看：</p>
+<ul>
+  <li><code>trainer/train_pretrain.py</code>：<code>train_epoch</code>（第 24 行起）是七步循环本体，<code>__main__</code> 里的注释块（第 101–164 行）标出了初始化到训练的完整流程；</li>
+  <li><code>dataset/lm_dataset.py</code>：<code>PretrainDataset.__getitem__</code>（第 50–58 行）看 labels 克隆与 -100；</li>
+  <li><code>model/model_minimind.py</code>：<code>MiniMindForCausalLM.forward</code>（第 250–258 行）看 logits、右移切片与交叉熵。</li>
+</ul>
+
+<p>　　然后亲手跑一次最小预训练。需先装好依赖（建议在虚拟环境中 <code>pip install -r requirements.txt</code>），并按 minimind README 从 ModelScope（gongjy/minimind_dataset）下载 <code>pretrain_t2t_mini.jsonl</code>（约 1.2GB）放进 <code>dataset/</code> 目录：</p>
+
+<pre><code>cd minimind-master/trainer
+python train_pretrain.py</code></pre>
+
+<p>　　预期看到：每 100 步打印一行日志 <code>Epoch:[1/2](100/xxxx), loss: ..., logits_loss: ..., aux_loss: ..., lr: ..., epoch_time: xx.xmin</code>，loss 从 8.8 附近快速下滑；每 1000 步在 <code>out/</code> 下保存 <code>pretrain_768.pth</code>。单卡 RTX 3090 一轮约 1.2 小时，CPU 也可跑但会慢到失去耐心，只建议用来观察前几百步的日志格式。中途 Ctrl+C 也不慌：加 <code>--from_resume 1</code> 即可从 checkpoints/ 续训。训完后 <code>python eval_llm.py --weight pretrain</code> 可以直接和刚出炉的模型对话，检验这条 loss 曲线换来了什么。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>minimind 工程（gongjy/minimind，Apache 2.0 协议）：trainer/train_pretrain.py、dataset/lm_dataset.py、model/model_minimind.py、trainer/trainer_utils.py 及 README 的「训练开销」实测表（64M 模型单卡 3090 约 1.21 小时、约 1.57 元）。本页所有行号以本工程实读版本为准。</li>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3 原始论文，arXiv:2005.14165）：附录 D 给出 175B 模型训练算力 3.14×10^23 FLOPs（3640 PF-days），正文表 2.1 给出 3000 亿训练 token。</li>
+  <li>Kaplan et al., 2020. Scaling Laws for Neural Language Models（arXiv:2001.08361）：训练算力估算规则 C ≈ 6ND 的出处。</li>
+  <li>Zhang et al., 2022. OPT: Open Pre-trained Transformer Language Models（arXiv:2205.01068）：175B 训练日志中大量 loss spike、硬件中断与 checkpoint 回滚的公开记录。</li>
+  <li>Lambda Labs（Chuan Li）, 2020. Demystifying GPT-3（https://lambdalabs.com/blog/demystifying-gpt-3/）：GPT-3 训练折合 355 个 V100 卡年、约 460 万美元的业界常用换算。</li>
+  <li>待核实事项：6.3.5 表格中 minimind 预训练总算力（约 10^17 FLOPs 量级）为按数据体积的粗略估计，未找到公开换算，已标注待查证。</li>
+</ul>
+
+</article>

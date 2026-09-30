@@ -1,0 +1,249 @@
+﻿<article class="content">
+<h1>6.4 Scaling Law：规模是可以计算的命运</h1>
+<p class="subtitle">本页范围：第 6 章第 4 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>训练一个大模型动辄耗资百万美元，没人承受得起「先训出来看看效果」。能不能在点火之前就预言：给定参数量、数据量和算力，损失会降到多少？三者又该怎么分配？</td></tr>
+      <tr><td>本节主张</td><td>测试损失对规模呈幂律下降，在 log-log 图上是一条直线，因此损失可被外推预言。但「算力该怎么花」这个问题有过一次著名翻盘：Kaplan 主张优先堆参数，Chinchilla 用实验纠正为参数与数据等比扩展，业界随后又为省推理成本走向「小模型喂更多数据」。</td></tr>
+      <tr><td>一句话结论</td><td>Scaling Law 把大模型训练从玄学变成工程学：损失可预测、配比可计算；Chinchilla 的算力最优约为每参数 20 个 token，而部署成本会把实际选择推向训练远超此量的小模型。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>幂律</span><span>log-log 图</span><span>Kaplan</span><span>Chinchilla</span><span>isoFLOPs</span><span>训练最优 vs 部署最优</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　上一节讲了预训练的目标函数与优化器怎么选，解决的是「给定一个模型，怎么把它训好」。本节把视角再抬高一格，回答一个更要命的问题：<strong>在按下训练按钮之前，怎么知道这个配置值不值得训</strong>。千亿参数模型的单次训练以月计、以百万美元计，试错成本高到不允许任何「先试试」。2020 年 Kaplan 等人的发现改变了这件事：语言模型的损失随规模的变化不是混沌的，而是一条干净得反常的数学曲线，可以用小模型的实验外推出大模型的结局。</p>
+
+<p>　　本节沿「发现 → 预言 → 翻盘 → 修正」的叙事线展开，这也是过去五年业界真实走过的弯路：</p>
+
+<ol>
+  <li><strong>幂律：log-log 图上的直线</strong>（6.4.1）：Scaling Law 的数学本体，看懂幂律为什么意味着损失可以被预言；</li>
+  <li><strong>Kaplan 的预言与局限</strong>（6.4.2）：第一个 Scaling Law 给出「优先堆参数」的处方，直接催生了 GPT-3 时代，但这个处方后来被证明有系统性偏差；</li>
+  <li><strong>Chinchilla 翻盘：20 token/参数</strong>（6.4.3）：DeepMind 用 400 多个模型的扫描实验修正配比，结论是让参数和数据等比增长；</li>
+  <li><strong>训练最优 vs 部署最优：Llama 的另一本账</strong>（6.4.4）：Chinchilla 最优只算了训练的钱，Llama 系列把推理成本摆上台面，走向「小模型、超长训练」；</li>
+  <li><strong>对工程决策的意义</strong>（6.4.5）：把三条定律收拢成训练前就能做的三件事。</li>
+</ol>
+
+<p>　　读完本节，你应当能回答：为什么今天主流模型的「参数 × 数据」配比长成现在这个样子，以及如果你手握一笔算力预算，该怎么把它切成参数和数据两份。</p>
+
+<h2>6.4.1 幂律：log-log 图上的直线</h2>
+
+<p>　　先建立一个直觉。物理学里，行星轨道、落体时间之所以能被预言，是因为背后有简洁的规律可循。Kaplan 等人 2020 年的工作相当于在语言模型身上发现了同类规律：把测试损失和模型规模都取对数画在图上，数据点竟然落在一条直线附近——规模翻多少倍，损失降多少，是可以提前算出来的。这种关系叫<strong>幂律</strong>（power law）。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Scaling Law 缩放定律</span>
+    <span class="term-en">scaling = 随规模变化；law = 可重复的定量规律</span>
+  </div>
+  <div class="term-body">
+    <p>Scaling Law 是实验拟合出的经验规律：语言模型的测试损失随参数量 \(N\)、数据量 \(D\)、算力 \(C\) 各自呈幂律变化。它不是定理，而是从大量真实训练结果中总结出的统计规律，价值在于<strong>外推</strong>——用小规模的实验结果，预言贵得做不起的大规模训练。</p>
+    <div class="term-analogy">就像裁缝做西装前先用小纸样推算剪裁尺寸：不用真把整匹布剪开，按比例缩小的纸样就能预言成衣的合身度。Scaling Law 就是大模型训练的「纸样」。</div>
+  </div>
+</div>
+
+<p>　　以参数量为例，Kaplan 论文给出的幂律形如：</p>
+
+<div class="formula-card">
+  \[ L(N) = \left(\frac{N_c}{N}\right)^{\alpha_N} \tag{1} \]
+  <div class="formula-note">公式 (1)：模型越大，测试损失越低，且下降的速率由一个幂指数精确控制。符号说明：\(L(N)\) 是使用 \(N\) 个参数训练收敛后的测试交叉熵损失；\(N\) 是模型的非嵌入参数量（Kaplan 论文的惯例，统计参数时不含 Embedding 层）；\(N_c\) 是拟合出的尺度常数，数量级约 \(10^{13}\)，可以理解为「损失降到 1 附近所需的参数规模」；\(\alpha_N\) 是幂指数，论文拟合值约 0.076，它决定直线在 log-log 图上的斜率。同样的形式对数据量 \(D\) 与算力 \(C\) 也成立，只是换成各自的常数与指数。</div>
+</div>
+
+<p>　　幂律为什么意味着「直线」？对等式两边取对数就能看出来：</p>
+
+<div class="formula-card">
+  \[ \log L(N) = \alpha_N \log N_c \;-\; \alpha_N \log N \tag{2} \]
+  <div class="formula-note">公式 (2)：对公式 (1) 两边取对数后的结果，\(\log L\) 是 \(\log N\) 的一次函数。符号说明：\(\log N_c\) 是常数项（决定直线在图上的高度），\(-\alpha_N\) 是斜率。横轴取 \(\log N\)、纵轴取 \(\log L\) 画图，幂律就现形成一条直线——这就是「log-log 图」这个名字的由来，也是判断一组实验数据是否服从幂律的直观检验。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 310" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr64a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 坐标轴 -->
+    <line x1="90" y1="250" x2="90" y2="30" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64a)"/>
+    <line x1="80" y1="250" x2="680" y2="250" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64a)"/>
+    <text x="390" y="278" text-anchor="middle" font-size="13" fill="#666">log 规模（参数量 N / 数据量 D / 算力 C）</text>
+    <text x="56" y="24" text-anchor="middle" font-size="13" fill="#666">log L</text>
+    <!-- 幂律直线 -->
+    <line x1="120" y1="72" x2="640" y2="222" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- 实验点 -->
+    <circle cx="160" cy="82" r="5" fill="#0891b2"/>
+    <circle cx="240" cy="100" r="5" fill="#0891b2"/>
+    <circle cx="330" cy="122" r="5" fill="#0891b2"/>
+    <circle cx="415" cy="146" r="5" fill="#0891b2"/>
+    <circle cx="500" cy="170" r="5" fill="#0891b2"/>
+    <circle cx="575" cy="196" r="5" fill="#0891b2"/>
+    <text x="250" y="70" text-anchor="middle" font-size="12" fill="#0891b2">真实训练的实验点</text>
+    <text x="520" y="140" text-anchor="middle" font-size="12" fill="#6d28d9">幂律拟合直线，斜率 = −α</text>
+    <!-- 外推标注 -->
+    <line x1="640" y1="222" x2="700" y2="240" stroke="#dc2626" stroke-width="2" stroke-dasharray="5 4"/>
+    <circle cx="700" cy="240" r="5" fill="#dc2626"/>
+    <text x="560" y="222" text-anchor="middle" font-size="12" fill="#dc2626">外推：尚未训练的规模</text>
+    <!-- 底部说明 -->
+    <text x="390" y="300" text-anchor="middle" font-size="12" fill="#666">损失随规模增大而稳定下降，没有拐点和平台期</text>
+  </svg>
+  <div class="diagram-caption">图示：log-log 坐标下，测试损失随规模呈直线下降。小规模的实验点（青）拟合出直线后，可以外推（红虚线）预言尚未训练的大规模模型的损失。</div>
+</div>
+
+<p>　　这条直线有两层含义。第一是<strong>可预测性</strong>：用几亿参数的模型做一批实验，拟合出斜率，就能外推出千亿参数的损失会落在哪。第二是<strong>无平台期</strong>：在 Kaplan 观测的范围内直线没有弯曲，意味着堆规模这条路当时看不到尽头——「大力出奇迹」有了数学担保。白话总结一句：幂律把「规模越大越好」这句口号，变成了「规模每扩大十倍，损失按固定比率下降」这道算术题。</p>
+
+<div class="highlight-box info">
+  幂律描述的是平滑的统计趋势，不预言具体能力。某些能力（如多步推理）在规模跨过某个阈值后会突然显现，称为「涌现」（emergence），幂律的平滑曲线上看不到这些台阶。损失可预测，不代表一切行为可预测。
+</div>
+
+<h2>6.4.2 Kaplan 的预言与局限</h2>
+
+<p>　　有了三条幂律（对 \(N\)、对 \(D\)、对 \(C\)），下一个问题自然是：算力预算涨十倍，参数和数据各该涨多少？回答这个问题还差一块拼图——算力与参数、数据之间的换算关系。Kaplan 论文给出的估算式简洁到可以口算：</p>
+
+<div class="formula-card">
+  \[ C \approx 6\,N\,D \tag{3} \]
+  <div class="formula-note">公式 (3)：训练总算力的「账本公式」。符号说明：\(C\) 是训练消耗的总浮点运算次数（FLOPs）；\(N\) 是参数量；\(D\) 是训练 token 数；系数 6 来自一次前向加反向传播的逐参数开销估算（前向约 \(2N\)、反向约 \(4N\) FLOPs，按每 token 计）。它是近似式，忽略了注意力等随序列长度增长的项，但作为数量级账本被全业界沿用至今。</div>
+</div>
+
+<p>　　把三条幂律和这个账本联立求解，Kaplan 得到结论：算力增长时，<strong>参数量应当吃掉大头</strong>，最优配比约为 \(N^* \propto C^{0.73}\)、\(D^* \propto C^{0.27}\)——预算翻 8 倍，参数约扩 4.6 倍，数据只扩 1.8 倍。论文还观察到「大模型样本效率更高」：达到同等损失，大模型需要看过的数据量更少。两条合在一起，处方非常明确：<strong>优先把模型做大</strong>。</p>
+
+<p>　　这张处方直接塑造了 2020 到 2022 年的业界路线：GPT-3 把参数堆到 175B 但只训了约 300B token，Gopher 更进一步堆到 280B，数据量却原地不动。按后来 Chinchilla 的标准回看，这批模型清一色「参数过大、数据不足」。</p>
+
+<div class="highlight-box warn">
+  Kaplan 处方的偏差出在一个隐蔽的方法细节上：拟合时大量模型没有针对各自的规模充分调优学习率衰减与训练时长，相当于很多点没训到位。这系统性高估了「加大参数」的回报——没训够的大模型显得比实际更强。这个偏差要等 Chinchilla 把每个模型都训到位之后才被纠正。
+</div>
+
+<h2>6.4.3 Chinchilla 翻盘：20 token/参数</h2>
+
+<p>　　2022 年 DeepMind 的 Hoffmann 等人重做了一次更彻底的大扫除：训练了 400 多个语言模型，参数量从 70M 到 16B，数据量从 5B 到 500B token，每个模型都按自己的规模调好训练计划、训到收敛。这批实验用的方法叫 <strong>isoFLOPs</strong>——固定算力预算，只改变参数与数据的分配，看哪种分配损失最低。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">isoFLOPs 等算力曲线</span>
+    <span class="term-en">iso = 相等；FLOPs = 浮点运算次数，算力的度量单位</span>
+  </div>
+  <div class="term-body">
+    <p>在同一个算力预算 \(C\) 下，由 \(C \approx 6ND\) 可知参数和数据此消彼长：参数多一点，能训的数据就少一点。isoFLOPs 方法把预算内所有 \((N, D)\) 组合各训一遍，损失对 \(N\) 画出来是一条 U 形曲线，谷底就是该预算的最优配比。换几个预算各做一遍，把谷底连成线，就得到「算力怎么分」的完整答案。</p>
+    <div class="term-analogy">就像固定一笔装修预算在「面积」和「用料档次」之间分配：全堆面积则用料寒酸，全堆用料则住不开，总有一个配比让居住体验最好。isoFLOPs 就是在找这个配比。</div>
+  </div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr64b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 坐标轴 -->
+    <line x1="80" y1="270" x2="80" y2="30" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64b)"/>
+    <line x1="70" y1="270" x2="690" y2="270" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64b)"/>
+    <text x="390" y="298" text-anchor="middle" font-size="13" fill="#666">log 参数量 N（固定预算下，数据量 D ≈ C/6N 反向变化）</text>
+    <text x="46" y="24" text-anchor="middle" font-size="13" fill="#666">损失 L</text>
+    <!-- 三条 isoFLOPs U 形曲线 -->
+    <path d="M 105 60 Q 180 250 255 60" fill="none" stroke="#0891b2" stroke-width="2.5"/>
+    <path d="M 230 90 Q 330 314 430 90" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <path d="M 380 120 Q 490 358 600 120" fill="none" stroke="#d97706" stroke-width="2.5"/>
+    <text x="140" y="48" text-anchor="middle" font-size="12" fill="#0891b2">预算 C₁</text>
+    <text x="400" y="78" text-anchor="middle" font-size="12" fill="#6d28d9">预算 C₂</text>
+    <text x="570" y="108" text-anchor="middle" font-size="12" fill="#d97706">预算 C₃</text>
+    <!-- 谷底点 -->
+    <circle cx="180" cy="155" r="5.5" fill="#dc2626"/>
+    <circle cx="330" cy="202" r="5.5" fill="#dc2626"/>
+    <circle cx="490" cy="239" r="5.5" fill="#dc2626"/>
+    <!-- 谷底连线 -->
+    <line x1="180" y1="155" x2="620" y2="262" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arr64b)"/>
+    <text x="450" y="182" text-anchor="middle" font-size="12.5" fill="#dc2626">谷底连线：各预算的最优配比</text>
+    <text x="200" y="140" text-anchor="middle" font-size="11.5" fill="#dc2626">该预算的最优 N</text>
+    <!-- 底部说明 -->
+    <text x="390" y="315" text-anchor="middle" font-size="12" fill="#666">C₁ &lt; C₂ &lt; C₃：预算越大，谷底越深（损失越低）、越靠右（最优参数量越大）</text>
+  </svg>
+  <div class="diagram-caption">图示：isoFLOPs 方法。每条 U 形曲线是一个固定算力预算下「参数量换数据量」的所有选择，谷底是该预算的最优解；把不同预算的谷底连成线，最优配比随预算增长的方向一目了然。</div>
+</div>
+
+<p>　　除了直接扫描，论文还用一个参数化公式把损失同时写成参数与数据的函数，即著名的 Chinchilla 损失面：</p>
+
+<div class="formula-card">
+  \[ L(N, D) = E \;+\; \frac{A}{N^{\alpha}} \;+\; \frac{B}{D^{\beta}} \tag{4} \]
+  <div class="formula-note">公式 (4)：损失被拆成三块——无论多大的模型都降不下去的「不可约损失」，由参数不足造成的损失，和由数据不足造成的损失。符号说明：\(L(N,D)\) 是参数量 \(N\)、训练数据量 \(D\) 下的收敛损失；\(E\) 是不可约损失（文本本身的熵，论文拟合值约 1.69），\(A/N^{\alpha}\) 是模型容量项（\(A\) 约 406，\(\alpha\) 约 0.34），\(B/D^{\beta}\) 是数据不足项（\(B\) 约 411，\(\beta\) 约 0.28）。注意两个幂指数 0.34 与 0.28 接近——这正是「参数与数据贡献相当、应当等比扩展」的定量证据。</div>
+</div>
+
+<p>　　结论干脆利落：固定算力下，参数与数据应当<strong>等比扩展</strong>（\(N^* \propto C^{0.5}\)、\(D^* \propto C^{0.5}\)），换算下来约为<strong>每个参数配 20 个 token</strong>。为了证明这不是纸上谈兵，他们用与 Gopher 相近的算力训了 Chinchilla：参数从 280B 砍到 70B，数据从 300B token 加到 1.4T token——结果 Chinchilla 在一系列基准上全面反超 Gopher。四两拨千斤，翻盘完成。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型</th><th>参数量</th><th>训练 token 数</th><th>token/参数</th><th>按 20:1 标准看</th></tr></thead>
+    <tbody>
+      <tr><td>GPT-3</td><td>175B</td><td>约 300B</td><td>约 1.7</td><td>参数过大、数据严重不足</td></tr>
+      <tr><td>Gopher</td><td>280B</td><td>约 300B</td><td>约 1.1</td><td>同上，Chinchilla 论文的靶子</td></tr>
+      <tr><td>Chinchilla</td><td>70B</td><td>1.4T</td><td>20</td><td>算力最优参考点</td></tr>
+      <tr><td>Llama 3 8B</td><td>8B</td><td>约 15T</td><td>约 1875</td><td>远超训练最优，为部署省钱（6.4.4）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box danger">
+  不要把「20 token/参数」当成普适常数到处套。它是 Chinchilla 实验设置下的拟合结果，会随数据质量、Tokenizer 效率、架构改进而漂移；后续不同团队复现出的最优值并不完全一致。记住方法（isoFLOPs 找谷底）比记住数字 20 更重要。
+</div>
+
+<p>　　白话总结：Kaplan 说「预算涨了先买参数」，Chinchilla 说「参数和数据对半分」，后者是用更干净的实验把前者修正了，而不是推翻幂律本身——损失随规模可预测地下降，这一点两篇论文完全一致。</p>
+
+<h2>6.4.4 训练最优 vs 部署最优：Llama 的另一本账</h2>
+
+<p>　　故事到此还没结束。注意 Chinchilla 的最优有一个隐含前提：它只算了<strong>训练</strong>这一次性开销。可模型的生命周期里还有推理——模型训一次，要被调用千万次、服务无数用户，推理成本按次累计，长年累月下来可能比训练费贵得多。小模型的单次推理便宜得多，那么「多花钱把小模型训到饱和」就可能比「少花钱训个大模型」更划算。这是另一本账。</p>
+
+<p>　　Meta 的 Llama 系列把这本账算明了。Llama 1 论文开宗明义：目标是在<strong>给定推理预算</strong>下取得最好效果，而不是训练算力最优——做法是选较小的模型、喂远超 Chinchilla 最优的 token 量。到 Llama 3，这个思路走到极致：8B 模型训了约 15T token，每参数近两千个 token，是 20:1 标准的近百倍，而同一量级的数据量足够让这个小模型在许多任务上叫板比它大数倍的前辈。</p>
+
+<div class="highlight-box">
+  「训练最优」与「部署最优」是两本账：Chinchilla 的 20:1 最小化的是训练这一次的算力；Llama 的「小模型长训」牺牲训练效率换取低得多的推理成本和部署门槛。选哪本账，取决于模型要服务多少次调用——只训给自己做研究，按 Chinchilla；要上线服务亿级用户，按 Llama。
+</div>
+
+<div class="highlight-box info">
+  小模型长训还有一层隐性收益：参数量小意味着显存占用低、可在更便宜的硬件上跑，对个人开发者和边缘设备友好。开源社区主流模型的「甜点尺寸」变迁，很大程度上就是这本部署账在起作用。
+</div>
+
+<h2>6.4.5 对工程决策的意义</h2>
+
+<p>　　把两篇论文加一次业界修正合起来，Scaling Law 留给工程实践的有三样工具：</p>
+
+<ul>
+  <li><strong>点火前的预言机</strong>：用小规模实验拟合幂律，外推目标规模的损失，达不到预期就改配置，不烧冤枉钱。这是 Scaling Law 最原始也最重要的用途。</li>
+  <li><strong>算力账本</strong>：\(C \approx 6ND\) 让「参数量 × 数据量 × GPU 小时」之间可以互相换算，做预算、买显卡、定排期都靠它打底。</li>
+  <li><strong>配比标尺</strong>：预算确定后按 isoFLOPs 谷底分配参数与数据；若模型要大规模部署，主动偏离训练最优、向「小参数多数据」一侧倾斜。</li>
+</ul>
+
+<p>　　还有一条暗线值得记住：Chinchilla 之后，数据从「燃料」升格为与参数并列的<strong>一等资源</strong>。既然 20 个 token 才配得上 1 个参数，那么高质量 token 的储量直接限制了模型能合法长到多大——这呼应了第 1 章数据工程的份量，也预告了第 8 章中间训练里「数据不够怎么办」的问题。</p>
+
+<div class="highlight-box">
+  本节核心：损失随规模呈幂律下降，所以预训练的结果在点火前可预测；算力在参数与数据间的最优配比约等比扩展（Chinchilla 口径约 20 token/参数）；若计入推理成本，实际最优会向「小模型、更多数据」偏移。规模不是玄学，是可以计算的命运。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么说幂律让大模型训练「可预测」？</div>
+    <div class="sc-key">幂律在 log-log 图上是一条直线：用小规模实验点拟合出斜率（幂指数），就能沿直线外推，预言尚未训练的大规模模型的收敛损失，不用真烧钱试错。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Chinchilla 对 Kaplan 的修正具体是什么？</div>
+    <div class="sc-key">不是推翻幂律，而是修正配比：Kaplan 主张算力增长时优先扩参数（\(N^* \propto C^{0.73}\)），Chinchilla 用训到收敛的 isoFLOPs 实验证明参数与数据应等比扩展（各按 \(C^{0.5}\)），即约 20 token/参数；GPT-3、Gopher 那代模型属于参数过大、数据不足。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">既然 20:1 是训练最优，Llama 为什么要把 8B 模型训到 15T token？</div>
+    <div class="sc-key">因为部署是另一本账：模型训一次却要被调用无数次，小模型推理便宜、显存友好。为降低全生命周期成本，宁愿牺牲训练效率，把小模型喂到远超训练最优的数据量。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Kaplan, McCandlish, Henighan et al., 2020. Scaling Laws for Neural Language Models（幂律与「优先扩参数」处方的原始论文，arXiv:2001.08361）。</li>
+  <li>Hoffmann, Borgeaud, Mensch et al., 2022. Training Compute-Optimal Large Language Models（Chinchilla 论文，isoFLOPs 方法、20 token/参数与公式 (4) 的出处，arXiv:2203.15556）。</li>
+  <li>Touvron, Lavril, Izacard et al., 2023. LLaMA: Open and Efficient Foundation Language Models（「按推理预算选模型、小模型长训」动机的明确表述，arXiv:2302.13971）。</li>
+  <li>Dubey, Jauhri, Pandey et al., 2024. The Llama 3 Herd of Models（Llama 3 8B 训练约 15T token 的出处，arXiv:2407.21783）。</li>
+</ul>
+
+</article>

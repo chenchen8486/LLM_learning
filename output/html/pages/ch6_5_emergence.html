@@ -1,0 +1,211 @@
+﻿<article class="content">
+<h1>6.5 涌现能力：规模到了，能力「突然」出现？</h1>
+<p class="subtitle">本页范围：第 6 章第 5 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>Scaling Law 说损失随规模平滑下降，可下游任务的表现曲线常呈“相变”式跳变：某些能力在小模型上接近随机，规模越过某个阈值后突然可用。这种涌现是模型内部的真实质变，还是度量方式造出的错觉？</td></tr>
+      <tr><td>本节主张</td><td>涌现曲线是真实的测量结果，但“突变感”很大程度上是 0-1 指标对平滑进步的非线性放大；正反两派证据都要看，度量口径要先问清。</td></tr>
+      <tr><td>一句话结论</td><td>无论是否相变，规模扩大可靠地解锁新用法是经验事实；但把涌现当神秘突变来敬畏没有必要——看到相变曲线，先问指标、测试集大小和小模型一端的读数。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>涌现能力</span><span>相变</span><span>In-context Learning</span><span>Exact Match</span><span>度量伪影</span><span>BIG-Bench</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　上一节讲 Scaling Law：语言模型的测试损失随参数量、数据量、算力按幂律平滑下降，温顺且可预测。但损失只是训练目标的代理指标，从业者和公众真正关心的是另一件事——模型到底会做什么。当人们把视线从损失曲线移到具体任务的表现曲线时，看到了一类反直觉的现象：某些能力不是渐进变好，而是在规模越过某个阈值后突然“点亮”，仿佛烧到 100°C 的水。这就是本节的主角，涌现能力（emergent abilities）。</p>
+
+<p>　　围绕这个现象有一场仍在继续的论战：正方视其为规模带来的质变，是“继续做大”的最强理由；反方则论证它可能主要是度量指标的伪影。本节不预设立场，按四个环节把双方证据摆清楚：</p>
+
+<ol>
+  <li><strong>涌现现象与经典案例</strong>（6.5.1）：相变式曲线长什么样，Wei 等人的定义与两个标志特征，三个教科书级案例；</li>
+  <li><strong>ICL：不更新参数的学习</strong>（6.5.2）：GPT-3 的 few-shot 能力为何被视为涌现叙事的招牌；</li>
+  <li><strong>反方：也许是尺子的伪影</strong>（6.5.3）：NeurIPS 2023 获奖论文的论证——换一把尺子，涌现就“蒸发”；</li>
+  <li><strong>我们该怎么看</strong>（6.5.4）：两派各退一步后的平衡立场，以及读论文时的三个检查点。</li>
+</ol>
+
+<p>　　读完全节，你应该能对任何一条“某某能力是涌现的”的说法给出有依据的反应：先问尺子，再谈现象。</p>
+
+<h2>6.5.1 涌现现象与经典案例</h2>
+
+<p>　　先把直觉建立起来。水烧到 99°C 还是平静的液体，再升 1°C 就翻滚沸腾——物理学家把这种量变积累到临界点后发生的质变称为相变（phase transition）。1972 年，诺贝尔物理学奖得主 P. W. Anderson 在著名文章 "More Is Different" 中提出：系统的复杂度跨过某个量级后，会浮现出从微观细节无法预言的全新性质。2022 年，Google 的 Jason Wei 领衔的一篇论文把这套语言搬进了 LLM 语境（Wei et al., 2022）。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">涌现 Emergence</span>
+    <span class="term-en">emerge = 浮现、显现；系统整体呈现出部分所不具备的性质</span>
+  </div>
+  <div class="term-body">
+    <p>Wei 等人的定义很具体：一种能力是<strong>涌现</strong>的，当它在小规模模型上不存在、在大规模模型上存在——因此无法通过外推小模型的表现来预测。由此衍生两个标志特征：<strong>突变性</strong>（sharpness），表现从接近随机到明显可用的过渡发生在很窄的规模区间内；<strong>不可预测性</strong>（unpredictability），事先不知道阈值出现在哪个规模上。</p>
+    <div class="term-analogy">就像烧水：温度平滑上升，水的状态却在 100°C 突然跳变。平滑的输入变化，在临界点上制造出跳变的输出。</div>
+  </div>
+</div>
+
+<p>　　典型的涌现曲线长这样：横轴是训练算力（FLOPs，对数刻度），纵轴是任务准确率。阈值左侧，准确率贴着随机基线（random chance）几乎不动，几亿参数和几十亿参数的模型看上去“同样不会”；越过阈值后曲线陡然抬头，在很窄的规模区间内冲到远高于随机的水平。注意它与 Scaling Law 的反差：损失曲线是处处光滑的幂律，任务表现曲线却像被折了一下。6.5.3 节的示意图会把这个形态画出来。</p>
+
+<p>　　Wei 等人汇总了多个模型家族（GPT-3、LaMDA、PaLM 等）在 BIG-Bench 等基准上的此类曲线，三个传播最广的案例：</p>
+
+<ul>
+  <li><strong>多位数算术</strong>：GPT-3 系列在三位数加法上，13B 及以下的成员准确率几乎为零，175B 模型突然达到 80.2%（Brown et al., 2020）；</li>
+  <li><strong>BIG-Bench 任务簇</strong>：词形重组（word unscrambling）、多步算术等一批任务上，多个模型家族出现相似的阈值跳变（Wei et al., 2022）；</li>
+  <li><strong>思维链推理</strong>：Chain-of-Thought prompting 只在约 100B 量级以上的模型上带来稳定增益，小模型用了反而可能更差（Wei et al., 2022）——连“怎么提问才有效”都会随规模切换。</li>
+</ul>
+
+<div class="highlight-box info">
+  “涌现”一词在科学史上有悠长谱系：物理学的相变、生物学的蚁群协作、神经科学的意识研究，都用它描述“整体大于部分之和”的现象。Anderson 1972 年的 "More Is Different" 是这套思想的经典出处，Wei 等人的论文正是站在这一传统上发问。
+</div>
+
+<p>　　这批曲线成了 GPT-3 时代以来规模叙事的核心证据：如果能力会不可预测地涌现，那么继续扩大规模就可能“意外解锁”谁也没料到的新能力。下一节看其中最具颠覆性的一类。</p>
+
+<h2>6.5.2 ICL：不更新参数的学习</h2>
+
+<p>　　传统机器学习中，“学会一个任务”几乎等价于“更新参数”：梯度下降一步步拧动权重。GPT-3（Brown et al., 2020）展示了另一条路：参数一个不动，只在输入里演示几个例子，模型就现场照做。这就是上下文学习。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">上下文学习 In-context Learning</span>
+    <span class="term-en">in-context = 在上下文之中；不改权重，仅凭输入中的示例现场适应任务</span>
+  </div>
+  <div class="term-body">
+    <p>GPT-3 论文系统对比了三种设定：<strong>zero-shot</strong> 只给任务描述，<strong>one-shot</strong> 给一个示例，<strong>few-shot</strong> 给几个到几十个示例。任务说明与示例全部写进 prompt 文本，模型做一次前向传播就给出答案，全程没有任何梯度更新。它后来常被缩写为 ICL。</p>
+    <div class="term-analogy">像一个悟性极高的实习生：不必送他培训三天（那是更新参数），布置任务时顺手演示两三个例子，他立刻照着做。</div>
+  </div>
+</div>
+
+<p>　　ICL 被视为涌现叙事的招牌，原因有二。一是<strong>增益随规模拉开</strong>：GPT-3 论文的曲线显示，few-shot 相对 zero-shot 的提升在小模型上很有限，模型越大提升越明显——小模型给了例子也学不会，大模型才能从例子中读出任务规律。二是<strong>曲线形态本身</strong>：一大批 few-shot 任务的表现曲线正是 6.5.1 描述的相变形态。换句话说，随规模质变的似乎不只是“会做题”，而是“会了一种新的学习方式”。</p>
+
+<div class="highlight-box info">
+  GPT-3 的算术实验是 ICL 涌现的教科书案例：175B 模型 few-shot 达到两位数加法 100%、三位数加法 80.2%、三位数减法 94.2%，而 13B 及以下的家族成员在三位数运算上几乎全错。此外，175B 在部分 NLP 任务上的 few-shot 成绩已逼近当时微调模型的最佳水平（Brown et al., 2020）。
+</div>
+
+<p>　　不改参数为何也能“学”？这至今是活跃的研究问题。一种有影响力的机制解释是归纳头（induction heads）：Transformer 内部会自然形成一类负责“复制前文出现过的模式”的注意力头，其形成过程恰好也呈相变式（Olsson et al., 2022）。机制细节留待架构与可解释性的讨论展开，这里只需记住：ICL 的存在与强度都强烈依赖规模。</p>
+
+<h2>6.5.3 反方：也许是尺子的伪影</h2>
+
+<p>　　2023 年，斯坦福大学的 Rylan Schaeffer、Brando Miranda 与 Sanmi Koyejo 发表论文《Are Emergent Abilities of Large Language Models a Mirage?》（涌现是不是海市蜃楼），获 NeurIPS 2023 杰出论文奖。标题即论点：涌现也许不在模型里，而在尺子里。</p>
+
+<p>　　论证从一个温和的前提出发：假设模型逐 token 的错误率随规模平滑下降——这正是 Scaling Law 反复验证过的事。问题出在打分方式上。以四位数加法为例，答案是 4 位数字组成的串，常用指标 exact match 要求整串完全正确才记 1 分，错一位也是 0 分。设模型单个 token 的正确率为 \(p\)，在各 token 近似独立的假设下：</p>
+
+<div class="formula-card">
+  \[ \mathrm{Accuracy}(N) \approx p(N)^{L}, \qquad p(N) = \exp\!\big(-(N/c)^{\alpha}\big) \tag{1} \]
+  <div class="formula-note">公式 (1)：单 token 正确率 \(p\) 的平滑提升，被“整串全对才得分”连乘 \(L\) 次后，会在很长一段规模区间里被压在零附近，直到 \(p\) 接近 1 时才猛然抬起——平滑的进步被指标放大成了悬崖。符号说明：\(N\) 是模型参数量；\(p(N)\) 是参数量为 \(N\) 的模型预测单个 token 正确的概率，式中假设逐 token 交叉熵随规模按幂律 \((N/c)^{\alpha}\) 下降，\(c>0\)、\(\alpha<0\) 为幂律常数；\(L\) 是输出串的 token 数（四位数加法的答案有 4 位数字）；\(\mathrm{Accuracy}\) 是 0-1 指标，整串全对记 1，否则记 0。</div>
+</div>
+
+<p>　　代入数字感受这把尺子的放大作用。设 \(L=10\)：\(p\) 从 0.90 提到 0.99，得分从 \(0.9^{10}\approx0.35\) 跳到 \(0.99^{10}\approx0.90\)——单 token 只进步了 9 个百分点，整串得分却从三成多涨到九成。再看小模型一端：\(p\) 从 0.50 提到 0.80 是实打实的进步，可 \(0.8^{10}\approx0.11\)，画在图上仍贴着零。悬崖的两头，是同一把尺子造出来的。</p>
+
+<p>　　换一把连续尺子试试：把 exact match 换成 Token 编辑距离（逐 token 统计答对了多少位），对同一批模型的同一份输出重新打分，悬崖立刻变回斜坡。Schaeffer 等人用三路实验把这一解释钉牢：</p>
+
+<ol>
+  <li><strong>换指标</strong>：在 InstructGPT/GPT-3 家族的两位数乘法与四位数加法上，0-1 指标下涌现清晰可见，换连续指标后曲线平滑可预测；</li>
+  <li><strong>元分析</strong>：BIG-Bench 上超过 92% 的涌现案例，出现在 Multiple Choice Grade（选对选项才得分）或 Exact String Match（整串全对才得分）这两类 0-1 指标之下；</li>
+  <li><strong>反向制造</strong>：在视觉任务上故意选用非线性指标，人为“制造”出一批前所未见的涌现——既然能按需生产，它就很难是模型的内在属性。</li>
+</ol>
+
+<p>　　还有一个次级因素：测试集太小。小模型一端的真实得分若是 2%，一百题的测试集根本分辨不出它与 0 的区别，曲线被压成一条平线，突变感因此更强。换大测试集、提高测量分辨率，一些“涌现”同样会消退。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 310" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="axisArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 分隔线 -->
+    <line x1="380" y1="20" x2="380" y2="285" stroke="#e5e7eb" stroke-width="1"/>
+    <!-- 左面板标题 -->
+    <text x="205" y="26" text-anchor="middle" font-size="13" font-weight="600" fill="#333">0-1 指标（Exact Match）：像相变</text>
+    <!-- 左面板坐标轴 -->
+    <line x1="70" y1="250" x2="70" y2="50" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#axisArr)"/>
+    <line x1="70" y1="250" x2="340" y2="250" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#axisArr)"/>
+    <text x="70" y="40" text-anchor="middle" font-size="12" fill="#666">得分</text>
+    <text x="205" y="272" text-anchor="middle" font-size="12" fill="#666">模型规模（对数刻度）</text>
+    <text x="60" y="254" text-anchor="end" font-size="11" fill="#666">0</text>
+    <text x="60" y="54" text-anchor="end" font-size="11" fill="#666">1</text>
+    <!-- 随机基线 -->
+    <line x1="75" y1="235" x2="335" y2="235" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="333" y="229" text-anchor="end" font-size="10" fill="#9ca3af">随机水平</text>
+    <!-- 阈值线 -->
+    <line x1="252" y1="55" x2="252" y2="250" stroke="#dc2626" stroke-width="1" stroke-dasharray="4 3" opacity="0.55"/>
+    <text x="252" y="47" text-anchor="middle" font-size="10" fill="#dc2626">阈值</text>
+    <!-- 左曲线：贴底后陡升 -->
+    <polyline points="80,238 120,237 160,236 200,233 230,228 250,218 262,192 271,150 278,108 288,84 305,76 330,73" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="80" cy="238" r="3" fill="#dc2626"/>
+    <circle cx="160" cy="236" r="3" fill="#dc2626"/>
+    <circle cx="230" cy="228" r="3" fill="#dc2626"/>
+    <circle cx="262" cy="192" r="3" fill="#dc2626"/>
+    <circle cx="288" cy="84" r="3" fill="#dc2626"/>
+    <circle cx="330" cy="73" r="3" fill="#dc2626"/>
+    <!-- 右面板标题 -->
+    <text x="565" y="26" text-anchor="middle" font-size="13" font-weight="600" fill="#333">连续指标（Token 编辑距离）：是渐进</text>
+    <!-- 右面板坐标轴 -->
+    <line x1="430" y1="250" x2="430" y2="50" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#axisArr)"/>
+    <line x1="430" y1="250" x2="700" y2="250" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#axisArr)"/>
+    <text x="430" y="40" text-anchor="middle" font-size="12" fill="#666">得分</text>
+    <text x="565" y="272" text-anchor="middle" font-size="12" fill="#666">模型规模（对数刻度）</text>
+    <text x="420" y="254" text-anchor="end" font-size="11" fill="#666">0</text>
+    <text x="420" y="54" text-anchor="end" font-size="11" fill="#666">1</text>
+    <!-- 右曲线：平滑渐进 -->
+    <polyline points="440,225 480,200 520,178 560,158 600,140 640,124 672,112 695,104" fill="none" stroke="#0891b2" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="440" cy="225" r="3" fill="#0891b2"/>
+    <circle cx="520" cy="178" r="3" fill="#0891b2"/>
+    <circle cx="600" cy="140" r="3" fill="#0891b2"/>
+    <circle cx="695" cy="104" r="3" fill="#0891b2"/>
+    <!-- 底部说明 -->
+    <text x="380" y="300" text-anchor="middle" font-size="12" fill="#666">同一批模型检查点 · 同一任务 · 同一份输出，只是换了打分方式</text>
+  </svg>
+  <div class="diagram-caption">图示：同一批模型在 0-1 指标（左）与连续指标（右）下的表现曲线。左图呈“相变”，右图呈渐进——曲线形状为示意，非真实实验数据。</div>
+</div>
+
+<div class="highlight-box danger">
+  “小模型表现接近随机”不等于“小模型一无所知”。0-1 指标下，小模型把四位数加法的前三位都写对了，得分依然是 0——进步被尺子整个抹掉。把“测不出来”读成“不存在”，是涌现叙事流传最广的误读。
+</div>
+
+<h2>6.5.4 我们该怎么看</h2>
+
+<p>　　先把两派各退一步后的共识摆出来。反方论文从未否认大模型比小模型强：它质疑的是“突变”这一形态描述——换连续指标后进步依然真实存在，只是从悬崖变成斜坡。正方也有反方射程之外的证据：像“CoT 只在足够大的模型上才有增益”这类涉及行为模式切换的案例，很难用单一指标伪影完全解释。更稳妥的读法是：涌现与否部分取决于任务与度量的组合，逐案例问清口径，不一概而论。</p>
+
+<p>　　对手册读者，实用立场是三条：</p>
+
+<ul>
+  <li><strong>经验事实无可争议</strong>：规模扩大可靠地解锁新用法。从 GPT-2 到 GPT-3 再到 GPT-4，每一档规模都带来了上一代做不到的应用形态，这一点与“曲线是不是相变”无关；</li>
+  <li><strong>不必敬畏突变</strong>：涌现不是神秘开关。看到相变曲线先问三件事——用什么指标？测试集多大？小模型一端的读数是不是被压成了零？</li>
+  <li><strong>要预测，不要惊叹</strong>：工程上真正有用的问题是“下一代模型能不能做这件事”。连续指标下的平滑曲线可以外推，0-1 指标下的悬崖不能——这是 Scaling Law 与涌现之争给实践者最实在的启示。</li>
+</ul>
+
+<div class="highlight-box">
+  规模与能力的关系，在损失曲线上是幂律（可外推），在任务曲线上可能表现为相变（难外推）；而相变感相当一部分是 0-1 度量对平滑进步的非线性放大。规模可靠地解锁新用法成立；把涌现当神秘突变来敬畏，没有必要。
+</div>
+
+<p>　　度量口径的问题不会到此为止。第 15 章讨论评测时它会再次登场：评测指标怎么设计，直接决定我们“看见”什么样的能力。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">什么是涌现能力？它的两个标志特征是什么？</div>
+    <div class="sc-key">小模型上不存在、大模型上存在、无法从小模型表现外推的能力（Wei et al., 2022）。两个特征：突变性——从接近随机到可用的过渡发生在很窄的规模区间；不可预测性——阈值出现在哪个规模事先无法预言。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么说 ICL 是涌现叙事的招牌案例？</div>
+    <div class="sc-key">ICL 不更新任何参数，仅凭 prompt 中的示例现场学会任务；且 few-shot 相对 zero-shot 的增益随规模显著拉大——随规模质变的似乎不只是做题能力，还有“学习方式”本身。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Schaeffer 等人凭什么说涌现可能是“海市蜃楼”？</div>
+    <div class="sc-key">逐 token 错误率随规模平滑下降，但 exact match 这类 0-1 指标把平滑进步连乘放大成悬崖（公式 (1) 的 \(p^{L}\)）；换连续指标后曲线回归渐进。BIG-Bench 上超 92% 的涌现案例出自两类 0-1 指标，他们还能在视觉任务上人为制造涌现。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Wei et al., 2022. Emergent Abilities of Large Language Models（TMLR 2022，arXiv:2206.07682）。</li>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3 论文，NeurIPS 2020，arXiv:2005.14165）。</li>
+  <li>Wei et al., 2022. Chain-of-Thought Prompting Elicits Reasoning in Large Language Models（NeurIPS 2022，arXiv:2201.11903）。</li>
+  <li>Schaeffer, Miranda &amp; Koyejo, 2023. Are Emergent Abilities of Large Language Models a Mirage?（NeurIPS 2023 杰出论文奖，arXiv:2304.15004）。</li>
+  <li>Olsson et al., 2022. In-context Learning and Induction Heads（Anthropic，arXiv:2209.11895）。</li>
+  <li>Anderson, 1972. More Is Different（Science, 177(4047): 393–396）。</li>
+</ul>
+
+</article>
