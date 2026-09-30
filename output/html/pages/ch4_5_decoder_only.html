@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</h1>
 <p class="subtitle">本页范围：第 4 章第 5 节　|　整理时间：2026-09-29</p>
 
@@ -221,22 +221,6 @@
     <div class="sc-key">骨架没变：子层 + 残差 + 归一化的搭法原样保留。变了：删掉交叉注意力；归一化换 RMSNorm 并挪到子层前；位置编码换 RoPE；FFN 换 SwiGLU；注意力头换 GQA / MLA。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　本节的「现代 block」在 minimind 工程（Apache 2.0）里有逐行对应的实现，读 <code>model/model_minimind.py</code> 时对照以下四个位置：</p>
-
-<ul>
-  <li><code>MiniMindBlock</code>（第 183 行）：__init__ 里只有四个成员：self_attn、两个 RMSNorm、mlp，没有任何交叉注意力模块；forward（第 191 行起）先 RMSNorm 再进注意力、残差加回，再过第二个 RMSNorm 进 FFN、残差加回，正是公式 (2) 右边的 Pre-Norm 写法；</li>
-  <li><code>MiniMindModel</code>（第 201 行）：第 208 行把 MiniMindBlock 复制 num_hidden_layers 份串成单塔（MiniMindConfig 默认 8 层，第 12 行），塔顶一个 RMSNorm（第 209 行），全文件没有编码器；</li>
-  <li><code>FeedForward</code>（第 136 行）：gate_proj、up_proj、down_proj 三路投影，act_fn 默认 silu（配置第 25 行），即 4.5.3 表中的 SwiGLU 家族；</li>
-  <li><code>MiniMindConfig</code>（第 22 到 23 行）：num_attention_heads=8 而 num_key_value_heads=4，这就是 GQA，第 5 章会讲它省的是什么。</li>
-</ul>
-
-<p>　　想亲自确认「没有交叉注意力」，可以在工程根目录执行：</p>
-
-<pre><code>grep -n "cross" minimind-master/model/model_minimind.py
-# 只能搜到一行 cross_entropy（交叉熵损失函数），没有任何交叉注意力模块</code></pre>
 
 <h2>参考来源</h2>
 <ul>

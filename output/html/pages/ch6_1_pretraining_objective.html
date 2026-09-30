@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>6.1 预训练目标：预测下一个 token 凭什么学会智能</h1>
 <p class="subtitle">本页范围：第 6 章第 1 节　|　整理时间：2026-09-29</p>
 
@@ -228,18 +228,6 @@
     <div class="sc-key">训练时用 teacher forcing，题干永远取真实上文，所有位置互不依赖，配合因果掩码一次前向算完全部考题；推理时没有真实上文，只能把上一步的输出接回输入再猜下一个，天然串行。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-<p>　　本节机制在 minimind 中的对应实现（出处：minimind 工程，Apache 2.0 协议）：</p>
-<ul>
-  <li><code>dataset/lm_dataset.py</code> 的 <code>PretrainDataset.__getitem__</code>（第 52 至 58 行）：分词后补上 <code>[BOS]</code>、<code>[EOS]</code>，<code>labels = input_ids.clone()</code>，再把 padding 位置的标签置为 <code>-100</code>——标签就是输入本身，自监督「数据自带标签」落在代码里就这两行；</li>
-  <li><code>model/model_minimind.py</code> 的 <code>MiniMindForCausalLM.forward</code>（第 255 至 257 行）：<code>logits[..., :-1, :]</code> 对 <code>labels[..., 1:]</code> 正是本节的「错位一位」，随后 <code>F.cross_entropy(..., ignore_index=-100)</code> 一次性算完所有位置的交叉熵，<code>ignore_index=-100</code> 让 padding 位置不参与损失；</li>
-  <li><code>trainer/train_pretrain.py</code> 的 <code>train_epoch</code>（第 26 至 35 行）：<code>model(input_ids, labels=labels)</code> 一步拿到 <code>res.loss</code>，整句并行、一次反向传播。</li>
-</ul>
-<p>　　也可以亲手验证「瞎猜基线 = 词表大小」：构造全零 logits（等价于对 6400 个 token 均匀猜），套用 minimind 同款错位与损失计算：</p>
-<pre><code>cd minimind-master
-python -c "import torch, torch.nn.functional as F; logits = torch.zeros(1, 5, 6400); labels = torch.tensor([[10, 20, 30, 40, -100]]); x, y = logits[..., :-1, :].contiguous(), labels[..., 1:].contiguous(); loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100); print('loss:', loss.item(), 'ppl:', loss.exp().item())"</code></pre>
-<p>　　预期输出 <code>loss: 8.764...</code>、<code>ppl: 6400.0</code>——正好是 \(\ln 6400\) 与 6400。末尾标签 <code>-100</code> 被 <code>ignore_index</code> 丢弃，模拟了 padding 不参与训练；把全零换成随机数（<code>torch.randn</code>）再跑一次，损失会更高，因为随机自信的猜测比均匀瞎猜罚得更狠。</p>
 
 <h2>参考来源</h2>
 <ul>

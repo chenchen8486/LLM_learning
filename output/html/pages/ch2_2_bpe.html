@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>2.2 BPE：从数据压缩到子词词表</h1>
 <p class="subtitle">本页范围：第 2 章第 2 节　|　整理时间：2026-09-22</p>
 
@@ -186,15 +186,6 @@
     <div class="sc-key">它是人工设定的超参数：训练时合并到目标大小就停（如 GPT-2 的 50000 条合并加 256 字节加 1 个特殊 token）。取值要在序列长度、Embedding 参数量和稀有 token 训练充分性之间权衡。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　本节讲的 byte-level BPE 在 minimind 工程里有完整实现：<code>minimind-master/trainer/train_tokenizer.py</code>，基于 Hugging Face tokenizers 库训练 BPE 分词器（ByteLevel 预分词，词表 6400）。读代码时对照本节的“统计 → 合并 → 更新”循环，看 <code>BpeTrainer</code> 如何把它工程化。</p>
-
-<pre><code>cd minimind-master/trainer
-python train_tokenizer.py   # 训练产物在 ../model_learn_tokenizer/</code></pre>
-
-<p>　　注意两点：脚本开头注释明确提醒“不建议重复训练，仅供学习参考”（minimind 已自带词表，换词表会导致模型不通用）；运行前需安装依赖 <code>pip install tokenizers</code>。</p>
 
 <h2>参考来源</h2>
 <ul>

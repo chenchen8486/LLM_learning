@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>5.4 MoE 混合专家：一个大脑，多位专科医生</h1>
 <p class="subtitle">本页范围：第 5 章第 4 节　|　整理时间：2026-09-29</p>
 
@@ -247,35 +247,6 @@
   </div>
 </div>
 
-<h2>动手验证</h2>
-
-<p>　　本节机制在 minimind 中有一份不到 40 行的完整实现：<code>model/model_minimind.py</code> 的 <code>MOEFeedForward</code> 类（第 148–181 行；minimind 工程，Apache 2.0 协议）。对照本节概念逐行读：</p>
-
-<ul>
-  <li>第 152 行 <code>self.gate = nn.Linear(hidden_size, num_experts)</code>：路由器本体，就是公式 (1) 里的 \(W_g\)，输出维度等于专家数；</li>
-  <li>第 153 行：把同一个 <code>FeedForward</code> 复制 <code>num_experts</code> 份（默认 4 个，见 <code>MiniMindConfig</code> 第 41 行），每个专家都是结构相同的 FFN；</li>
-  <li>第 159–160 行：softmax 打分后用 <code>torch.topk</code> 选出 <code>num_experts_per_tok</code>（默认 1，第 42 行）个专家；</li>
-  <li>第 168–173 行：只有被选中的专家对分到的 token 做计算，输出按路由分数加权，即公式 (2)；</li>
-  <li>第 176–178 行：辅助负载均衡损失，与公式 (3) 同款思想，系数 <code>router_aux_loss_coef</code> 默认 5e-4（第 45 行）。</li>
-</ul>
-
-<p>　　装齐 minimind 的依赖（torch 与 transformers）后，在 <code>minimind-master</code> 目录下运行下面这段最小实验（bash 或 PowerShell 可直接粘贴），可以亲眼看到“每个 token 选中的专家不一样”：</p>
-
-<pre><code>python -c "
-import torch
-from model.model_minimind import MiniMindConfig, MOEFeedForward
-torch.manual_seed(0)
-cfg = MiniMindConfig(use_moe=True)
-moe = MOEFeedForward(cfg).train()
-x = torch.randn(1, 5, cfg.hidden_size)
-y = moe(x)
-scores = torch.softmax(moe.gate(x.view(-1, cfg.hidden_size)), dim=-1)
-top_idx = torch.topk(scores, k=cfg.num_experts_per_tok, dim=-1, sorted=False)[1]
-print('chosen:', top_idx.squeeze(0).tolist())
-print('out:', tuple(y.shape), '| aux_loss:', float(moe.aux_loss.detach()))"</code></pre>
-
-<p>　　笔者在本机实测（torch CPU 版，随机种子固定为 0）：5 个 token 被选中的专家编号是 <code>[[3], [2], [3], [1], [2]]</code>——同一个 MoE 层里不同 token 进了不同专家，而专家 0 一个 token 都没分到；输出形状仍是 <code>(1, 5, 768)</code>，与稠密 FFN 完全一致；辅助损失约 5.5e-4。读者的结果可能因初始化细节略有出入，但“各 token 各走各的专家”这一现象是稳定的。顺便说，专家 0 被冷落正是 5.4.4 节要防的苗头，公式 (3) 的辅助损失就是在给这种冷落记账。</p>
-
 <h2>参考来源</h2>
 <ul>
   <li>Shazeer et al., 2017. Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer（arXiv:1701.06538）：稀疏门控 MoE 的原始论文，137B 参数规模与噪声门控的出处。</li>
@@ -283,7 +254,7 @@ print('out:', tuple(y.shape), '| aux_loss:', float(moe.aux_loss.detach()))"</cod
   <li>Fedus, Zoph &amp; Shazeer, 2021. Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity（arXiv:2101.03961）：top-1 路由与公式 (3) 辅助负载均衡损失的出处。</li>
   <li>Jiang et al., 2024. Mixtral of Experts（arXiv:2401.04088）：46.7B 总参数、12.9B 激活、对标 Llama 2 70B，以及路由分析“专家分化不按话题、偏句法”的出处。</li>
   <li>DeepSeek-AI, 2024. DeepSeek-V3 Technical Report（arXiv:2412.19437）：671B 总参数、37B 激活、256 路由专家加共享专家与无辅助损失均衡策略的出处。</li>
-  <li>minimind 工程（Apache 2.0），<code>model/model_minimind.py</code> 的 MOEFeedForward 类：“动手验证”区块的代码出处。</li>
+  <li>minimind 工程（Apache 2.0），<code>model/model_minimind.py</code> 的 MOEFeedForward 类：MoE 的工程实现参考。</li>
 </ul>
 
 </article>

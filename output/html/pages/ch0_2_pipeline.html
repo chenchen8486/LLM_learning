@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>0.2 全景流水线：一张地图看懂 LLM 的一生</h1>
 <p class="subtitle">本页范围：第 0 章第 2 节　|　整理时间：2026-09-28</p>
 
@@ -22,7 +22,7 @@
   <li><strong>一张地图：LLM 的完整生命周期</strong>（0.2.1）：蛇形全景图，把数据、架构、训练、推理、评测十几道工序与手册章号一一对上；</li>
   <li><strong>训练四阶段：学什么，产出什么</strong>（0.2.2）：放大地图中段，预训练、中间训练、SFT、强化学习各自学什么、交出什么形态的模型；</li>
   <li><strong>模型形态演进链：base → instruct → reasoning</strong>（0.2.3）：用同一道算术题看三种形态模型截然不同的反应；</li>
-  <li><strong>带着这张地图读手册</strong>（0.2.4）：怎么用这张图定位每一章，以及配套的动手验证资源。</li>
+  <li><strong>带着这张地图读手册</strong>（0.2.4）：怎么用这张图定位每一章。</li>
 </ol>
 
 <p>　　读完本节，你手里就有了全手册的目录：学到任何一章，都能说出它站在流水线的哪一段、上游吃什么、下游交给谁。</p>
@@ -192,7 +192,7 @@
 
 <h2>0.2.4 带着这张地图读手册</h2>
 
-<p>　　本手册的章节与地图上的框一一对应，建议按顺序阅读：第 1-2 章备料，第 3-5 章搭骨架，第 6-11 章走完四个训练阶段，第 12-15 章讲推理、部署、应用与评测。学到任何一章时，都可以回到本页确认自己在流水线中的位置。机制类页面末尾附有"动手验证"区块，指向配套小工程的对应代码，把纸面知识变成手感。</p>
+<p>　　本手册的章节与地图上的框一一对应，建议按顺序阅读：第 1-2 章备料，第 3-5 章搭骨架，第 6-11 章走完四个训练阶段，第 12-15 章讲推理、部署、应用与评测。学到任何一章时，都可以回到本页确认自己在流水线中的位置。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
@@ -209,30 +209,6 @@
     <div class="sc-key">前三个阶段都在"模仿"已有文本，模仿不出没见过题目的多步推演。RLVR 用程序自动判对错来提供奖励，让模型自己试错练出推理策略，这条路线随推理模型的兴起在 2025 年成为标配。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　本手册配套的 <code>minimind-master/</code> 是一个 64M 参数的小模型工程（Apache 2.0 协议），把整条流水线压缩进一个可以读完的代码库。建议按流水线顺序对照阅读：</p>
-
-<div class="table-wrap">
-  <table>
-    <thead><tr><th>流水线环节</th><th>对应代码</th><th>对照章节</th></tr></thead>
-    <tbody>
-      <tr><td>数据</td><td><code>dataset/</code></td><td>第 1 章</td></tr>
-      <tr><td>分词</td><td><code>trainer/train_tokenizer.py</code></td><td>第 2 章</td></tr>
-      <tr><td>架构</td><td><code>model/model_minimind.py</code></td><td>第 4-5 章</td></tr>
-      <tr><td>预训练</td><td><code>trainer/train_pretrain.py</code></td><td>第 6 章</td></tr>
-      <tr><td>SFT</td><td><code>trainer/train_full_sft.py</code></td><td>第 9 章</td></tr>
-      <tr><td>对齐与强化学习</td><td><code>trainer/train_dpo.py</code>、<code>trainer/train_grpo.py</code></td><td>第 10-11 章</td></tr>
-      <tr><td>推理与评测</td><td><code>eval_llm.py</code></td><td>第 12、15 章</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<pre><code>cd minimind-master
-python eval_llm.py</code></pre>
-
-<p>　　运行后会加载小模型并进入交互对话。64M 参数的回答质量不代表大模型水平，重点是亲手把"训练 → 推理"这条流水线跑通一遍。</p>
 
 <h2>参考来源</h2>
 <ul>

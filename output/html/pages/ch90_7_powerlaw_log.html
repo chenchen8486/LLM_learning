@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>A.7 幂律与对数坐标：Scaling Law 的图怎么读</h1>
 <p class="subtitle">本页范围：附录 A 第 7 节　|　整理时间：2026-09-30</p>
 
@@ -170,21 +170,4 @@
   </table>
 </div>
 
-<h2>动手验证</h2>
-
-<p>　　下面的脚本复现 A.7.1 的数字：幂律按倍数下降，对数坐标下等距——等差数列就是直线的证据。</p>
-
-<pre><code>import numpy as np
-
-x = np.array([1, 10, 100, 1000, 10000], dtype=float)
-y = 100 * x ** (-0.5)
-print('y      =', np.round(y, 2))
-print('log10y =', np.round(np.log10(y), 2))   # 每步减 0.5：直线的斜率</code></pre>
-
-<p>　　实测输出：</p>
-
-<pre><code>y      = [100.    31.62  10.     3.16   1.  ]
-log10y = [2.   1.5  1.   0.5  0. ]</code></pre>
-
-<p>　　\(\log_{10} y\) 每步恰好减 0.5，与公式 (2) 的斜率 \(-b = -0.5\) 一致。6.4 节讲 Chinchilla 等真实 Scaling Law 时，研究者正是对训练好的若干个小模型做这样的对数回归，再延长直线规划大模型的算力。</p>
 </article>

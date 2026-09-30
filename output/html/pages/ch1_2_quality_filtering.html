@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>1.2 质量过滤：从万亿网页里挑出好文本</h1>
 <p class="subtitle">本页范围：第 1 章第 2 节　|　整理时间：2026-09-28</p>
 
@@ -175,15 +175,6 @@
     <div class="sc-key">它让大模型按教育价值标注样本、再蒸馏出小分类器，能判断语义层面“值不值得学”；代价是要先付出大模型标注的成本，且大模型的口味与偏见会被分类器继承。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　本节讲的质量过滤，在 minimind 的数据代码里恰恰是“已经完成”的前提：<code>minimind-master/dataset/lm_dataset.py</code> 中的 <code>PretrainDataset</code> 类直接用 <code>load_dataset('json', ...)</code> 读取 JSONL，每行样本就是一个已清洗的 <code>text</code> 字段，代码里没有任何过滤逻辑。原因很简单：小项目站在上游语料工程的肩膀上，过滤在数据发布前就做完了。工程默认使用的预训练语料是 <code>pretrain_t2t.jsonl</code> / <code>pretrain_t2t_mini.jsonl</code>（见 minimind README，数据下载后放入 <code>dataset/</code> 目录）。（出处：minimind 工程，Apache 2.0 协议）</p>
-
-<pre><code># 下载语料放入 minimind-master/dataset/ 后，查看已清洗数据的形态
-head -n 2 minimind-master/dataset/pretrain_t2t_mini.jsonl</code></pre>
-
-<p>　　预期每行是一条 JSON，其中 <code>text</code> 字段是干净连贯的中文文本。读代码时对照本节想一个问题：如果这份语料没经过过滤，<code>PretrainDataset</code> 会把什么东西原样送进模型？</p>
 
 <h2>参考来源</h2>
 <ul>

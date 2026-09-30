@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>4.6 一次完整前向：张量尺寸逐步走查</h1>
 <p class="subtitle">本页范围：第 4 章第 6 节　|　整理时间：2026-09-29</p>
 
@@ -51,7 +51,7 @@
 </div>
 
 <div class="highlight-box info">
-  minimind 还有 minimind2-small（26M，\(d=512\)）等历史档位，README 的规格表里都列着。本文选当前主线 minimind-3 的 64M 档，原因之一是它就是代码默认值，文末"动手验证"的脚本可以不传任何参数直接复现本文全部数字。
+  minimind 还有 minimind2-small（26M，\(d=512\)）等历史档位，README 的规格表里都列着。本文选当前主线 minimind-3 的 64M 档，原因之一是它就是代码默认值，本文全部数字都可以直接用代码默认值复现。
 </div>
 
 <p>　　输入设定为 batch 大小 \(B=1\)、序列长度 \(T=10\)：假设"床前明月光，疑是地上霜"这类一句话经分词器得到 10 个 token ID，拼成形状为 <code>[1, 10]</code> 的整数张量 <code>input_ids</code>。取 \(B=1\) 纯粹是为了看着清爽，batch 维只是"几句话一起算"，多加几句不改变任何一步的形状规律。</p>
@@ -263,39 +263,6 @@
     <div class="sc-key">FFN 占约 70%，注意力约 22%，Embedding 约 8%。所以 MoE 选择把 FFN 换成多专家来扩容量，GQA/MLA 选择压缩 K/V 来省推理显存——变体的靶子都由参数与算力账本决定。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　本文全部数字都能在你本机复现，对应实现：<code>model/model_minimind.py</code> 中的 <code>MiniMindConfig</code>（第 10 行）、<code>Attention</code>（第 91 行）、<code>FeedForward</code>（第 136 行）、<code>MiniMindBlock</code>（第 183 行）与 <code>MiniMindForCausalLM</code>（第 239 行）。把下面脚本存为 <code>minimind-master/forward_walkthrough.py</code>：</p>
-
-<pre><code>import torch
-from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
-
-config = MiniMindConfig()                     # 默认即 768 维 × 8 层的 64M 档
-model = MiniMindForCausalLM(config).eval()
-
-input_ids = torch.randint(0, config.vocab_size, (1, 10))   # 造一条 B=1, T=10 的输入
-with torch.no_grad():
-    out = model(input_ids)
-
-print('logits 形状:', tuple(out.logits.shape))             # (1, 10, 6400)
-n = sum(p.numel() for p in model.parameters())
-print(f'总参数量: {n:,} ≈ {n/1e6:.2f}M')                   # 63,912,192 ≈ 63.91M
-
-probs = torch.softmax(out.logits[0, -1], dim=-1)
-print('最后位置概率分布:', tuple(probs.shape), '概率和:', probs.sum().item())</code></pre>
-
-<p>　　运行与预期输出：</p>
-
-<pre><code>cd minimind-master
-python forward_walkthrough.py
-
-# 预期输出：
-# logits 形状: (1, 10, 6400)
-# 总参数量: 63,912,192 ≈ 63.91M
-# 最后位置概率分布: (6400,) 概率和: 1.0</code></pre>
-
-<p>　　脚本不加载任何训练权重：形状与参数量由配置唯一决定，随机初始化的模型同样能核对本文每一笔账。脚本不依赖 GPU，按 minimind 的 README 装好 torch 与 transformers 后，即可在 CPU 环境复现上述输出（`model_minimind.py` 会导入 transformers）。代码引用自 minimind 工程（jingyaogong/minimind），遵循 Apache 2.0 协议。</p>
 
 <h2>参考来源</h2>
 <ul>

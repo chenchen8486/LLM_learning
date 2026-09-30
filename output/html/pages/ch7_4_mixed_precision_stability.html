@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>7.4 混合精度与训练稳定性：快而不炸</h1>
 <p class="subtitle">本页范围：第 7 章第 4 节　|　整理时间：2026-09-30</p>
 
@@ -26,7 +26,7 @@
   <li><strong>训练稳定性实战：loss spike 与急救手册</strong>（7.4.3）：PaLM 约 20 次 spike 的回滚跳批策略、OPT-175B 的 35 次手动重启，外加初始化、warmup、梯度裁剪三道事前保险。</li>
 </ol>
 
-<p>　　读完本节，你应该能回答动手验证里那道思考题：为什么 minimind 默认用 bfloat16，而 GradScaler 对它完全关闭。</p>
+<p>　　读完本节，你应该能解释：为什么 minimind 默认用 bfloat16，而 GradScaler 对它完全关闭。</p>
 
 <h2>7.4.1 浮点格式对比：FP32 / TF32 / FP16 / BF16 / FP8</h2>
 
@@ -177,7 +177,7 @@
 </div>
 
 <div class="highlight-box info">
-  PyTorch 的 <code>GradScaler</code> 就是这套算法的现成实现：<code>scale</code> → <code>unscale_</code> → <code>step</code> → <code>update</code> 四连调用，溢出检测、减半、翻倍全自动。minimind 里的具体用法见本页「动手验证」。
+  PyTorch 的 <code>GradScaler</code> 就是这套算法的现成实现：<code>scale</code> → <code>unscale_</code> → <code>step</code> → <code>update</code> 四连调用，溢出检测、减半、翻倍全自动。minimind 里的具体用法见 <code>trainer/train_pretrain.py</code>。
 </div>
 
 <p>　　<strong>坑三：不是所有算子都适合半精度。</strong>矩阵乘是吞吐大头、对输入精度不敏感，而且乘加可以用 FP32 累加，适合半精度；softmax、LayerNorm 这类含指数、开方、大归约的算子数值敏感，保留 FP32 才稳。这就是<strong>算子黑白名单</strong>：论文时代要手工指定，今天 PyTorch 的 <code>autocast</code> 内置了名单——<code>with autocast_ctx:</code> 包住的区域里，matmul/conv/linear 自动落到半精度，softmax、layer_norm、cross_entropy 等自动留在 FP32，分流由框架完成。</p>
@@ -284,30 +284,6 @@
     <div class="sc-q">训练中遇到 loss spike 的标准处置流程是什么？</div>
     <div class="sc-key">从 spike 前约 100 步的健康 checkpoint 重启，跳过覆盖事故现场的 200–500 个 batch 再续训（PaLM 方案）。消融表明 spike 是特定数据撞上特定参数状态的组合事故，换批数据即可避开；同时检查学习率，必要时调低。</div>
   </div>
-</div>
-
-<h2>动手验证</h2>
-<p>　　本节机制在 minimind 中的对应实现（出处：minimind 工程，Apache 2.0 协议），集中在 <code>trainer/train_pretrain.py</code>：</p>
-<ul>
-  <li>第 82 行：<code>--dtype</code> 参数默认 <code>bfloat16</code>、可选 <code>float16</code>——混合精度类型只是一个命令行开关；</li>
-  <li>第 113–114 行：dtype 选择与 <code>autocast_ctx</code> 的构造：GPU 上是 <code>torch.cuda.amp.autocast(dtype=dtype)</code>，CPU 上退化为 <code>nullcontext()</code>（不启用混合精度）。6.3.4 见过它在第 33 行包住 forward；</li>
-  <li>第 129 行：<code>scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))</code>——只有选 float16 才启用动态损失缩放；</li>
-  <li>第 38、41、44、45 行：scaler 生命周期的四个动作——<code>scale(loss).backward()</code> 放大反传、<code>unscale_</code> 还原梯度（紧跟着第 42 行梯度裁剪，裁的是还原后的真实梯度）、<code>step</code> 执行更新（内部先查溢出，有 inf/NaN 就跳过）、<code>update</code> 调整缩放因子；</li>
-  <li>第 67、137 行：checkpoint 保存与恢复 <code>scaler</code> 状态——缩放因子是训练状态的一部分，断点续训时一起恢复。</li>
-</ul>
-
-<p>　　再做两个不用 GPU 的小实验，亲手感受 FP16 的下溢与上溢（需装好 torch）：</p>
-
-<pre><code>cd minimind-master
-python -c "import torch; print('1e-9 的 FP16 →', torch.tensor([1e-9]).half().item(), '；BF16 →', torch.tensor([1e-9], dtype=torch.bfloat16).item())"
-python -c "import torch; print('70000 的 FP16 →', torch.tensor([70000.]).half().item(), '；BF16 →', torch.tensor([70000.], dtype=torch.bfloat16).item())"</code></pre>
-
-<p>　　预期结果：第一行 FP16 打印 <code>0.0</code>（下溢成 0）、BF16 打印 <code>9.97e-10</code>（约等于 1e-9，下溢不存在）；第二行 FP16 打印 <code>inf</code>（撞上 65504 上限）、BF16 打印 <code>70144.0</code>——不溢出，但 70000 被舍入到最近的可表示数，因为尾数只有 7 位。两条命令把指数位的「生死簿」与尾数位的「舍入墙」各演示了一遍。</p>
-
-<p>　　最后是一道思考题，建议先自己想再看答案：minimind 第 129 行里，为什么选 bfloat16 时 GradScaler 可以完全关闭？</p>
-
-<div class="highlight-box info">
-  参考答案：loss scaling 治的病是梯度下溢——FP16 指数只有 5 位，最小正数约 \(6 \times 10^{-8}\)，训练梯度动辄比它小，会被压成 0，所以要乘 \(S\) 把梯度「抬」进可表示范围。BF16 的指数位与 FP32 同为 8 位，可表示的最小正数低到约 \(10^{-38}\) 量级，比训练中任何真实梯度都小几十个数量级，下溢这种病根本不存在，自然不用吃药。这也是 129 行里 <code>enabled=False</code> 时 <code>scaler.scale(...)</code> 与 <code>scaler.step(...)</code> 只是原样透传的原因。
 </div>
 
 <h2>参考来源</h2>

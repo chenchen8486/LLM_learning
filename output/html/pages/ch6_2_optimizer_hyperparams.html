@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>6.2 优化器与超参数：万亿 token 怎么喂</h1>
 <p class="subtitle">本页范围：第 6 章第 2 节　|　整理时间：2026-09-29</p>
 
@@ -183,7 +183,7 @@
 </div>
 
 <div class="highlight-box info">
-  minimind 的调度没有 warmup：它的 <code>get_lr</code> 从峰值直接开始 cosine 衰减（见「动手验证」）。几十 M 的小模型开局梯度折腾不出大浪，省掉 warmup 也稳；这正是「模型越小、配方越可以粗放」的一个例子。
+  minimind 的调度没有 warmup：它的 <code>get_lr</code> 从峰值直接开始 cosine 衰减。几十 M 的小模型开局梯度折腾不出大浪，省掉 warmup 也稳；这正是「模型越小、配方越可以粗放」的一个例子。
 </div>
 
 <h2>6.2.4 超参与模型规模的联动直觉</h2>
@@ -227,19 +227,6 @@
     <div class="sc-key">峰值学习率随规模下降（GPT-3 从 125M 的 6×10⁻⁴ 降到 175B 的 0.6×10⁻⁴），每步 token 数随规模上升（50 万升到 320 万）；Adam 家族、cosine 衰减到 10%、梯度裁剪 1.0 这套骨架不变。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-<p>　　本节机制在 minimind 中的对应实现（出处：minimind 工程，Apache 2.0 协议）：</p>
-<ul>
-  <li><code>trainer/train_pretrain.py</code> 第 130 行：<code>optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)</code>——优化器本体，β、ε、权重衰减全部用 PyTorch 默认值（0.9/0.999、1e-8、0.01）；</li>
-  <li>同文件第 29–31 行：每一步先调 <code>get_lr(...)</code> 算学习率，再逐个写进 <code>optimizer.param_groups</code>——学习率调度是手动逐步驱动的；</li>
-  <li><code>trainer/trainer_utils.py</code> 第 42–43 行：<code>get_lr</code> 的完整实现就一行，\( \eta_t = \eta \cdot (0.1 + 0.45(1 + \cos(\pi t / T))) \)，起点是峰值、终点是峰值的 10%，纯 cosine 无 warmup；</li>
-  <li><code>train_pretrain.py</code> 第 42 行：<code>clip_grad_norm_(model.parameters(), args.grad_clip)</code>，配合第 85 行默认值 1.0，即「全局范数裁剪到 1.0」的落地代码。</li>
-</ul>
-<p>　　不装任何依赖，也能亲手复现 minimind 的学习率曲线——打印 10 步训练里每一步的学习率：</p>
-<pre><code>cd minimind-master
-python -c "import math; f=lambda t,T: 5e-4*(0.1+0.45*(1+math.cos(math.pi*t/T))); print([f'{f(t,10):.2e}' for t in range(11)])"</code></pre>
-<p>　　预期看到从 <code>5.00e-04</code> 一路平滑降到 <code>5.00e-05</code>（峰值的 10%）的一列数字——这就是公式 (5) 去掉 warmup 段后的样子。</p>
 
 <h2>参考来源</h2>
 <ul>

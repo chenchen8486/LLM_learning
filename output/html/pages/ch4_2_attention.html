@@ -29,6 +29,161 @@
 
 <p>　　读完全节，softmax(QKᵀ/√d_k)V 这个公式对你来说应该不再是一串符号，而是"先算谁和谁相关，再按相关程度取内容"这四步的速写。</p>
 
+<p>　　拆开之前先定位：注意力坐在整条前向链路的哪一站。4.1 节把 Transformer 层比作链路的引擎室，本节拆的是引擎室里最关键的那台机器：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="loc42P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="loc42G" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555">注入“第几格”</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888">（3.2–3.5 节）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc42P)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc42P)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc42P)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc42P)"/>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">本节主角：注意力机制</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（第 4 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（4.6 节）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc42G)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc42G)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#loc42G)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="120" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="146" y="302" font-size="10.5" fill="#555">浅色实线框：已讲章节</text>
+    <rect x="330" y="292" width="18" height="11" rx="2" fill="#6d28d9"/>
+    <text x="356" y="302" font-size="10.5" fill="#555">紫底框：本节主角</text>
+    <rect x="510" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="536" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：注意力在前向链路中的位置。前面各站（分词、Embedding、位置编码）已讲完，本节拆的是 Transformer 层里的核心部件——注意力机制。输出投影见 4.6 节，采样与自回归循环见第 12 章。</div>
+</div>
+
+<p>　　这台机器的内部是一连串矩阵运算。沿用第 3 章的 3 个 token 与 minimind 的真实尺寸（嵌入 768 维、每个注意力头 96 维），把它逐步画出来：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 480" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="att42P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="40" y="34" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：注意力机制——输入 3 × 768，输出 3 × 96（单个注意力头）</text>
+    <text x="40" y="60" font-size="11" fill="#64748b">第 1 步：同一个输入 X 乘三个投影矩阵，分出 Q、K、V（投影矩阵是训练学出来的参数）</text>
+    <rect x="40" y="74" width="110" height="120" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="40" y1="114" x2="150" y2="114" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="40" y1="154" x2="150" y2="154" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="77" y1="74" x2="77" y2="194" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="113" y1="74" x2="113" y2="194" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="131" y="140" text-anchor="middle" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="95" y="208" text-anchor="middle" font-size="11" fill="#6d28d9">X：3 × 768（3 个 token）</text>
+    <line x1="150" y1="134" x2="226" y2="91" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <line x1="150" y1="134" x2="226" y2="139" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <line x1="150" y1="134" x2="226" y2="187" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <rect x="230" y="74" width="100" height="34" rx="5" fill="#ffffff" stroke="#6d28d9"/>
+    <text x="280" y="95" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">W_Q</text>
+    <rect x="230" y="122" width="100" height="34" rx="5" fill="#ffffff" stroke="#6d28d9"/>
+    <text x="280" y="143" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">W_K</text>
+    <rect x="230" y="170" width="100" height="34" rx="5" fill="#ffffff" stroke="#6d28d9"/>
+    <text x="280" y="191" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">W_V</text>
+    <text x="230" y="222" font-size="10" fill="#64748b">投影矩阵：768 × 96</text>
+    <line x1="330" y1="91" x2="406" y2="91" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <line x1="330" y1="139" x2="406" y2="139" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <line x1="330" y1="187" x2="406" y2="187" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <rect x="410" y="74" width="110" height="34" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="465" y="95" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">Q：3 × 96</text>
+    <rect x="410" y="122" width="110" height="34" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="465" y="143" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">K：3 × 96</text>
+    <rect x="410" y="170" width="110" height="34" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="465" y="191" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">V：3 × 96</text>
+    <text x="410" y="222" font-size="10" fill="#9ca3af">V 在第 2 步末尾才上场</text>
+    <text x="40" y="258" font-size="11" fill="#64748b">第 2 步：打分 → 缩放 → 掩码 → softmax → 乘 V 加权求和（为什么除以 √96 见 A.2 节）</text>
+    <rect x="40" y="290" width="84" height="52" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="82" y="316" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">Q</text>
+    <text x="82" y="334" text-anchor="middle" font-size="10" fill="#6d28d9">3 × 96</text>
+    <rect x="40" y="354" width="84" height="52" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="82" y="380" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">K</text>
+    <text x="82" y="398" text-anchor="middle" font-size="10" fill="#6d28d9">3 × 96</text>
+    <line x1="124" y1="316" x2="157" y2="331" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <line x1="124" y1="380" x2="157" y2="341" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <circle cx="168" cy="336" r="13" fill="#6d28d9"/>
+    <text x="168" y="341" text-anchor="middle" font-size="14" fill="#ffffff">×</text>
+    <rect x="200" y="282" width="108" height="108" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="236" y1="282" x2="236" y2="390" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="272" y1="282" x2="272" y2="390" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="200" y1="318" x2="308" y2="318" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="200" y1="354" x2="308" y2="354" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="254" y="404" text-anchor="middle" font-size="11" fill="#6d28d9">① 原始分数 3 × 3</text>
+    <line x1="308" y1="336" x2="336" y2="336" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <text x="322" y="322" text-anchor="middle" font-size="10" fill="#64748b">÷√96 ≈ 9.8</text>
+    <rect x="338" y="282" width="108" height="108" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="374" y1="282" x2="374" y2="390" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="410" y1="282" x2="410" y2="390" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="338" y1="318" x2="446" y2="318" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="338" y1="354" x2="446" y2="354" stroke="#ddd6fe" stroke-width="1"/>
+    <rect x="374" y="282" width="36" height="36" fill="#e5e7eb"/>
+    <rect x="410" y="282" width="36" height="36" fill="#e5e7eb"/>
+    <rect x="410" y="318" width="36" height="36" fill="#e5e7eb"/>
+    <text x="392" y="304" text-anchor="middle" font-size="9" fill="#6b7280">−∞</text>
+    <text x="428" y="304" text-anchor="middle" font-size="9" fill="#6b7280">−∞</text>
+    <text x="428" y="340" text-anchor="middle" font-size="9" fill="#6b7280">−∞</text>
+    <text x="392" y="404" text-anchor="middle" font-size="11" fill="#6d28d9">② 掩码：挡住未来（4.5 节）</text>
+    <line x1="446" y1="336" x2="474" y2="336" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <text x="460" y="322" text-anchor="middle" font-size="10" fill="#64748b">softmax</text>
+    <rect x="476" y="282" width="108" height="108" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="512" y1="282" x2="512" y2="390" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="548" y1="282" x2="548" y2="390" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="476" y1="318" x2="584" y2="318" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="476" y1="354" x2="584" y2="354" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="530" y="404" text-anchor="middle" font-size="11" fill="#6d28d9">③ 注意力权重：每行和为 1</text>
+    <rect x="560" y="222" width="76" height="42" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="598" y="241" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">V</text>
+    <text x="598" y="257" text-anchor="middle" font-size="10" fill="#6d28d9">3 × 96</text>
+    <line x1="598" y1="264" x2="616" y2="321" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <line x1="584" y1="336" x2="609" y2="336" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <circle cx="622" cy="336" r="13" fill="#6d28d9"/>
+    <text x="622" y="341" text-anchor="middle" font-size="14" fill="#ffffff">×</text>
+    <line x1="635" y1="336" x2="646" y2="336" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <rect x="648" y="282" width="60" height="108" fill="#6d28d9" opacity="0.85"/>
+    <line x1="648" y1="318" x2="708" y2="318" stroke="#a78bfa" stroke-width="1"/>
+    <line x1="648" y1="354" x2="708" y2="354" stroke="#a78bfa" stroke-width="1"/>
+    <text x="678" y="404" text-anchor="middle" font-size="11" fill="#6d28d9">输出 3 × 96</text>
+    <text x="40" y="440" font-size="11" fill="#64748b">权重第 i 行的含义：token i 给三个 token 分配的注意力份额，按份额对三行 V 加权求和（4.2.4 节手算全过程）</text>
+    <text x="40" y="464" font-size="11" fill="#64748b">8 个这样的头并行工作再拼接（4.3 节多头注意力）</text>
+  </svg>
+  <div class="diagram-caption">图示：注意力机制的内部结构（单个注意力头）。第 1 步，输入矩阵 X（3 × 768）分别乘三个投影矩阵，得到 Q、K、V（各 3 × 96）；第 2 步，Q 与 K 的转置相乘得 3 × 3 原始分数，除以 √96 缩放，上三角掩码挡住未来位置，softmax 把每行变成和为 1 的注意力权重，最后乘 V 得输出（3 × 96）。图中 3 × 3 小格只画结构不填数字，完整数字推演见 4.2.4 节。</div>
+</div>
+
 <h2>4.2.1 注意力在解决什么问题：每个 token 该听谁的</h2>
 
 <p>　　第 3 章讲过，Embedding 层给每个 token 查出一个静态向量：只要 token 相同，查出来的向量就相同。但语言的意思高度依赖语境。"苹果"在"我吃了一个苹果"和"苹果发布了新手机"里指的东西完全不同；"小猫追蝴蝶，因为它饿了"里的"它"指谁，也必须看了上下文才能确定。静态向量装不下这些信息，模型还缺一层机制：让每个 token 看一眼整句话，再决定自己的新表示要融入谁的信息。</p>
@@ -319,23 +474,10 @@
   </div>
 </div>
 
-<h2>动手验证</h2>
-
-<p>　　本节机制在 minimind 中的对应实现：<code>minimind-master/model/model_minimind.py</code> 的 <code>Attention</code> 类（第 91 行起，Apache 2.0 协议）。读代码时对照本节四处关键计算：</p>
-
-<ul>
-  <li>第 100–102 行 <code>q_proj / k_proj / v_proj</code>：就是本节的三个投影矩阵 \(W^Q\)、\(W^K\)、\(W^V\)，同一个输入 <code>x</code> 过三个线性层得到三种角色；</li>
-  <li>第 128 行 <code>scores = (xq @ xk.transpose(-2, -1)).float() / math.sqrt(self.head_dim)</code>：公式 (1) 的 \(QK^{\top} / \sqrt{d_k}\)；</li>
-  <li>第 129 行 <code>scores[...] += torch.full((seq_len, seq_len), float("-inf"), ...).triu(1)</code>：把上三角（看向未来的位置）加上 \(-\infty\)，正是 4.2.5 节的因果掩码；</li>
-  <li>第 131 行 <code>output = ...(F.softmax(scores, dim=-1)...) @ xv</code>：softmax 归一化后乘 \(V\)，完成加权求和。</li>
-</ul>
-
-<p>　　代码里还有两处本节没讲的细节：<code>num_key_value_heads</code> 与 <code>repeat_kv</code>（第 86 行）是 GQA 分组查询注意力，第 119 行的 <code>apply_rotary_pos_emb</code> 是 RoPE 旋转位置编码，分别对应第 5 章和第 3 章的内容，读到时留意即可。</p>
-
 <h2>参考来源</h2>
 <ul>
   <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）。本节的注意力定义、公式 (1)、缩放因子 \(1/\sqrt{d_k}\) 的理由、加性与点积注意力的对比、注意力的三种用法出自其 3.2 节；RNN 的串行瓶颈出自第 1 节；层类型复杂度对比出自第 4 节表 1。引用内容均以工程内中译本 ref_paper/2016_attention_is_all_you_need/2016_attention_is_all_you_need_zh.md 逐字核对。</li>
-  <li>minimind 工程（Apache 2.0）：model/model_minimind.py 中 Attention 类的实现，动手验证区块的行号以该文件实际代码为准。</li>
+  <li>minimind 工程（Apache 2.0）：model/model_minimind.py 中 Attention 类的实现。</li>
   <li>4.2.4 节的数值例子为自编演示数字（文中已标注），仅用于演示计算流程，不来自任何真实模型。</li>
 </ul>
 

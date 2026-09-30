@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>8.3 长上下文扩展 II：数据与训练工程</h1>
 <p class="subtitle">本页范围：第 8 章第 3 节　|　整理时间：2026-09-30</p>
 
@@ -255,7 +255,7 @@
 </div>
 
 <div class="highlight-box info">
-  动手验证提示：本工程 minimind 恰是「没有长数据就没有长能力」的反面教材——它的预训练数据全部是短文本，<code>trainer/train_pretrain.py</code> 第 90 行 <code>--max_seq_len</code> 默认值仅 340 token。这个规模足够验证训练流程，但任何长上下文技巧（RoPE 插值、YaRN）在它身上都无从谈起：数据里根本没有长距离依赖可学。
+  本工程 minimind 恰是「没有长数据就没有长能力」的反面教材——它的预训练数据全部是短文本，<code>trainer/train_pretrain.py</code> 第 90 行 <code>--max_seq_len</code> 默认值仅 340 token。这个规模足够验证训练流程，但任何长上下文技巧（RoPE 插值、YaRN）在它身上都无从谈起：数据里根本没有长距离依赖可学。
 </div>
 
 <h2>参考来源</h2>

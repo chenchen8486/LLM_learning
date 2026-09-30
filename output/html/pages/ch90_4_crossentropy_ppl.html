@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>A.4 交叉熵与困惑度：怎么给模型的预测打分</h1>
 <p class="subtitle">本页范围：附录 A 第 4 节　|　整理时间：2026-09-30</p>
 
@@ -168,24 +168,4 @@
   </table>
 </div>
 
-<h2>动手验证</h2>
-
-<p>　　下面的脚本复现 A.4.1 的惩罚力度表，以及 A.4.3 的两个锚点。注意一个巧妙的事实：单个位置的困惑度 \(e^{-\log p} = 1/p\)，正好等于正确词概率的倒数。</p>
-
-<pre><code>import math
-
-for p in (0.9, 0.5, 0.1, 0.01):
-    print(f'p={p:&gt;4}: loss={-math.log(p):.3f}  该位置 PPL={1/p:.1f}')
-
-print(f'词表 6400 全瞎猜: loss={math.log(6400):.2f}, PPL=6400')</code></pre>
-
-<p>　　实测输出：</p>
-
-<pre><code>p= 0.9: loss=0.105  该位置 PPL=1.1
-p= 0.5: loss=0.693  该位置 PPL=2.0
-p= 0.1: loss=2.303  该位置 PPL=10.0
-p=0.01: loss=4.605  该位置 PPL=100.0
-词表 6400 全瞎猜: loss=8.76, PPL=6400</code></pre>
-
-<p>　　训练代码里的交叉熵见 <code>minimind-master/model/model_minimind.py</code> 的 forward：<code>F.cross_entropy(logits.view(-1, logits.size(-1)), labels.view(-1), ...)</code>，即对整个词表的分布与真实下一个词逐位置算公式 (1) 再平均。</p>
 </article>

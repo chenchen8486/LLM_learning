@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>3.4 相对位置编码：RoPE 与 ALiBi</h1>
 <p class="subtitle">本页范围：第 3 章第 4 节　|　整理时间：2026-09-28</p>
 
@@ -201,30 +201,12 @@
   </div>
 </div>
 
-<h2>动手验证</h2>
-
-<p>　　本节机制在 minimind 中的对应实现（minimind 工程，Apache 2.0 协议）集中在 <code>model/model_minimind.py</code> 的三个位置：</p>
-
-<ul>
-  <li><code>precompute_freqs_cis</code>（第 62 行）：对照公式 (2)，第 63 行 <code>1.0 / (rope_base ** (arange(0, dim, 2) / dim))</code> 正是 \(\theta_i = \mathrm{base}^{-2i/d}\)，随后一次性算好所有位置的 cos / sin 表；</li>
-  <li><code>apply_rotary_pos_emb</code>（第 80 行）：用 <code>rotate_half</code> 技巧实现公式 (1) 的二维旋转，核心是一行 <code>x * cos + rotate_half(x) * sin</code>；</li>
-  <li><code>Attention.forward</code>（第 119 行）：旋转只施加在 <code>xq</code>、<code>xk</code> 上，<code>xv</code>（value）原样通过，印证本节“只转 q / k、不碰 v”的分工。</li>
-</ul>
-
-<p>　　按 minimind 的 README 装好 torch 与 transformers 后，可以直接验证预计算表的形状（cos 与 sin 都是 \((L, d)\)，对应 \(d/2\) 组维度各一对 cos / sin）：</p>
-
-<pre><code>cd minimind-master
-python -c "from model.model_minimind import precompute_freqs_cis as p; c, s = p(dim=96, end=1024); print(c.shape, s.shape)"
-# 预期输出：torch.Size([1024, 96]) torch.Size([1024, 96])</code></pre>
-
-<p>　　读代码时顺带留意 <code>precompute_freqs_cis</code> 第 64 行起的 <code>rope_scaling</code> 分支：那是 3.5 节要讲的 YaRN 缩放，专为长度外推准备。</p>
-
 <h2>参考来源</h2>
 <ul>
   <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864），旋转机制、频率公式 (2) 与相对位置性质公式 (3) 出自该文。</li>
   <li>Press, Smith &amp; Lewis, 2022. Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation（ALiBi 原始论文，arXiv:2108.12409），线性偏置公式 (4)、斜率几何级数公式 (5) 与 1024 训练 / 2048 测试的外推实验出自该文。</li>
   <li>苏剑林，2021. Transformer 升级之路：2、博采众长的旋转式位置编码（https://kexue.fm/archives/8265），RoPE 远程衰减性质的通俗分析。</li>
-  <li>minimind 工程 model/model_minimind.py（Apache 2.0），RoPE 工程实现与“动手验证”区块的出处。</li>
+  <li>minimind 工程 model/model_minimind.py（Apache 2.0），RoPE 工程实现参考。</li>
 </ul>
 
 </article>

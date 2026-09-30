@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>4.3 多头注意力与掩码：八个视角看同一句</h1>
 <p class="subtitle">本页范围：第 4 章第 3 节　|　整理时间：2026-09-29</p>
 
@@ -260,7 +260,7 @@
 
 <p>　　前两种是自注意力，Q、K、V 同源，区别只在有没有封条：编码器读原文时全句可见，解码器写译文时只许回看。第三种常叫<strong>交叉注意力</strong>（cross-attention）：Q 是解码器当前的状态，相当于"我现在想知道什么"；K、V 是编码器读完原文后留下的全套笔记，相当于"原文哪里写着答案"。翻译时每写一个词，解码器都拿着自己的问题去原文里检索一遍最相关的段落。</p>
 
-<p>　　值得一提的是，今天主流的 GPT 系模型只保留了第二种岗位：它们是纯解码器（decoder-only）架构，没有编码器，交叉注意力整层取消，只剩掩码自注意力一路堆叠。掩码因此从"三种用法之一"变成现代 LLM 的默认设定，第 12 章讲解码策略时还会反复用到它。动手验证环节要看的 minimind，正是这样一个纯解码器小模型。</p>
+<p>　　值得一提的是，今天主流的 GPT 系模型只保留了第二种岗位：它们是纯解码器（decoder-only）架构，没有编码器，交叉注意力整层取消，只剩掩码自注意力一路堆叠。掩码因此从"三种用法之一"变成现代 LLM 的默认设定，第 12 章讲解码策略时还会反复用到它。配套小工程 minimind 正是这样一个纯解码器模型。</p>
 
 <p>　　<strong>所以这一步在干嘛：</strong>同一台发动机装在三个工位上，靠切换 Q、K、V 的来源和可见范围，分别干"读原文""写译文（不偷看）""边写边查原文"三件事。</p>
 
@@ -279,23 +279,6 @@
     <div class="sc-key">在 softmax 之前把 \(j&gt;i\) 的分数置为 \(-\infty\)，softmax 后这些位置的权重精确为 0。位置 i 只能看 \(j\leq i\)，再配合解码器输入右移一位，预测第 i 个词时只依赖前 \(i-1\) 个已知输出。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　本节机制在 minimind 中有完整对应。minimind 是纯解码器小模型，它的注意力实现在 <code>model/model_minimind.py</code> 的 <code>Attention</code> 类（第 91–134 行，minimind 工程，Apache 2.0 协议）。对照本节概念读这些关键行：</p>
-
-<ul>
-  <li>第 100–103 行：<code>q_proj</code>、<code>k_proj</code>、<code>v_proj</code>、<code>o_proj</code> 四个线性层，正是公式 (1)(2) 里的 \(W^Q\)、\(W^K\)、\(W^V\)、\(W^O\)；</li>
-  <li>第 114–116 行：<code>view(bsz, seq_len, n_local_heads, head_dim)</code> 把投影结果切开分头，对应示意图里的"分头"一步；</li>
-  <li>第 128 行：<code>scores = (xq @ xk.transpose(-2, -1)) / math.sqrt(head_dim)</code>，即上一节的缩放点积打分；</li>
-  <li>第 129 行：因果掩码，构造一个上三角全为 \(-\infty\) 的矩阵加到分数上（<code>triu(1)</code> 取主对角线以上，恰好是"未来位置"）；</li>
-  <li>第 130 行：处理补齐位置的 padding 掩码用的是 \(-10^9\)，即"很大的负数"那条工程路线。</li>
-</ul>
-
-<pre><code># model/model_minimind.py 第 129 行：因果掩码（minimind 工程，Apache 2.0）
-scores[:, :, :, -seq_len:] += torch.full((seq_len, seq_len), float("-inf"), device=scores.device).triu(1)</code></pre>
-
-<p>　　还可以留意两个细节。其一，配置里 <code>num_attention_heads=8</code> 而 <code>num_key_value_heads=4</code>（第 22–23 行），K、V 的头数只有 Q 的一半，靠第 86–89 行的 <code>repeat_kv</code> 复制补齐，这正是第 5 章要展开的 GQA。其二，第 126 行的 flash 路径直接调用 PyTorch 的 <code>F.scaled_dot_product_attention(is_causal=True)</code>，掩码由底层算子代劳，原理与本节完全一致。</p>
 
 <h2>参考来源</h2>
 <ul>

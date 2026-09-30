@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>A.6 激活函数与归一化：让网络既会弯、又稳得住</h1>
 <p class="subtitle">本页范围：附录 A 第 6 节　|　整理时间：2026-09-30</p>
 
@@ -180,26 +180,4 @@
   </table>
 </div>
 
-<h2>动手验证</h2>
-
-<p>　　下面的脚本复现 A.6.2 的手算，并顺手验证三个激活函数在几个点的取值。</p>
-
-<pre><code>import numpy as np
-
-x = np.array([10.0, 20.0, 30.0])
-mu, sigma = x.mean(), x.std()
-print('均值', mu, ' 标准差', round(sigma, 3))
-print('归一化后', np.round((x - mu) / sigma, 3))
-
-def silu(v): return v / (1 + np.exp(-v))
-v = np.array([-2.0, 0.0, 2.0])
-print('ReLU', np.maximum(0, v), ' SiLU', np.round(silu(v), 3))</code></pre>
-
-<p>　　实测输出：</p>
-
-<pre><code>均值 20.0  标准差 8.165
-归一化后 [-1.225  0.      1.225]
-ReLU [0. 0. 2.]  SiLU [-0.238  0.      1.762]</code></pre>
-
-<p>　　真实实现见 <code>minimind-master/model/model_minimind.py</code>：<code>RMSNorm</code> 类就是公式 (5) 的代码（含可学习缩放参数），FFN 类里的 <code>silu</code> 门控与两路相乘就是 SwiGLU。</p>
 </article>

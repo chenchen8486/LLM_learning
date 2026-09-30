@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>8.5 中间训练实战剖面与全章收束</h1>
 <p class="subtitle">本页范围：第 8 章第 5 节　|　整理时间：2026-09-30</p>
 
@@ -129,7 +129,7 @@
     <!-- 箭头：产物 → 验收 -->
     <line x1="620" y1="141" x2="620" y2="183" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-mid)"/>
   </svg>
-  <div class="diagram-caption">图示：minimind 从 340 扩到 2048 的实验流程——三处改动里位置编码完全不动，实质动作只有「换长数据 ＋ 低学习率短续训」，最后长短双测验收。图中的具体参数名（max_seq_len、rope_theta、inference_rope_scaling、from_weight）与代码行号见本节正文和文末「动手验证」。</div>
+  <div class="diagram-caption">图示：minimind 从 340 扩到 2048 的实验流程——三处改动里位置编码完全不动，实质动作只有「换长数据 ＋ 低学习率短续训」，最后长短双测验收。图中的具体参数名（max_seq_len、rope_theta、inference_rope_scaling、from_weight）与代码行号见本节正文。</div>
 </div>
 
 <p>　　回到小节标题的问题：小模型要不要中间训练？答案是「看需求，但随时能做」。minimind 这类几十 M 的玩具模型，预训练一共就跑几个小时，「主训省钱、中期补强」的分阶段收益本来就不大；但真遇到长文本需求，它的中期训练也简单——不用分六轮、不用算 YaRN 参数，换一份长数据、低学习率续训几百步就完事。</p>
@@ -196,19 +196,6 @@
     <div class="sc-key">改数据分布会带来遗忘与长短跷跷板风险，单看一条线必然顾此失彼；且大海捞针单测会被「标称长度注水」骗过（RULER 实测：捞针满分不代表真实长文任务可用），三线合起来才分得清真提升与障眼法。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-<p>　　把 8.5.2 的假想实验落成可执行清单（出处：minimind 工程，Apache 2.0 协议）。三处改动对应的代码位置：</p>
-<ul>
-  <li><strong>数据侧</strong>：<code>trainer/train_pretrain.py</code> 第 90 行 <code>--max_seq_len</code>（默认 340）改为 2048；第 93 行 <code>--data_path</code> 指向自行构造的长文本 jsonl。截断与补齐逻辑在 <code>dataset/lm_dataset.py</code> 第 52 到 54 行（按 max_length 截断、加 BOS/EOS、padding），长度参数一变即自动适配，无需改代码。</li>
-  <li><strong>位置编码侧（验证「不用改」）</strong>：<code>model/model_minimind.py</code> 第 29 行 <code>rope_theta</code> 默认 1e6，第 27 行 <code>max_position_embeddings</code> 默认 32768；第 210 行模型初始化时按这两个值预算频率表。想体验推理期外推，把第 31 行 <code>inference_rope_scaling</code> 设为 True，即启用第 32 到 39 行内置的 YaRN 配置（原始长度 2048、放大 16 倍）。</li>
-  <li><strong>训练侧</strong>：<code>train_pretrain.py</code> 第 94 行 <code>--from_weight</code> 传入 <code>pretrain</code>；<code>trainer/trainer_utils.py</code> 第 121 到 129 行的 <code>init_model</code> 会据此加载 <code>../out/pretrain_768.pth</code>（strict=False），从预训练权重接着训而非从头开始。</li>
-</ul>
-<p>　　一份可直接修改运行的参考命令（长数据文件需自备）：</p>
-<pre><code>cd minimind-master
-python trainer/train_pretrain.py --max_seq_len 2048 --from_weight pretrain \
-    --learning_rate 1e-4 --epochs 1 --data_path ../dataset/pretrain_long.jsonl</code></pre>
-<p>　　两点说明：其一，<code>pretrain_long.jsonl</code> 仓库并未附带，需按 8.3 节的方法自行构造（拼接短文档或收集长文档，格式与原预训练数据一致，每条一个 <code>text</code> 字段）；其二，几百步后即可停训验收——先对比续训前后短文本上的困惑度确认没遗忘，再在 2K 长文里藏一个事实做捞针自测。</p>
 
 <h2>参考来源</h2>
 <ul>

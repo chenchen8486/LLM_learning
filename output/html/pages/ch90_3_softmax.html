@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>A.3 softmax 与温度：把分数变成概率</h1>
 <p class="subtitle">本页范围：附录 A 第 3 节　|　整理时间：2026-09-30</p>
 
@@ -217,23 +217,4 @@
   </table>
 </div>
 
-<h2>动手验证</h2>
-
-<p>　　下面的脚本复现 A.3.3 的整张表，顺便用上 A.3.2 的数值稳定写法。预期输出与正文表格逐格一致。</p>
-
-<pre><code>import numpy as np
-
-z = np.array([2.0, 1.0, 0.1])
-for T in (0.5, 1.0, 2.0):
-    zT = z / T
-    e = np.exp(zT - zT.max())   # 先减最大值，数学上与原式恒等
-    print(f'T={T}: {np.round(e / e.sum(), 3)}')</code></pre>
-
-<p>　　实测输出：</p>
-
-<pre><code>T=0.5: [0.864 0.117 0.019]
-T=1.0: [0.659 0.242 0.099]
-T=2.0: [0.502 0.304 0.194]</code></pre>
-
-<p>　　真实生成代码里的温度见 <code>minimind-master/eval_llm.py</code> 的 <code>--temperature</code> 参数（默认 0.85）：训练完模型跑评估时，把它调成 0.1 与 2.0 各生成几段话，能直接看到分布变尖与变平对文风的影响。</p>
 </article>

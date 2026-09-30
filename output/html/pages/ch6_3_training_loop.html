@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>6.3 一次预训练长什么样：训练循环逐步走查</h1>
 <p class="subtitle">本页范围：第 6 章第 3 节　|　整理时间：2026-09-29</p>
 
@@ -28,7 +28,7 @@
   <li><strong>从玩具到巨兽：规模账本</strong>（6.3.5）：同一套循环，minimind 与 GPT-3 的算力账单差几个数量级。</li>
 </ol>
 
-<p>　　本节的落脚点是动手：末尾「动手验证」给出可直接运行的最小预训练命令，建议真的跑一次。</p>
+<p>　　本节涉及的代码都在 minimind 工程的 <code>trainer/train_pretrain.py</code> 里，读完后建议对照源码把七步循环走一遍。</p>
 
 <h2>6.3.1 训练循环七步：从取数据到存盘</h2>
 
@@ -278,22 +278,6 @@ loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)</c
     <div class="sc-key">把一个大 batch 拆成 8 次小 forward/backward，loss 先除以 8 再反传，梯度在参数上原地累加，攒满 8 步才裁剪、step、清零。显存只占 batch=32 的份，有效批量却是 256。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　本节走查的三个文件（出处：minimind 工程，Apache 2.0 协议），建议对照本页边读边看：</p>
-<ul>
-  <li><code>trainer/train_pretrain.py</code>：<code>train_epoch</code>（第 24 行起）是七步循环本体，<code>__main__</code> 里的注释块（第 101–164 行）标出了初始化到训练的完整流程；</li>
-  <li><code>dataset/lm_dataset.py</code>：<code>PretrainDataset.__getitem__</code>（第 50–58 行）看 labels 克隆与 -100；</li>
-  <li><code>model/model_minimind.py</code>：<code>MiniMindForCausalLM.forward</code>（第 250–258 行）看 logits、右移切片与交叉熵。</li>
-</ul>
-
-<p>　　然后亲手跑一次最小预训练。需先装好依赖（建议在虚拟环境中 <code>pip install -r requirements.txt</code>），并按 minimind README 从 ModelScope（gongjy/minimind_dataset）下载 <code>pretrain_t2t_mini.jsonl</code>（约 1.2GB）放进 <code>dataset/</code> 目录：</p>
-
-<pre><code>cd minimind-master/trainer
-python train_pretrain.py</code></pre>
-
-<p>　　预期看到：每 100 步打印一行日志 <code>Epoch:[1/2](100/xxxx), loss: ..., logits_loss: ..., aux_loss: ..., lr: ..., epoch_time: xx.xmin</code>，loss 从 8.8 附近快速下滑；每 1000 步在 <code>out/</code> 下保存 <code>pretrain_768.pth</code>。单卡 RTX 3090 一轮约 1.2 小时，CPU 也可跑但会慢到失去耐心，只建议用来观察前几百步的日志格式。中途 Ctrl+C 也不慌：加 <code>--from_resume 1</code> 即可从 checkpoints/ 续训。训完后 <code>python eval_llm.py --weight pretrain</code> 可以直接和刚出炉的模型对话，检验这条 loss 曲线换来了什么。</p>
 
 <h2>参考来源</h2>
 <ul>

@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>7.3 张量并行与流水线并行：把模型本身切开</h1>
 <p class="subtitle">本页范围：第 7 章第 3 节　|　整理时间：2026-09-30</p>
 
@@ -210,7 +210,7 @@
   </div>
 </div>
 
-<p>　　本节不设「动手验证」区块，这个省略本身就是一课：minimind 只有 64M 参数，单张消费级显卡就装得下完整模型，所以它的代码里只有 6.3 节见过的数据并行包装（<code>trainer/train_pretrain.py</code> 第 146 行的 <code>DistributedDataParallel</code>），没有任何 TP/PP 实现——不是作者偷懒，而是不需要。这正是 7.1 节「规模决定工程取舍」的例证：张量并行与流水线并行是为「一份模型装不下」的千亿参数世界准备的工具，小模型用了反而白交通信税。</p>
+<p>　　minimind 只有 64M 参数，单张消费级显卡就装得下完整模型，所以它的代码里只有 6.3 节见过的数据并行包装（<code>trainer/train_pretrain.py</code> 第 146 行的 <code>DistributedDataParallel</code>），没有任何 TP/PP 实现——不是不需要，而是规模不到。这正是 7.1 节「规模决定工程取舍」的例证：张量并行与流水线并行是为「一份模型装不下」的千亿参数世界准备的工具，小模型用了反而白交通信税。</p>
 
 <h2>参考来源</h2>
 <ul>

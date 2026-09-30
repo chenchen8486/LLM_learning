@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>4.1 整体架构：编码器与解码器搭起的流水线</h1>
 <p class="subtitle">本页范围：第 4 章第 1 节　|　整理时间：2026-09-29</p>
 
@@ -282,22 +282,10 @@
   </div>
 </div>
 
-<h2>动手验证</h2>
-
-<p>　　本节的架构蓝图在 minimind 工程里能找到一个「现代简化版」实现：<code>model/model_minimind.py</code>。读代码时对照三个位置：</p>
-
-<ul>
-  <li><code>MiniMindModel</code>（第 201 行）：只有一塔——<code>embed_tokens</code> 嵌入、<code>num_hidden_layers</code> 个 <code>MiniMindBlock</code>、末尾一个归一化，没有编码器塔，也没有编码器-解码器注意力。这正是 4.1.5 节说的 decoder-only：现代 LLM 把原论文的两塔塌缩成了一塔。</li>
-  <li><code>MiniMindBlock</code>（第 183 行）：每层只有 <code>self_attn</code> 加 <code>mlp</code> 两个子层，对应原论文解码器砍掉中间那个注意力子层后的样子；注意 <code>forward</code> 里的 <code>residual</code> 写法，就是公式 (1) 残差连接的工程实现（归一化被挪到了子层之前，第 5 章会讲这个变体）。</li>
-  <li><code>MiniMindForCausalLM</code>（第 239 行）：类属性 <code>_tied_weights_keys</code>（第 241 行）把输出投影 <code>lm_head.weight</code> 绑定到 <code>model.embed_tokens.weight</code>，正是原论文 3.4 节「输入嵌入与输出投影共享权重」的延续。</li>
-</ul>
-
-<p>　　其余差异也值得一眼带过：归一化用的是 RMSNorm 而非 LayerNorm，位置信息靠 RoPE 注入而非绝对位置编码相加——这些都属于第 5 章的现代变体。代码出处：minimind 工程，Apache 2.0 协议，行号以当前工程源码为准。</p>
-
 <h2>参考来源</h2>
 <ul>
   <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）。本页全部架构事实出自该文：翻译任务定位与 BLEU 成绩见摘要，RNN 串行瓶颈见第 1 节，编码器-解码器定义与自回归表述见第 3 节引言，6 层堆叠、两/三子层结构、残差与层归一化公式、掩码与右移一位见 3.1 节，编码器-解码器注意力的 Q/K/V 来源见 3.2.3 节，FFN 维度见 3.3 节，Embedding 乘 \(\sqrt{d_{\mathrm{model}}}\) 与三处权重共享见 3.4 节；中文表述对照工程内 ref_paper 译本逐字核对。</li>
-  <li>minimind 工程源码（Apache 2.0），<code>model/model_minimind.py</code>，动手验证区块引用的类名与行号以该工程当前源码为准。</li>
+  <li>minimind 工程源码（Apache 2.0），<code>model/model_minimind.py</code>，现代 decoder-only 架构的工程实现参考。</li>
 </ul>
 
 </article>

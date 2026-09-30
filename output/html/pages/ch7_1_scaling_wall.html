@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>7.1 显存墙与算力墙：为什么单卡训不动大模型</h1>
 <p class="subtitle">本页范围：第 7 章第 1 节　|　整理时间：2026-09-30</p>
 
@@ -341,14 +341,6 @@
     <div class="sc-key">数据并行切数据治算力墙；张量并行切单层矩阵、流水线并行切层、ZeRO 切模型状态、序列并行切序列维的激活，后四样治显存墙的不同成分。实战组合成 3D 并行，细节在 7.2 与 7.3。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-<p>　　本节的算账不需要任何 GPU，一个 Python 解释器就够。先算显存账——把公式 (1) 代到你感兴趣的模型上：</p>
-<pre><code>python -c "N=7e9; print(f'{N*16/1e9:.0f} GB 模型状态（7B 模型，混合精度 Adam）')"</code></pre>
-<p>　　预期输出 <code>112 GB 模型状态</code>——哪怕「只有」7B，全量训练状态也装不进一张 80GB 卡，这就是 7B 微调也要 ZeRO 或 LoRA（第 9 章）的原因。再算时间账：</p>
-<pre><code>python -c "C=6*100e9*1e12; R=989e12; print(f'{C:.1e} FLOPs；H100 满血 {C/R/3.156e7:.0f} 年，40% MFU 约 {C/(R*0.4)/3.156e7:.0f} 年，千卡 {C/(R*0.4*1000)/86400:.0f} 天')"</code></pre>
-<p>　　预期输出 <code>6.0e+23 FLOPs；H100 满血 19 年，40% MFU 约 48 年，千卡 18 天</code>。把 100e9 换成 64e6（minimind 的参数量），同样的 1T token 满血只要约 4.5 天——小模型与大模型的工程难度，就藏在这一串指数里。</p>
-<p>　　代码侧的对照（出处：minimind 工程，Apache 2.0 协议）在 <code>trainer/train_pretrain.py</code>：第 33–36 行 autocast 前向与 loss 除以累积步数（混合精度省显存的落点）；第 84 行 <code>accumulation_steps</code> 默认 8；第 114 行 <code>autocast_ctx</code>（默认 bfloat16）；第 129 行 <code>GradScaler</code> 仅 fp16 启用；第 146 行 <code>DistributedDataParallel</code> 包装——多卡训练时，7.1.3 地图里的数据并行就是这一行代码。</p>
 
 <h2>参考来源</h2>
 <ul>

@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>8.2 长上下文扩展 I：位置编码缩放</h1>
 <p class="subtitle">本页范围：第 8 章第 2 节　|　整理时间：2026-09-30</p>
 
@@ -261,25 +261,6 @@
   </div>
 </div>
 
-<h2>动手验证</h2>
-
-<p>　　本节的两个旋钮在 minimind 中都有实物（minimind 工程，Apache 2.0 协议），集中在 <code>model/model_minimind.py</code>：</p>
-
-<ul>
-  <li>8.2.4 的“调大 base”旋钮：第 29 行 <code>self.rope_theta = kwargs.get("rope_theta", 1e6)</code>——默认值就是 \(10^6\)，改这个配置项就是调 base；第 210 行把它传给 <code>precompute_freqs_cis</code> 的 <code>rope_base</code> 参数。</li>
-  <li>8.2.3 的 YaRN 全套实现：第 62-78 行 <code>precompute_freqs_cis</code>。其中第 63 行是 3.4 节的 \(\theta_i = \mathrm{base}^{-2i/d}\)；第 70-73 行按波长求分段边界并生成线性斜坡，第 73 行 <code>freqs * (1 - ramp + ramp / factor)</code> 正是本节公式 (6) 的代码形态；第 76-77 行把 <code>attn_factor</code> 乘在 cos / sin 上，对应公式 (7) 的温度补偿。开关在第 31-39 行：<code>inference_rope_scaling</code> 置真后启用内置 YaRN 配置（factor 16、original_max_position_embeddings 2048、beta_fast 32、beta_slow 1——正是公式 (6) 的两个阈值）。</li>
-</ul>
-
-<p>　　不动模型也能先获得手感。下面这段命令直接计算 8 维 toy 设置下、两种 base 各自的四组旋转频率（即 \(\theta_i\)）：</p>
-
-<pre><code>cd minimind-master
-python -c "import torch; f=lambda b: 1.0/(b**(torch.arange(0,8,2).float()/8)); print('base=1e4:', f(1e4).tolist()); print('base=1e6:', f(1e6).tolist())"
-# 实测输出：
-# base=1e4: [1.0, 0.1, 0.01, 0.001]
-# base=1e6: [1.0, 0.0316, 0.001, 3.16e-05]</code></pre>
-
-<p>　　对照两组数字：最快一组频率恒为 1（快端钉住），越慢的组被压得越狠，最慢一组从 \(10^{-3}\) 压到 \(3.2 \times 10^{-5}\)——公式 (8) 的“高频少动、低频多缩”，就写在这行输出里。</p>
-
 <h2>参考来源</h2>
 <ul>
   <li>Chen et al., 2023. Extending Context Window of Large Language Models via Positional Interpolation（位置插值 PI 原始论文，arXiv:2306.15595），公式 (1)(2)、直接外推 PPL 突破 \(10^3\)、注意力分数区间外超 8000、内插外推上界约 600 倍之差、千步微调与 passkey 有效窗口实验均出自该文。</li>
@@ -291,7 +272,7 @@ python -c "import torch; f=lambda b: 1.0/(b**(torch.arange(0,8,2).float()/8)); p
   <li>DeepSeek-AI, 2024. DeepSeek-V3 Technical Report（DeepSeek-V3 技术报告，arXiv:2412.19437），YaRN 两级扩展 4K → 32K → 128K、每级 1000 步出自该文。</li>
   <li>Bai et al., 2023. Qwen Technical Report（Qwen 技术报告，arXiv:2309.16609），NTK-aware 插值、LogN 注意力缩放与窗口注意力的推理侧组合出自该文；Yang et al., 2024. Qwen2 Technical Report（arXiv:2407.10671），YaRN 推理扩展到 128K 出自该文。</li>
   <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864），频率公式 \(\theta_i = \mathrm{base}^{-2i/d}\) 的出处，详见 3.4 节。</li>
-  <li>minimind 工程 model/model_minimind.py（Apache 2.0），rope_theta 配置、YaRN 实现与“动手验证”区块的出处。</li>
+  <li>minimind 工程 model/model_minimind.py（Apache 2.0），rope_theta 配置与 YaRN 实现的工程参考。</li>
 </ul>
 
 </article>

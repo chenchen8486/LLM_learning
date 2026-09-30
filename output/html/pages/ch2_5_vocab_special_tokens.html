@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>2.5 词表与特殊 Token</h1>
 <p class="subtitle">本页范围：第 2 章第 5 节　|　整理时间：2026-09-22</p>
 
@@ -166,14 +166,6 @@
     <div class="sc-key">一套把多轮对话拼成单串文本的格式协议：用特殊 token 标记角色与轮次边界。模型通过训练数据学会这套约定，用错模板就等于说错方言，会直接导致答非所问或不会停止。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　minimind 的分词器就是本节配置的实例：<code>minimind-master/trainer/train_tokenizer.py</code> 中 <code>VOCAB_SIZE = 6400</code>、<code>SPECIAL_TOKENS_NUM = 36</code>。训练好的词表在 <code>minimind-master/model/tokenizer.json</code>，可直接打开查看特殊 token 定义与全部词条。已实测：加载后词表大小恰为 6400。</p>
-
-<pre><code>from tokenizers import Tokenizer
-tok = Tokenizer.from_file('minimind-master/model/tokenizer.json')
-print(tok.get_vocab_size())   # 6400</code></pre>
 
 <h2>参考来源</h2>
 <ul>

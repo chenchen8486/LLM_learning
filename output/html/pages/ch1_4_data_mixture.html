@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>1.4 数据配比：网页、代码、数学各放多少</h1>
 <p class="subtitle">本页范围：第 1 章第 4 节　|　整理时间：2026-09-28</p>
 
@@ -164,12 +164,6 @@
     <div class="sc-key">参考模型提供各域损失基线，代理模型用 Group DRO 最小化最坏域的超额损失，自动学出域权重；关键是小模型上学出的配比能直接外推到 30 倍大的模型，试错成本大降。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-<p>　　minimind 的预训练数据是单一成品文件（<code>pretrain_t2t.jsonl</code>，配比在数据制作阶段已完成），但"按比例混合不同类型样本"的思想在数据加载代码里就有体现：<code>dataset/lm_dataset.py</code> 的 <code>pre_processing_chat</code> 用参数 <code>add_system_ratio=0.2</code> 控制约 20% 的对话样本被加上 system 提示词，<code>RLAIFDataset</code> 用 <code>thinking_ratio=0.5</code> 控制一半样本开启思考链。配比落到工程里，就是一个采样概率参数。</p>
-<pre><code># 读代码位置（minimind 工程，Apache 2.0）
-minimind-master/dataset/lm_dataset.py   # 第 9、31、200 行附近的 ratio 参数</code></pre>
-<p>　　另一个实例在 README 的数据集说明里：<code>sft_t2t.jsonl</code> 中已混入一部分 Tool Call 样本，模型因此免去一轮独立的工具调用微调。这正是本节"配比服务于能力"的思路在小工程里的落地。</p>
 
 <h2>参考来源</h2>
 <ul>

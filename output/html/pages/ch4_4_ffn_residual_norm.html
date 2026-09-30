@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</h1>
 <p class="subtitle">本页范围：第 4 章第 4 节　|　整理时间：2026-09-29</p>
 
@@ -237,19 +237,6 @@
     <div class="sc-key">对该 token 的 512 个分量减去均值、除以标准差，折算成均值 0、方差 1 的标准形态，再乘可学习的 \(\gamma\)、加可学习的 \(\beta\) 微调尺度，让每层输入的数值分布保持稳定。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　本节机制在 minimind 中的对应实现（<code>model/model_minimind.py</code>，minimind 工程，Apache 2.0）：</p>
-
-<ul>
-  <li><strong>FFN</strong>：<code>FeedForward</code> 类（第 136 行）。注意 minimind 用的是现代 SwiGLU 变体 <code>down_proj(act_fn(gate_proj(x)) * up_proj(x))</code>，比原论文的 ReLU 两段式多一路门控投影，第 5 章细讲；</li>
-  <li><strong>残差连接</strong>：<code>MiniMindBlock</code> 类的 <code>forward</code>（第 183-199 行）：<code>residual = hidden_states</code> …… <code>hidden_states += residual</code>，正是公式 (2) 里的 \(x+\mathrm{Sublayer}(x)\)；</li>
-  <li><strong>归一化</strong>：用的是 <code>RMSNorm</code> 类（第 50 行），LN 的简化版；且顺序是 Pre-LN——先做 <code>input_layernorm</code> 再进注意力（第 194 行），与原论文的 Post-LN 相反，正好印证本节末尾的演进预告；</li>
-  <li><strong>residual dropout</strong>：<code>Attention</code> 类第 107 行定义 <code>resid_dropout</code>，第 133 行施加在输出投影之后（minimind 默认 <code>dropout</code> 取 0.0）。</li>
-</ul>
-
-<p>　　读 <code>MiniMindBlock.forward</code> 时对照 4.4.4 节的示意图，能直观看到「归一化 → 子层 → 加残差」的现代组装顺序，与图中 Post-LN 顺序只差归一化的位置。</p>
 
 <h2>参考来源</h2>
 <ul>

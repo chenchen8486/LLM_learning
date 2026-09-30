@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>A.5 梯度下降与反向传播：模型怎么从损失里学东西</h1>
 <p class="subtitle">本页范围：附录 A 第 5 节　|　整理时间：2026-09-30</p>
 
@@ -194,22 +194,4 @@
   </table>
 </div>
 
-<h2>动手验证</h2>
-
-<p>　　A.5.3 的手算结果可以用 PyTorch 的自动微分复核，逐字一致：</p>
-
-<pre><code>import torch
-
-w = torch.tensor(2.0, requires_grad=True)
-x, y = 2.0, 1.0
-y_hat = w * x            # ŷ = wx
-L = (y_hat - y) ** 2     # L = (ŷ − y)²
-L.backward()             # 反向传播：自动算 ∂L/∂w
-print('ŷ =', y_hat.item(), ' L =', L.item(), ' ∂L/∂w =', w.grad.item())</code></pre>
-
-<p>　　实测输出：</p>
-
-<pre><code>ŷ = 4.0  L = 9.0  ∂L/∂w = 12.0</code></pre>
-
-<p>　　与公式 (3) 的手算完全相同。真实训练里的同一段逻辑见 <code>minimind-master/trainer/train_pretrain.py</code> 的训练循环：<code>scaler.scale(loss).backward()</code>（混合精度下的反向传播，混合精度见 7.4 节）之后接 <code>torch.nn.utils.clip_grad_norm_</code>（梯度裁剪）与 <code>scaler.step(optimizer)</code>（公式 (2) 的 Adam 版），一个训练步就齐了。</p>
 </article>

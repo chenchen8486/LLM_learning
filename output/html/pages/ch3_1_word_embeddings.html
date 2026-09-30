@@ -1,4 +1,4 @@
-<article class="content">
+﻿<article class="content">
 <h1>3.1 词向量：把 token 放进语义坐标系</h1>
 <p class="subtitle">本页范围：第 3 章第 1 节　|　整理时间：2026-09-28</p>
 
@@ -27,11 +27,11 @@
 
 <p>　　读完全节，你应该能说清一件事：为什么主流模型选择把词向量「长」在网络里，而不是用一张现成的表。</p>
 
-<p>　　逐代展开之前，先看一眼 Embedding 在整个 LLM 链路中的位置。心里有这张地图，后面每一节都知道自己站在哪：</p>
+<p>　　逐代展开之前，先看一眼 Embedding 在整个 LLM 链路中的位置，以及这个位置放大之后的内部结构。心里有这张地图，后面每一节都知道自己站在哪：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 720 212" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
     <defs>
       <marker id="arrPE" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
@@ -40,62 +40,185 @@
         <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
       </marker>
     </defs>
-    <!-- 节点 1：原始文本 -->
-    <rect x="4" y="56" width="88" height="76" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="48" y="86" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">原始文本：</text>
-    <text x="48" y="106" text-anchor="middle" font-size="10.5" fill="#555">「我爱中国」</text>
-    <!-- 节点 2：分词器 -->
-    <rect x="108" y="56" width="88" height="76" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="152" y="78" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">分词器：</text>
-    <text x="152" y="96" text-anchor="middle" font-size="10.5" fill="#555">切成 token ID</text>
-    <text x="152" y="113" text-anchor="middle" font-size="9.5" fill="#888">（第 2 章）</text>
-    <!-- 节点 3：Embedding 层（本节主角） -->
-    <rect x="212" y="56" width="88" height="76" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
-    <text x="256" y="78" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">Embedding 层：</text>
-    <text x="256" y="96" text-anchor="middle" font-size="10.5" fill="#ede9fe">ID → 词向量</text>
-    <text x="256" y="113" text-anchor="middle" font-size="9.5" fill="#d8b4fe">（本节主角）</text>
-    <!-- 节点 4：位置编码 -->
-    <rect x="316" y="56" width="88" height="76" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="360" y="78" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">位置编码：</text>
-    <text x="360" y="96" text-anchor="middle" font-size="10.5" fill="#555">注入“第几格”</text>
-    <text x="360" y="113" text-anchor="middle" font-size="9.5" fill="#888">（3.2–3.5 节）</text>
-    <!-- 节点 5：Transformer 层 -->
-    <rect x="420" y="56" width="88" height="76" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
-    <text x="464" y="78" text-anchor="middle" font-size="12" font-weight="bold" fill="#6b7280">Transformer：</text>
-    <text x="464" y="96" text-anchor="middle" font-size="10.5" fill="#6b7280">注意力与前馈 ×N</text>
-    <text x="464" y="113" text-anchor="middle" font-size="9.5" fill="#9ca3af">（第 4 章）</text>
-    <!-- 节点 6：输出投影 -->
-    <rect x="524" y="56" width="88" height="76" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
-    <text x="568" y="78" text-anchor="middle" font-size="12" font-weight="bold" fill="#6b7280">输出投影：</text>
-    <text x="568" y="96" text-anchor="middle" font-size="10.5" fill="#6b7280">各 token 的概率</text>
-    <text x="568" y="113" text-anchor="middle" font-size="9.5" fill="#9ca3af">（第 4 章）</text>
-    <!-- 节点 7：采样 -->
-    <rect x="628" y="56" width="88" height="76" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
-    <text x="672" y="78" text-anchor="middle" font-size="12" font-weight="bold" fill="#6b7280">采样：</text>
-    <text x="672" y="96" text-anchor="middle" font-size="10.5" fill="#6b7280">吐出下一个 token</text>
-    <text x="672" y="113" text-anchor="middle" font-size="9.5" fill="#9ca3af">（第 12 章）</text>
-    <!-- 主干箭头 -->
-    <line x1="92" y1="94" x2="106" y2="94" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrPE)"/>
-    <line x1="196" y1="94" x2="210" y2="94" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrPE)"/>
-    <line x1="300" y1="94" x2="314" y2="94" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrPE)"/>
-    <line x1="404" y1="94" x2="418" y2="94" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrPEG)"/>
-    <line x1="508" y1="94" x2="522" y2="94" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrPEG)"/>
-    <line x1="612" y1="94" x2="626" y2="94" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrPEG)"/>
-    <!-- 自回归回路 -->
-    <path d="M 672 132 C 672 162, 48 162, 48 134" fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrPEG)"/>
-    <text x="360" y="180" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续生成下一个（自回归循环，第 12 章细讲）</text>
+    <!-- 第一行：原始文本 → 分词器 → Embedding → 位置编码 -->
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888">（输入起点）</text>
+
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888">（第 2 章）</text>
+
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555">注入“第几格”</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888">（3.2–3.5 节）</text>
+
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrPE)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrPE)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrPE)"/>
+
+    <!-- 右侧折向下行 -->
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrPEG)"/>
+
+    <!-- 第二行（右 → 左）：Transformer → 输出投影 → 采样 -->
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrPEG)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrPEG)"/>
+
+    <!-- 自回归回路：采样 → 原始文本 -->
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrPEG)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+
     <!-- 图例 -->
-    <rect x="200" y="193" width="16" height="10" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
-    <text x="222" y="202" font-size="10" fill="#555">实线框：第 2～3 章（含本节）</text>
-    <rect x="392" y="193" width="16" height="10" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
-    <text x="414" y="202" font-size="10" fill="#6b7280">虚线框：后续章节展开</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：第 2～3 章（含本节）</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节展开</text>
   </svg>
   <div class="diagram-caption">图示：Embedding 层在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（本节），随后注入位置信息（3.2–3.5 节），进入 Transformer 层（第 4 章），最后算出各 token 的概率并采样出下一个（第 12 章），新 token 接回输入循环往复。虚线部分在对应章节展开，本节只需记住：Embedding 是这条链路的第一站，只负责「这个词是谁」。</div>
 </div>
 
+<p>　　这个紫框放大之后长什么样？它的输入和输出各是什么形状？把 Embedding 单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 560" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="embP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="60" y="36" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：Embedding 层——输入 token ID，输出 3 × 768 嵌入矩阵</text>
+    <text x="60" y="64" font-size="11" fill="#64748b">输入：3 个 token ID（minimind 分词器对「我爱中国」的实测输出）</text>
+    <rect x="90" y="74" width="140" height="44" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="160" y="92" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">「我」</text>
+    <text x="160" y="110" text-anchor="middle" font-size="11" fill="#6d28d9">ID = 463</text>
+    <rect x="290" y="74" width="140" height="44" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="360" y="92" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">「爱」</text>
+    <text x="360" y="110" text-anchor="middle" font-size="11" fill="#6d28d9">ID = 2043</text>
+    <rect x="490" y="74" width="140" height="44" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="560" y="92" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">「中国」</text>
+    <text x="560" y="110" text-anchor="middle" font-size="11" fill="#6d28d9">ID = 1405</text>
+    <line x1="160" y1="118" x2="160" y2="142" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#embP)"/>
+    <line x1="360" y1="118" x2="360" y2="142" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#embP)"/>
+    <line x1="560" y1="118" x2="560" y2="142" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#embP)"/>
+    <rect x="60" y="146" width="600" height="160" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <g stroke="#ddd6fe" stroke-width="1">
+      <line x1="60" y1="166" x2="660" y2="166"/>
+      <line x1="60" y1="186" x2="660" y2="186"/>
+      <line x1="60" y1="206" x2="660" y2="206"/>
+      <line x1="60" y1="226" x2="660" y2="226"/>
+      <line x1="60" y1="246" x2="660" y2="246"/>
+      <line x1="60" y1="266" x2="660" y2="266"/>
+      <line x1="60" y1="286" x2="660" y2="286"/>
+    </g>
+    <rect x="60" y="146" width="600" height="20" fill="#6d28d9" opacity="0.3"/>
+    <text x="360" y="160" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">第 463 行 =「我」的词向量</text>
+    <rect x="60" y="186" width="600" height="20" fill="#6d28d9" opacity="0.3"/>
+    <text x="360" y="200" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">第 1405 行 =「中国」的词向量</text>
+    <text x="360" y="230" text-anchor="middle" font-size="13" fill="#94a3b8">⋮</text>
+    <rect x="60" y="246" width="600" height="20" fill="#6d28d9" opacity="0.3"/>
+    <text x="360" y="260" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">第 2043 行 =「爱」的词向量</text>
+    <text x="360" y="300" text-anchor="middle" font-size="13" fill="#94a3b8">⋮</text>
+    <text x="360" y="322" text-anchor="middle" font-size="11" fill="#64748b">Embedding 矩阵：6400 行 × 768 列，每个 token 独占一行（一行是 768 个浮点数）</text>
+    <line x1="360" y1="330" x2="360" y2="360" stroke="#6d28d9" stroke-width="2" marker-end="url(#embP)"/>
+    <text x="376" y="352" font-size="11" fill="#6d28d9">按 3 个 ID 取出 3 行，按句子顺序堆成一个矩阵</text>
+    <text x="131" y="390" text-anchor="middle" font-size="11" fill="#64748b">词向量矩阵：3 × 768</text>
+    <rect x="36" y="400" width="190" height="28" fill="#f5f3fe" stroke="#6d28d9"/>
+    <rect x="36" y="436" width="190" height="28" fill="#f5f3fe" stroke="#6d28d9"/>
+    <rect x="36" y="472" width="190" height="28" fill="#f5f3fe" stroke="#6d28d9"/>
+    <g stroke="#ddd6fe" stroke-width="1">
+      <line x1="83" y1="400" x2="83" y2="428"/>
+      <line x1="130" y1="400" x2="130" y2="428"/>
+      <line x1="177" y1="400" x2="177" y2="428"/>
+      <line x1="83" y1="436" x2="83" y2="464"/>
+      <line x1="130" y1="436" x2="130" y2="464"/>
+      <line x1="177" y1="436" x2="177" y2="464"/>
+      <line x1="83" y1="472" x2="83" y2="500"/>
+      <line x1="130" y1="472" x2="130" y2="500"/>
+      <line x1="177" y1="472" x2="177" y2="500"/>
+    </g>
+    <text x="202" y="419" text-anchor="middle" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="202" y="455" text-anchor="middle" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="202" y="491" text-anchor="middle" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="32" y="419" text-anchor="end" font-size="11" fill="#6d28d9">我</text>
+    <text x="32" y="455" text-anchor="end" font-size="11" fill="#6d28d9">爱</text>
+    <text x="32" y="491" text-anchor="end" font-size="11" fill="#6d28d9">中国</text>
+    <text x="242" y="455" text-anchor="middle" font-size="16" font-weight="bold" fill="#6d28d9">+</text>
+    <text x="353" y="390" text-anchor="middle" font-size="11" fill="#64748b">位置矩阵：3 × 768（3.2–3.5 节）</text>
+    <rect x="258" y="400" width="190" height="28" fill="#fafafa" stroke="#9ca3af" stroke-dasharray="5 4"/>
+    <rect x="258" y="436" width="190" height="28" fill="#fafafa" stroke="#9ca3af" stroke-dasharray="5 4"/>
+    <rect x="258" y="472" width="190" height="28" fill="#fafafa" stroke="#9ca3af" stroke-dasharray="5 4"/>
+    <g stroke="#e2e8f0" stroke-width="1">
+      <line x1="305" y1="400" x2="305" y2="428"/>
+      <line x1="352" y1="400" x2="352" y2="428"/>
+      <line x1="399" y1="400" x2="399" y2="428"/>
+      <line x1="305" y1="436" x2="305" y2="464"/>
+      <line x1="352" y1="436" x2="352" y2="464"/>
+      <line x1="399" y1="436" x2="399" y2="464"/>
+      <line x1="305" y1="472" x2="305" y2="500"/>
+      <line x1="352" y1="472" x2="352" y2="500"/>
+      <line x1="399" y1="472" x2="399" y2="500"/>
+    </g>
+    <text x="424" y="419" text-anchor="middle" font-size="12" fill="#9ca3af">⋯</text>
+    <text x="424" y="455" text-anchor="middle" font-size="12" fill="#9ca3af">⋯</text>
+    <text x="424" y="491" text-anchor="middle" font-size="12" fill="#9ca3af">⋯</text>
+    <text x="266" y="419" font-size="11" fill="#6b7280">第 0 格</text>
+    <text x="266" y="455" font-size="11" fill="#6b7280">第 1 格</text>
+    <text x="266" y="491" font-size="11" fill="#6b7280">第 2 格</text>
+    <text x="464" y="455" text-anchor="middle" font-size="16" font-weight="bold" fill="#6d28d9">=</text>
+    <text x="575" y="390" text-anchor="middle" font-size="11" fill="#64748b">最终嵌入矩阵：3 × 768（输出）</text>
+    <rect x="480" y="400" width="190" height="28" fill="#6d28d9" opacity="0.85"/>
+    <rect x="480" y="436" width="190" height="28" fill="#6d28d9" opacity="0.85"/>
+    <rect x="480" y="472" width="190" height="28" fill="#6d28d9" opacity="0.85"/>
+    <g stroke="#a78bfa" stroke-width="1">
+      <line x1="527" y1="400" x2="527" y2="428"/>
+      <line x1="574" y1="400" x2="574" y2="428"/>
+      <line x1="621" y1="400" x2="621" y2="428"/>
+      <line x1="527" y1="436" x2="527" y2="464"/>
+      <line x1="574" y1="436" x2="574" y2="464"/>
+      <line x1="621" y1="436" x2="621" y2="464"/>
+      <line x1="527" y1="472" x2="527" y2="500"/>
+      <line x1="574" y1="472" x2="574" y2="500"/>
+      <line x1="621" y1="472" x2="621" y2="500"/>
+    </g>
+    <text x="646" y="419" text-anchor="middle" font-size="12" fill="#ffffff">⋯</text>
+    <text x="646" y="455" text-anchor="middle" font-size="12" fill="#ffffff">⋯</text>
+    <text x="646" y="491" text-anchor="middle" font-size="12" fill="#ffffff">⋯</text>
+    <text x="488" y="419" font-size="11" fill="#ffffff">我</text>
+    <text x="488" y="455" font-size="11" fill="#ffffff">爱</text>
+    <text x="488" y="491" font-size="11" fill="#ffffff">中国</text>
+    <line x1="575" y1="500" x2="575" y2="532" stroke="#6d28d9" stroke-width="2" marker-end="url(#embP)"/>
+    <text x="575" y="548" text-anchor="middle" font-size="11" fill="#64748b">送往 Transformer 第 1 层（第 4 章）</text>
+  </svg>
+  <div class="diagram-caption">图示：Embedding 层的输入与输出。输入是 minimind 分词器实测的 3 个 token ID（「中国」常见，切成一个整块）；每个 ID 按行号查 Embedding 矩阵（6400 × 768），取出的 3 行按句子顺序堆成 3 × 768 的词向量矩阵，再与同样形状的位置矩阵逐元素相加，得到 3 × 768 的最终嵌入矩阵，送往 Transformer。注意矩阵里行号顺序与句子顺序无关，堆叠时才恢复句子顺序；位置矩阵在 3.2–3.5 节展开。</div>
+</div>
+
 <h2>3.1.1 从身份证到坐标：one-hot 的缺陷</h2>
 
-<p>　　第 2 章结束时，文本已经变成一串整数 ID，比如 <code>[721, 3345, 8819, 220]</code>。但整数编号本身不携带语义：编号 3345 和 3346 在数值上相邻，对应的 token 却可能风马牛不相及。模型需要一种更好的表示，让“意思相近的词，表示也相近”。</p>
+<p>　　第 2 章结束时，文本已经变成一串整数 ID。拿 minimind 的分词器实测，「我爱中国」被切成 3 个 token：<code>[463, 2043, 1405]</code>，依次是「我」「爱」「中国」（「中国」常见，合成了一整块）。但整数编号本身不携带语义：编号 2043 和 2044 在数值上相邻，对应的 token 却可能风马牛不相及。模型需要一种更好的表示，让“意思相近的词，表示也相近”。</p>
 
 <p>　　最朴素的方案是 one-hot（独热）表示：词表有 \(V\) 个词，就给每个词一个 \(V\) 维向量，属于它的那一位是 1，其余全是 0。词表有 5 万个词，每个词就是一个 5 万维的向量。</p>
 
@@ -242,18 +365,6 @@
     <div class="sc-key">word2vec 是独立训练的静态词表；LLM 的 Embedding 是网络的第一层，随机初始化后随语言模型目标端到端联合训练，还常与输出投影共享权重（tied embeddings）。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-<p>　　本节机制在 minimind 中的对应实现（出处：minimind 工程，Apache 2.0 协议）：</p>
-<ul>
-  <li><code>model/model_minimind.py</code> 中 <code>MiniMindModel</code> 的 <code>self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)</code>（第 206 行附近）：6400 × 768 的查找表本体；</li>
-  <li>同一文件 <code>forward</code> 里的 <code>self.embed_tokens(input_ids)</code>（第 219 行附近）：前向时唯一的动作就是查表；</li>
-  <li><code>MiniMindForCausalLM</code> 中 <code>tie_word_embeddings=True</code> 时执行 <code>self.model.embed_tokens.weight = self.lm_head.weight</code>（第 247 行附近）：输入 Embedding 与输出投影共享权重的实现。</li>
-</ul>
-<p>　　也可以亲手跑一次查表，感受“编号进去、向量出来”：</p>
-<pre><code>cd minimind-master
-python -c "import torch; emb = torch.nn.Embedding(6400, 768); ids = torch.tensor([[1, 37, 962]]); print(emb(ids).shape)"</code></pre>
-<p>　　预期输出 <code>torch.Size([1, 3, 768])</code>：3 个编号换回 3 个 768 维向量（随机初始化，数值本身暂无意义）。</p>
 
 <h2>参考来源</h2>
 <ul>

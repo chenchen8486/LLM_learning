@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</h1>
 <p class="subtitle">本页范围：第 5 章第 1 节　|　整理时间：2026-09-29</p>
 
@@ -234,21 +234,6 @@
     <div class="sc-key">隐藏维度从 \(4d\) 缩到 \(\frac{8d}{3}\)（原来的约三分之二）：\(3\times d\times\frac{8d}{3}=8d^{2}\)，与原 FFN 的 \(2\times d\times 4d=8d^{2}\) 恰好打平。多出来的是门控带来的表达能力，不是参数量。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　本节三件套在 minimind 中都有逐行对应的实现（代码出处：minimind 工程，Apache 2.0 协议）：</p>
-
-<ul>
-  <li><strong>RMSNorm</strong>：<code>model/model_minimind.py</code> 第 50 行的 <code>RMSNorm</code> 类。第 57 行 <code>x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)</code> 就是公式 (2) 的"平方、取平均、开根号、除过去"，第 60 行乘上可学习的 <code>weight</code>。全类没有减均值、没有偏置项，与公式逐行对上。</li>
-  <li><strong>SwiGLU 前馈</strong>：同文件第 136 行的 <code>FeedForward</code> 类，<code>gate_proj</code>、<code>up_proj</code>、<code>down_proj</code> 三个矩阵对应公式 (8) 的 \(W\)、\(V\)、\(W_2\)；第 146 行 <code>down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))</code> 正是 \((\mathrm{Swish}_1(xW)\otimes xV)W_2\)。门控激活由第 25 行 <code>hidden_act</code> 决定，默认 <code>'silu'</code>，即 \(\beta=1\) 的 Swish。</li>
-  <li><strong>Pre-LN 结构</strong>：同文件第 183 行的 <code>MiniMindBlock</code> 类，第 191–199 行的 <code>forward</code> 是 5.1.2 数据流图的代码版：第 194 行先把 <code>input_layernorm(hidden_states)</code> 送进注意力，第 197 行残差加的是未归一化的原值；第 198 行同样先过 <code>post_attention_layernorm</code> 再进 FFN 再残差相加。</li>
-</ul>
-
-<pre><code># 复刻 model/model_minimind.py 第 57 行 RMSNorm 计算（仅需 PyTorch，无需安装 minimind 依赖）
-python -c "import torch; x=torch.tensor([1.,2.,2.,1.]); print(x*torch.rsqrt(x.pow(2).mean()+1e-5))"</code></pre>
-
-<p>　　预期输出 <code>tensor([0.6325, 1.2649, 1.2649, 0.6325])</code>，与 5.1.1 手算的 \((0.63, 1.26, 1.26, 0.63)\) 一致（此处未乘 <code>weight</code>，因为它初始化为全 1）。如果本机已装好 minimind 的依赖，也可以直接 <code>from model.model_minimind import RMSNorm</code>，实例化 <code>RMSNorm(4)</code> 跑同一个向量，结果相同。</p>
 
 <h2>参考来源</h2>
 <ul>

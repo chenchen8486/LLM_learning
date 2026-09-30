@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>7.5 算力估算与成本核算：6ND 法则</h1>
 <p class="subtitle">本页范围：第 7 章第 5 节　|　整理时间：2026-09-30</p>
 
@@ -251,34 +251,6 @@
     <div class="sc-key">推理只做前向，单 token 成本是训练的 1/3；但训练是一次性投入，推理随调用量累积无上限——100B 模型一年服务 1 万亿 token 就要烧掉训练算力约 1/6，调用量大的产品推理总账会反超训练。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-<p>　　本节的核心交付是一个可以带走的估算器。把下面这段脚本贴进任意 Python 环境，代入你关心的参数量、token 数、卡数与 MFU，就能算出训练天数与账单——脚本只做算术，没有任何依赖：</p>
-<pre><code># 6ND 训练成本估算器：改参数即可算自己的账
-N     = 100e9    # 参数量（100B）
-D     = 2e12     # 训练 token 总数（2T）
-G     = 1024     # GPU 卡数
-P     = 989e12   # 单卡峰值 FLOPS（H100 BF16 稠密口径）
-MFU   = 0.40     # 模型算力利用率
-price = 3.0      # 单卡时租金（美元，随市场波动）
-
-C    = 6 * N * D                     # 总算力（FLOPs）
-days = C / (G * P * MFU) / 86400     # 训练天数
-cost = days * 24 * G * price         # 租金总额
-print(f"总算力:   {C:.2e} FLOPs")
-print(f"训练时间: {days:.1f} 天")
-print(f"GPU 时:   {days*24*G:,.0f} 卡时")
-print(f"租金估算: {cost/1e4:.0f} 万美元")</code></pre>
-<p>　　预期输出（即案例一的数字）：</p>
-<pre><code>总算力:   1.20e+24 FLOPs
-训练时间: 34.3 天
-GPU 时:   842,602 卡时
-租金估算: 253 万美元</code></pre>
-<p>　　再试一组：代入 minimind 的参数（<code>N=6.4e7, D=2.5e8, G=1, P=71e12, MFU=0.31</code>），会得到约 0.05 天 ≈ 1.2 小时，正好对上 README 的实测——案例二的三角互证可以亲手复现。本节用到的两处 minimind 事实（出处：minimind 工程，Apache 2.0 协议）：</p>
-<ul>
-  <li><code>trainer/train_pretrain.py</code> 第 90 行注释「中文 1 token ≈ 1.5~1.7 字符」：案例二把 1.2 GB 语料折成 token 数的换算依据；</li>
-  <li>同文件第 82 行 <code>--dtype</code> 默认 <code>bfloat16</code>：案例二因此按 3090 的 BF16 峰值 71 TFLOPS 取分母。</li>
-</ul>
 
 <h2>参考来源</h2>
 <ul>

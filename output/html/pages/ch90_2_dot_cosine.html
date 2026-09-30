@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</h1>
 <p class="subtitle">本页范围：附录 A 第 2 节　|　整理时间：2026-09-30</p>
 
@@ -175,25 +175,4 @@
   </table>
 </div>
 
-<h2>动手验证</h2>
-
-<p>　　下面的脚本复现 A.2.1 的曲线：随机生成大量向量，统计不同维度下点积的真实标准差。预期输出里，未缩放一列应分别接近 √2 ≈ 1.41、√96 ≈ 9.8、√768 ≈ 27.7，缩放后一列都回到 1 附近。</p>
-
-<pre><code>import math
-import numpy as np
-
-rng = np.random.default_rng(0)
-for d in (2, 96, 768):
-    q = rng.standard_normal((1000, d))
-    k = rng.standard_normal((1000, d))
-    dots = (q * k).sum(axis=1)          # 1000 对随机向量的点积
-    print(f'd={d:&gt;3}  未缩放 std={dots.std():6.2f}  缩放后 std={(dots/math.sqrt(d)):.2f}')</code></pre>
-
-<p>　　实测输出：</p>
-
-<pre><code>d=  2  未缩放 std=  1.45  缩放后 std=1.02
-d= 96  未缩放 std=  9.88  缩放后 std=1.01
-d=768  未缩放 std= 28.45  缩放后 std=1.03</code></pre>
-
-<p>　　与公式 (1) 的预测（1.41、9.8、27.7）基本吻合。真实的模型实现见 <code>minimind-master/model/model_minimind.py</code> 注意力类的 forward：打分一行写成 <code>scores = (xq @ xk.transpose(-2, -1)).float() / math.sqrt(self.head_dim)</code>，正是公式 (2) 的代码形态。</p>
 </article>

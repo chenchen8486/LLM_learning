@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>1.3 去重：同一段话训十遍有用吗</h1>
 <p class="subtitle">本页范围：第 1 章第 3 节　|　整理时间：2026-09-28</p>
 
@@ -179,17 +179,6 @@
     <div class="sc-key">MinHash 签名的碰撞概率恰好等于 Jaccard 相似度，小串数字代替全文比较；LSH 把签名分段分桶，只需比较同桶候选对，比较次数降到近似线性。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　去重发生在数据生产阶段，训练代码里反而看不到它——这一点在 minimind 工程（Apache 2.0 协议）里可以直接印证。打开 <code>dataset/lm_dataset.py</code> 的 <code>PretrainDataset.__getitem__</code>（第 50 行附近）：每条样本分词后原样进入训练，管线里没有任何去重逻辑。minimind 的 README 说明，主线数据在发布前已完成清洗与去重，是发布方替读者做过的离线工序。</p>
-
-<p>　　可以亲手验证这份数据确实被去过重。下载官方预训练数据 <code>pretrain_t2t_mini.jsonl</code> 放到 <code>dataset/</code> 目录后运行：</p>
-
-<pre><code>cd minimind-master
-python -c "import json,collections; c=collections.Counter(json.loads(l)['text'].strip() for l in open('dataset/pretrain_t2t_mini.jsonl',encoding='utf-8')); n=sum(c.values()); d=sum(v-1 for v in c.values()); print(f'总样本 {n}，完全重复 {d} 条（{d/n:.2%}）')"</code></pre>
-
-<p>　　预期看到完全重复的占比接近 0，这正是发布方去重后的结果。想体验 Lee 等人面对的情形，可以把某一行复制 100 遍追加到文件末尾再跑一遍，重复统计会立刻飙升——网络爬取的原始语料，去重前就是这个状态。</p>
 
 <h2>参考来源</h2>
 <ul>

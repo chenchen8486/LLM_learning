@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>3.3 绝对位置编码：正弦与可学习两种方案</h1>
 <p class="subtitle">本页范围：第 3 章第 3 节　|　整理时间：2026-09-28</p>
 
@@ -234,23 +234,6 @@
     <div class="sc-key">原论文实测两者效果几乎相同（BLEU 25.8 对 25.7）。正弦省参数、理论上可外推；可学习零设计成本但超出训练长度就失效。如今两者都让位于相对位置编码（RoPE、ALiBi）。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　minimind 没有使用本节的绝对位置编码，它直接使用 RoPE（3.4 节的主题）。但它的频率预计算与本节公式一脉相承：<code>model/model_minimind.py</code> 中 <code>precompute_freqs_cis()</code> 用 <code>freqs = 1 / (rope_base ** (2i/d))</code> 生成同样按几何级数排开的角频率，只是不再与词向量相加，而是按位置旋转注意力里的 Q/K 向量（<code>apply_rotary_pos_emb()</code>）。读这两段代码时，可对照本节公式 (2) 的角频率 \(\omega_i\)。代码出处：minimind 工程，Apache 2.0。</p>
-
-<p>　　也可以用十几行 NumPy 亲手复现本节的波形图（需安装 numpy 与 matplotlib）：</p>
-
-<pre><code>import numpy as np
-import matplotlib.pyplot as plt
-
-pos = np.arange(100)
-for exp in [0.0, 0.25, 1.0]:      # 对应公式中的 2i/d_model
-    omega = 1 / 10000**exp        # 角频率
-    plt.plot(pos, np.sin(pos * omega), label=f"2i/d={exp}")
-plt.legend(); plt.show()</code></pre>
-
-<p>　　预期看到与本节示意图一致的三条曲线：exp=0 的维度高频振荡，exp=0.25 的维度约 1.6 个周期，exp=1 的维度在 100 步内几乎是一条直线——这正是正弦编码“快慢搭配”的直观体现。</p>
 
 <h2>参考来源</h2>
 <ul>

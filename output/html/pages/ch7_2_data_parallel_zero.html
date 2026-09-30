@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>7.2 数据并行与 ZeRO：把模型状态拆开装</h1>
 <p class="subtitle">本页范围：第 7 章第 2 节　|　整理时间：2026-09-30</p>
 
@@ -347,31 +347,6 @@
     <div class="sc-key">PyTorch 的梯度默认累加，k 步后 .grad 里是各 micro-batch 梯度之和，而大 batch 要的是平均，所以每步 loss 先除 k；它省的是激活显存（只占 micro-batch 一份），不省模型状态——等效全局 batch = micro-batch × k × 卡数。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-<p>　　本节的 DDP 包装、梯度累积与混合精度在 minimind 中是同一段训练循环，对应实现如下（出处：minimind 工程，Apache 2.0 协议），读代码时建议按表中顺序对照：</p>
-<div class="table-wrap">
-  <table>
-    <thead><tr><th>位置（<code>trainer/train_pretrain.py</code>）</th><th>代码</th><th>对应本节概念</th></tr></thead>
-    <tbody>
-      <tr><td>第 128 行</td><td><code>DistributedSampler(train_ds)</code></td><td>7.2.1 第②步：数据切成互不重叠的分片</td></tr>
-      <tr><td>第 146 行</td><td><code>model = DistributedDataParallel(model, device_ids=[local_rank])</code></td><td>7.2.1：一行启用 DDP，梯度 all-reduce 由包装器自动接管</td></tr>
-      <tr><td>第 114 行</td><td><code>autocast_ctx = ... torch.cuda.amp.autocast(dtype=dtype)</code></td><td>7.1：混合精度上下文（16 字节账的来源）</td></tr>
-      <tr><td>第 129 行</td><td><code>GradScaler(enabled=(args.dtype == 'float16'))</code></td><td>7.1：仅 fp16 需要的梯度缩放器</td></tr>
-      <tr><td>第 33–36 行</td><td><code>with autocast_ctx:</code> 前向，<code>loss = loss / args.accumulation_steps</code></td><td>7.2.4 公式 (4)：loss 先除 k 再反向</td></tr>
-      <tr><td>第 38 行</td><td><code>scaler.scale(loss).backward()</code></td><td>7.2.4：每步都反传，梯度在 .grad 中自然累加</td></tr>
-      <tr><td>第 40 行</td><td><code>if step % args.accumulation_steps == 0 ...</code></td><td>7.2.4：攒满 k 步才裁剪、更新、清零</td></tr>
-      <tr><td>第 84 行</td><td><code>--accumulation_steps</code> 默认 8</td><td>7.2.4：k = 8 的默认值出处</td></tr>
-    </tbody>
-  </table>
-</div>
-<p>　　亲手算一遍 minimind 的等效 batch 并验证「loss 除 k」的梯度等价性（纯 PyTorch 单机可跑）：</p>
-<pre><code>cd minimind-master
-python -c "import torch; w=torch.nn.Parameter(torch.randn(4)); x=torch.arange(8.).reshape(8,1); y=2*x
-loss_big=((w*x-y)**2).mean(); g_big=torch.autograd.grad(loss_big,w,retain_graph=True)[0]
-g_acc=sum(torch.autograd.grad(((w*x[i]-y[i])**2).mean()/8,w,retain_graph=True)[0] for i in range(8))
-print('大batch梯度:', g_big); print('累积梯度  :', g_acc)"</code></pre>
-<p>　　预期看到两行完全相同的向量：8 个 micro-batch（每个 1 条样本、loss 除 8）累加的梯度，与 8 条样本大 batch 的梯度逐元素相等——这就是公式 (4) 的代码版。</p>
 
 <h2>参考来源</h2>
 <ul>

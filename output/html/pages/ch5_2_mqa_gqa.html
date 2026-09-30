@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>5.2 注意力的省显存之路：MHA、MQA 与 GQA</h1>
 <p class="subtitle">本页范围：第 5 章第 2 节　|　整理时间：2026-09-29</p>
 
@@ -101,7 +101,7 @@
   <div class="formula-note">公式 (4)：缓存是 MHA 的 1/4、MQA 的 4 倍。旋钮拧到哪，账就算到哪，这就是「分组」的全部含义。</div>
 </div>
 
-<p>　　GQA 论文的关键实验结论是：GQA-8 这一档的质量非常接近 MHA，推理速度接近 MQA，两头的好处几乎全拿到。论文还顺手解决了一个工程问题：已训好的 MHA 检查点可以通过少量继续训练转换成 GQA，不必从头预训练（论文标题里 from Multi-Head Checkpoints 说的就是这件事）。落地方面，Llama 2 最大的 70B 模型采用 GQA-8（64 个查询头分 8 组），Llama 3 全系沿用 8 组 K/V；教学工程 minimind 同样使用 GQA（8 个查询头分 4 组，即 GQA-4），动手验证一节会逐行对照它的代码。</p>
+<p>　　GQA 论文的关键实验结论是：GQA-8 这一档的质量非常接近 MHA，推理速度接近 MQA，两头的好处几乎全拿到。论文还顺手解决了一个工程问题：已训好的 MHA 检查点可以通过少量继续训练转换成 GQA，不必从头预训练（论文标题里 from Multi-Head Checkpoints 说的就是这件事）。落地方面，Llama 2 最大的 70B 模型采用 GQA-8（64 个查询头分 8 组），Llama 3 全系沿用 8 组 K/V；教学工程 minimind 同样使用 GQA（8 个查询头分 4 组，即 GQA-4），其代码实现见 minimind 工程。</p>
 
 <div class="highlight-box danger">
   「GQA-8」里的数字是 K/V 组数，不是每组的头数：Llama 2 70B 的 GQA-8 是 64 个查询头分 8 组，每组 8 个头共享一组 K/V。实现上还要求查询头数能被组数整除，h/g 就是每组 K/V 要服务的查询头数。
@@ -238,25 +238,6 @@
     <div class="sc-key">它把「是否共享 K/V」变成「分几组」的旋钮：GQA-1=MQA、GQA-h=MHA，中间档位连续可调。实测 GQA-8 质量接近 MHA、速度接近 MQA，Llama 2 70B、Llama 3 与 minimind 都采用。</div>
   </div>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　minimind 的注意力就是一套 GQA 实现（minimind 工程，Apache 2.0），对照本节概念读 <code>model/model_minimind.py</code> 的这几处：</p>
-
-<ul>
-  <li>第 22–23 行：<code>MiniMindConfig</code> 默认 <code>num_attention_heads=8</code>、<code>num_key_value_heads=4</code>，8 个查询头分 4 组，正是本页示意图右图的 GQA-4；</li>
-  <li>第 94–97 行：<code>Attention</code> 类算出 <code>n_rep = 8 ÷ 4 = 2</code>，即每组 K/V 要服务 2 个查询头；</li>
-  <li>第 100–102 行：<code>k_proj</code>、<code>v_proj</code> 的输出宽度按 <code>num_key_value_heads</code> 计算，参数量与缓存量天然就是 4 组的规模；</li>
-  <li>第 86–89 行的 <code>repeat_kv</code> 与第 124 行的调用：计算注意力前把每组 K、V 复制 <code>n_rep</code> 份拼回 8 个头，与 5.2.3 讲的实现细节一一对应；</li>
-  <li>第 120–123 行：<code>past_key_value</code> 的拼接，就是公式 (1) 那份缓存每步追加一个 token 的样子。</li>
-</ul>
-
-<p>　　再用一行命令亲手拧一下「组数」旋钮（按 minimind 默认的 8 层、4 组 K/V、头维度 96，以 bf16 每数 2 字节估算）：</p>
-
-<pre><code>cd minimind-master
-python -c "print('minimind 每 token KV 缓存：', 2*8*4*96*2, '字节')"</code></pre>
-
-<p>　　预期输出 12288 字节（12 KB）。把式子里的 4 改成 8 就退回 MHA，缓存立刻翻倍；改成 1 就是 MQA，只剩 3 KB。组数这个旋钮的手感，一试便知。</p>
 
 <h2>参考来源</h2>
 <ul>

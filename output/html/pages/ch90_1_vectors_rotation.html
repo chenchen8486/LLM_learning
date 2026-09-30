@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>A.1 向量、矩阵与旋转：RoPE 的数学底座</h1>
 <p class="subtitle">本页范围：附录 A 第 1 节　|　整理时间：2026-09-30</p>
 
@@ -517,34 +517,5 @@
     </tbody>
   </table>
 </div>
-
-<h2>动手验证</h2>
-
-<p>　　本节所有数字都能用一段纯 Python 复算（不需要任何第三方库）：</p>
-
-<pre><code>import math
-
-def rotate(v, deg):
-    t = math.radians(deg)
-    c, s = math.cos(t), math.sin(t)
-    return (v[0] * c - v[1] * s, v[0] * s + v[1] * c)
-
-print('原向量长度', round(math.hypot(3, 2), 3))          # 3.606
-print('转 90 度后', rotate((3, 2), 90))                  # (-2.0, 3.0)
-
-# 角度可加：先转 30 度再转 15 度，等于一次转 45 度
-twice, once = rotate(rotate((1, 0), 30), 15), rotate((1, 0), 45)
-print('连转两次', tuple(round(x, 4) for x in twice))      # (0.7071, 0.7071)
-print('一次转 45', tuple(round(x, 4) for x in once))      # (0.7071, 0.7071)
-
-# 点积只依赖间距：q 固定在位置 0，k 放在不同间距处
-q = (1.0, 0.0)
-for gap in (0, 1, 2, 4):
-    k = rotate((1.0, 0.0), 45 * gap)
-    print('间距', gap, '点积', round(q[0] * k[0] + q[1] * k[1], 3))
-# 间距 0 → 1.0，间距 1 → 0.707，间距 2 → 0.0，间距 4 → −1.0
-</code></pre>
-
-<p>　　对照 3.4 节的公式 (1) 与公式 (2)，把 <code>rotate</code> 里的角度换成 \(m\theta_i\)，就是 RoPE 在做的事。minimind 的实现见 <code>model/model_minimind.py</code>：<code>precompute_freqs_cis</code>（第 62 至 78 行）算好每组的 cos、sin，<code>apply_rotary_pos_emb</code>（第 80 至 84 行）把它们作用到 query、key 上。</p>
 
 </article>
