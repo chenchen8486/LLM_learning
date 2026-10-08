@@ -1,0 +1,304 @@
+<article class="content">
+<h1>9.3 SFT 训练机制：损失掩码与超参配方</h1>
+<p class="subtitle">本页范围：第 9 章第 3 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>9.2 节把指令数据备齐了，拿到数据之后具体怎么训？损失怎么算，才能让模型只学「怎么回答」而不学「怎么提问」？配方与预训练差多少，最大的坑是什么？</td></tr>
+      <tr><td>本节主张</td><td>SFT 的训练骨架与预训练完全相同（next-token 交叉熵、AdamW、cosine 调度），真正的新机制只有一处：损失掩码，让模型只在助手回答段上计损失；配方则全面收小——学习率小约两个量级、轮数寥寥、从预训练权重出发。</td></tr>
+      <tr><td>一句话结论</td><td>SFT = 预训练的训练器 + 带损失掩码的指令数据 + 一套保守配方，目标是改行为而不动知识。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>损失掩码</span><span>ignore_index=-100</span><span>超参配方</span><span>灾难性遗忘</span><span>replay</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　9.2 节做完了数据侧的功课：一问一答的指令样本清洗备齐，套上 chat 模板，变成一条条 token 序列。数据到位，接下来的问题是训练本身——损失函数怎么算，超参配方和预训练差多少，微调最容易踩的坑在哪里。本节就回答这三个问题。</p>
+
+<p>　　本节的做法是把 minimind（Apache 2.0）的真实实现拆开看：它的 SFT 训练链路不长，却把工业界 SFT 的标准动作一样不少地做了一遍。讲解主线如下：</p>
+
+<ol>
+  <li><strong>损失掩码：只让模型学「回答」</strong>（9.3.1）：minimind 怎么用 -100 把问题段排除出损失，配套公式逐符号讲透，配一张实测 token 序列的掩码图；</li>
+  <li><strong>与预训练同与不同</strong>（9.3.2）：一张配方对照表，重点解释学习率为什么小约两个量级；</li>
+  <li><strong>灾难性遗忘：微调的头号风险</strong>（9.3.3）：成因、五条对策，以及它与 9.1 节表层对齐假说的互相印证；</li>
+  <li><strong>工程细节速览</strong>（9.3.4）：padding、多轮逐轮掩码、日志里的两个 loss、半精度保存。</li>
+</ol>
+
+<p>　　读完本节会发现，SFT 在工程上的「新东西」少得出人意料——这本身就是理解它的钥匙。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及 SFT 这一站放大之后的内部机制。心里有这张地图，后面每一步都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS93sftmeanics" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG93sftmeanics" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS93sftmeanics)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS93sftmeanics)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS93sftmeanics)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS93sftmeanics)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG93sftmeanics)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG93sftmeanics)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG93sftmeanics)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）与中间训练（第 8 章）交出 base model；SFT（本章）把它调成会对话的助手，随后接偏好对齐（第 10 章）与推理训练（第 11 章），最终进入推理与部署（第 12–13 章）。本节管的是 SFT 这一站的训练机制：损失掩码怎么让模型只学回答，配方为什么全面收小。</div>
+</div>
+
+<p>　　这个紫框放大之后，训练时模型到底在序列的哪些位置上算损失？把一条带掩码的 token 序列单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 1054 214" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <text x="1030" y="22" text-anchor="end" font-size="11" fill="#64748b">token ID 为 minimind 分词器实测</text>
+    <!-- 区域标题 -->
+    <text x="288" y="42" text-anchor="middle" font-size="12" font-weight="bold" fill="#6b7280">用户提问段（不学）</text>
+    <line x1="24" y1="52" x2="552" y2="52" stroke="#9ca3af" stroke-width="1.5"/>
+    <text x="825" y="42" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">助手回答段（要学）</text>
+    <line x1="620" y1="52" x2="1030" y2="52" stroke="#6d28d9" stroke-width="1.5"/>
+    <!-- 角色标记：bos user -->
+    <rect x="24" y="70" width="58" height="56" fill="#f9fafb" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="53" y="93" text-anchor="middle" font-size="11" fill="#6b7280">〈bos〉</text>
+    <text x="53" y="112" text-anchor="middle" font-size="11" fill="#6b7280">user</text>
+    <!-- 问题段 7 个 token -->
+    <rect x="82" y="70" width="60" height="56" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="112" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#374151">中国</text>
+    <text x="112" y="112" text-anchor="middle" font-size="11" fill="#6b7280">1405</text>
+    <rect x="142" y="70" width="60" height="56" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="172" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#374151">的</text>
+    <text x="172" y="112" text-anchor="middle" font-size="11" fill="#6b7280">296</text>
+    <rect x="202" y="70" width="60" height="56" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="232" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#374151">首</text>
+    <text x="232" y="112" text-anchor="middle" font-size="11" fill="#6b7280">1408</text>
+    <rect x="262" y="70" width="60" height="56" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="292" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#374151">都是</text>
+    <text x="292" y="112" text-anchor="middle" font-size="11" fill="#6b7280">2462</text>
+    <rect x="322" y="70" width="60" height="56" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="352" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#374151">哪</text>
+    <text x="352" y="112" text-anchor="middle" font-size="11" fill="#6b7280">1742</text>
+    <rect x="382" y="70" width="60" height="56" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="412" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#374151">里</text>
+    <text x="412" y="112" text-anchor="middle" font-size="11" fill="#6b7280">852</text>
+    <rect x="442" y="70" width="60" height="56" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="472" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#374151">？</text>
+    <text x="472" y="112" text-anchor="middle" font-size="11" fill="#6b7280">776</text>
+    <!-- 角色标记：eos -->
+    <rect x="502" y="70" width="50" height="56" fill="#f9fafb" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="527" y="102" text-anchor="middle" font-size="11" fill="#6b7280">〈eos〉</text>
+    <!-- 角色标记：bos assistant -->
+    <rect x="552" y="70" width="68" height="56" fill="#f9fafb" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="586" y="93" text-anchor="middle" font-size="11" fill="#6b7280">〈bos〉</text>
+    <text x="586" y="112" text-anchor="middle" font-size="11" fill="#6b7280">assistant</text>
+    <!-- 回答段 6 个 token -->
+    <rect x="620" y="70" width="60" height="56" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.2"/>
+    <text x="650" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#ffffff">中国</text>
+    <text x="650" y="112" text-anchor="middle" font-size="11" fill="#ddd6fe">1405</text>
+    <rect x="680" y="70" width="60" height="56" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.2"/>
+    <text x="710" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#ffffff">的</text>
+    <text x="710" y="112" text-anchor="middle" font-size="11" fill="#ddd6fe">296</text>
+    <rect x="740" y="70" width="60" height="56" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.2"/>
+    <text x="770" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#ffffff">首</text>
+    <text x="770" y="112" text-anchor="middle" font-size="11" fill="#ddd6fe">1408</text>
+    <rect x="800" y="70" width="60" height="56" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.2"/>
+    <text x="830" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#ffffff">都是</text>
+    <text x="830" y="112" text-anchor="middle" font-size="11" fill="#ddd6fe">2462</text>
+    <rect x="860" y="70" width="60" height="56" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.2"/>
+    <text x="890" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#ffffff">北京</text>
+    <text x="890" y="112" text-anchor="middle" font-size="11" fill="#ddd6fe">5412</text>
+    <rect x="920" y="70" width="60" height="56" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.2"/>
+    <text x="950" y="93" text-anchor="middle" font-size="13" font-weight="bold" fill="#ffffff">。</text>
+    <text x="950" y="112" text-anchor="middle" font-size="11" fill="#ddd6fe">302</text>
+    <!-- 角色标记：结尾 eos（计入损失） -->
+    <rect x="980" y="70" width="50" height="56" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.2"/>
+    <text x="1005" y="102" text-anchor="middle" font-size="11" fill="#ede9fe">〈eos〉</text>
+    <!-- 底部括号：掩码区域 -->
+    <line x1="24" y1="144" x2="24" y2="150" stroke="#9ca3af" stroke-width="1.5"/>
+    <line x1="620" y1="144" x2="620" y2="150" stroke="#9ca3af" stroke-width="1.5"/>
+    <line x1="24" y1="150" x2="620" y2="150" stroke="#9ca3af" stroke-width="1.5"/>
+    <text x="322" y="170" text-anchor="middle" font-size="12" fill="#6b7280">这一段 label 全是 -100：问题与角色标记都不进损失</text>
+    <line x1="620" y1="150" x2="1030" y2="150" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="1030" y1="144" x2="1030" y2="150" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="825" y="170" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">这一段 label = 真实 token ID：计入损失（含收尾 eos）</text>
+    <!-- 底部注释 -->
+    <text x="527" y="200" text-anchor="middle" font-size="11" fill="#64748b">窄格为角色标记示意：〈bos〉对应 &lt;|im_start|&gt;，〈eos〉对应 &lt;|im_end|&gt;（均含换行）；〈bos〉assistant 这段提示头本身也标 -100，不计损失。</text>
+  </svg>
+  <div class="diagram-caption">图示：SFT 训练机制的局部放大——一条单轮对话的 token 序列与损失掩码。灰底格子的 label 全是 -100，问题与角色标记都不进损失；紫底格子计入损失，模型要学的只有它们。注意回答的开头（中国/的/首/都是）与问题逐字相同——模型要学的正是接在问题之后把答案续出来，并在答完时吐出 &lt;|im_end|&gt; 收尾。9.3.1 会逐步讲清这套掩码在 minimind 里的实现。</div>
+</div>
+
+<h2>9.3.1 损失掩码：只让模型学「回答」</h2>
+
+<p>　　SFT 的数据是一整条对话：用户提问、助手回答，拼成同一个 token 序列喂进模型。如果像预训练那样让序列里每个位置都参与损失，模型会把「用户提问」的写法也一起学掉——它将被训练成一个既会当助手、又会当用户的双面角色。而推理时（第 12 章）没人需要它模仿用户：用户的话由真人输入，模型要做的只是接在后面把回答续出来。让模型在提问段上消耗容量，既浪费又添乱。解决办法就是损失掩码。</p>
+
+<p>　　先看 minimind 在数据侧的实现。它的 SFTDataset 初始化时先做一件准备工作：把「&lt;|im_start|&gt;assistant\n」和「&lt;|im_end|&gt;\n」这两段固定文本分别编码成两段 token 序列 <code>bos_id</code> 与 <code>eos_id</code>（minimind（Apache 2.0），dataset/lm_dataset.py：第 68–69 行）——前者是每段助手回答开头的「门牌」，后者是收尾标记。真正生成标签的函数是 <code>generate_labels</code>（第 91–107 行），逻辑分三步：</p>
+
+<ol>
+  <li>先把整条 <code>labels</code> 全部置为 -100，默认谁都不学；</li>
+  <li>从头扫描 <code>input_ids</code>，每找到一段以 <code>bos_id</code> 开头的位置，就从其后接着往后扫，直到遇见 <code>eos_id</code>；</li>
+  <li>把这一区间（<code>bos_id</code> 之后起，到 <code>eos_id</code> 结束，含 eos 本身）的 label 置回真实的 token id，然后跳到这段之后继续扫描。多轮对话里每个助手段都重复一遍这个过程，逐轮计入。</li>
+</ol>
+
+<p>　　数据侧把不学的位置标成 -100，模型侧负责「看见 -100 就跳过」。MiniMindForCausalLM 的 forward 里先把 logits 与 labels 错位一位——用前 \(T-1\) 个位置的预测去对第 2 到第 \(T\) 个 label，因为第 \(t\) 个位置的预测目标本来就是第 \(t+1\) 个 token（minimind（Apache 2.0），model/model_minimind.py：第 256 行）——然后调 <code>F.cross_entropy(..., ignore_index=-100)</code>（第 257 行）。<code>ignore_index</code> 是 PyTorch 交叉熵的保留参数：标签等于它的位置直接不进损失、不产生梯度，-100 正是它的默认取值，minimind 沿用了这个约定。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">损失掩码 Loss Masking</span>
+    <span class="term-en">mask = 遮盖；只让部分位置的损失生效</span>
+  </div>
+  <div class="term-body">
+    <p>训练时给每个 token 位置配一个开关：打开（label = 真实 token id）就参与损失，关掉（label = -100）就当它不存在。SFT 里被关掉的是用户提问、角色标记与 padding，被打开的只剩助手回答。模型因此只在「怎么答」上接受监督，提问段的写法再花哨也不影响它。</p>
+    <div class="term-analogy">就像老师批卷只给答题区打分，题目印刷区不计分——评分标准只管「答得对不对」，不管「题抄得像不像」。</div>
+  </div>
+</div>
+
+<p>　　写成公式，SFT 的损失与预训练的交叉熵（附录 A.4）只差一个掩码因子：</p>
+
+<div class="formula-card">
+  \[ \mathcal{L} = -\frac{1}{N}\sum_{t=1}^{T} m_t \log P\big(x_t \mid x_{&lt;t}\big) \tag{1} \]
+  <div class="formula-note">公式 (1)：每个位置的损失先乘上掩码 \(m_t\) 再求和，\(m_t\) 为 0 的位置整项归零，不贡献损失也不产生梯度。符号说明：\(T\) 是序列长度；\(x_t\) 是第 \(t\) 个位置的真实 token；\(x_{&lt;t}\) 表示它之前的所有 token，即模型的已知上下文；\(P\big(x_t \mid x_{&lt;t}\big)\) 是模型在该上下文下预测出正确 token 的概率；\(m_t \in \{0, 1\}\) 是掩码，助手回答段取 1、其余位置取 0，代码里通过「label 是否为 -100」实现；\(N\) 是计入损失的 token 总数，即掩码为 1 的位置个数，用它做归一化；-100 是 PyTorch 交叉熵 <code>ignore_index</code> 的默认取值，含义是「此位置忽略」。</div>
+</div>
+
+<p>　　把这套机制落到一条具体对话上看。用 minimind 分词器实测：用户问「中国的首都是哪里？」切成 7 个 token <code>[1405, 296, 1408, 2462, 1742, 852, 776]</code>（中国/的/首/都是/哪/里/？），助手答「中国的首都是北京。」切成 6 个 token <code>[1405, 296, 1408, 2462, 5412, 302]</code>（中国/的/首/都是/北京/。）。掩码之后的完整序列，就是本节开头那张局部放大图：灰底段（提问与角色标记）的 label 全是 -100，紫底段（回答与收尾 eos）计入损失。</p>
+
+<div class="highlight-box danger">
+  一个容易漏掉的细节：回答段末尾的 &lt;|im_end|&gt;（eos）必须计入损失。它教模型「答完就停」；如果被掩掉，模型学不到收尾，生成时会一直续写直到撞上长度上限。minimind 的实现把 eos 包含在恢复区间里（lm_dataset.py 第 102 行的 <code>range(start, min(end + len(self.eos_id), ...))</code>），正是为了这一点。
+</div>
+
+<h2>9.3.2 与预训练同与不同</h2>
+
+<p>　　先看不变的部分。SFT 与预训练共用同一副训练骨架：优化器都是 AdamW（train_full_sft.py 第 131 行），都开 bf16 混合精度（第 83 行），梯度裁剪阈值都是 1.0（第 86 行），学习率都按 cosine 曲线从峰值往下衰减（trainer/trainer_utils.py 第 42–43 行）。这些机制第 6、7 章已经讲过，此处不再展开——要点是：SFT 没有发明新的训练技术，它整套复用预训练的装备。</p>
+
+<p>　　变的是配方。把 minimind 两个训练脚本的默认参数摆在一起（均为代码实测默认值，预训练出自 trainer/train_pretrain.py 第 78–90 行，SFT 出自 trainer/train_full_sft.py 第 79–96 行）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>配置项</th><th>预训练</th><th>全量 SFT</th></tr></thead>
+    <tbody>
+      <tr><td>初始学习率</td><td>5e-4</td><td>1e-5（小 50 倍）</td></tr>
+      <tr><td>batch size</td><td>32</td><td>16</td></tr>
+      <tr><td>最大序列长度 max_seq_len</td><td>340</td><td>768</td></tr>
+      <tr><td>训练轮数 epochs</td><td>默认 2（语料量大，一轮已覆盖海量 token）</td><td>默认 2（指令集小，只刷两遍）</td></tr>
+      <tr><td>训练起点 from_weight</td><td>none，从零训练</td><td>pretrain，从预训练权重出发</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　序列长度从 340 拉长到 768 好理解：SFT 样本要完整装下一问一答（多轮对话更长），窗口太短会把回答拦腰截断，损失掩码也就无从谈起。真正值得琢磨的是学习率：1e-5 对 5e-4，小了约两个量级。原因要从训练起点看。预训练从随机权重出发，参数离「会语言」还很远，需要大步赶路；SFT 从预训练权重出发，模型已经会语言、有知识，缺的只是「按指令格式作答」这一层行为。此时每一步梯度都由一小批指令数据驱动，步子一大，参数就会为了迁就这批数据而大幅移动，预训练攒下的通用能力随之被冲刷。微调的要义是小步修正：只动该动的，不动已有的。这直接引出下一节的主题。</p>
+
+<div class="highlight-box">
+  核心结论：SFT 没有新的训练技术。它 = 预训练的训练器 + 带损失掩码的指令数据 + 一套全面收小的保守配方（学习率小约两个量级、轮数寥寥、从预训练权重出发）。配方的保守不是随手定的，是在给预训练成果上保险。
+</div>
+
+<h2>9.3.3 灾难性遗忘：微调的头号风险</h2>
+
+<p>　　配方为什么要这么保守？因为全量微调有一个头号风险。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">灾难性遗忘 Catastrophic Forgetting</span>
+    <span class="term-en">catastrophic = 灾难性的；forgetting = 遗忘</span>
+  </div>
+  <div class="term-body">
+    <p>神经网络在新数据上继续训练时，参数整体向新分布迁移，旧任务上学到的表示被改写，表现为「学了新的、忘了旧的」。全量 SFT 会动模型的全部参数，而指令数据的分布与预训练语料差别很大，若不加以约束，模型可能对话格式学会了，通用知识与能力却退步了。</p>
+    <div class="term-analogy">就像期末连熬三个通宵只突击一门课：这门分数上去了，之前复习好的其他科目却忘得七七八八。</div>
+  </div>
+</div>
+
+<p>　　机理上一句话就能说清：损失只由指令数据产生，梯度会把所有参数都往「更像指令答案」的方向拉；参数迁移的幅度由学习率与训练步数共同决定，方向则由这一小批数据的分布决定。对策也都围绕「限制迁移」展开：</p>
+
+<ul>
+  <li><strong>小学习率</strong>：步子小，参数迁移有限，9.3.2 那张表里的 1e-5 正是这一考量；</li>
+  <li><strong>少 epoch</strong>：指令集刷一两遍即停，不给遗忘留时间；</li>
+  <li><strong>混入通用数据（replay，重放）</strong>：在指令数据里掺一部分预训练风格的通用语料，让模型在微调期间顺带「复习」旧知识；</li>
+  <li><strong>早停（early stopping）</strong>：盯住验证集表现，出现过拟合苗头就提前停训；</li>
+  <li><strong>改用 LoRA</strong>：冻结主干、只训练一小撮低秩参数，从机制上把「动所有参数」这条路堵死，9.4 节展开。</li>
+</ul>
+
+<p>　　这些对策与 9.1 节的表层对齐假说（Superficial Alignment Hypothesis）互相印证。假说认为模型的知识与能力几乎全部来自预训练，对齐做的只是调整「与人对话」的表层格式。若对齐真是表层调整，本就无需大动干戈——小学习率、少量数据、一两轮 epoch 就该够用；反过来，大动干戈反而会把表层之下的地基震松。9.3.2 那张保守配方表，正是这个假说在工程上的样子。</p>
+
+<div class="highlight-box warn">
+  模型越小、容量越紧，新旧知识挤占同一批参数的冲突越直接，配方就越要保守。minimind 这类小模型的 SFT 默认配方收得很紧，原因即在此；给大模型做 SFT 时同样从保守起步，再按验证集表现逐步放开。
+</div>
+
+<h2>9.3.4 工程细节速览</h2>
+
+<p>　　最后扫一遍散落在各处的工程细节。它们单看不起眼，凑在一起决定训练是否顺畅：</p>
+
+<ul>
+  <li><strong>padding 补齐到定长</strong>：不同对话长短不一，minimind 统一用 pad token 把每条样本补到 max_seq_len（lm_dataset.py 第 115 行）。补齐段不在任何 bos 到 eos 区间内，<code>generate_labels</code> 扫不到它，label 天然保持 -100——padding 因此自动被排除出损失，无需额外处理。</li>
+  <li><strong>多轮对话逐轮掩码</strong>：<code>generate_labels</code> 的扫描是循环的，处理完一个助手段就跳到其 eos 之后继续找下一个 bos（第 104 行）。多轮对话里每一轮助手回答都计入损失，用户轮全部掩掉。</li>
+  <li><strong>日志里两个 loss 分开看</strong>：训练日志把 <code>logits_loss</code> 与 <code>aux_loss</code> 分开打印（train_full_sft.py 第 52–56 行）。前者是公式 (1) 的语言模型损失；后者是 MoE 的辅助负载均衡损失（第 5 章讲过），不用 MoE 时恒为 0。分开打印是为了定位异常时能立刻分清「模型没学好」与「专家分配不均」。</li>
+  <li><strong>保存权重转半精度</strong>：保存 checkpoint 时把参数逐个转成半精度再落盘（train_full_sft.py 第 66 行，<code>v.half()</code>），文件体积减半，加载推理时也更省显存。</li>
+</ul>
+
+<p>　　至此，SFT 的训练机制就讲完了：一个掩码、一套保守配方、一份风险清单。下一节换一个更省力的思路——不动主干参数，只训一小撮外挂矩阵的 LoRA。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么 SFT 要把用户提问从损失里掩掉？</div>
+    <div class="sc-key">推理时用户的话由真人给出，模型只需学会接在后面把回答续出来；让它学提问既浪费容量又会混淆角色。实现上，minimind 的 generate_labels 把非助手段的 label 置为 -100，交叉熵的 ignore_index=-100 会把这些位置整体跳过，不进损失、不产生梯度。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">SFT 与预训练的训练配置差在哪，为什么？</div>
+    <div class="sc-key">训练骨架相同（AdamW、bf16、梯度裁剪 1.0、cosine 调度），配方全面收小：学习率 1e-5 对 5e-4、小约两个量级，轮数寥寥，从预训练权重出发。原因是微调只需在既有知识上做行为修正，步子大会把预训练成果冲刷掉。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">灾难性遗忘怎么防？</div>
+    <div class="sc-key">五条对策：小学习率、少 epoch、混入通用数据做 replay、早停，或干脆改用 LoRA 冻结主干（9.4 节）。它们与 9.1 节的表层对齐假说一致：对齐是表层调整，本不需要大动干戈。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>minimind（Apache 2.0），dataset/lm_dataset.py：损失掩码的生成——第 68–69 行（bos/eos 提示头预编码）、第 91–107 行（generate_labels）、第 115 行（padding 补齐）。</li>
+  <li>minimind（Apache 2.0），model/model_minimind.py：损失计算——第 256 行（logits 与 labels 错位一位）、第 257 行（F.cross_entropy 的 ignore_index=-100）。</li>
+  <li>minimind（Apache 2.0），trainer/train_full_sft.py：SFT 超参与日志——第 79–96 行（学习率 1e-5、batch 16、序列 768、epoch 2、from_weight=pretrain）、第 131 行（AdamW）、第 52–56 行（logits_loss 与 aux_loss 分开打印）、第 66 行（保存权重转半精度）；对照组 trainer/train_pretrain.py 第 78–90 行（学习率 5e-4、batch 32、序列 340、from_weight=none）。</li>
+  <li>Ouyang et al., 2022. Training Language Models to Follow Instructions with Human Feedback（InstructGPT，arXiv:2203.02155）：SFT 在对齐流水线中的位置与作用。</li>
+  <li>Hugging Face TRL 文档：SFTTrainer（https://huggingface.co/docs/trl/sft_trainer）：工业界 SFT 训练器的标准实现，同样默认只对回答段计损失。</li>
+</ul>
+
+</article>

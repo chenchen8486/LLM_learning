@@ -1,0 +1,296 @@
+<article class="content">
+<h1>9.2 SFT 数据：指令对、对话模板与质量哲学</h1>
+<p class="subtitle">本页范围：第 9 章第 2 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>SFT 号称用「指令对」教模型对话，那这种数据到底长什么样？多轮对话怎么变成模型能消化的一维 token 流？数据从哪来、多少条才算够？</td></tr>
+      <tr><td>本节主张</td><td>现代 SFT 数据的载体是带 role 字段的 conversations 列表，经对话模板拍平成带角色标记的文本后再分词训练；来源有人工标注、模型蒸馏、真实对话日志三条路线，成本依次递减、噪声依次递增；决定成败的是质量而非数量。</td></tr>
+      <tr><td>一句话结论</td><td>格式靠模板统一，来源按成本与质量取舍，数量服从质量——1000 条精挑细选可以胜过 5 万条粗制滥造。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>指令对</span><span>conversations</span><span>对话模板</span><span>ChatML</span><span>模型蒸馏</span><span>LIMA</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　9.1 节给 SFT 定了位：预训练交出来的 base model 会续写、不会对话，SFT 用带标准答案的「指令—回答」样本把它调成助手；表层对齐假说进一步指出，这一阶段教的主要是表达规范，知识与能力早在预训练里备好了。定位清楚了，下一个问题自然落到数据本身：所谓「指令对」到底长什么样，从哪来，备多少才算够？</p>
+
+<p>　　本节把 SFT 数据从三个角度拆开：先看一条样本的解剖结构，再看它如何被拍平成模型能消化的一维 token 流，接着盘点数据的来源路线，最后回答每个做微调的人早晚要回答的问题——多少条才算够。路线图如下：</p>
+
+<ol>
+  <li><strong>一条样本的解剖：从三段式到多轮对话</strong>（9.2.1）：从 instruction / input / output 三段式到 conversations 多轮格式，用 minimind 的真实 schema 与一条具体样本落地；</li>
+  <li><strong>对话模板：把多轮对话拍平成 token 流</strong>（9.2.2）：模型只认一维序列，角色边界靠模板里的特殊标记表达，训练与推理必须用同一套；</li>
+  <li><strong>数据从哪来：三条路线</strong>（9.2.3）：人工标注、模型蒸馏、真实对话日志，成本与质量的对照账；</li>
+  <li><strong>质量压倒数量：LIMA 的启示</strong>（9.2.4）：1000 条精选样本背后的数据质量四维度。</li>
+</ol>
+
+<p>　　读完本节，一份 SFT 数据集摆在面前时，应该能看清它的格式、来源与成色。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及这条数据流水线放大之后的样子。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS92sftdata" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG92sftdata" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS92sftdata)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS92sftdata)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS92sftdata)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS92sftdata)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG92sftdata)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG92sftdata)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG92sftdata)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）与中间训练（第 8 章）交出 base model；SFT（本章）把它调成会对话的助手，随后接偏好对齐（第 10 章）与推理训练（第 11 章），最终进入推理与部署（第 12–13 章）。本节管的是 SFT 这一站的原料：指令对长什么样、怎么拍平成 token 流、从哪来、备多少。</div>
+</div>
+
+<p>　　这个紫框放大之后，数据在里面经历什么变形？把一条样本从 JSON 到 token 流的完整旅程单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-sft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#555"/>
+      </marker>
+    </defs>
+    <!-- 框一：conversations JSON -->
+    <rect x="16" y="30" width="280" height="230" rx="10" fill="#f5f3ff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="156" y="56" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#6d28d9">① 一条样本：conversations JSON</text>
+    <text x="28" y="84" font-size="11" fill="#333">{"conversations": [</text>
+    <text x="28" y="102" font-size="11" fill="#333">  {"role": "user",</text>
+    <text x="28" y="120" font-size="11" fill="#333">    "content": "中国的首都是哪里？"},</text>
+    <text x="28" y="138" font-size="11" fill="#333">  {"role": "assistant",</text>
+    <text x="28" y="156" font-size="11" fill="#333">    "content": "中国的首都是北京。"}</text>
+    <text x="28" y="174" font-size="11" fill="#333">]}</text>
+    <text x="28" y="218" font-size="11" fill="#666">jsonl 数据集：一行一条这样的样本</text>
+    <!-- 箭头一 -->
+    <line x1="300" y1="145" x2="334" y2="145" stroke="#555" stroke-width="2.5" marker-end="url(#arr-sft)"/>
+    <!-- 框二：模板拍平 -->
+    <rect x="340" y="30" width="300" height="230" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="2"/>
+    <text x="490" y="56" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#0891b2">② 对话模板拍平成文本</text>
+    <rect x="352" y="76" width="76" height="26" rx="4" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="390" y="93" text-anchor="middle" font-size="11" fill="#92400e">&lt;bos&gt;user\n</text>
+    <rect x="432" y="76" width="110" height="26" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1"/>
+    <text x="487" y="93" text-anchor="middle" font-size="11" fill="#333">中国的首都是哪里？</text>
+    <rect x="546" y="76" width="54" height="26" rx="4" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="573" y="93" text-anchor="middle" font-size="11" fill="#92400e">&lt;eos&gt;\n</text>
+    <rect x="352" y="110" width="104" height="26" rx="4" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="404" y="127" text-anchor="middle" font-size="11" fill="#92400e">&lt;bos&gt;assistant\n</text>
+    <rect x="460" y="110" width="106" height="26" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1"/>
+    <text x="513" y="127" text-anchor="middle" font-size="11" fill="#333">中国的首都是北京。</text>
+    <rect x="570" y="110" width="54" height="26" rx="4" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="597" y="127" text-anchor="middle" font-size="11" fill="#92400e">&lt;eos&gt;\n</text>
+    <text x="352" y="162" font-size="11" fill="#dc2626">琥珀色块为角色边界标记（示意）</text>
+    <text x="352" y="182" font-size="11" fill="#555">拍平动作：tokenizer.apply_chat_template</text>
+    <text x="352" y="202" font-size="11" fill="#555">随后整段一起送入分词器</text>
+    <!-- 箭头二 -->
+    <line x1="644" y1="145" x2="678" y2="145" stroke="#555" stroke-width="2.5" marker-end="url(#arr-sft)"/>
+    <!-- 框三：token ID 流 -->
+    <rect x="684" y="30" width="260" height="230" rx="10" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+    <text x="814" y="56" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#92400e">③ 分词成 token ID 流</text>
+    <text x="814" y="78" text-anchor="middle" font-size="11" fill="#666">以问句「中国的首都是哪里？」为例</text>
+    <rect x="695" y="90" width="33" height="46" rx="4" fill="#ffffff" stroke="#b45309" stroke-width="1"/>
+    <text x="711.5" y="110" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">中国</text>
+    <text x="711.5" y="127" text-anchor="middle" font-size="11" fill="#6d28d9">1405</text>
+    <rect x="730" y="90" width="33" height="46" rx="4" fill="#ffffff" stroke="#b45309" stroke-width="1"/>
+    <text x="746.5" y="110" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">的</text>
+    <text x="746.5" y="127" text-anchor="middle" font-size="11" fill="#6d28d9">296</text>
+    <rect x="765" y="90" width="33" height="46" rx="4" fill="#ffffff" stroke="#b45309" stroke-width="1"/>
+    <text x="781.5" y="110" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">首</text>
+    <text x="781.5" y="127" text-anchor="middle" font-size="11" fill="#6d28d9">1408</text>
+    <rect x="800" y="90" width="33" height="46" rx="4" fill="#ffffff" stroke="#b45309" stroke-width="1"/>
+    <text x="816.5" y="110" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">都是</text>
+    <text x="816.5" y="127" text-anchor="middle" font-size="11" fill="#6d28d9">2462</text>
+    <rect x="835" y="90" width="33" height="46" rx="4" fill="#ffffff" stroke="#b45309" stroke-width="1"/>
+    <text x="851.5" y="110" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">哪</text>
+    <text x="851.5" y="127" text-anchor="middle" font-size="11" fill="#6d28d9">1742</text>
+    <rect x="870" y="90" width="33" height="46" rx="4" fill="#ffffff" stroke="#b45309" stroke-width="1"/>
+    <text x="886.5" y="110" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">里</text>
+    <text x="886.5" y="127" text-anchor="middle" font-size="11" fill="#6d28d9">852</text>
+    <rect x="905" y="90" width="33" height="46" rx="4" fill="#ffffff" stroke="#b45309" stroke-width="1"/>
+    <text x="921.5" y="110" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">？</text>
+    <text x="921.5" y="127" text-anchor="middle" font-size="11" fill="#6d28d9">776</text>
+    <text x="814" y="160" text-anchor="middle" font-size="11" font-weight="bold" fill="#6d28d9">token ID 为 minimind 分词器实测</text>
+    <text x="814" y="180" text-anchor="middle" font-size="11" fill="#666">完整序列还含角色标记的特殊 token</text>
+    <text x="814" y="210" text-anchor="middle" font-size="11" fill="#666">随后送入 Embedding 层（第 3 章）</text>
+  </svg>
+  <div class="diagram-caption">图示：SFT 这一站内部的局部放大——一条样本从结构化 JSON 到 token 流的完整变形。左：conversations 格式的一条样本（jsonl 数据集每行一条）；中：对话模板把多轮对话拍平成一段带角色标记的文本，琥珀色块为角色边界标记，仅作示意，实际写法由各家模板自行定义；右：整段文本经分词变成 token ID 序列，图中以问句为例给出 minimind 分词器实测的 7 个 token。模型训练时看到的就是最右边这种一维序列；9.2.2 会逐步拆解这条流水线。</div>
+</div>
+
+<h2>9.2.1 一条样本的解剖：从三段式到多轮对话</h2>
+
+<p>　　SFT 的每条样本是一个「问—答」对：一边是给模型的输入，一边是期望模型给出的回答。9.1 节说过，这种带标准答案的监督信号正是 SFT 与预训练自监督的分野。要把数据讲清楚，先看最早的格式长什么样。</p>
+
+<p>　　早期的指令数据集流行三段式结构：<code>instruction</code>（指令，要模型做什么）、<code>input</code>（输入，任务作用的对象，可以为空）、<code>output</code>（输出，期望的回答）。FLAN 系列与 Alpaca 时代的数据集都用这个格式。一条典型样本用 JSON 写出来是这样——JSON 是一种用键值对组织数据的纯文本格式，训练集通常存成 jsonl 文件，每行放一条样本：</p>
+
+<pre><code>{
+  "instruction": "把下面这句话翻译成英语",
+  "input": "中国的首都是北京。",
+  "output": "The capital of China is Beijing."
+}</code></pre>
+
+<p>　　三段式干净直白，「指令」与「输入」分家还有一个实际好处：同一条指令可以配不同的 input 批量产出样本，适合改造传统 NLP 任务——翻译、分类、摘要各有固定指令模板，换个输入就是一条新数据。但它的表达力到单轮问答为止：角色只有隐含的「提问者」与「回答者」两方，多轮对话里「上文说过什么」无处安放。</p>
+
+<p>　　对话产品兴起后，数据格式升级为多轮结构。今天的 SFT 数据普遍采用 <code>conversations</code> 列表：每条样本是一个消息数组，每条消息带 <code>role</code>（角色）与 <code>content</code>（内容）两个字段；role 取 system、user、assistant 三者之一。system 是放在对话开头的系统提示，用来规定助手的身份与行为边界（第 14 章细讲）；user 与 assistant 交替出现，就构成了多轮对话。</p>
+
+<p>　　这并非纸上约定，直接看一份能跑的实现。minimind（Apache 2.0）的 SFT 数据集就是这个 schema：它的加载代码把每行 jsonl 解析为 conversations 列表，每个元素是含 role 与 content 的字典（文件路径：minimind-master/dataset/lm_dataset.py，第 66 行）。一条两轮样本的完整长相：</p>
+
+<pre><code>{"conversations": [{"role": "user", "content": "中国的首都是哪里？"}, {"role": "assistant", "content": "中国的首都是北京。"}, {"role": "user", "content": "用英语再说一遍。"}, {"role": "assistant", "content": "The capital of China is Beijing."}]}</code></pre>
+
+<p>　　注意第二轮的价值：用户说「再说一遍」，指代的是上一轮的回答。模型要答对这一轮，必须在训练时见过「回答连着上文」的样本。这正是单轮三段式给不了、多轮格式能给的监督信号。</p>
+
+<h2>9.2.2 对话模板：把多轮对话拍平成 token 流</h2>
+
+<p>　　数据结构再漂亮，模型也不直接读 JSON。第 3、4 章讲过，Transformer 的输入只是一维 token ID 序列：里面没有方括号、没有 role 字段。轮到谁说话、一段话从哪开始到哪结束，所有这些结构信息都必须编码进文本本身。负责这件事的格式约定叫<strong>对话模板</strong>。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">对话模板 Chat Template</span>
+    <span class="term-en">chat template = 把多轮对话拼成一段文本的固定格式约定</span>
+  </div>
+  <div class="term-body">
+    <p>模板规定每轮发言前后垫什么标记：角色名写在哪、发言用什么符号收尾、轮与轮之间怎么分隔。同一段对话，不同模板拼出来的文本长得不一样；模型只认自己训练时见过的那套。2.5 节已从特殊 token 的角度见过 ChatML 与 LLaMA-3 两套装法，本节从训练数据的角度把这条流水线走完整。</p>
+    <div class="term-analogy">就像剧本：「张三：」「李四：」的角色前缀让读者一眼看出谁在说话。对话模板就是写给模型看的剧本格式，模型在训练时把这套格式和「角色」「轮次」「该谁接话」绑定在一起。</div>
+  </div>
+</div>
+
+<p>　　业界最知名的模板概念是 ChatML（Chat Markup Language，OpenAI 提出的对话标记格式，2.5 节见过它的样子），用一对特殊标记包住每轮发言并标明角色。各家模型并不照搬同一份标记，而是各有变体：特殊标记的名字不同、结构略有差异，「用特殊标记表达角色边界」的思想完全一致。</p>
+
+<p>　　训练侧的动作是<strong>拍平</strong>：把 conversations 列表按模板拼成一整段文本，再交给分词器。minimind 的做法是直接调用分词器自带的模板接口 <code>tokenizer.apply_chat_template</code>（minimind（Apache 2.0），minimind-master/dataset/lm_dataset.py，第 84–89 行），由分词器按模型内置模板完成拼接，避免手工拼字符串出错。拍平之后，助手的每段回答以 bos 加「assistant\n」开头、以 eos 加换行收尾（同文件第 68–69 行）——bos 与 eos 是 2.5 节讲过的序列起止标记，在这里被复用为「助手开口」与「助手说完」的边界。</p>
+
+<p>　　这对边界标记还有第二个用途：划定损失范围。用户的提问只是条件，训练要模型学会的只有一件事——把助手该说的话说对。minimind 的 <code>generate_labels</code> 正是沿着 bos、eos 边界找出每个助手段，只让这段位置参与损失计算，其余位置的标签置为 -100（即忽略）（同文件第 91–107 行）。把 6.1 节的交叉熵目标照搬过来，加上这个开关，就得到 SFT 的损失：</p>
+
+<div class="formula-card">
+  \[ \mathcal{L}_{\mathrm{SFT}} = -\sum_{t=1}^{T} m_t \log P_\theta\big(x_t \mid x_{&lt;t}\big), \qquad m_t = \begin{cases} 1, &amp; t \in \text{助手回答段} \\ 0, &amp; \text{其余位置} \end{cases} \tag{1} \]
+  <div class="formula-note">公式 (1)：SFT 的损失就是加了开关的交叉熵——只有落在助手回答段的 token 才计入损失，用户提问与角色标记位置的损失被 \(m_t\) 关掉。符号说明：\(\mathcal{L}_{\mathrm{SFT}}\) 是 SFT 损失；\(T\) 是拍平后整条序列的长度；\(P_\theta(x_t \mid x_{&lt;t})\) 是参数为 \(\theta\) 的模型在看到前 \(t-1\) 个 token 后给第 \(t\) 个 token 的概率（与 6.1 节公式 (2) 的记号一致）；\(m_t\) 是取值 0 或 1 的掩码，\(t \in \text{助手回答段}\) 表示第 \(t\) 个 token 落在某段助手回答之内。</div>
+</div>
+
+<p>　　至此，一条样本从 JSON 到 token 流的完整变形就讲完了——本节开头导读之后的局部放大图，画的正是这条流水线：conversations JSON 经模板拍平成带角色标记的文本，再整段分词成一维 token ID 序列。后面读到任何一步，都可以翻回去对照。</p>
+
+<div class="highlight-box warn">
+  训练模板与推理模板必须严格一致。训练用模板 A 拍平数据，模型学会的是「见到 A 的助手段开头标记就接话，说完就吐 A 的结束标记」；部署时若换成模板 B，模型面对的是没学过的标记组合，认不出自己的角色边界——不知道什么时候该停，甚至把用户的下一轮发言也一并编出来，输出就此跑偏。换分词器版本、换推理框架时最容易在这里栽跟头（2.5 节从特殊 token 角度立过同样的规矩，此处从训练数据角度再强调一次）。
+</div>
+
+<h2>9.2.3 数据从哪来：三条路线</h2>
+
+<p>　　格式与拍平方式定了，接下来的问题是：成千上万条问答从哪来？业界走出三条路线，成本与质量各不相同。</p>
+
+<p>　　<strong>路线一：人工标注。</strong>最扎实的办法是请人写。OpenAI 训练 InstructGPT（Ouyang et al. 2022）时，聘请了约 40 名标注员，围绕约 1.3 万条 prompt 亲手撰写示范回答，这批数据构成 SFT 阶段的训练集（InstructGPT 后续还让标注员做偏好排序、训练 RLHF，那是第 10 章的故事）。人工标注的质量上限最高，每条答案都由人撰写、按明确规范审校；代价也最直接：贵，且产量有限。</p>
+
+<p>　　<strong>路线二：模型蒸馏。</strong>这里的「蒸馏」指把强模型的输出收集起来，当作弱模型的训练答案（蒸馏在压缩语境下的含义见第 13 章）。Self-Instruct（Wang et al. 2022）开了这条路线：从少量人工种子任务出发，让模型自己生成新指令并补齐回答，自举式滚出 5.2 万条指令数据。Alpaca（Taori et al. 2023，Stanford CRFM）把它推到大众视野：用 OpenAI 的 text-davinci-003 蒸馏出 5.2 万条指令数据微调 LLaMA，官方称 API 成本约 500 美元，数据生产的门槛从此骤降。风险也写在基因里：教师模型的错误与幻觉会原样蒸进学生，粗制滥造的蒸馏数据等于让模型临摹一份带错别字的范本。</p>
+
+<p>　　<strong>路线三：真实对话日志。</strong>Vicuna（LMSYS，2023）走了另一条路：从 ShareGPT——一个用户自愿公开自己与 ChatGPT 对话的网站——收集约 7 万轮真实分享对话，微调 LLaMA。这条路线的原料自带多轮结构与真实用户分布，问法五花八门、贴近日常使用；回答同样出自模型、未经逐条人工审校，因此也带着蒸馏路线的噪声特征。</p>
+
+<p>　　三条主线之外还有一支旁系：多任务混合。FLAN Collection（Chung et al. 2022）把 473 个学术数据集、1836 个 NLP 任务统一改写成指令格式，靠任务覆盖面的广度锤炼模型的指令泛化能力。它的原料来自既有学术数据集，与前三条面向对话场景的路线互补。四条路线的成本与质量对照如下：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>路线</th><th>代表工作</th><th>数据规模</th><th>成本特征</th><th>质量特征</th></tr></thead>
+    <tbody>
+      <tr><td>人工标注</td><td>InstructGPT（2022）</td><td>约 1.3 万条 prompt</td><td>约 40 名标注员，最贵</td><td>上限最高，人写人审</td></tr>
+      <tr><td>模型蒸馏</td><td>Self-Instruct、Alpaca（2022–2023）</td><td>各约 5.2 万条</td><td>Alpaca 官方称 API 成本约 500 美元</td><td>带教师模型的错误与幻觉</td></tr>
+      <tr><td>真实对话日志</td><td>Vicuna（2023）</td><td>约 7 万轮</td><td>收集自公开分享，成本低</td><td>真实分布、自带多轮，回答未经逐条审校</td></tr>
+      <tr><td>多任务混合（旁系）</td><td>FLAN Collection（2022）</td><td>473 个数据集、1836 个任务</td><td>改写既有学术数据集</td><td>覆盖面最广，多为学术任务改写</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　四条摆在一起看，规律很直白：越靠近人，质量越稳、成本越高；越靠近机器自动生产，量越大、噪声越重。实际项目的数据配方往往是几条路线的混合。这引出一个更尖锐的问题：既然蒸馏能把量做到无限大，量的优势能不能压过质？LIMA 实验给了否定的回答。</p>
+
+<h2>9.2.4 质量压倒数量：LIMA 的启示</h2>
+
+<p>　　2023 年的 LIMA（Zhou et al.）做了一个刻意极端的实验：只用 1000 条精挑细选的样本微调 65B 的 LLaMA，不加任何 RLHF，就得到了对话表现相当强的模型。论文标题直接把结论写在脸上：Less Is More for Alignment——对齐这件事，少可以胜多。</p>
+
+<p>　　LIMA 为什么成立，9.1 节的表层对齐假说已经给了框架：模型的知识与能力几乎全部在预训练中习得，SFT 教的是「以什么身份、什么格式、什么详略把已有能力说出来」。既然学的是表达规范，样本的一致性就比数量值钱——1000 条风格统一、答案可靠的样本，足以把规范刻给模型。</p>
+
+<p>　　「质量」二字要落到实处，拆开至少有四个维度：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>任务多样性</h4><p>问答、写作、推理、代码、摘要等各类任务都要覆盖，模型才知道「指令」的全集有多大。</p></div>
+  <div class="concept-card"><h4>答案真实性</h4><p>事实必须正确。带幻觉的答案教出来的是一本正经地编。</p></div>
+  <div class="concept-card"><h4>表达规范性</h4><p>格式、语气、详略在整个数据集中保持一致，模型才能学到稳定的行为风格。</p></div>
+  <div class="concept-card"><h4>难度分布</h4><p>简单指令与多步推理都要有。只喂简单题，遇到复杂请求就会露怯。</p></div>
+</div>
+
+<p>　　四个维度摆出来，蒸馏路线的软肋就清楚了：万条级的自动生成数据在任务多样性上或许不差，但真实性与规范性无人把关，教师模型的错误、啰嗦与格式漂移全混在里面。模型对这些噪声照单全收，学到的是「平均水准」的行为——噪声以量取胜，规范就被稀释了。</p>
+
+<div class="highlight-box">
+  LIMA 的启示一句话：1000 条精挑细选可能胜过 5 万条粗制滥造。蒸馏噪声会稀释行为规范，SFT 数据的杠杆在质量一侧。
+</div>
+
+<p>　　数据备齐之后，还剩训练本身的问题：学多久、学习率怎么配、LoRA 这类参数高效方法怎么省显存。这些留给本章后续小节。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">三段式与 conversations 两种 SFT 样本格式的差别在哪？</div>
+    <div class="sc-key">三段式把样本拆成 instruction / input / output 三个字段，只能表达单轮问答；conversations 用带 role 的消息列表，system 定身份、user 与 assistant 交替成多轮，「指代上文」这类监督信号才能进训练。minimind 的 SFT 数据用的就是 conversations schema。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么训练模板与推理模板必须一致？</div>
+    <div class="sc-key">模型看到的只是拍平后的一维 token 流，角色边界完全由模板里的特殊标记定义。训练见过模板 A、推理却用模板 B，等于对模型说一门没学过的方言：它认不出助手段的起点与终点，不知道该在哪停，输出就会跑偏。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">LIMA 用 1000 条数据微调出强对话模型，说明了什么？</div>
+    <div class="sc-key">呼应表层对齐假说：知识与能力在预训练里已备好，SFT 教的是表达规范。规范靠一致性刻入，不靠数量堆叠；蒸馏数据量大却带着教师模型的错误与幻觉，噪声一多，行为规范就被稀释。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Ouyang et al., 2022. Training Language Models to Follow Instructions with Human Feedback（InstructGPT，arXiv:2203.02155）：约 40 名标注员、约 1.3 万条 prompt 的 SFT 数据规模的出处。</li>
+  <li>Wang et al., 2022. Self-Instruct: Aligning Language Models with Self-Generated Instructions（arXiv:2212.10560）：让模型自举生成 5.2 万条指令数据的方法。</li>
+  <li>Taori et al., 2023. Stanford Alpaca: An Instruction-Following LLaMA Model（Stanford CRFM 技术报告/博客）：用 text-davinci-003 蒸馏 5.2 万条指令数据，官方称 API 成本约 500 美元。</li>
+  <li>LMSYS, 2023. Vicuna: An Open-Source Chatbot Impressing GPT-4 with 90% ChatGPT Quality（LMSYS 博客）：用 ShareGPT 约 7 万轮用户分享对话微调 LLaMA。</li>
+  <li>Chung et al., 2022. Scaling Instruction-Finetuned Language Models（arXiv:2210.11416）：FLAN Collection 把 473 个数据集、1836 个任务统一为指令格式。</li>
+  <li>Zhou et al., 2023. LIMA: Less Is More for Alignment（arXiv:2305.11206）：1000 条精选样本微调 65B LLaMA，提出表层对齐假说。</li>
+  <li>minimind（Apache 2.0）：minimind-master/dataset/lm_dataset.py——SFT 数据 schema（第 66 行）、apply_chat_template 拍平（第 84–89 行）、助手段 bos/eos 边界（第 68–69 行）、损失范围划定（第 91–107 行）。https://github.com/jingyaogong/minimind</li>
+</ul>
+
+</article>

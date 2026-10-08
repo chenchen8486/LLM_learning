@@ -1,0 +1,327 @@
+<article class="content">
+<h1>9.1 为什么需要 SFT：从「会续写」到「会对话」</h1>
+<p class="subtitle">本页范围：第 9 章第 1 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>第 6–8 章训出来的 base model 有知识、懂语言，为什么直接当聊天助手用会翻车？从「会续写」到「会对话」差的这一步由谁来补？</td></tr>
+      <tr><td>本节主张</td><td>base model 的三处行为缺口——不回答问题、格式失控、不知何时停止——是 next-token 训练目标的必然产物；SFT（监督微调）用「指令-回答」标注数据继续监督训练，专门补行为层：教形式、调风格、立规矩，注入新知识不归它管。</td></tr>
+      <tr><td>一句话结论</td><td>SFT 是后训练的第一站与地基：逐 token 交叉熵目标不变，变的是数据形态与监督信号；后续 RLHF / DPO / RLVR 都以 SFT 模型为起点。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>SFT</span><span>指令微调</span><span>base model</span><span>instruct model</span><span>InstructGPT</span><span>LIMA</span><span>表层对齐假说</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　第 8 章走完，中间训练交出的是一个能力补强、上下文达标的 base model：知识更全了，长文读得下了，领域短板也补了。但它依然是一台续写机——喂给它一个问题，它按语料分布往下接，碰巧接上答案是运气，接出另一道题才是常态。直接把它当聊天助手用，会撞上三个稳定复现的行为缺口。本节是第 9 章的开篇，先把缺口摆清楚，再引出补缺口的工序：监督微调（SFT），并说明为什么整个后训练都要从它起步。</p>
+
+<p>　　本节沿四个问题展开，路线图如下：</p>
+
+<ol>
+  <li><strong>base model 的三处行为缺口</strong>（9.1.1）：同一问句下 base model 与 SFT 模型的行为对照，缺口具体缺在哪；</li>
+  <li><strong>SFT 是什么：后训练的第一站</strong>（9.1.2）：定义、训练目标与 8.1 节分界线的呼应，以及它在后训练地图中的位置；</li>
+  <li><strong>指令微调简史与表层对齐假说</strong>（9.1.3）：FLAN、InstructGPT、LIMA 三个节点，以及「SFT 主要教交互样式」这个影响深远的判断；</li>
+  <li><strong>本章地图</strong>（9.1.4）：9.2 到 9.5 四节的分工。</li>
+</ol>
+
+<p>　　读完本节，应该能说清两件事：base model 为什么不能直接上岗，以及为什么 RLHF、DPO、RLVR 都得排在 SFT 后面。</p>
+
+<p>　　逐节展开之前，先看一眼 SFT 在 LLM 生命周期中的位置，以及这一站放大之后的内部结构。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS91whysft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG91whysft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS91whysft)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS91whysft)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS91whysft)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS91whysft)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG91whysft)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG91whysft)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG91whysft)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：SFT 在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）与中间训练（第 8 章）交出 base model；SFT（本章）用指令-回答对把它调成会对话的 instruct model，随后接偏好对齐（第 10 章）与推理训练（第 11 章），最终进入推理与部署（第 12–13 章）。虚线部分在对应章节展开，本节只需记住：SFT 是后训练的第一站，任务是把「会续写」改造成「会对话」。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？它的输入和输出各是什么？把 SFT 这一站单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS91in" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="30" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：SFT 这一站——输入 base model 与指令对，输出 instruct model</text>
+    <!-- 输入一：base model -->
+    <rect x="30" y="52" width="200" height="84" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="130" y="77" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">base model</text>
+    <text x="130" y="98" text-anchor="middle" font-size="11" fill="#555">第 6–8 章交出的续写机</text>
+    <text x="130" y="118" text-anchor="middle" font-size="11" fill="#555">知识与能力已在参数里</text>
+    <!-- 输入二：指令-回答对 -->
+    <rect x="30" y="176" width="200" height="104" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="130" y="201" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">指令-回答对</text>
+    <text x="130" y="222" text-anchor="middle" font-size="11" fill="#555">每条：指令 + 参考回答</text>
+    <text x="130" y="242" text-anchor="middle" font-size="11" fill="#555">LIMA：1000 条</text>
+    <text x="130" y="262" text-anchor="middle" font-size="11" fill="#555">InstructGPT：约 1.3 万条</text>
+    <!-- 中间：SFT 训练 -->
+    <rect x="300" y="100" width="200" height="140" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="400" y="127" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">SFT 训练（本章）</text>
+    <text x="400" y="149" text-anchor="middle" font-size="11" fill="#ede9fe">指令 + 回答拼成 token 序列</text>
+    <text x="400" y="169" text-anchor="middle" font-size="11" fill="#ede9fe">逐 token 交叉熵</text>
+    <text x="400" y="189" text-anchor="middle" font-size="11" fill="#ede9fe">目标形式与预训练相同</text>
+    <text x="400" y="209" text-anchor="middle" font-size="11" fill="#ede9fe">只学回答段：损失掩码（9.3 节）</text>
+    <!-- 输出：instruct model -->
+    <rect x="556" y="100" width="150" height="140" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="631" y="127" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#0e7490">instruct model</text>
+    <text x="631" y="149" text-anchor="middle" font-size="11" fill="#555">按指令作答</text>
+    <text x="631" y="169" text-anchor="middle" font-size="11" fill="#555">格式有界 · 答完即停</text>
+    <text x="631" y="189" text-anchor="middle" font-size="11" fill="#555">第 10、11 章的起点</text>
+    <!-- 箭头 -->
+    <line x1="230" y1="94" x2="294" y2="140" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS91in)"/>
+    <line x1="230" y1="228" x2="294" y2="200" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS91in)"/>
+    <line x1="500" y1="170" x2="550" y2="170" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS91in)"/>
+    <!-- 底部注 -->
+    <text x="360" y="308" text-anchor="middle" font-size="11" fill="#64748b">一句话：知识留在底座，SFT 只改行为层；产物 instruct model 同时是偏好对齐（第 10 章）与推理训练（第 11 章）的起点</text>
+  </svg>
+  <div class="diagram-caption">图示：SFT 这一站的输入与输出。输入是第 6–8 章训出的 base model 与一批指令-回答对（规模可以很小：LIMA 只用 1000 条，InstructGPT 约 1.3 万条）；训练动作与预训练同骨架——指令与回答拼成 token 序列、逐 token 算交叉熵，差别只在只有回答段计入损失（损失掩码，9.3 节展开）；输出是 instruct model：会按指令作答、答完即停，同时是第 10 章偏好对齐与第 11 章推理训练的起点。</div>
+</div>
+
+<h2>9.1.1 base model 的三处行为缺口</h2>
+
+<p>　　先回顾 base model 是怎么来的。第 6 章的预训练在数万亿 token 的无标注语料上做 next-token 预测，第 7 章用分布式工程把这场长跑跑完，第 8 章的中间训练再做质量收口、长上下文扩展与领域补短。三步走完，模型在语言结构、世界知识、长文档处理上都已相当强，但它学会的唯一动作始终是「给定上文，续写下文」。语料里的下文什么样，它就学成什么样：网页、小说、试卷、论坛帖应有尽有，续写的样貌自然五花八门。</p>
+
+<p>　　把这种模型直接当聊天助手，会稳定地撞上三处缺口：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>缺口一 · 不回答问题</h4><p>收到问题不直接作答，反而顺着问题续写同类文本：再来一段背景介绍，或者干脆继续出题。</p></div>
+  <div class="concept-card"><h4>缺口二 · 格式失控</h4><p>输出啰嗦、没有结构，该分点不分点，该先给结论时先绕远路。</p></div>
+  <div class="concept-card"><h4>缺口三 · 不知何时停止</h4><p>答完了不收尾，继续往下续写无关内容，不知道一段回答该在哪里结束。</p></div>
+</div>
+
+<p>　　三处缺口用一次对照看得最清楚。把同一句「中国的首都是哪里？」分别喂给 base model 和经过 SFT 的模型（SFT 在 9.1.2 正式定义，这里先把它理解成「教模型按指令作答」的工序）：两者拿到的输入完全相同，产出的行为截然不同。先把话说在前面：下图是行为示意，用来刻画两类模型的典型差异，不是某次实测的截图。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 424" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrSftP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrSftC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <!-- 顶部示意声明 -->
+    <rect x="330" y="12" width="300" height="28" rx="14" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/>
+    <text x="480" y="31" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#92400e">行为示意 · 非实测截图</text>
+    <!-- 栏标题 -->
+    <text x="245" y="68" text-anchor="middle" font-size="15" font-weight="bold" fill="#6d28d9">base model（第 6–8 章产物）</text>
+    <text x="715" y="68" text-anchor="middle" font-size="15" font-weight="bold" fill="#0891b2">SFT 模型（本章主角）</text>
+    <!-- 左栏输入 -->
+    <rect x="50" y="84" width="390" height="46" rx="8" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="245" y="113" text-anchor="middle" font-size="13" fill="#333">输入：「中国的首都是哪里？」</text>
+    <!-- 右栏输入 -->
+    <rect x="520" y="84" width="390" height="46" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="715" y="113" text-anchor="middle" font-size="13" fill="#333">输入：「中国的首都是哪里？」</text>
+    <!-- 输入到输出的箭头 -->
+    <line x1="245" y1="130" x2="245" y2="154" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrSftP)"/>
+    <line x1="715" y1="130" x2="715" y2="154" stroke="#0891b2" stroke-width="2" marker-end="url(#arrSftC)"/>
+    <!-- 左栏输出 -->
+    <rect x="50" y="158" width="390" height="178" rx="8" fill="#ffffff" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="70" y="182" font-size="12.5" font-weight="bold" fill="#dc2626">续写输出（跑偏）</text>
+    <text x="70" y="208" font-size="12" fill="#333">「这是很多人学地理时会遇到的</text>
+    <text x="70" y="227" font-size="12" fill="#333">问题……」</text>
+    <text x="70" y="250" font-size="12" fill="#333">（继续出题）「中国的面积是多少？</text>
+    <text x="70" y="269" font-size="12" fill="#333">黄河流经哪些省份？……」</text>
+    <text x="70" y="294" font-size="12" fill="#888">（仍在继续，没有停止迹象……）</text>
+    <text x="70" y="322" font-size="12" font-weight="bold" fill="#dc2626">× 未作答　× 继续出题　× 不停止</text>
+    <!-- 右栏输出 -->
+    <rect x="520" y="158" width="390" height="178" rx="8" fill="#ffffff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="540" y="182" font-size="12.5" font-weight="bold" fill="#0891b2">回答输出（达标）</text>
+    <text x="540" y="210" font-size="13" font-weight="bold" fill="#333">「中国的首都是北京。」</text>
+    <rect x="540" y="228" width="170" height="30" rx="15" fill="#fef3c7" stroke="#d97706" stroke-width="1"/>
+    <text x="625" y="248" text-anchor="middle" font-size="12" fill="#92400e">答完即停：输出结束</text>
+    <text x="540" y="284" font-size="11.5" fill="#888">不追加背景介绍，不产生新问题</text>
+    <text x="540" y="322" font-size="12" font-weight="bold" fill="#0891b2">√ 直接作答　√ 简洁有界　√ 知停止</text>
+    <!-- 中缝分隔线 -->
+    <line x1="490" y1="84" x2="490" y2="336" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="4 4"/>
+    <!-- 底部结论条 -->
+    <rect x="50" y="352" width="390" height="40" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.2"/>
+    <text x="245" y="377" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#dc2626">同一问题被当成「作文开头」</text>
+    <rect x="520" y="352" width="390" height="40" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="715" y="377" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#0891b2">同一问题被当成「待答指令」</text>
+  </svg>
+  <div class="diagram-caption">图示：同一句提问之下两类模型的行为对照（行为示意，非实测截图）。左栏 base model 把「中国的首都是哪里？」当成一段文本的开头往下续写：先接背景介绍，再顺着出题，始终没有给出答案，也没有收尾；右栏 SFT 模型把同一句话当成待执行的指令，直接回答并结束输出。9.1.2 的任务，就是把左栏改造成右栏。</div>
+</div>
+
+<p>　　左栏的反应并不说明模型「笨」。「中国的首都是北京」所依赖的知识，大概率早就躺在参数里——预训练语料里这句话的变体出现过无数次。问题在于：语料中「中国的首都是哪里？」后面跟着的，可能是答案，也可能是背景铺垫、另一道题、一份试卷的下半页；base model 按概率续写，选中哪条路全凭语料分布。三处缺口由此而来：它没被训练过「面对问题要直接作答」（缺口一）、「答案要简洁成句」（缺口二）、「答完就停」（缺口三）。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">base model 基座模型</span>
+    <span class="term-en">base = 只经过预训练系训练、未做指令对齐的模型</span>
+  </div>
+  <div class="term-body">
+    <p>指走完预训练（可加中间训练）、尚未做任何指令与偏好对齐的模型。知识与语言能力都在它身上，唯独缺「助手」的交互方式：不知道面对指令要直接作答，只会按语料分布续写。开源模型常同时发布两个版本：名字里带 Instruct、Chat 等后缀的是对齐过的，不带后缀的就是 base model。</p>
+    <div class="term-analogy">像读遍整座图书馆却从没上过学的人：满腹经纶，但没人教过他「别人提问时应该正面回答、答完就停」。</div>
+  </div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">instruct model 指令模型</span>
+    <span class="term-en">instruct = 经过指令对齐、能按指令作答的模型</span>
+  </div>
+  <div class="term-body">
+    <p>指在 base model 之上做过指令对齐的模型：先是 SFT（9.1.2 定义），通常还接偏好对齐（第 10 章）。它学会了交互样式：收到问题直接作答、按要求的格式组织输出、答完收尾。日常聊天框里的助手都是 instruct model，也叫 chat model、aligned model，各家命名不一。</p>
+    <div class="term-analogy">同一个读者上了学、练过答题规范之后，成了会应考的人：书还是那些书，变的是应答方式。</div>
+  </div>
+</div>
+
+<p>　　所以三处缺口是同源的，根子都在 next-token 这个目标函数上：它奖励「像语料」，从不奖励「像助手」。对话所需的行为模式语料里当然也有——教辅的问答段落、客服记录都是——但占比太小，被海量其他文本形态淹没了。想让这些模式成为默认行为，就得专门造一批「指令-回答」样本让模型重点学。这正是 9.1.2 的主题。</p>
+
+<div class="highlight-box">
+  base model 的三处缺口（不回答、没格式、不收尾）落在行为层：知识多半已在参数里，缺的是「此时该直接作答、答完该停」的行为模式。补行为正是 SFT 的任务——这也解释了为什么 SFT 数据不需要海量，9.1.3 的 LIMA 会给出证据。
+</div>
+
+<h2>9.1.2 SFT 是什么：后训练的第一站</h2>
+
+<p>　　补缺口的方法直接得近乎朴素：模型缺「看到指令就给出合格回答」的行为模式，那就专门造一批这样的样本让它学。<strong>监督微调</strong>（Supervised Fine-Tuning，SFT）指用人工标注的「指令-回答」数据，在 base model 上继续做监督训练的阶段。每条样本是一对：一侧是指令（一个问题或一项任务要求），另一侧是符合要求的参考回答。</p>
+
+<p>　　从训练机制上看，SFT 与预训练几乎共用同一副骨架：自回归地逐 token 预测、逐 token 算交叉熵。把一条样本的指令与回答拼接成 token 序列 \(x_1, x_2, \dots, x_T\)，训练目标写成：</p>
+
+<div class="formula-card">
+  \[ \mathcal{L}_{\mathrm{SFT}} = -\sum_{t \in \mathcal{A}} \log p_{\theta}\left(x_t \mid x_{&lt;t}\right) \tag{1} \]
+  <div class="formula-note">公式 (1)：SFT 的损失与预训练一样，是逐 token 交叉熵；差别藏在求和范围里——只有回答部分的 token 计入损失，指令部分被掩掉不计。符号说明：\(x_t\) 是拼接序列中第 \(t\) 个 token；\(x_{&lt;t}\) 是它之前的全部上文；\(p_{\theta}\) 是参数为 \(\theta\) 的模型对下一个 token 的概率预测；\(\mathcal{A}\) 是回答部分 token 的位置集合（把指令排除在外的做法叫损失掩码，9.3 节细讲）；\(\log\) 为自然对数，配上负号后，回答越准、损失越小。</div>
+</div>
+
+<p>　　对照 8.1 节的分界线看，这一步跨得干净利落：目标函数的形式没变，仍是逐 token 交叉熵；变的是数据形态与监督信号——数据从「无标注连续文本」换成「一问一答的指令对」，监督信号从「文本自身的下文」换成「人工标注的参考回答」。跨过这条线，训练的追求从「像语料那样续写」切换为「像参考答案那样应答」，后训练正式开始。</p>
+
+<p>　　SFT 是后训练三站里的第一站，后续两站都以它的产物为起点：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>阶段</th><th>所在章节</th><th>做什么</th><th>起点模型</th></tr></thead>
+    <tbody>
+      <tr><td>SFT（监督微调）</td><td>第 9 章（本章）</td><td>学对话格式：按指令作答、结构化、知停止</td><td>base model</td></tr>
+      <tr><td>偏好对齐（RLHF / DPO 家族）</td><td>第 10 章</td><td>学偏好：哪个回答更有用、更无害</td><td>SFT 模型</td></tr>
+      <tr><td>推理能力训练（RLVR / GRPO）</td><td>第 11 章</td><td>学长思维链：复杂推理的强化训练</td><td>SFT 模型</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　表里四个缩写是首次出现，先各给一句最小解释，细节留到对应章节：<strong>RLHF</strong>（Reinforcement Learning from Human Feedback，基于人类反馈的强化学习）先训一个给回答打分的奖励模型，再用强化学习让模型产出高分回答（第 10 章）；<strong>DPO</strong>（Direct Preference Optimization，直接偏好优化）不训奖励模型，直接用「哪个回答更好」的成对数据调整模型（第 10 章）；<strong>RLVR</strong>（Reinforcement Learning with Verifiable Rewards，可验证奖励的强化学习）奖励来自能自动判对错的标准，比如数学答案核对、代码通过测试，用来练推理（第 11 章）；<strong>GRPO</strong>（Group Relative Policy Optimization，组相对策略优化）是 RLVR 常用的优化算法，对同一问题的一组回答按组内相对好坏定奖惩，省掉额外训练的价值网络（第 11 章）。</p>
+
+<p>　　术语上还需要留个心眼：这一阶段在文献里有两个常用别名。<strong>SFT</strong>（监督微调）强调训练方式是有标注的监督学习；<strong>指令微调</strong>（instruction tuning）强调数据形态是指令数据。两个词在绝大多数语境下指同一件事，本手册也混用；个别论文会做细微区分（例如把指令微调限定在多任务指令数据上的微调，见 9.1.3 的 FLAN），阅读时以各文自己的定义为准即可。</p>
+
+<div class="highlight-box">
+  SFT 是后训练的起点与地基：数据是「指令-回答」对，目标是逐 token 交叉熵（指令部分不计损失），产物是 instruct model 的雏形；第 10 章的偏好对齐与第 11 章的推理训练，都从 SFT 模型出发。
+</div>
+
+<h2>9.1.3 指令微调简史与表层对齐假说</h2>
+
+<p>　　指令微调从想法到范式，三个节点勾勒出它的轮廓：FLAN 证明指令微调能教出泛化能力，InstructGPT 把它嵌进对齐流水线并确立「SFT 先行」，LIMA 则用极端少的数据逼问 SFT 到底在学什么。</p>
+
+<h4>FLAN：多任务指令微调带来 zero-shot 泛化</h4>
+
+<p>　　2021 年，Wei 等人的 FLAN 把一大批已有 NLP 数据集统一改写成自然语言指令的形式——同一个任务配多套指令模板，混合起来微调模型。微调后的模型面对训练时从未见过的任务类型，只要任务能用指令描述出来，就能 zero-shot（零样本：不给任何示例，直接按指令作答）完成；而且见过的指令任务越多样，未见任务上的表现越好。这个结果的份量在于：指令数据教的不只是固定格式，还有「按指令行事」这一可迁移的能力，指令微调自此成为一个独立的研究方向。</p>
+
+<h4>InstructGPT：确立「SFT 先行」范式</h4>
+
+<p>　　2022 年，Ouyang 等人的 InstructGPT 把指令微调嵌进一条完整的对齐流水线，分三步走：第一步用约 13k 条人工标注的 prompt 及参考回答，对 base model 做 SFT；第二步让人工对同一 prompt 的多个回答排序，训出奖励模型；第三步用 PPO（Proximal Policy Optimization，近端策略优化：一种限制每步更新幅度、防止训练崩掉的强化学习算法，第 10 章细讲）按奖励模型的打分继续优化模型。三步走完的模型在「有用、诚实、无害」上大幅超过只靠提示词的更大模型。这条「SFT → 奖励模型 → PPO」流水线就是 RLHF 的经典形态，它留下的第一个共识是：无论后面接什么，先用 SFT 把对话格式立住。</p>
+
+<h4>LIMA：一千条数据与表层对齐假说</h4>
+
+<p>　　2023 年，Zhou 等人的 LIMA 把 SFT 的数据量压到另一个极端：只用 1000 条精挑细选、风格统一的指令-回答对，微调 65B 的 LLaMA base model，就得到了对话表现相当强的模型。作者据此提出<strong>表层对齐假说</strong>（Superficial Alignment Hypothesis）：模型的知识与能力几乎全在预训练中获得，对齐训练学到的主要是与用户交互的样式——用什么口吻、按什么结构组织、何时收尾。假说与实验互为印证：要学的若只是表层样式，一千条高质量样本就足够示范。</p>
+
+<p>　　这个假说给 SFT 划了职责边界：<strong>SFT 教形式、调风格、立规矩，不负责注入新知识</strong>。想让模型掌握某个领域的知识，靠几千条问答硬灌收效差、还容易诱发幻觉；正确的位置是第 8 章的中间训练，用领域语料做继续训练把知识装进底座。SFT 阶段的领域问答只负责教会模型「调用已有知识回答该领域问题」的形式，前提是知识已经在底座里。这条分工在 9.2 节讲数据时还会反复用到。</p>
+
+<div class="highlight-box info">
+  表层对齐假说是一个有争议但极具解释力的工作假说：LIMA 等实验支持它，也有后续工作表明后训练能做的比它说的多——推理能力的显著提升就离不开第 11 章的专门训练。本手册把它当作理解 SFT 角色的基线视角：先把 SFT 看作样式课，再在后续章节逐一考察它的能力边界。
+</div>
+
+<h2>9.1.4 本章地图</h2>
+
+<p>　　概念就位，本章后续四节按「数据 → 机制 → 方法 → 选型」推进：</p>
+
+<ul>
+  <li><strong>9.2 SFT 数据</strong>：指令-回答对从哪来、质量怎么把关、配比怎么定——数据是 SFT 效果的第一变量；</li>
+  <li><strong>9.3 SFT 训练机制</strong>：损失掩码怎么让模型只学回答不学提问，样本怎么拼接与打包；</li>
+  <li><strong>9.4 LoRA</strong>：只训练一小撮低秩矩阵就能完成微调，省显存的原理与代价；</li>
+  <li><strong>9.5 PEFT 家族与选型</strong>：LoRA 之外还有哪些参数高效微调方法，面对具体任务怎么选。</li>
+</ul>
+
+<p>　　下一节先解决原料问题：一份合格的 SFT 数据长什么样、从哪里来。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">base model 的三处行为缺口是什么，根源在哪？</div>
+    <div class="sc-key">不回答问题（反而续写同类文本或继续出题）、格式失控（啰嗦无结构）、不知何时停止（答完不收尾）。根源在 next-token 训练目标：语料里问题后面跟什么的都有，模型只学会了「像语料那样续写」，没学会「像助手那样应答」。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">SFT 与中间训练的差别是什么？</div>
+    <div class="sc-key">目标函数形式相同，都是逐 token 交叉熵；差别在数据形态与监督信号——中间训练用无标注语料继续收口质量、补短板，SFT 用人工标注的「指令-回答」对教行为、立格式。跨过这条线就进入后训练，后续 RLHF、DPO、RLVR 都以 SFT 模型为起点。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">表层对齐假说对 SFT 的角色做了什么判断？</div>
+    <div class="sc-key">LIMA 用 1000 条精选数据微调 65B LLaMA 就获得很强的对话表现，据此提出：模型的知识与能力几乎全在预训练获得，对齐学的主要是交互样式。推论是 SFT 教形式、调风格、立规矩，不负责注入新知识——领域知识归第 8 章的中间训练管。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Wei et al., 2021. Finetuned Language Models Are Zero-Shot Learners（FLAN，arXiv:2109.01652）：多任务指令微调与未见任务上的 zero-shot 泛化。</li>
+  <li>Ouyang et al., 2022. Training Language Models to Follow Instructions with Human Feedback（InstructGPT，arXiv:2203.02155）：约 13k 条人工标注 prompt 先做 SFT，再接奖励模型与 PPO 的 RLHF 流水线。</li>
+  <li>Zhou et al., 2023. LIMA: Less Is More for Alignment（arXiv:2305.11206）：1000 条精选数据微调 65B LLaMA，提出表层对齐假说。</li>
+</ul>
+
+</article>
