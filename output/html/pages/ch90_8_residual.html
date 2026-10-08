@@ -1,0 +1,131 @@
+<article class="content">
+<h1>A.8 残差连接：给梯度留一条直达路</h1>
+<p class="subtitle">本页范围：附录 A 第 8 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>网络叠到几十上百层，训练误差反而升高——不是学过头，是更深的网络连训练集都拟合不动。层数加深的好处怎么才能拿得到？</td></tr>
+      <tr><td>本节主张</td><td>残差连接把每层的输出从 F(x) 改成 x + F(x)：输入原样抄一条旁路，与处理后的结果相加。层只需学“增量”，梯度则沿旁路无损回传。</td></tr>
+      <tr><td>一句话结论</td><td>残差连接是深层网络训得动的地基：前向时它是恒等通道，反向时它的导数里恒有一个 1，梯度永不因层数而消失。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>残差连接</span><span>恒等映射</span><span>退化问题</span><span>梯度直达</span><span>Add &amp; Norm</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　A.5 节讲过梯度消失：连乘的导数一路缩小，深层的参数收不到更新信号。A.6 节讲的归一化稳住了数值尺度，但光有它还不够——实验上把普通网络从二十层加到上百层，训练误差会不降反升。残差连接（residual connection）是解决这个问题的主力手段，Transformer 里每个子层外面都套着它（4.4 节的 Add &amp; Norm，Add 说的就是它）。本节讲两件事：</p>
+
+<ol>
+  <li><strong>残差连接是什么</strong>（A.8.1）：一个加法动作，y = x + F(x)，以及“学增量”为什么比“学全量”容易；</li>
+  <li><strong>它为什么能救深层网络</strong>（A.8.2）：从导数里那个恒为 1 的项，看梯度如何无损穿过任意多层。</li>
+</ol>
+
+<p>　　读完应能讲清：残差连接在前向和反向两个方向上各自做了什么，以及 4.4 节每个子层外的那次相加为什么不是可有可无的装饰。</p>
+
+<h2>A.8.1 残差连接是什么：一个加法动作</h2>
+
+<p>　　普通一层的写法是 y = F(x)：输入 x 经过变换 F（可以是一组注意力或 FFN 运算），输出完全被替换。残差连接只加一个动作：把输入原样抄一份，和变换结果相加：</p>
+
+<div class="formula-card">
+  \[ y = x + F(x) \tag{1} \]
+  <div class="formula-note">公式 (1)：残差连接。符号说明：\(x\) 是这一层（子层）的输入向量；\(F(x)\) 是子层的变换结果（F 内部可以含矩阵乘法、注意力、激活函数等任意组合）；\(y\) 是输出。\(x\) 与 \(F(x)\) 逐维相加，所以二者维度必须相同——这也是 Transformer 所有子层都保持同一维度 \(d_{model}\) 的原因之一。被抄送的那份 \(x\) 叫残差旁路（skip connection），\(F(x)\) 只负责学输出与输入之间的“差”（残差），这正是名字的由来。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 230" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="rsArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 旁路（先画，压在下面） -->
+    <path d="M 96 150 C 96 60, 566 60, 552 136" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#rsArr)"/>
+    <text x="330" y="52" text-anchor="middle" font-size="12" fill="#0891b2">残差旁路：x 原样直达，不参与变换</text>
+    <!-- 主路 -->
+    <text x="44" y="155" text-anchor="middle" font-size="14" fill="#333">x</text>
+    <line x1="60" y1="150" x2="136" y2="150" stroke="#6d28d9" stroke-width="2" marker-end="url(#rsArr)"/>
+    <rect x="140" y="122" width="180" height="56" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="230" y="146" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">子层 F(x)</text>
+    <text x="230" y="166" text-anchor="middle" font-size="11" fill="#666">注意力 或 FFN</text>
+    <line x1="320" y1="150" x2="520" y2="150" stroke="#6d28d9" stroke-width="2" marker-end="url(#rsArr)"/>
+    <circle cx="540" cy="150" r="14" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="540" y="155" text-anchor="middle" font-size="15" font-weight="bold" fill="#6d28d9">+</text>
+    <line x1="554" y1="150" x2="606" y2="150" stroke="#6d28d9" stroke-width="2" marker-end="url(#rsArr)"/>
+    <text x="662" y="155" text-anchor="middle" font-size="13" fill="#333">y = x + F(x)</text>
+    <!-- 汇合说明 -->
+    <text x="540" y="196" text-anchor="middle" font-size="11" fill="#666">相加：旁路的 x 与主路的 F(x) 在此汇合</text>
+  </svg>
+  <div class="diagram-caption">图示：残差连接的结构。输入 x 走两条路：主路过子层得到 F(x)，旁路原样直达，两路在相加处汇合，输出 y = x + F(x)。</div>
+</div>
+
+<p>　　别小看这个加法，它改变了层的学习任务。没有残差时，F 必须学会完整的映射“输入该变成什么样”；有了残差，F 只需学“在输入基础上该改多少”。多数情况下每层要做的修改并不大，学一个接近零的增量，远比从零构造完整映射容易。极端情形下，如果某一层确实帮不上忙，没有残差的网络得硬把 F 学成恒等映射（让输出恰好等于输入，这很难学），有残差的网络只需把 F 学成零——把权重调小即可，简单得多。</p>
+
+<h2>A.8.2 它为什么能救深层网络：导数里恒有一个 1</h2>
+
+<p>　　先看没有残差会发生什么。A.5 节说过，梯度靠链式法则一层层连乘回传，几十层的导数乘在一起，数值容易缩到接近零（梯度消失），靠前的层几乎收不到信号。还有一个更费解的现象叫<strong>退化</strong>（degradation）：把网络加深，训练误差反而升高。注意是训练误差，不是测试误差——说明问题不在泛化，在于更深的普通网络连优化都变难了。从道理上讲这不该发生：多出来的层哪怕全部学成恒等映射，效果也不该比浅层差。普通结构恰恰就是学不出这个恒等映射，残差连接把它变成了默认动作。</p>
+
+<p>　　反向传播时看得最清楚。对公式 (1) 求 x 的导数：</p>
+
+<div class="formula-card">
+  \[ \frac{\partial L}{\partial x} = \frac{\partial L}{\partial y} \cdot \frac{\partial y}{\partial x} = \frac{\partial L}{\partial y} \cdot \Big( 1 + \frac{\partial F}{\partial x} \Big) \tag{2} \]
+  <div class="formula-note">公式 (2)：残差连接的梯度通路。符号说明：\(L\) 是损失；\(\frac{\partial L}{\partial y}\) 是从后面层传回来的梯度；\(\frac{\partial F}{\partial x}\) 是子层变换的导数（向量情形下是雅可比矩阵，这里用标量写法示意）；关键是括号里那个 \(1\)——它来自旁路 \(x\) 对自身的导数。含义：无论子层的导数 \(\frac{\partial F}{\partial x}\) 多小（哪怕缩到 0），传向 \(x\) 的梯度里总完整地保留着 \(\frac{\partial L}{\partial y}\) 这一份。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 270" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="rgArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="rgArrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <!-- 梯度从右侧损失传回 -->
+    <line x1="664" y1="150" x2="560" y2="150" stroke="#6d28d9" stroke-width="2" marker-end="url(#rgArr)"/>
+    <text x="612" y="136" text-anchor="middle" font-size="12" fill="#4c1d95">∂L/∂y</text>
+    <text x="612" y="176" text-anchor="middle" font-size="11" fill="#666">损失传回的梯度</text>
+    <!-- 汇合点（反向时即分流点） -->
+    <circle cx="540" cy="150" r="14" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="540" y="155" text-anchor="middle" font-size="15" font-weight="bold" fill="#6d28d9">+</text>
+    <!-- 主路：无损直达 -->
+    <line x1="524" y1="150" x2="116" y2="150" stroke="#6d28d9" stroke-width="2" marker-end="url(#rgArr)"/>
+    <text x="320" y="138" text-anchor="middle" font-size="12" fill="#4c1d95">主路：∂L/∂y × 1，无损直达</text>
+    <!-- 支路：穿过子层 -->
+    <line x1="540" y1="166" x2="540" y2="206" stroke="#0891b2" stroke-width="2"/>
+    <line x1="540" y1="210" x2="424" y2="210" stroke="#0891b2" stroke-width="2"/>
+    <rect x="224" y="182" width="200" height="56" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="324" y="206" text-anchor="middle" font-size="13" font-weight="bold" fill="#0e7490">支路：穿过子层</text>
+    <text x="324" y="226" text-anchor="middle" font-size="11" fill="#666">∂L/∂y × ∂F/∂x，可能衰减</text>
+    <line x1="224" y1="210" x2="120" y2="210" stroke="#0891b2" stroke-width="2"/>
+    <line x1="116" y1="210" x2="116" y2="164" stroke="#0891b2" stroke-width="2" marker-end="url(#rgArrB)"/>
+    <!-- 左侧汇总 -->
+    <circle cx="110" cy="150" r="6" fill="#6d28d9"/>
+    <text x="110" y="120" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">x</text>
+    <text x="360" y="262" text-anchor="middle" font-size="12" fill="#666">x 收到的总梯度 = 两路相加：即使支路衰减到 0，主路的 ×1 也保证信号完整到达</text>
+  </svg>
+  <div class="diagram-caption">图示：反向传播经过相加点的分流。传回的梯度在 + 处一分为二：主路原样送回 x（乘以 1），支路穿过子层（乘以 ∂F/∂x，可能衰减）。两路在 x 处相加，主路那份永不消失。</div>
+</div>
+
+<p>　　几十层叠起来时，这个性质被逐层放大：每一层的旁路都让梯度原样透传一份，最深的损失信号可以几乎不打折地回到最前面几层。这就是 4.4 节里每个子层都要 Add 一次的原因，也是 5.1 节 pre-norm 改动（把归一化挪进支路、让旁路全程干净无变换）能进一步改善稳定性的道理——旁路越纯粹，这条直达路越通畅。</p>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>章节</th><th>用到本节什么</th></tr></thead>
+    <tbody>
+      <tr><td>4.4 FFN 与残差、归一化</td><td>Add &amp; Norm 中的 Add：每个子层外的残差相加</td></tr>
+      <tr><td>5.1 现代变体</td><td>pre-norm 把归一化挪进支路，让残差旁路全程是恒等通道</td></tr>
+      <tr><td>7.4 混合精度与稳定性</td><td>深层训练的稳定性手段，残差是其中最底层的一条</td></tr>
+      <tr><td>A.5 梯度与反向传播</td><td>梯度消失的成因，正是残差要解决的问题</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</article>
