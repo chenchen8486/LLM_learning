@@ -27,6 +27,127 @@
 
 <p>　　读完全节，你应该能打开任意一个现代模型的源码，说清它的残差块为什么长这样：三处改动都不加参数量，却换来更稳的深层训练和更好的效果。5.1.4 的收尾还会把话头递给注意力侧的改造，那是 5.2 节的内容。</p>
 
+<p>　　逐处拆解之前，先看一眼本节内容在整条链路中的位置。第 4 章把 Transformer 块的骨架搭好了，本章几节都是对块内部零件的改造，本节动的是归一化与前馈这两处。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS51normactivation" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG51normactivation" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.2–3.5 节）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS51normactivation)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS51normactivation)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS51normactivation)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS51normactivation)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG51normactivation)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG51normactivation)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG51normactivation)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）切成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，再经输出投影算出各 token 的概率（第 4 章），采样出下一个 token（第 12 章）并接回输入循环。第 4 章讲完的是这个紫框的骨架，第 5 章是对块内部的改造：本节换的是其中的归一化与前馈两个零件，块在链路中的位置与进出数据的形状都不动。</div>
+</div>
+
+<p>　　这个紫框内部的零件放大之后长什么样？向量进去之后经过什么运算、出来时是什么形状？把本节要换上的两个新零件——RMSNorm 与 SwiGLU——单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 402" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrN51" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：RMSNorm——输入一个 768 维向量，输出同形状的 768 维向量</text>
+    <!-- 主链：输入 → 求 RMS → 除以 RMS → 乘增益 -->
+    <rect x="24" y="48" width="140" height="88" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="94" y="72" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">输入向量 x</text>
+    <text x="94" y="92" text-anchor="middle" font-size="11" fill="#555">768 维（minimind）</text>
+    <text x="94" y="112" text-anchor="middle" font-size="11" fill="#555">示例 (1, 2, 2, 1)</text>
+    <line x1="164" y1="92" x2="192" y2="92" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrN51)"/>
+    <rect x="196" y="48" width="160" height="88" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="276" y="70" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">① 求均方根</text>
+    <text x="276" y="89" text-anchor="middle" font-size="11" fill="#555">平方 → 平均 → 开根号</text>
+    <text x="276" y="108" text-anchor="middle" font-size="11" fill="#555">RMS = √(10/4) ≈ 1.58</text>
+    <text x="276" y="126" text-anchor="middle" font-size="10.5" fill="#888">唯一的统计量</text>
+    <line x1="356" y1="92" x2="384" y2="92" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrN51)"/>
+    <rect x="388" y="48" width="150" height="88" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="463" y="72" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">② 除以 RMS</text>
+    <text x="463" y="92" text-anchor="middle" font-size="11" fill="#555">逐分量 ÷ 1.58</text>
+    <text x="463" y="112" text-anchor="middle" font-size="11" fill="#555">音量拧到 1 附近</text>
+    <line x1="538" y1="92" x2="566" y2="92" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrN51)"/>
+    <rect x="570" y="48" width="140" height="88" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="640" y="70" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">③ 乘可学增益</text>
+    <text x="640" y="89" text-anchor="middle" font-size="11" fill="#555">×g（768 维）</text>
+    <text x="640" y="108" text-anchor="middle" font-size="11" fill="#555">逐元素缩放</text>
+    <text x="640" y="126" text-anchor="middle" font-size="10.5" fill="#888">唯一的可学参数</text>
+    <!-- 输出 -->
+    <line x1="640" y1="136" x2="640" y2="166" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrN51)"/>
+    <rect x="530" y="170" width="180" height="78" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="620" y="194" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">输出：768 维向量</text>
+    <text x="620" y="214" text-anchor="middle" font-size="11" fill="#ede9fe">g=1 时示例 (0.63, 1.26, 1.26, 0.63)</text>
+    <text x="620" y="233" text-anchor="middle" font-size="10.5" fill="#d8b4fe">形状与输入完全相同</text>
+    <!-- 对照 LayerNorm -->
+    <rect x="24" y="170" width="260" height="78" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <text x="154" y="192" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#6b7280">对照 LayerNorm，砍掉了：</text>
+    <text x="154" y="211" text-anchor="middle" font-size="11" fill="#6b7280">减均值（不对中）和平移 β</text>
+    <text x="154" y="230" text-anchor="middle" font-size="11" fill="#6b7280">输出均值不为 0，只统一音量</text>
+    <!-- SwiGLU 旁注 -->
+    <rect x="24" y="272" width="686" height="118" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="44" y="296" font-size="12.5" font-weight="bold" fill="#4c1d95">旁注：同一块里的另一半改造——SwiGLU 前馈三路投影（5.1.3，minimind 配置）</text>
+    <rect x="44" y="308" width="190" height="62" rx="6" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="139" y="333" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">gate_proj：768 → 2432</text>
+    <text x="139" y="353" text-anchor="middle" font-size="11" fill="#555">过 SiLU，算「开度」</text>
+    <rect x="258" y="308" width="190" height="62" rx="6" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="353" y="333" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">up_proj：768 → 2432</text>
+    <text x="353" y="353" text-anchor="middle" font-size="11" fill="#555">装「内容」</text>
+    <text x="462" y="345" text-anchor="middle" font-size="15" font-weight="bold" fill="#6d28d9">⊙</text>
+    <rect x="478" y="308" width="190" height="62" rx="6" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="573" y="333" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">down_proj：2432 → 768</text>
+    <text x="573" y="353" text-anchor="middle" font-size="11" fill="#555">压回原维度</text>
+    <line x1="234" y1="339" x2="258" y2="339" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="448" y1="339" x2="452" y2="339" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="472" y1="339" x2="478" y2="339" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrN51)"/>
+  </svg>
+  <div class="diagram-caption">图示：RMSNorm 的计算流与 SwiGLU 的三路投影。RMSNorm 对一个 token 的 768 维特征向量只做一次统计（均方根）、一次除法、一次可学缩放，输出形状与输入相同；示例数字取自正文对 4 维向量 (1, 2, 2, 1) 的演算（取 g=1、暂不计 ε）。旁注是 minimind 的 SwiGLU 真实配置：gate_proj 与 up_proj 把 768 维升到 2432 维，一门一货逐元素相乘，再由 down_proj 压回 768 维。</div>
+</div>
+
 <h2>5.1.1 从 LayerNorm 到 RMSNorm：一次成功的化简</h2>
 
 <p>　　先回顾第 4 章见过的 LayerNorm。它对一个 token 的特征向量 \(x\)（维度为 \(d\)）做两件事：先减均值、再除以标准差，最后用可学习的缩放 \(\gamma\) 和平移 \(\beta\) 把表达能力还回去：</p>

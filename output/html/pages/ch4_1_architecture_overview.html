@@ -28,6 +28,156 @@
 
 <p>　　读完本节，你应该能对着架构图说清每一块的职责，并看懂现代 LLM 的「一层」是从哪一塔里长出来的。</p>
 
+<p>　　逐节展开之前，先看一眼本章在整条前向链路中的位置：前面三章备好原料，从本章起进入真正的加工段——Transformer 层与输出投影两个紫框。心里有这张地图，后面每一节拆开零件时都知道它装在哪一站：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS41aritectureoverview" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG41aritectureoverview" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.2–3.5 节）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS41aritectureoverview)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS41aritectureoverview)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS41aritectureoverview)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS41aritectureoverview)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS41aritectureoverview)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG41aritectureoverview)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG41aritectureoverview)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：Transformer 层与输出投影在 LLM 前向链路中的位置（链路按现代 decoder-only 单塔绘制）。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，塔顶由输出投影算出词表上每个 token 的分数，采样出下一个 token 并接回输入循环（第 12 章）。本章的任务就是把中间这两站拆开：本节先立起它们 2017 年的两塔原型，内部零件由 4.2–4.4 节逐个拆解。</div>
+</div>
+
+<p>　　这两个紫框放大之后长什么样？token 进去、概率出来，中间每一步的形状如何变化？把现代 LLM 的一次完整前向拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 772" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrZ41" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="40" y="32" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：现代 LLM 一次完整前向（minimind 实测数字）</text>
+    <text x="40" y="56" font-size="11" fill="#64748b">输入：3 个 token ID（minimind 分词器对「我爱中国」的实测输出）</text>
+    <rect x="100" y="68" width="140" height="46" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="170" y="89" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">「我」</text>
+    <text x="170" y="107" text-anchor="middle" font-size="11" fill="#6d28d9">ID = 463</text>
+    <rect x="290" y="68" width="140" height="46" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="360" y="89" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">「爱」</text>
+    <text x="360" y="107" text-anchor="middle" font-size="11" fill="#6d28d9">ID = 2043</text>
+    <rect x="480" y="68" width="140" height="46" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="550" y="89" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">「中国」</text>
+    <text x="550" y="107" text-anchor="middle" font-size="11" fill="#6d28d9">ID = 1405</text>
+    <line x1="360" y1="114" x2="360" y2="136" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ41)"/>
+    <rect x="190" y="136" width="340" height="56" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="360" y="158" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">Embedding 查表</text>
+    <text x="360" y="178" text-anchor="middle" font-size="11" fill="#555">6400 × 768 权重表，按 ID 取出 3 行</text>
+    <line x1="360" y1="192" x2="360" y2="214" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ41)"/>
+    <rect x="260" y="214" width="200" height="26" fill="#f5f3fe" stroke="#6d28d9"/>
+    <rect x="260" y="240" width="200" height="26" fill="#f5f3fe" stroke="#6d28d9"/>
+    <rect x="260" y="266" width="200" height="26" fill="#f5f3fe" stroke="#6d28d9"/>
+    <g stroke="#ddd6fe" stroke-width="1">
+      <line x1="310" y1="214" x2="310" y2="240"/>
+      <line x1="360" y1="214" x2="360" y2="240"/>
+      <line x1="410" y1="214" x2="410" y2="240"/>
+      <line x1="310" y1="240" x2="310" y2="266"/>
+      <line x1="360" y1="240" x2="360" y2="266"/>
+      <line x1="410" y1="240" x2="410" y2="266"/>
+      <line x1="310" y1="266" x2="310" y2="292"/>
+      <line x1="360" y1="266" x2="360" y2="292"/>
+      <line x1="410" y1="266" x2="410" y2="292"/>
+    </g>
+    <text x="446" y="231" text-anchor="middle" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="446" y="257" text-anchor="middle" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="446" y="283" text-anchor="middle" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="250" y="231" text-anchor="end" font-size="11" fill="#6d28d9">我</text>
+    <text x="250" y="257" text-anchor="end" font-size="11" fill="#6d28d9">爱</text>
+    <text x="250" y="283" text-anchor="end" font-size="11" fill="#6d28d9">中国</text>
+    <text x="480" y="240" font-size="11" fill="#64748b">嵌入矩阵</text>
+    <text x="480" y="258" font-size="11.5" font-weight="bold" fill="#4c1d95">3 × 768</text>
+    <line x1="360" y1="292" x2="360" y2="316" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ41)"/>
+    <rect x="140" y="316" width="440" height="116" rx="10" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="360" y="342" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#ffffff">Transformer 块 × 8（每层结构相同）</text>
+    <text x="360" y="364" text-anchor="middle" font-size="11" fill="#ede9fe">RMSNorm → 掩码自注意力（GQA：8 个 Q 头，4 组 K/V，头维 96）→ 残差</text>
+    <text x="360" y="386" text-anchor="middle" font-size="11" fill="#ede9fe">RMSNorm → FFN（SwiGLU：768 → 2432 → 768）→ 残差</text>
+    <text x="360" y="408" text-anchor="middle" font-size="11" fill="#d8b4fe">进 3 × 768，出 3 × 768：主干形状全程不变</text>
+    <line x1="360" y1="432" x2="360" y2="456" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ41)"/>
+    <rect x="240" y="456" width="240" height="44" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="360" y="475" text-anchor="middle" font-size="13" font-weight="bold" fill="#155e75">最终 RMSNorm</text>
+    <text x="360" y="492" text-anchor="middle" font-size="11" fill="#555">3 × 768 → 3 × 768</text>
+    <line x1="360" y1="500" x2="360" y2="524" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ41)"/>
+    <rect x="140" y="524" width="440" height="56" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="360" y="546" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">lm_head 输出投影（与 Embedding 共享权重）</text>
+    <text x="360" y="566" text-anchor="middle" font-size="11" fill="#555">乘同一张 6400 × 768 表的转置：3 × 768 → 3 × 6400</text>
+    <line x1="360" y1="580" x2="360" y2="604" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ41)"/>
+    <rect x="260" y="604" width="200" height="26" fill="#f8fafc" stroke="#94a3b8"/>
+    <rect x="260" y="630" width="200" height="26" fill="#f8fafc" stroke="#94a3b8"/>
+    <rect x="260" y="656" width="200" height="26" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <g stroke="#e2e8f0" stroke-width="1">
+      <line x1="310" y1="604" x2="310" y2="630"/>
+      <line x1="360" y1="604" x2="360" y2="630"/>
+      <line x1="410" y1="604" x2="410" y2="630"/>
+      <line x1="310" y1="630" x2="310" y2="656"/>
+      <line x1="360" y1="630" x2="360" y2="656"/>
+      <line x1="410" y1="630" x2="410" y2="656"/>
+      <line x1="310" y1="656" x2="310" y2="682"/>
+      <line x1="360" y1="656" x2="360" y2="682"/>
+      <line x1="410" y1="656" x2="410" y2="682"/>
+    </g>
+    <text x="446" y="621" text-anchor="middle" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="446" y="647" text-anchor="middle" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="446" y="673" text-anchor="middle" font-size="12" fill="#b45309">⋯</text>
+    <text x="250" y="621" text-anchor="end" font-size="11" fill="#64748b">位置 1</text>
+    <text x="250" y="647" text-anchor="end" font-size="11" fill="#64748b">位置 2</text>
+    <text x="250" y="673" text-anchor="end" font-size="11" fill="#d97706">位置 3</text>
+    <text x="480" y="640" font-size="11.5" font-weight="bold" fill="#333">logits 3 × 6400</text>
+    <text x="480" y="662" font-size="10.5" fill="#d97706">最后一行 → 下一个 token</text>
+    <line x1="360" y1="682" x2="360" y2="704" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ41)"/>
+    <rect x="120" y="704" width="480" height="52" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="360" y="726" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">取最后位置的 6400 个分数，softmax 成概率分布</text>
+    <text x="360" y="744" text-anchor="middle" font-size="11" fill="#666">采样或取最大，得到下一个 token（解码策略见第 12 章）</text>
+  </svg>
+  <div class="diagram-caption">图示：现代 LLM 一次完整前向的形状流（数字全部取自 minimind 默认配置：词表 6400、维度 768、8 层、FFN 中间层 2432、GQA 8 个 Q 头 4 组 K/V）。3 个 token ID 经 Embedding 变成 3 × 768，8 层块加工后形状不变，lm_head 复用同一张 6400 × 768 权重表把每个位置投影成 6400 个分数，只有最后一个位置参与预测下一个 token。这条单塔链路正是 2017 年两塔原型在 4.1.5 节的现代形态。</div>
+</div>
+
 <h2>4.1.1 这台机器在干什么：一句话翻译流水线</h2>
 
 <p>　　先把任务说清楚。2017 年的原论文为<strong>机器翻译</strong>而生：给一句英文，输出一句德文或法文。这在当时叫序列转导（sequence transduction）问题——输入一个序列，输出另一个序列，两边长度还不一定相等。此前最强的模型大多建立在循环神经网络（RNN）上，而 RNN 有一个绕不开的硬伤：它逐字串行处理，第 \(t\) 个位置的隐状态 \(h_t\) 必须先等 \(h_{t-1}\) 算完，句子越长越慢，而且没法并行。原论文的破局思路写在标题里：Attention Is All You Need——把循环和卷积全部扔掉，只留注意力机制。</p>

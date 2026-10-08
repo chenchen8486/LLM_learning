@@ -27,6 +27,127 @@
 
 <p>　　读完本节，你应该能随手画出一条张量从 <code>[1, 10]</code> 走到 <code>[1, 6400]</code> 的形状路线图，也能说清参数和算力分别花在了哪里。</p>
 
+<p>　　上解剖台之前，先看一眼本节在整条链路中的位置：这一节走查的是链路中段到出口——Transformer 层与输出投影两个紫框的完整内部。心里有这张地图，后面二十多步的毫米级走查，每一步都知道自己走到哪一站：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS46forwardwalkthrough" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG46forwardwalkthrough" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.2–3.5 节）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS46forwardwalkthrough)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS46forwardwalkthrough)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS46forwardwalkthrough)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS46forwardwalkthrough)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG46forwardwalkthrough)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG46forwardwalkthrough)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG46forwardwalkthrough)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：Transformer 层与输出投影在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，塔顶由输出投影给词表 6400 个 token 逐一打分，采样出下一个 token 接回输入（第 12 章）。本节把这两个紫框的内部一次走透：每一步张量的形状、每一笔参数与算力的去向。</div>
+</div>
+
+<p>　　这两个紫框放大之后长什么样？token ID 进去、概率分布出来，中间每一步张量是什么形状？把这条形状流水线单独画出来看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 530" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrZ46" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="40" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：一条序列的逐步形状流（与 4.6.2–4.6.3 的步骤一一对应）</text>
+    <rect x="40" y="64" width="250" height="50" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="165" y="86" text-anchor="middle" font-size="12.5" fill="#333">输入：3 个 token ID</text>
+    <text x="165" y="104" text-anchor="middle" font-size="11" fill="#6d28d9">[463, 2043, 1405]</text>
+    <line x1="165" y1="114" x2="165" y2="130" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ46)"/>
+    <rect x="40" y="130" width="250" height="50" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="165" y="152" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 查表</text>
+    <text x="165" y="170" text-anchor="middle" font-size="11" fill="#555">[3] → [3, 768]</text>
+    <line x1="165" y1="180" x2="165" y2="196" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ46)"/>
+    <rect x="40" y="196" width="250" height="56" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="165" y="218" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 块 × 8</text>
+    <text x="165" y="236" text-anchor="middle" font-size="10.5" fill="#ede9fe">[3, 768] → [3, 768]</text>
+    <line x1="165" y1="252" x2="165" y2="268" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ46)"/>
+    <rect x="40" y="268" width="250" height="46" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="165" y="287" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#155e75">最终 RMSNorm</text>
+    <text x="165" y="303" text-anchor="middle" font-size="10.5" fill="#555">[3, 768] → [3, 768]</text>
+    <line x1="165" y1="314" x2="165" y2="330" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ46)"/>
+    <rect x="40" y="330" width="250" height="56" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="165" y="352" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">lm_head（共享 Embedding 权重）</text>
+    <text x="165" y="370" text-anchor="middle" font-size="10.5" fill="#555">[3, 768] → [3, 6400]</text>
+    <line x1="165" y1="386" x2="165" y2="402" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ46)"/>
+    <rect x="40" y="402" width="250" height="56" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="165" y="424" text-anchor="middle" font-size="12.5" fill="#333">取最后位置 + softmax</text>
+    <text x="165" y="442" text-anchor="middle" font-size="10.5" fill="#666">[6400] 概率 → 下一个 token</text>
+    <text x="165" y="486" text-anchor="middle" font-size="11" fill="#666">主干恒为 [3, 768]</text>
+    <line x1="290" y1="224" x2="356" y2="224" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ46)"/>
+    <text x="323" y="214" text-anchor="middle" font-size="10.5" fill="#6d28d9">每层内部</text>
+    <rect x="360" y="64" width="560" height="394" rx="10" fill="#fdfdff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="90" font-size="12.5" font-weight="bold" fill="#4c1d95">块内一步不漏（每层相同，对应 4.6.2 的十小步）</text>
+    <text x="380" y="122" font-size="11.5" fill="#333">1. RMSNorm（进注意力前）</text>
+    <text x="900" y="122" text-anchor="end" font-size="11" fill="#6d28d9">[3,768] → [3,768]</text>
+    <text x="380" y="156" font-size="11.5" fill="#333">2. Q/K/V 投影</text>
+    <text x="900" y="156" text-anchor="end" font-size="11" fill="#6d28d9">Q [3,8,96]，K/V [3,4,96]</text>
+    <text x="380" y="190" font-size="11.5" fill="#333">3. QK-Norm + RoPE 旋转（注入位置）</text>
+    <text x="900" y="190" text-anchor="end" font-size="11" fill="#6d28d9">形状不变</text>
+    <text x="380" y="224" font-size="11.5" fill="#333">4. K/V 复制对齐，按头重排</text>
+    <text x="900" y="224" text-anchor="end" font-size="11" fill="#6d28d9">[8,3,96]</text>
+    <text x="380" y="258" font-size="11.5" fill="#333">5. Q 乘 K 的转置，除以 √96</text>
+    <text x="900" y="258" text-anchor="end" font-size="11" fill="#6d28d9">分数 [8,3,3]</text>
+    <text x="380" y="292" font-size="11.5" fill="#333">6. 因果掩码 + softmax（上三角归零）</text>
+    <text x="900" y="292" text-anchor="end" font-size="11" fill="#6d28d9">[8,3,3]</text>
+    <text x="380" y="326" font-size="11.5" fill="#333">7. 按权重加权求和 V</text>
+    <text x="900" y="326" text-anchor="end" font-size="11" fill="#6d28d9">[8,3,96]</text>
+    <text x="380" y="360" font-size="11.5" fill="#333">8. 拼 8 头 + o_proj 混合</text>
+    <text x="900" y="360" text-anchor="end" font-size="11" fill="#6d28d9">[3,768]</text>
+    <text x="380" y="394" font-size="11.5" fill="#333">9. 残差相加</text>
+    <text x="900" y="394" text-anchor="end" font-size="11" fill="#6d28d9">[3,768]</text>
+    <text x="380" y="428" font-size="11.5" fill="#333">10. RMSNorm → FFN 768→2432→768 → 残差相加</text>
+    <text x="900" y="428" text-anchor="end" font-size="11" fill="#6d28d9">[3,768]</text>
+    <text x="480" y="498" text-anchor="middle" font-size="11.5" fill="#666">示例序列长取 3（与图一同一句话），正文账表用 T=10，形状规律相同：主干恒为 [B, T, 768]，仅注意力内部按头重排、FFN 内部升维、出口投影到 6400</text>
+  </svg>
+  <div class="diagram-caption">图示：一条序列从 token ID 到概率分布的逐步形状流（minimind 默认配置；示例序列长取 3 与图一一致，正文账表用 T=10，规律相同）。主链五步：Embedding 出 [3,768]，8 层块内部十小步只在注意力里按头重排（768 ↔ 8×96）、在 FFN 里升维（768→2432→768），主干始终是 [3,768]；塔顶 lm_head 复用 Embedding 权重表投到 [3,6400]，只取最后位置的 6400 个分数过 softmax，得到下一个 token。</div>
+</div>
+
 <h2>4.6.1 设定：拿一台真模型当解剖对象</h2>
 
 <p>　　解剖对象是 minimind-3 的 Dense 档，也就是工程里 <code>MiniMindConfig()</code> 不加任何参数时的默认配置（<code>model/model_minimind.py</code> 第 10–45 行）。全部数字来自源码与 README 的模型规格表，不是举例编造：</p>

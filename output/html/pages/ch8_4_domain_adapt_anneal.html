@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>8.4 领域适配与退火：收尾阶段的数据艺术</h1>
 <p class="subtitle">本页范围：第 8 章第 4 节　|　整理时间：2026-09-30</p>
 
@@ -28,6 +28,106 @@
 </ol>
 
 <p>　　读完本节，你应该能回答一个实操问题：手里有一个通用底座模型和一批领域语料，续训方案该怎么设计，又有哪些坑必须提前防。</p>
+
+<p>　　按「先适配、再调配、后收尾、终算账」展开之前，先看一眼本节在整条链路中的位置：中间训练的前半场把上下文拉长，后半场轮到数据的艺术——本节负责「做得专」与「收得好」。心里有这张地图，后面每一步操作都知道发生在训练的哪一程：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS84domainadaptanneal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG84domainadaptanneal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS84domainadaptanneal)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS84domainadaptanneal)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS84domainadaptanneal)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG84domainadaptanneal)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG84domainadaptanneal)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG84domainadaptanneal)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG84domainadaptanneal)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：本节内容在 LLM 生命周期中的位置。数据（第 1 章）、预训练（第 6 章）、训练工程（第 7 章）产出通用底座；中间训练阶段本节负责后半场——领域适配（DAPT / TAPT）、配比再平衡与退火收尾，把底座往目标领域拽一把，并用最好的数据定型；随后交给 SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章）。本节只需记住：目标函数不换，换的只有数据与学习率的收尾配合。</div>
+</div>
+
+<p>　　这个紫框里，退火这最后一程放大之后长什么样？学习率曲线和数据流在同一段时间轴上各做一个动作——把退火段单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="zArr84" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="40" y="32" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：退火段——学习率收尾衰减与高质量数据上采样同步进行</text>
+    <text x="40" y="56" font-size="11" fill="#64748b">输入：stable 段末尾 checkpoint + 一份精挑细选的高质量数据（数学 / 代码 / 精选语料）</text>
+    <!-- 退火时段底色，贯穿上下两个面板 -->
+    <rect x="560" y="76" width="120" height="270" fill="#fef3c7" fill-opacity="0.65"/>
+    <line x1="560" y1="76" x2="560" y2="346" stroke="#b45309" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="552" y="90" text-anchor="end" font-size="10.5" fill="#b45309">退火开始 →</text>
+    <!-- 面板 A：学习率 -->
+    <text x="88" y="98" font-size="12" font-weight="bold" fill="#333">① 学习率：从峰值快速收到接近 0</text>
+    <line x1="80" y1="206" x2="80" y2="86" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#zArr84)"/>
+    <line x1="72" y1="206" x2="684" y2="206" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="80" y1="120" x2="680" y2="120" stroke="#6d28d9" stroke-width="1" stroke-dasharray="5 4" opacity="0.55"/>
+    <text x="676" y="112" text-anchor="end" font-size="10.5" fill="#6d28d9">峰值学习率</text>
+    <line x1="90" y1="120" x2="560" y2="120" stroke="#6d28d9" stroke-width="2.5"/>
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2.5" points="560,120 580,124 600,133 620,146 640,162 655,178 668,192"/>
+    <text x="325" y="150" text-anchor="middle" font-size="10.5" fill="#666">stable 段顶住峰值长跑（约占九成步数）</text>
+    <text x="620" y="100" text-anchor="middle" font-size="11" font-weight="bold" fill="#b45309">退火段</text>
+    <!-- 面板 B：数据流 -->
+    <text x="88" y="252" font-size="12" font-weight="bold" fill="#333">② 数据：同一时段换成最好的那批</text>
+    <rect x="80" y="266" width="480" height="34" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="320" y="288" text-anchor="middle" font-size="11.5" fill="#0891b2">常规配比：通用网页为主（万亿 token 量级的主训菜单）</text>
+    <rect x="560" y="266" width="120" height="34" fill="#6d28d9" opacity="0.85"/>
+    <text x="620" y="288" text-anchor="middle" font-size="11" fill="#ffffff">高质量精选</text>
+    <text x="620" y="322" text-anchor="middle" font-size="10.5" fill="#b45309">Llama 3.1 退火仅 40M token</text>
+    <!-- 时间轴与输出 -->
+    <text x="380" y="368" text-anchor="middle" font-size="11" fill="#666">训练进度 →（退火段通常只占总步数一成上下，MiniCPM 约 10% token）</text>
+    <text x="380" y="390" text-anchor="middle" font-size="11" fill="#64748b">输出：退火后终模——Llama 3 8B 退火使 GSM8K 相对提升 24.0%、MATH 提升 6.4%（8.4.3）</text>
+  </svg>
+  <div class="diagram-caption">图示：退火段的两个同步动作，共用同一段时间轴（琥珀色区域为退火段）。学习率从峰值快速收到接近零（WSD 的 decay 段，MiniCPM 约占一成步数），同一时段数据换成质量最高的一批（Llama 3.1 只用最后 40M token）。小步长负责精细收敛，好数据负责最后一程的营养——Llama 3 报告 8B 模型退火后 GSM8K 相对提升 24.0%、MATH 提升 6.4%。</div>
+</div>
 
 <h2>8.4.1 继续预训练与领域适配：DAPT 与 TAPT</h2>
 

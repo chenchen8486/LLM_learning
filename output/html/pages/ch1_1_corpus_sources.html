@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>1.1 语料从哪来：互联网、书籍与公共语料库</h1>
 <p class="subtitle">本页范围：第 1 章第 1 节　|　整理时间：2026-09-28</p>
 
@@ -27,6 +27,109 @@
 </ol>
 
 <p>　　读完本节，你应该能说清主流模型的语料清单长什么样、各家的差距差在哪道工序上。流水线图里标出的过滤与去重两站，正是接下来 1.2、1.3 两节要拆解的主题。</p>
+
+<p>　　逐节展开之前，先看一眼语料收集在整条 LLM 生命周期中的位置，以及这个位置放大之后的内部构成。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS11corpussources" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG11corpussources" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#6b7280">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG11corpussources)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG11corpussources)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG11corpussources)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG11corpussources)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG11corpussources)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG11corpussources)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG11corpussources)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">紫底框：本节主角</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：训练数据在 LLM 生命周期中的位置。数据备好（本章）之后进入预训练（第 6 章），再经训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章），最后走向推理与部署（第 12–13 章）。虚线部分在对应章节展开，本节只需记住：数据是这条链路的第一站，这一站只回答「教材从哪里来」。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？它的输入和输出各是什么？把语料来源这一站单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 430" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrZ11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：训练数据收集——三类源头汇成一个语料池</text>
+    <text x="24" y="54" font-size="11" fill="#64748b">输入：三类互补的源头（网页管量、书籍论文管质、代码管逻辑）</text>
+    <rect x="24" y="70" width="340" height="100" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="194" y="94" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">互联网网页：绝对主料</text>
+    <text x="194" y="116" text-anchor="middle" font-size="11" fill="#555">Common Crawl 存档 2500 亿+ 页（PB 级）</text>
+    <text x="194" y="136" text-anchor="middle" font-size="11" fill="#555">精加工：C4 750GB · FineWeb 15 万亿 token</text>
+    <text x="194" y="156" text-anchor="middle" font-size="11" fill="#555">中文：CCI 3.0 1000GB · Skypile 600GB</text>
+    <rect x="24" y="182" width="340" height="100" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="194" y="206" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">书籍 · 论文 · 维基：精品配料</text>
+    <text x="194" y="228" text-anchor="middle" font-size="11" fill="#555">The Pile：22 个子集共约 825GB</text>
+    <text x="194" y="248" text-anchor="middle" font-size="11" fill="#555">Books3：约 101GB、19.6 万余本</text>
+    <text x="194" y="268" text-anchor="middle" font-size="11" fill="#555">arXiv 论文 · PubMed 文献 · Wikipedia</text>
+    <rect x="24" y="294" width="340" height="100" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="194" y="318" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">代码与专业数据：逻辑来源</text>
+    <text x="194" y="340" text-anchor="middle" font-size="11" fill="#555">GitHub 代码 · StackExchange 问答</text>
+    <text x="194" y="360" text-anchor="middle" font-size="11" fill="#555">数学与科学文献</text>
+    <text x="194" y="380" text-anchor="middle" font-size="11" fill="#555">赋予模型逻辑与工具能力</text>
+    <line x1="364" y1="120" x2="466" y2="186" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ11)"/>
+    <line x1="364" y1="232" x2="466" y2="225" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ11)"/>
+    <line x1="364" y1="344" x2="466" y2="264" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ11)"/>
+    <rect x="470" y="150" width="226" height="160" rx="10" fill="#f5f3fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="583" y="182" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">预训练语料池</text>
+    <text x="583" y="208" text-anchor="middle" font-size="11" fill="#555">汇总后达万亿 token 级</text>
+    <text x="583" y="230" text-anchor="middle" font-size="11" fill="#555">再经正文提取、过滤、去重</text>
+    <text x="583" y="250" text-anchor="middle" font-size="10.5" fill="#888">（1.1.5 节流水线）</text>
+    <text x="583" y="278" text-anchor="middle" font-size="11" fill="#6d28d9">按配比混合后送预训练</text>
+    <line x1="583" y1="310" x2="583" y2="346" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ11)"/>
+    <text x="583" y="366" text-anchor="middle" font-size="11" fill="#64748b">输出：可训练的语料（第 6 章预训练）</text>
+    <text x="360" y="412" text-anchor="middle" font-size="10.5" fill="#888">三类源头量与质互补：网页求广、书籍论文求深、代码求逻辑；各占多少由配比决定（1.4 节）</text>
+  </svg>
+  <div class="diagram-caption">图示：语料来源的构成。互联网网页是绝对主料，Common Crawl 与它的精加工产物提供万亿 token 级的量；书籍、论文与维基是精品配料，The Pile 是拼装路线的代表；代码与专业数据赋予模型逻辑能力。三类源头汇成一个语料池，经 1.1.5 节的流水线加工后，进入配比（1.4 节）与预训练（第 6 章）。</div>
+</div>
 
 <h2>1.1.1 语料是模型的“教材”</h2>
 

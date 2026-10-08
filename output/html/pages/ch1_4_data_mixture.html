@@ -27,6 +27,124 @@
 
 <p>　　读完本节，你应该能说清配比凭什么与数据质量、数据量并列成为预训练数据的第三个关键决策，以及 DoReMi 如何把试错成本降下一到两个数量级。至此数据自身的决策讲完，还剩一个问题：现成数据不够用怎么办，那是下一节合成数据的主题。</p>
 
+<p>　　逐层拆配比之前，先看一眼数据配比在整条 LLM 生命周期中的位置，以及这个旋钮放大之后的工作原理。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS14datamixture" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG14datamixture" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#6b7280">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG14datamixture)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG14datamixture)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG14datamixture)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG14datamixture)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG14datamixture)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG14datamixture)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG14datamixture)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">紫底框：本节主角</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：训练数据在 LLM 生命周期中的位置。数据备好（本章）之后进入预训练（第 6 章），再经训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章），最后走向推理与部署（第 12–13 章）。虚线部分在对应章节展开，本节只需记住：数据是这条链路的第一站，本节的站位是数据加工末端的配比环节，只回答「每类数据各放多少」。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？它的输入和输出各是什么？把配比这个旋钮单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrZ14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：数据配比——采样权重决定训练流的构成</text>
+    <text x="24" y="54" font-size="11" fill="#64748b">输入：五个数据池 + 一组人工给定的采样权重（GPT-3 公开配方）</text>
+    <text x="40" y="80" font-size="12" font-weight="bold" fill="#4c1d95">多领域配比堆叠条</text>
+    <rect x="40" y="94" width="368" height="44" fill="#6d28d9"/>
+    <rect x="408" y="94" width="135" height="44" fill="#0891b2"/>
+    <rect x="543" y="94" width="49" height="44" fill="#fef3c7" stroke="#d97706"/>
+    <rect x="592" y="94" width="49" height="44" fill="#dc2626"/>
+    <rect x="641" y="94" width="19" height="44" fill="#9ca3af"/>
+    <text x="224" y="121" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#ffffff">Common Crawl 60%</text>
+    <text x="475" y="121" text-anchor="middle" font-size="11" fill="#ffffff">WebText2 22%</text>
+    <line x1="568" y1="138" x2="544" y2="152" stroke="#d97706" stroke-width="1.2"/>
+    <text x="540" y="158" text-anchor="end" font-size="10.5" fill="#d97706">Books1 8%</text>
+    <line x1="616" y1="138" x2="544" y2="172" stroke="#dc2626" stroke-width="1.2"/>
+    <text x="540" y="178" text-anchor="end" font-size="10.5" fill="#dc2626">Books2 8%</text>
+    <line x1="650" y1="138" x2="544" y2="188" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="540" y="194" text-anchor="end" font-size="10.5" fill="#6b7280">Wikipedia 3%</text>
+    <line x1="350" y1="138" x2="350" y2="202" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ14)"/>
+    <rect x="290" y="206" width="140" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="360" y="232" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">按权重采样</text>
+    <text x="360" y="254" text-anchor="middle" font-size="11" fill="#555">每个批次随机抽取</text>
+    <line x1="360" y1="270" x2="360" y2="298" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ14)"/>
+    <text x="44" y="326" font-size="11" fill="#64748b">输出：</text>
+    <rect x="110" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <rect x="138" y="302" width="24" height="32" rx="3" fill="#0891b2"/>
+    <rect x="166" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <rect x="194" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <rect x="222" y="302" width="24" height="32" rx="3" fill="#fef3c7" stroke="#d97706"/>
+    <rect x="250" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <rect x="278" y="302" width="24" height="32" rx="3" fill="#0891b2"/>
+    <rect x="306" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <rect x="334" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <rect x="362" y="302" width="24" height="32" rx="3" fill="#dc2626"/>
+    <rect x="390" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <rect x="418" y="302" width="24" height="32" rx="3" fill="#0891b2"/>
+    <rect x="446" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <rect x="474" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <rect x="502" y="302" width="24" height="32" rx="3" fill="#fef3c7" stroke="#d97706"/>
+    <rect x="530" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <rect x="558" y="302" width="24" height="32" rx="3" fill="#9ca3af"/>
+    <rect x="586" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <rect x="614" y="302" width="24" height="32" rx="3" fill="#0891b2"/>
+    <rect x="642" y="302" width="24" height="32" rx="3" fill="#6d28d9"/>
+    <text x="360" y="360" text-anchor="middle" font-size="10.5" fill="#888">混出的训练流里约六成 token 来自 Common Crawl（颜色与堆叠条对应）</text>
+    <text x="360" y="388" text-anchor="middle" font-size="10.5" fill="#888">同一批语料换一组配比重训一遍，得到的模型能力结构就不同</text>
+  </svg>
+  <div class="diagram-caption">图示：配比如何变成训练流。上方是 GPT-3 公开的采样权重（原表合计 101%，为近似值），采样器按权重从各数据池随机抽取，混出的训练流里约六成 token 来自 Common Crawl。配比就是学习时间的分配表：同一批语料换一种配比，训出的模型能力结构就不同。</div>
+</div>
+
 <h2>1.4.1 配比为什么重要：偏科的代价</h2>
 
 <p>　　前面几节解决的是数据好不好、够不够的问题，这一节面对的是另一类问题：每类数据放多少。同一个语料库里，网页文本、书籍、代码、学术论文的占比可以是任意组合，而模型最终的能力结构，很大程度上就是被这个组合塑造出来的。</p>

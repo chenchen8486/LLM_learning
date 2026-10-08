@@ -27,6 +27,123 @@
 
 <p>　　读完本节，你应该能分清三道工序各抓什么、各用什么工具，也能解释“去重后性能不降反升”这条反直觉结论的依据。</p>
 
+<p>　　拆三道工序之前，先看一眼去重在整条 LLM 生命周期中的位置，以及它放大之后的流水线结构。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS13dedup" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG13dedup" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#6b7280">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">紫底框：本节主角</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：训练数据在 LLM 生命周期中的位置。数据备好（本章）之后进入预训练（第 6 章），再经训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章），最后走向推理与部署（第 12–13 章）。虚线部分在对应章节展开，本节只需记住：数据是这条链路的第一站，本节的站位是其中的去重工序，只回答「同一份内容怎么只留一份」。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？它的输入和输出各是什么？把去重这道工序单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrZ13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：去重工序——同一份内容只留一份</text>
+    <text x="24" y="54" font-size="11" fill="#64748b">输入：过滤后的语料（同一篇文章可能躺着几百份转载副本）</text>
+    <rect x="20" y="80" width="150" height="150" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="102" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">语料段落</text>
+    <rect x="29" y="112" width="36" height="18" rx="3" fill="#6d28d9"/><text x="47" y="125" text-anchor="middle" font-size="11" fill="#fff">A</text>
+    <rect x="67" y="112" width="36" height="18" rx="3" fill="#0891b2"/><text x="85" y="125" text-anchor="middle" font-size="11" fill="#fff">B</text>
+    <rect x="105" y="112" width="36" height="18" rx="3" fill="#6d28d9"/><text x="123" y="125" text-anchor="middle" font-size="11" fill="#fff">A′</text>
+    <rect x="29" y="136" width="36" height="18" rx="3" fill="#9ca3af"/><text x="47" y="149" text-anchor="middle" font-size="11" fill="#fff">C</text>
+    <rect x="67" y="136" width="36" height="18" rx="3" fill="#6d28d9"/><text x="85" y="149" text-anchor="middle" font-size="11" fill="#fff">A″</text>
+    <rect x="105" y="136" width="36" height="18" rx="3" fill="#fef3c7" stroke="#d97706"/><text x="123" y="149" text-anchor="middle" font-size="11" fill="#333">D</text>
+    <text x="95" y="178" text-anchor="middle" font-size="10.5" fill="#666">A、A′、A″ 是同一篇</text>
+    <text x="95" y="196" text-anchor="middle" font-size="10.5" fill="#666">文章的转载副本</text>
+    <rect x="200" y="80" width="150" height="150" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="102" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">MinHash 指纹</text>
+    <text x="275" y="124" text-anchor="middle" font-size="11" fill="#555">全文压成小串数字</text>
+    <rect x="229" y="136" width="18" height="18" rx="3" fill="#6d28d9"/><text x="238" y="149" text-anchor="middle" font-size="11" fill="#fff">3</text>
+    <rect x="251" y="136" width="18" height="18" rx="3" fill="#6d28d9"/><text x="260" y="149" text-anchor="middle" font-size="11" fill="#fff">7</text>
+    <rect x="273" y="136" width="18" height="18" rx="3" fill="#6d28d9"/><text x="282" y="149" text-anchor="middle" font-size="11" fill="#fff">1</text>
+    <rect x="295" y="136" width="18" height="18" rx="3" fill="#6d28d9"/><text x="304" y="149" text-anchor="middle" font-size="11" fill="#fff">9</text>
+    <text x="275" y="176" text-anchor="middle" font-size="10.5" fill="#666">越像的段落</text>
+    <text x="275" y="194" text-anchor="middle" font-size="10.5" fill="#666">签名越一致</text>
+    <text x="275" y="214" text-anchor="middle" font-size="10.5" fill="#666">（1.3.3 节公式）</text>
+    <rect x="380" y="80" width="150" height="150" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="102" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">LSH 聚成重复簇</text>
+    <ellipse cx="455" cy="150" rx="62" ry="30" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <rect x="410" y="140" width="30" height="16" rx="3" fill="#6d28d9"/><text x="425" y="152" text-anchor="middle" font-size="10.5" fill="#fff">A</text>
+    <rect x="446" y="128" width="30" height="16" rx="3" fill="#6d28d9"/><text x="461" y="140" text-anchor="middle" font-size="10.5" fill="#fff">A′</text>
+    <rect x="462" y="152" width="30" height="16" rx="3" fill="#6d28d9"/><text x="477" y="164" text-anchor="middle" font-size="10.5" fill="#fff">A″</text>
+    <text x="455" y="198" text-anchor="middle" font-size="10.5" fill="#666">只比同桶候选对</text>
+    <text x="455" y="216" text-anchor="middle" font-size="10.5" fill="#666">免掉两两全比</text>
+    <rect x="560" y="80" width="140" height="150" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="630" y="102" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">每簇只留一份</text>
+    <rect x="582" y="116" width="36" height="18" rx="3" fill="#6d28d9"/><text x="600" y="129" text-anchor="middle" font-size="11" fill="#fff">A</text>
+    <rect x="630" y="116" width="36" height="18" rx="3" fill="#0891b2"/><text x="648" y="129" text-anchor="middle" font-size="11" fill="#fff">B</text>
+    <rect x="582" y="142" width="36" height="18" rx="3" fill="#9ca3af"/><text x="600" y="155" text-anchor="middle" font-size="11" fill="#fff">C</text>
+    <rect x="630" y="142" width="36" height="18" rx="3" fill="#fef3c7" stroke="#d97706"/><text x="648" y="155" text-anchor="middle" font-size="11" fill="#333">D</text>
+    <text x="630" y="180" text-anchor="middle" font-size="10.5" fill="#666">重复副本删除</text>
+    <text x="630" y="198" text-anchor="middle" font-size="10.5" fill="#666">语料瘦身</text>
+    <line x1="170" y1="155" x2="196" y2="155" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ13)"/>
+    <line x1="350" y1="155" x2="376" y2="155" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ13)"/>
+    <line x1="530" y1="155" x2="556" y2="155" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ13)"/>
+    <text x="360" y="262" text-anchor="middle" font-size="11" fill="#64748b">输出：去重后的语料——逐字复现频率降约 10 倍（Lee et al., 2022）</text>
+    <text x="360" y="290" text-anchor="middle" font-size="10.5" fill="#888">C4 中一句 61 个词的句子重复超 6 万次，正是这样被抓出来</text>
+  </svg>
+  <div class="diagram-caption">图示：去重流水线。过滤后的语料里，同一文章的转载副本被 MinHash 压成指纹，签名一致者聚成重复簇，每簇只留一份，其余删除。C4 里那句重复超 6 万次的 61 词句子就是这样被抓出来的；去重后模型逐字复现训练数据的频率降约 10 倍。</div>
+</div>
+
 <h2>1.3.1 重复的代价：背书、泄密与假高分</h2>
 
 <p>　　先想一个生活场景：背课文。一段话读一遍，你学到的是里面的知识；读十遍，你开始逐字逐句背诵原文。老师抽查时你能一字不差默写出来，但这不代表你理解了它。语言模型面对重复数据时，处境一模一样。</p>

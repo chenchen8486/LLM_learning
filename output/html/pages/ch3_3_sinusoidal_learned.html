@@ -27,6 +27,559 @@
 
 <p>　　读完全节，你应该能说清正弦编码的波形设计妙在哪、它和可学习编码该怎么选，以及两者为什么后来一起让位于相对位置编码——那正是 3.4 节的开场。</p>
 
+<p>　　两种方案逐一拆开之前，先看一眼位置编码这一站在整条前向链路中的位置：它在 Embedding 之后、进 Transformer 之前，只负责回答「这个 token 排在第几位」。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS33sinusoidallearned" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG33sinusoidallearned" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS33sinusoidallearned)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS33sinusoidallearned)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS33sinusoidallearned)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG33sinusoidallearned)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG33sinusoidallearned)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG33sinusoidallearned)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG33sinusoidallearned)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：绝对位置编码在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（3.1 节），位置编码给每个位置发一个专属向量、与词向量相加（本节），随后进入 Transformer 层（第 4 章），算出各 token 的概率并采样（第 12 章），新 token 接回输入循环往复。本节只管位置这一站：正弦与可学习两种「发号」方式，以及它们共同的天花板。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？它的输入只是位置编号，输出又是什么形状？把正弦方案这张「位置 × 维度」的编码矩阵单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 520" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="pe33" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="60" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：正弦位置编码——输入位置编号，输出 n × 768 编码矩阵</text>
+    <text x="60" y="50" font-size="11" fill="#64748b">输入：n 个位置编号 0, 1, …, n−1（每个位置对应表中的一行；下图画前 16 行、28 组等距抽样列）</text>
+    <!-- 热力波纹矩阵：行 = 位置 pos 0..15，列 = 28 组抽样维度对，颜色 = sin 取值（紫正青负） -->
+    <rect x="110" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="110" y="80" width="17" height="14" fill="#844adf"/>
+    <rect x="110" y="94" width="17" height="14" fill="#7a3cdc"/>
+    <rect x="110" y="108" width="17" height="14" fill="#eae1fa"/>
+    <rect x="110" y="122" width="17" height="14" fill="#44acc5"/>
+    <rect x="110" y="136" width="17" height="14" fill="#1296b5"/>
+    <rect x="110" y="150" width="17" height="14" fill="#bae0e9"/>
+    <rect x="110" y="164" width="17" height="14" fill="#9f72e6"/>
+    <rect x="110" y="178" width="17" height="14" fill="#6f2ad9"/>
+    <rect x="110" y="192" width="17" height="14" fill="#c3a6ef"/>
+    <rect x="110" y="206" width="17" height="14" fill="#79c3d5"/>
+    <rect x="110" y="220" width="17" height="14" fill="#0891b2"/>
+    <rect x="110" y="234" width="17" height="14" fill="#7ac4d6"/>
+    <rect x="110" y="248" width="17" height="14" fill="#c2a5ef"/>
+    <rect x="110" y="262" width="17" height="14" fill="#6e2ad9"/>
+    <rect x="110" y="276" width="17" height="14" fill="#a073e6"/>
+    <rect x="127" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="127" y="80" width="17" height="14" fill="#9f72e6"/>
+    <rect x="127" y="94" width="17" height="14" fill="#6e2ad9"/>
+    <rect x="127" y="108" width="17" height="14" fill="#844adf"/>
+    <rect x="127" y="122" width="17" height="14" fill="#d6c3f4"/>
+    <rect x="127" y="136" width="17" height="14" fill="#98d1df"/>
+    <rect x="127" y="150" width="17" height="14" fill="#1e9bb9"/>
+    <rect x="127" y="164" width="17" height="14" fill="#1296b5"/>
+    <rect x="127" y="178" width="17" height="14" fill="#7bc4d6"/>
+    <rect x="127" y="192" width="17" height="14" fill="#e9dff9"/>
+    <rect x="127" y="206" width="17" height="14" fill="#905be2"/>
+    <rect x="127" y="220" width="17" height="14" fill="#6d28d9"/>
+    <rect x="127" y="234" width="17" height="14" fill="#925ee3"/>
+    <rect x="127" y="248" width="17" height="14" fill="#ece3fa"/>
+    <rect x="127" y="262" width="17" height="14" fill="#77c3d5"/>
+    <rect x="127" y="276" width="17" height="14" fill="#1195b5"/>
+    <rect x="144" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="144" y="80" width="17" height="14" fill="#b896ec"/>
+    <rect x="144" y="94" width="17" height="14" fill="#8248df"/>
+    <rect x="144" y="108" width="17" height="14" fill="#6d28d9"/>
+    <rect x="144" y="122" width="17" height="14" fill="#7d40dd"/>
+    <rect x="144" y="136" width="17" height="14" fill="#ae88ea"/>
+    <rect x="144" y="150" width="17" height="14" fill="#f4effc"/>
+    <rect x="144" y="164" width="17" height="14" fill="#97d1df"/>
+    <rect x="144" y="178" width="17" height="14" fill="#37a6c1"/>
+    <rect x="144" y="192" width="17" height="14" fill="#0a92b3"/>
+    <rect x="144" y="206" width="17" height="14" fill="#1b9ab8"/>
+    <rect x="144" y="220" width="17" height="14" fill="#67bbd0"/>
+    <rect x="144" y="234" width="17" height="14" fill="#d9eef3"/>
+    <rect x="144" y="248" width="17" height="14" fill="#ccb4f2"/>
+    <rect x="144" y="262" width="17" height="14" fill="#8f5be2"/>
+    <rect x="144" y="276" width="17" height="14" fill="#702cda"/>
+    <rect x="161" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="161" y="80" width="17" height="14" fill="#ccb4f2"/>
+    <rect x="161" y="94" width="17" height="14" fill="#9f72e6"/>
+    <rect x="161" y="108" width="17" height="14" fill="#7f42de"/>
+    <rect x="161" y="122" width="17" height="14" fill="#6f2ad9"/>
+    <rect x="161" y="136" width="17" height="14" fill="#702dda"/>
+    <rect x="161" y="150" width="17" height="14" fill="#844adf"/>
+    <rect x="161" y="164" width="17" height="14" fill="#a77ee8"/>
+    <rect x="161" y="178" width="17" height="14" fill="#d5c2f4"/>
+    <rect x="161" y="192" width="17" height="14" fill="#eef8fa"/>
+    <rect x="161" y="206" width="17" height="14" fill="#99d2df"/>
+    <rect x="161" y="220" width="17" height="14" fill="#51b2c9"/>
+    <rect x="161" y="234" width="17" height="14" fill="#1f9bb9"/>
+    <rect x="161" y="248" width="17" height="14" fill="#0991b2"/>
+    <rect x="161" y="262" width="17" height="14" fill="#1295b5"/>
+    <rect x="161" y="276" width="17" height="14" fill="#38a6c1"/>
+    <rect x="178" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="178" y="80" width="17" height="14" fill="#dac9f5"/>
+    <rect x="178" y="94" width="17" height="14" fill="#b896ec"/>
+    <rect x="178" y="108" width="17" height="14" fill="#9a6ae5"/>
+    <rect x="178" y="122" width="17" height="14" fill="#8348df"/>
+    <rect x="178" y="136" width="17" height="14" fill="#7331db"/>
+    <rect x="178" y="150" width="17" height="14" fill="#6d28d9"/>
+    <rect x="178" y="164" width="17" height="14" fill="#702dda"/>
+    <rect x="178" y="178" width="17" height="14" fill="#7d3fdd"/>
+    <rect x="178" y="192" width="17" height="14" fill="#915ee2"/>
+    <rect x="178" y="206" width="17" height="14" fill="#ad87ea"/>
+    <rect x="178" y="220" width="17" height="14" fill="#cfb8f2"/>
+    <rect x="178" y="234" width="17" height="14" fill="#f3edfc"/>
+    <rect x="178" y="248" width="17" height="14" fill="#d5ecf2"/>
+    <rect x="178" y="262" width="17" height="14" fill="#99d2df"/>
+    <rect x="178" y="276" width="17" height="14" fill="#64bacf"/>
+    <rect x="195" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="195" y="80" width="17" height="14" fill="#e5d8f8"/>
+    <rect x="195" y="94" width="17" height="14" fill="#cbb2f1"/>
+    <rect x="195" y="108" width="17" height="14" fill="#b38feb"/>
+    <rect x="195" y="122" width="17" height="14" fill="#9e70e6"/>
+    <rect x="195" y="136" width="17" height="14" fill="#8c55e1"/>
+    <rect x="195" y="150" width="17" height="14" fill="#7d40dd"/>
+    <rect x="195" y="164" width="17" height="14" fill="#7331db"/>
+    <rect x="195" y="178" width="17" height="14" fill="#6e29d9"/>
+    <rect x="195" y="192" width="17" height="14" fill="#6d29d9"/>
+    <rect x="195" y="206" width="17" height="14" fill="#722fda"/>
+    <rect x="195" y="220" width="17" height="14" fill="#7a3cdd"/>
+    <rect x="195" y="234" width="17" height="14" fill="#884fe0"/>
+    <rect x="195" y="248" width="17" height="14" fill="#9969e4"/>
+    <rect x="195" y="262" width="17" height="14" fill="#ae87ea"/>
+    <rect x="195" y="276" width="17" height="14" fill="#c5a9f0"/>
+    <rect x="212" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="212" y="80" width="17" height="14" fill="#ece3fa"/>
+    <rect x="212" y="94" width="17" height="14" fill="#d9c8f5"/>
+    <rect x="212" y="108" width="17" height="14" fill="#c7adf1"/>
+    <rect x="212" y="122" width="17" height="14" fill="#b694ec"/>
+    <rect x="212" y="136" width="17" height="14" fill="#a77de8"/>
+    <rect x="212" y="150" width="17" height="14" fill="#9868e4"/>
+    <rect x="212" y="164" width="17" height="14" fill="#8c55e1"/>
+    <rect x="212" y="178" width="17" height="14" fill="#8145de"/>
+    <rect x="212" y="192" width="17" height="14" fill="#7839dc"/>
+    <rect x="212" y="206" width="17" height="14" fill="#7230da"/>
+    <rect x="212" y="220" width="17" height="14" fill="#6e2ad9"/>
+    <rect x="212" y="234" width="17" height="14" fill="#6d28d9"/>
+    <rect x="212" y="248" width="17" height="14" fill="#6e2ad9"/>
+    <rect x="212" y="262" width="17" height="14" fill="#722fda"/>
+    <rect x="212" y="276" width="17" height="14" fill="#7838dc"/>
+    <rect x="229" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="229" y="80" width="17" height="14" fill="#f1ebfb"/>
+    <rect x="229" y="94" width="17" height="14" fill="#e4d7f8"/>
+    <rect x="229" y="108" width="17" height="14" fill="#d7c4f5"/>
+    <rect x="229" y="122" width="17" height="14" fill="#cab1f1"/>
+    <rect x="229" y="136" width="17" height="14" fill="#bd9fee"/>
+    <rect x="229" y="150" width="17" height="14" fill="#b28deb"/>
+    <rect x="229" y="164" width="17" height="14" fill="#a67de8"/>
+    <rect x="229" y="178" width="17" height="14" fill="#9c6de5"/>
+    <rect x="229" y="192" width="17" height="14" fill="#935fe3"/>
+    <rect x="229" y="206" width="17" height="14" fill="#8a53e1"/>
+    <rect x="229" y="220" width="17" height="14" fill="#8247df"/>
+    <rect x="229" y="234" width="17" height="14" fill="#7c3edd"/>
+    <rect x="229" y="248" width="17" height="14" fill="#7636db"/>
+    <rect x="229" y="262" width="17" height="14" fill="#7230da"/>
+    <rect x="229" y="276" width="17" height="14" fill="#6f2bda"/>
+    <rect x="246" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="246" y="80" width="17" height="14" fill="#f5f1fc"/>
+    <rect x="246" y="94" width="17" height="14" fill="#ece2fa"/>
+    <rect x="246" y="108" width="17" height="14" fill="#e2d4f7"/>
+    <rect x="246" y="122" width="17" height="14" fill="#d9c6f5"/>
+    <rect x="246" y="136" width="17" height="14" fill="#cfb9f3"/>
+    <rect x="246" y="150" width="17" height="14" fill="#c6abf0"/>
+    <rect x="246" y="164" width="17" height="14" fill="#bd9eee"/>
+    <rect x="246" y="178" width="17" height="14" fill="#b592ec"/>
+    <rect x="246" y="192" width="17" height="14" fill="#ad86ea"/>
+    <rect x="246" y="206" width="17" height="14" fill="#a57ae8"/>
+    <rect x="246" y="220" width="17" height="14" fill="#9d6fe6"/>
+    <rect x="246" y="234" width="17" height="14" fill="#9665e4"/>
+    <rect x="246" y="248" width="17" height="14" fill="#905be2"/>
+    <rect x="246" y="262" width="17" height="14" fill="#8a52e1"/>
+    <rect x="246" y="276" width="17" height="14" fill="#844adf"/>
+    <rect x="263" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="263" y="80" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="263" y="94" width="17" height="14" fill="#f1ebfb"/>
+    <rect x="263" y="108" width="17" height="14" fill="#ebe1fa"/>
+    <rect x="263" y="122" width="17" height="14" fill="#e4d7f8"/>
+    <rect x="263" y="136" width="17" height="14" fill="#ddcef6"/>
+    <rect x="263" y="150" width="17" height="14" fill="#d7c4f5"/>
+    <rect x="263" y="164" width="17" height="14" fill="#d0baf3"/>
+    <rect x="263" y="178" width="17" height="14" fill="#cab1f1"/>
+    <rect x="263" y="192" width="17" height="14" fill="#c4a8f0"/>
+    <rect x="263" y="206" width="17" height="14" fill="#be9fee"/>
+    <rect x="263" y="220" width="17" height="14" fill="#b896ec"/>
+    <rect x="263" y="234" width="17" height="14" fill="#b28deb"/>
+    <rect x="263" y="248" width="17" height="14" fill="#ac85e9"/>
+    <rect x="263" y="262" width="17" height="14" fill="#a77de8"/>
+    <rect x="263" y="276" width="17" height="14" fill="#a175e7"/>
+    <rect x="280" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="280" y="80" width="17" height="14" fill="#faf8fe"/>
+    <rect x="280" y="94" width="17" height="14" fill="#f5f1fc"/>
+    <rect x="280" y="108" width="17" height="14" fill="#f0eafb"/>
+    <rect x="280" y="122" width="17" height="14" fill="#ece3fa"/>
+    <rect x="280" y="136" width="17" height="14" fill="#e7dbf9"/>
+    <rect x="280" y="150" width="17" height="14" fill="#e2d4f7"/>
+    <rect x="280" y="164" width="17" height="14" fill="#ddcef6"/>
+    <rect x="280" y="178" width="17" height="14" fill="#d9c7f5"/>
+    <rect x="280" y="192" width="17" height="14" fill="#d4c0f4"/>
+    <rect x="280" y="206" width="17" height="14" fill="#cfb9f3"/>
+    <rect x="280" y="220" width="17" height="14" fill="#cbb2f1"/>
+    <rect x="280" y="234" width="17" height="14" fill="#c6acf0"/>
+    <rect x="280" y="248" width="17" height="14" fill="#c2a5ef"/>
+    <rect x="280" y="262" width="17" height="14" fill="#be9fee"/>
+    <rect x="280" y="276" width="17" height="14" fill="#b998ed"/>
+    <rect x="297" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="297" y="80" width="17" height="14" fill="#fcfafe"/>
+    <rect x="297" y="94" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="297" y="108" width="17" height="14" fill="#f5f0fc"/>
+    <rect x="297" y="122" width="17" height="14" fill="#f1ebfb"/>
+    <rect x="297" y="136" width="17" height="14" fill="#eee6fb"/>
+    <rect x="297" y="150" width="17" height="14" fill="#eae1fa"/>
+    <rect x="297" y="164" width="17" height="14" fill="#e7dbf9"/>
+    <rect x="297" y="178" width="17" height="14" fill="#e3d6f8"/>
+    <rect x="297" y="192" width="17" height="14" fill="#e0d1f7"/>
+    <rect x="297" y="206" width="17" height="14" fill="#ddccf6"/>
+    <rect x="297" y="220" width="17" height="14" fill="#d9c8f5"/>
+    <rect x="297" y="234" width="17" height="14" fill="#d6c3f4"/>
+    <rect x="297" y="248" width="17" height="14" fill="#d3bef3"/>
+    <rect x="297" y="262" width="17" height="14" fill="#cfb9f3"/>
+    <rect x="297" y="276" width="17" height="14" fill="#ccb4f2"/>
+    <rect x="314" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="314" y="80" width="17" height="14" fill="#fdfbfe"/>
+    <rect x="314" y="94" width="17" height="14" fill="#faf8fe"/>
+    <rect x="314" y="108" width="17" height="14" fill="#f8f4fd"/>
+    <rect x="314" y="122" width="17" height="14" fill="#f5f0fc"/>
+    <rect x="314" y="136" width="17" height="14" fill="#f3edfc"/>
+    <rect x="314" y="150" width="17" height="14" fill="#f0e9fb"/>
+    <rect x="314" y="164" width="17" height="14" fill="#eee6fb"/>
+    <rect x="314" y="178" width="17" height="14" fill="#ebe2fa"/>
+    <rect x="314" y="192" width="17" height="14" fill="#e9def9"/>
+    <rect x="314" y="206" width="17" height="14" fill="#e6dbf9"/>
+    <rect x="314" y="220" width="17" height="14" fill="#e4d7f8"/>
+    <rect x="314" y="234" width="17" height="14" fill="#e2d4f7"/>
+    <rect x="314" y="248" width="17" height="14" fill="#dfd0f7"/>
+    <rect x="314" y="262" width="17" height="14" fill="#ddccf6"/>
+    <rect x="314" y="276" width="17" height="14" fill="#dac9f5"/>
+    <rect x="331" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="331" y="80" width="17" height="14" fill="#fdfcff"/>
+    <rect x="331" y="94" width="17" height="14" fill="#fbfafe"/>
+    <rect x="331" y="108" width="17" height="14" fill="#faf7fe"/>
+    <rect x="331" y="122" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="331" y="136" width="17" height="14" fill="#f6f2fd"/>
+    <rect x="331" y="150" width="17" height="14" fill="#f4effc"/>
+    <rect x="331" y="164" width="17" height="14" fill="#f3edfc"/>
+    <rect x="331" y="178" width="17" height="14" fill="#f1eafb"/>
+    <rect x="331" y="192" width="17" height="14" fill="#efe8fb"/>
+    <rect x="331" y="206" width="17" height="14" fill="#ede5fa"/>
+    <rect x="331" y="220" width="17" height="14" fill="#ece2fa"/>
+    <rect x="331" y="234" width="17" height="14" fill="#eae0f9"/>
+    <rect x="331" y="248" width="17" height="14" fill="#e8ddf9"/>
+    <rect x="331" y="262" width="17" height="14" fill="#e6dbf9"/>
+    <rect x="331" y="276" width="17" height="14" fill="#e5d8f8"/>
+    <rect x="348" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="348" y="80" width="17" height="14" fill="#fefdff"/>
+    <rect x="348" y="94" width="17" height="14" fill="#fdfbfe"/>
+    <rect x="348" y="108" width="17" height="14" fill="#fbfafe"/>
+    <rect x="348" y="122" width="17" height="14" fill="#faf8fe"/>
+    <rect x="348" y="136" width="17" height="14" fill="#f9f6fd"/>
+    <rect x="348" y="150" width="17" height="14" fill="#f8f4fd"/>
+    <rect x="348" y="164" width="17" height="14" fill="#f6f2fd"/>
+    <rect x="348" y="178" width="17" height="14" fill="#f5f0fc"/>
+    <rect x="348" y="192" width="17" height="14" fill="#f4effc"/>
+    <rect x="348" y="206" width="17" height="14" fill="#f3edfc"/>
+    <rect x="348" y="220" width="17" height="14" fill="#f1ebfb"/>
+    <rect x="348" y="234" width="17" height="14" fill="#f0e9fb"/>
+    <rect x="348" y="248" width="17" height="14" fill="#efe7fb"/>
+    <rect x="348" y="262" width="17" height="14" fill="#eee6fb"/>
+    <rect x="348" y="276" width="17" height="14" fill="#ede4fa"/>
+    <rect x="365" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="365" y="80" width="17" height="14" fill="#fefeff"/>
+    <rect x="365" y="94" width="17" height="14" fill="#fdfcff"/>
+    <rect x="365" y="108" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="365" y="122" width="17" height="14" fill="#fbfafe"/>
+    <rect x="365" y="136" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="365" y="150" width="17" height="14" fill="#faf7fe"/>
+    <rect x="365" y="164" width="17" height="14" fill="#f9f6fd"/>
+    <rect x="365" y="178" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="365" y="192" width="17" height="14" fill="#f7f3fd"/>
+    <rect x="365" y="206" width="17" height="14" fill="#f6f2fd"/>
+    <rect x="365" y="220" width="17" height="14" fill="#f5f1fc"/>
+    <rect x="365" y="234" width="17" height="14" fill="#f4effc"/>
+    <rect x="365" y="248" width="17" height="14" fill="#f4eefc"/>
+    <rect x="365" y="262" width="17" height="14" fill="#f3edfc"/>
+    <rect x="365" y="276" width="17" height="14" fill="#f2ecfc"/>
+    <rect x="382" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="382" y="80" width="17" height="14" fill="#fefeff"/>
+    <rect x="382" y="94" width="17" height="14" fill="#fefdff"/>
+    <rect x="382" y="108" width="17" height="14" fill="#fefdff"/>
+    <rect x="382" y="122" width="17" height="14" fill="#fefdff"/>
+    <rect x="382" y="136" width="17" height="14" fill="#fcfafe"/>
+    <rect x="382" y="150" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="382" y="164" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="382" y="178" width="17" height="14" fill="#faf8fe"/>
+    <rect x="382" y="192" width="17" height="14" fill="#f9f7fe"/>
+    <rect x="382" y="206" width="17" height="14" fill="#f9f6fd"/>
+    <rect x="382" y="220" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="382" y="234" width="17" height="14" fill="#f7f4fd"/>
+    <rect x="382" y="248" width="17" height="14" fill="#f7f3fd"/>
+    <rect x="382" y="262" width="17" height="14" fill="#f6f2fd"/>
+    <rect x="382" y="276" width="17" height="14" fill="#f6f1fd"/>
+    <rect x="399" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="399" y="80" width="17" height="14" fill="#fffeff"/>
+    <rect x="399" y="94" width="17" height="14" fill="#fefeff"/>
+    <rect x="399" y="108" width="17" height="14" fill="#fefdff"/>
+    <rect x="399" y="122" width="17" height="14" fill="#fdfcff"/>
+    <rect x="399" y="136" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="399" y="150" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="399" y="164" width="17" height="14" fill="#fcfafe"/>
+    <rect x="399" y="178" width="17" height="14" fill="#fbfafe"/>
+    <rect x="399" y="192" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="399" y="206" width="17" height="14" fill="#faf8fe"/>
+    <rect x="399" y="220" width="17" height="14" fill="#faf8fe"/>
+    <rect x="399" y="234" width="17" height="14" fill="#faf7fe"/>
+    <rect x="399" y="248" width="17" height="14" fill="#f9f6fd"/>
+    <rect x="399" y="262" width="17" height="14" fill="#f9f6fd"/>
+    <rect x="399" y="276" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="416" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="416" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="416" y="94" width="17" height="14" fill="#fefeff"/>
+    <rect x="416" y="108" width="17" height="14" fill="#fefeff"/>
+    <rect x="416" y="122" width="17" height="14" fill="#fefdff"/>
+    <rect x="416" y="136" width="17" height="14" fill="#fdfdff"/>
+    <rect x="416" y="150" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="416" y="164" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="416" y="178" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="416" y="192" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="416" y="206" width="17" height="14" fill="#fcfafe"/>
+    <rect x="416" y="220" width="17" height="14" fill="#fbfafe"/>
+    <rect x="416" y="234" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="416" y="248" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="416" y="262" width="17" height="14" fill="#faf8fe"/>
+    <rect x="416" y="276" width="17" height="14" fill="#faf8fe"/>
+    <rect x="433" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="433" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="433" y="94" width="17" height="14" fill="#fffeff"/>
+    <rect x="433" y="108" width="17" height="14" fill="#fefeff"/>
+    <rect x="433" y="122" width="17" height="14" fill="#fefeff"/>
+    <rect x="433" y="136" width="17" height="14" fill="#fefdff"/>
+    <rect x="433" y="150" width="17" height="14" fill="#fefdff"/>
+    <rect x="433" y="164" width="17" height="14" fill="#fdfdff"/>
+    <rect x="433" y="178" width="17" height="14" fill="#fdfcff"/>
+    <rect x="433" y="192" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="433" y="206" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="433" y="220" width="17" height="14" fill="#fdfbfe"/>
+    <rect x="433" y="234" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="433" y="248" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="433" y="262" width="17" height="14" fill="#fcfafe"/>
+    <rect x="433" y="276" width="17" height="14" fill="#fcfafe"/>
+    <rect x="450" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="450" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="450" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="450" y="108" width="17" height="14" fill="#fffeff"/>
+    <rect x="450" y="122" width="17" height="14" fill="#fefeff"/>
+    <rect x="450" y="136" width="17" height="14" fill="#fefeff"/>
+    <rect x="450" y="150" width="17" height="14" fill="#fefeff"/>
+    <rect x="450" y="164" width="17" height="14" fill="#fefdff"/>
+    <rect x="450" y="178" width="17" height="14" fill="#fefdff"/>
+    <rect x="450" y="192" width="17" height="14" fill="#fefdff"/>
+    <rect x="450" y="206" width="17" height="14" fill="#fdfdff"/>
+    <rect x="450" y="220" width="17" height="14" fill="#fdfcff"/>
+    <rect x="450" y="234" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="450" y="248" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="450" y="262" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="450" y="276" width="17" height="14" fill="#fdfbfe"/>
+    <rect x="467" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="467" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="467" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="467" y="108" width="17" height="14" fill="#fffeff"/>
+    <rect x="467" y="122" width="17" height="14" fill="#fffeff"/>
+    <rect x="467" y="136" width="17" height="14" fill="#fefeff"/>
+    <rect x="467" y="150" width="17" height="14" fill="#fefeff"/>
+    <rect x="467" y="164" width="17" height="14" fill="#fefeff"/>
+    <rect x="467" y="178" width="17" height="14" fill="#fefeff"/>
+    <rect x="467" y="192" width="17" height="14" fill="#fefdff"/>
+    <rect x="467" y="206" width="17" height="14" fill="#fefdff"/>
+    <rect x="467" y="220" width="17" height="14" fill="#fefdff"/>
+    <rect x="467" y="234" width="17" height="14" fill="#fefdff"/>
+    <rect x="467" y="248" width="17" height="14" fill="#fefdff"/>
+    <rect x="467" y="262" width="17" height="14" fill="#fdfdff"/>
+    <rect x="467" y="276" width="17" height="14" fill="#fdfcff"/>
+    <rect x="484" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="484" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="484" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="484" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="484" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="484" y="136" width="17" height="14" fill="#fffeff"/>
+    <rect x="484" y="150" width="17" height="14" fill="#fffeff"/>
+    <rect x="484" y="164" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="178" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="192" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="206" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="220" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="234" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="248" width="17" height="14" fill="#fefdff"/>
+    <rect x="484" y="262" width="17" height="14" fill="#fefdff"/>
+    <rect x="484" y="276" width="17" height="14" fill="#fefdff"/>
+    <rect x="501" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="136" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="150" width="17" height="14" fill="#fffeff"/>
+    <rect x="501" y="164" width="17" height="14" fill="#fffeff"/>
+    <rect x="501" y="178" width="17" height="14" fill="#fffeff"/>
+    <rect x="501" y="192" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="206" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="220" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="234" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="248" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="262" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="276" width="17" height="14" fill="#fefeff"/>
+    <rect x="518" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="136" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="150" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="164" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="178" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="192" width="17" height="14" fill="#fffeff"/>
+    <rect x="518" y="206" width="17" height="14" fill="#fffeff"/>
+    <rect x="518" y="220" width="17" height="14" fill="#fffeff"/>
+    <rect x="518" y="234" width="17" height="14" fill="#fefeff"/>
+    <rect x="518" y="248" width="17" height="14" fill="#fefeff"/>
+    <rect x="518" y="262" width="17" height="14" fill="#fefeff"/>
+    <rect x="518" y="276" width="17" height="14" fill="#fefeff"/>
+    <rect x="535" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="136" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="150" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="164" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="178" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="192" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="206" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="220" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="234" width="17" height="14" fill="#fffeff"/>
+    <rect x="535" y="248" width="17" height="14" fill="#fffeff"/>
+    <rect x="535" y="262" width="17" height="14" fill="#fffeff"/>
+    <rect x="535" y="276" width="17" height="14" fill="#fffeff"/>
+    <rect x="552" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="136" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="150" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="164" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="178" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="192" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="206" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="220" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="234" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="248" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="262" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="276" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="136" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="150" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="164" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="178" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="192" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="206" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="220" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="234" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="248" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="262" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="276" width="17" height="14" fill="#ffffff"/>
+    <!-- 矩阵外框与高亮行 -->
+    <rect x="110" y="66" width="476" height="224" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="110" y="80" width="476" height="14" fill="none" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="594" y="91" font-size="11" fill="#dc2626">第 1 行 = 位置 1 的</text>
+    <text x="594" y="106" font-size="11" fill="#dc2626">编码向量（768 维）</text>
+    <!-- 纵轴：位置 -->
+    <text x="102" y="77" text-anchor="end" font-size="11" fill="#666">0</text>
+    <text x="102" y="175" text-anchor="end" font-size="11" fill="#666">7</text>
+    <text x="102" y="287" text-anchor="end" font-size="11" fill="#666">15</text>
+    <text x="48" y="178" text-anchor="middle" font-size="11" fill="#666" transform="rotate(-90 48 178)">纵轴：位置 pos</text>
+    <!-- 横轴：维度 -->
+    <line x1="118.5" y1="290" x2="118.5" y2="296" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="271.5" y1="290" x2="271.5" y2="296" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="424.5" y1="290" x2="424.5" y2="296" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="577.5" y1="290" x2="577.5" y2="296" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="118.5" y="310" text-anchor="middle" font-size="11" fill="#666">0</text>
+    <text x="271.5" y="310" text-anchor="middle" font-size="11" fill="#666">256</text>
+    <text x="424.5" y="310" text-anchor="middle" font-size="11" fill="#666">512</text>
+    <text x="577.5" y="310" text-anchor="middle" font-size="11" fill="#666">768</text>
+    <text x="348" y="332" text-anchor="middle" font-size="11" fill="#666">横轴：维度（0 → 768，28 组等距抽样列）</text>
+    <!-- 频率注解 -->
+    <text x="110" y="356" font-size="11" font-weight="bold" fill="#6d28d9">← 低维：波长 ≈ 6.3 步，相邻位置读数跳变</text>
+    <text x="586" y="356" text-anchor="end" font-size="11" font-weight="bold" fill="#0891b2">高维：波长 ≈ 6.3 万步，几乎不动 →</text>
+    <!-- 输出 -->
+    <line x1="348" y1="368" x2="348" y2="392" stroke="#6d28d9" stroke-width="2" marker-end="url(#pe33)"/>
+    <text x="360" y="414" text-anchor="middle" font-size="11.5" fill="#333">输出：位置编码矩阵 n × 768 —— 第 pos 行加到第 pos 个 token 的词向量上（公式 1），n = 序列长度</text>
+    <!-- 旁注：可学习方案 -->
+    <rect x="60" y="428" width="600" height="78" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/>
+    <text x="76" y="449" font-size="11.5" font-weight="bold" fill="#92400e">旁注 · 可学习方案（3.3.3）：同形状的一张可训练大表</text>
+    <text x="76" y="469" font-size="11" fill="#333">一张 max_len × 768 的参数矩阵，随机初始化、随训练更新，第 pos 行查表即得；</text>
+    <text x="76" y="489" font-size="11" fill="#333">效果与正弦几乎相同（BLEU 25.8 vs 25.7），但超出 max_len 的行无从外推。</text>
+  </svg>
+  <div class="diagram-caption">图示：正弦位置编码矩阵的热力波纹（位置 × 维度，以 minimind 的 768 维为例，画前 16 个位置、28 组等距抽样维度；每格颜色是该位置在该维度上的 sin 取值，紫正青负）。每一行是一个位置的 768 维编码向量：低维列波长约 6.3 步，相邻位置读数剧烈交替；高维列波长约 6.3 万步，走十几步几乎不变。整张表由公式现算、零参数；旁注的可学习方案把同样形状的一张表交给训练去背。</div>
+</div>
+
 <h2>3.3.1 把位置“写”进向量</h2>
 
 <p>　　上一节看到，每个 token 经过 Embedding 层变成一个 \(d_{\mathrm{model}}\) 维向量。但这个向量只回答了“这个词是什么”，没有回答“它排在第几位”。而自注意力（第 4 章细讲）在计算时对所有位置一视同仁：把输入序列打乱重排，每个位置算出的注意力结果不会有任何变化。换句话说，裸的注意力机制对顺序是“无感”的，“狗咬了人”和“人咬了狗”在它眼里是同一袋向量。</p>

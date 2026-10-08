@@ -30,6 +30,138 @@
 
 <p>　　读完全节，「分词器和模型是两回事」这句话会落到实处。本节也是第 2 章的收尾，下一章进入 Embedding，看 token ID 如何变成向量。</p>
 
+<p>　　逐个坑讲解之前，先看一眼分词器在整条链路中的位置，再用一组实测看清楚：同一段文本经过它，会变成多长的序列。心里有这张地图，后面的坑个个有出处：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS26tokenizerinpractice" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG26tokenizerinpractice" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（3.2–3.5 节）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS26tokenizerinpractice)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG26tokenizerinpractice)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG26tokenizerinpractice)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG26tokenizerinpractice)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG26tokenizerinpractice)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG26tokenizerinpractice)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG26tokenizerinpractice)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：输入起点</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：分词器在 LLM 前向链路中的位置。它是整条链路的第一站：原始文本在这里被切成 token ID（本章），再经 Embedding 查表（3.1 节）、注入位置信息（3.2–3.5 节）进入 Transformer 层（第 4 章），最后算出概率、采样出下一个 token（第 12 章）并接回输入循环。本节站在这一站做实测：同一个分词器面对不同语言与符号，切出的序列长度差异巨大，这些差异随后会折算成成本与能力。</div>
+</div>
+
+<p>　　这个紫框放大之后，真实文本进去会变成什么？拿 minimind 分词器实测三类输入，对比它们的输出：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 412" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrZ26" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="40" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：minimind 分词器实测——同一分词器，三种输入三种命运</text>
+    <text x="40" y="50" font-size="11" fill="#64748b">输入：三类文本（中文 / 英文 / emoji）；输出：各自的 token ID 序列（词表 6400）</text>
+    <!-- 行 1：中文 -->
+    <rect x="20" y="68" width="170" height="48" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="34" y="86" font-size="10" fill="#888">中文</text>
+    <text x="34" y="106" font-size="13" fill="#333">「我爱中国」</text>
+    <line x1="190" y1="92" x2="214" y2="92" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ26)"/>
+    <rect x="218" y="77" width="34" height="30" rx="4" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="235" y="96" text-anchor="middle" font-size="12" fill="#333">我</text>
+    <rect x="256" y="77" width="34" height="30" rx="4" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="273" y="96" text-anchor="middle" font-size="12" fill="#333">爱</text>
+    <rect x="294" y="77" width="52" height="30" rx="4" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="320" y="96" text-anchor="middle" font-size="12" fill="#333">中国</text>
+    <rect x="560" y="68" width="140" height="56" rx="6" fill="#6d28d9"/>
+    <text x="630" y="92" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">3 个 token</text>
+    <text x="630" y="112" text-anchor="middle" font-size="10" fill="#ede9fe">[463, 2043, 1405]</text>
+    <text x="218" y="136" font-size="10.5" fill="#64748b">常用汉字与词组各自成整块，最省 token</text>
+    <!-- 行 2：英文 -->
+    <rect x="20" y="168" width="170" height="48" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="34" y="186" font-size="10" fill="#888">英文</text>
+    <text x="34" y="206" font-size="11.5" fill="#333">Tokenization is fun.</text>
+    <line x1="190" y1="192" x2="214" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ26)"/>
+    <rect x="218" y="177" width="34" height="30" rx="4" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="235" y="196" text-anchor="middle" font-size="11" fill="#333">To</text>
+    <rect x="256" y="177" width="26" height="30" rx="4" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="269" y="196" text-anchor="middle" font-size="11" fill="#333">k</text>
+    <rect x="286" y="177" width="34" height="30" rx="4" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="303" y="196" text-anchor="middle" font-size="11" fill="#333">en</text>
+    <rect x="324" y="177" width="64" height="30" rx="4" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="356" y="196" text-anchor="middle" font-size="11" fill="#333">ization</text>
+    <rect x="392" y="177" width="40" height="30" rx="4" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="412" y="196" text-anchor="middle" font-size="11" fill="#333">Ġis</text>
+    <rect x="436" y="177" width="34" height="30" rx="4" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="453" y="196" text-anchor="middle" font-size="11" fill="#333">Ġf</text>
+    <rect x="474" y="177" width="34" height="30" rx="4" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="491" y="196" text-anchor="middle" font-size="11" fill="#333">un</text>
+    <rect x="512" y="177" width="26" height="30" rx="4" fill="#ede9fe" stroke="#6d28d9"/>
+    <text x="525" y="196" text-anchor="middle" font-size="11" fill="#333">.</text>
+    <rect x="560" y="168" width="140" height="56" rx="6" fill="#6d28d9"/>
+    <text x="630" y="188" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">8 个 token</text>
+    <text x="630" y="206" text-anchor="middle" font-size="9.5" fill="#ede9fe">[1671, 110, 327, 4070,</text>
+    <text x="630" y="220" text-anchor="middle" font-size="9.5" fill="#ede9fe">395, 341, 651, 49]</text>
+    <text x="218" y="236" font-size="10.5" fill="#64748b">6400 的小词表收录英文有限，单词被拆成碎片（对照：cl100k_base 同句 5 个 token，2.6.2 节）</text>
+    <!-- 行 3：emoji -->
+    <rect x="20" y="268" width="170" height="48" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="34" y="286" font-size="10" fill="#888">emoji</text>
+    <text x="34" y="308" font-size="15" fill="#333">🚀</text>
+    <line x1="190" y1="292" x2="214" y2="292" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ26)"/>
+    <rect x="218" y="277" width="52" height="30" rx="4" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="244" y="296" text-anchor="middle" font-size="10.5" fill="#333">f0 9f</text>
+    <rect x="274" y="277" width="34" height="30" rx="4" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="291" y="296" text-anchor="middle" font-size="10.5" fill="#333">9a</text>
+    <rect x="312" y="277" width="34" height="30" rx="4" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="329" y="296" text-anchor="middle" font-size="10.5" fill="#333">80</text>
+    <rect x="560" y="268" width="140" height="56" rx="6" fill="#6d28d9"/>
+    <text x="630" y="292" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">3 个 token</text>
+    <text x="630" y="312" text-anchor="middle" font-size="10" fill="#ede9fe">[4544, 284, 258]</text>
+    <text x="218" y="336" font-size="10.5" fill="#64748b">词表外的 emoji 退回字节碎片：🚀 的 UTF-8 编码是 f0 9f 9a 80 共 4 字节，被切成 3 段</text>
+    <!-- 底部总结 -->
+    <text x="360" y="376" text-anchor="middle" font-size="11" fill="#64748b">同一个分词器：输入一段文本，输出一串 token ID；输出长度随语言与符号类型差异悬殊</text>
+    <text x="360" y="398" text-anchor="middle" font-size="11" fill="#64748b">token 数随后折算成训练成本、API 费用与上下文容量（2.6.4 节）</text>
+  </svg>
+  <div class="diagram-caption">图示：minimind 分词器（BPE，词表 6400）对三类输入的实测结果。中文「我爱中国」切出 3 个 token，常用汉字与词组各自成块；英文 Tokenization is fun. 切出 8 个 token，小词表收录英文有限，单词被拆成 To | k | en | ization 这类碎片（对照：cl100k_base 同句只要 5 个 token，见 2.6.2 节）；emoji 🚀 在词表里没有整块，退回字节碎片，4 个 UTF-8 字节切成 3 段。输入同为一段文本，输出的 token 数却相差数倍，这个差值随后会折算成训练成本、API 费用与上下文容量（2.6.4 节）。</div>
+</div>
+
 <h2>2.6.1 上手实测：用 tiktoken 数 token</h2>
 
 <p>　　前面几节讲了 BPE、WordPiece、Unigram 的原理，这一节换个姿势：直接动手跑。OpenAI 开源的 tiktoken 是 GPT 系列模型官方分词器的 Python 实现，装好后三行代码就能看到任何一段文本的切分结果。本页所有实测数据均来自本机运行 tiktoken 0.12.0，读者可以原样复现。</p>

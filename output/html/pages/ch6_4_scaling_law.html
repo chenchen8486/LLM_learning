@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>6.4 Scaling Law：规模是可以计算的命运</h1>
 <p class="subtitle">本页范围：第 6 章第 4 节　|　整理时间：2026-09-29</p>
 
@@ -29,6 +29,105 @@
 </ol>
 
 <p>　　读完本节，你应当能回答：为什么今天主流模型的「参数 × 数据」配比长成现在这个样子，以及如果你手握一笔算力预算，该怎么把它切成参数和数据两份。</p>
+
+<p>　　展开这条「发现 → 预言 → 翻盘 → 修正」的叙事线之前，先看一眼预训练在 LLM 整条生命周期中的位置，以及这一站为什么可以「未卜先知」。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS64scalinglaw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG64scalinglaw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS64scalinglaw)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：预训练在 LLM 生命周期中的位置。训练数据（第 1 章）备好后进入预训练（本章，紫框）：在海量语料上做自监督学习，把文本规律压进参数；配套的并行、精度与稳定性工程在第 7 章，之后的中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）、推理与部署（第 12–13 章）在对应章节展开。本节只需记住：预训练的结果不必训完才知道——损失随规模按幂律下降，点火之前就能外推预言。</div>
+</div>
+
+<p>　　这个紫框放大之后，为什么点火前就能预言训练结果？把幂律这条直线单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr64z" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="30" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：幂律——log-log 坐标下，损失随规模直线下降</text>
+    <text x="30" y="50" font-size="11" fill="#64748b">横轴 log 规模（参数量 N / 数据量 D / 算力 C 皆成立），纵轴 log 测试损失；是直线就意味着可外推</text>
+    <!-- 坐标轴 -->
+    <line x1="90" y1="290" x2="90" y2="56" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64z)"/>
+    <line x1="80" y1="290" x2="668" y2="290" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64z)"/>
+    <text x="62" y="50" text-anchor="middle" font-size="11" fill="#666">log L</text>
+    <text x="370" y="312" text-anchor="middle" font-size="11" fill="#666">log 规模（向右 = 规模更大）</text>
+    <!-- 幂律直线 -->
+    <line x1="140" y1="100" x2="600" y2="240" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- 实验点 -->
+    <circle cx="180" cy="112.2" r="5" fill="#0891b2"/>
+    <circle cx="260" cy="136.5" r="5" fill="#0891b2"/>
+    <circle cx="340" cy="160.9" r="5" fill="#0891b2"/>
+    <circle cx="420" cy="185.2" r="5" fill="#0891b2"/>
+    <circle cx="500" cy="209.6" r="5" fill="#0891b2"/>
+    <text x="200" y="88" text-anchor="middle" font-size="10.5" fill="#0891b2">小规模实验点（便宜，多跑几组）</text>
+    <text x="300" y="205" text-anchor="middle" font-size="11" fill="#6d28d9">斜率 = −α（Kaplan 拟合 α_N ≈ 0.076）</text>
+    <line x1="330" y1="197" x2="352" y2="172" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+    <!-- 外推 -->
+    <line x1="600" y1="240" x2="660" y2="258.3" stroke="#dc2626" stroke-width="2" stroke-dasharray="5 4"/>
+    <circle cx="660" cy="258" r="5" fill="#dc2626"/>
+    <text x="520" y="270" text-anchor="middle" font-size="10.5" fill="#dc2626">外推：预言没训过的大规模</text>
+    <!-- 底部说明 -->
+    <text x="370" y="336" text-anchor="middle" font-size="11" fill="#64748b">Kaplan 处方：算力涨时优先扩参数（N* ∝ C^0.73，D* ∝ C^0.27）</text>
+    <text x="370" y="358" text-anchor="middle" font-size="11" fill="#64748b">Chinchilla 修正：参数与数据等比扩展，约每参数配 20 个 token（70B 配 1.4T）</text>
+  </svg>
+  <div class="diagram-caption">图示：幂律的读法。小规模实验点（青）在 log-log 图上落在一条直线附近，斜率由幂指数 α 决定（对参数量，Kaplan 拟合 α_N ≈ 0.076）；沿直线外推（红虚线）即可预言贵得训不起的大规模模型的损失。直线本身两篇论文没有分歧，争的是配比：Kaplan 主张优先扩参数，Chinchilla 用训到收敛的 isoFLOPs 实验修正为参数与数据等比扩展（约 20 token/参数）。</div>
+</div>
 
 <h2>6.4.1 幂律：log-log 图上的直线</h2>
 

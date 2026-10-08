@@ -27,6 +27,116 @@
 
 <p>　　读完本节，「一层 Transformer」在你眼里应该是一个完整配方，而不再只是注意力。</p>
 
+<p>　　逐件拆解之前，先看一眼本节在整条链路中的位置：链路中段的 Transformer 层就是本章的主角，而本节拆的是「一层」的内部构造。心里有这张地图，FFN、残差、归一化登场时都知道自己负责哪一环：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS44ffnresidualnorm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG44ffnresidualnorm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.2–3.5 节）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS44ffnresidualnorm)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS44ffnresidualnorm)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS44ffnresidualnorm)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS44ffnresidualnorm)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG44ffnresidualnorm)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG44ffnresidualnorm)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG44ffnresidualnorm)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层逐层加工，再经输出投影算分（本章后半）、采样出下一个 token 接回输入（第 12 章）。本节只看这一站内部：注意力之外，一层还需要 FFN、残差连接与层归一化三位搭档才完整。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？一层 block 的输入和输出各是什么形状，三件套按什么顺序包裹子层？把现代模型的一层单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 590" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrZ44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrCZ44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <text x="40" y="32" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：现代 LLM 的一层 Block（Pre-Norm 顺序，minimind 数字）</text>
+    <text x="40" y="54" font-size="11" fill="#64748b">对照 4.4.4 的原论文 Post-LN 顺序：现代模型把归一化挪到子层之前，LN 换成 RMSNorm（第 5 章细讲）</text>
+    <rect x="270" y="70" width="220" height="46" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="380" y="90" text-anchor="middle" font-size="14" fill="#333">输入 x</text>
+    <text x="380" y="107" text-anchor="middle" font-size="11.5" fill="#666">3 个 token × 768 维</text>
+    <line x1="380" y1="116" x2="380" y2="132" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
+    <rect x="270" y="132" width="220" height="44" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="150" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#155e75">RMSNorm</text>
+    <text x="380" y="167" text-anchor="middle" font-size="11" fill="#666">3 × 768 → 3 × 768</text>
+    <line x1="380" y1="176" x2="380" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
+    <rect x="270" y="192" width="220" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="213" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">掩码多头自注意力</text>
+    <text x="380" y="232" text-anchor="middle" font-size="10.5" fill="#666">GQA：8 个 Q 头 / 4 组 K/V（5.2 节）</text>
+    <line x1="380" y1="244" x2="380" y2="258" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
+    <circle cx="380" cy="273" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="380" y="279" text-anchor="middle" font-size="18" fill="#92400e">+</text>
+    <line x1="380" y1="288" x2="380" y2="304" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
+    <rect x="270" y="304" width="220" height="44" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="322" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#155e75">RMSNorm</text>
+    <text x="380" y="339" text-anchor="middle" font-size="11" fill="#666">3 × 768 → 3 × 768</text>
+    <line x1="380" y1="348" x2="380" y2="364" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
+    <rect x="270" y="364" width="220" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="385" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">FFN（SwiGLU 门控）</text>
+    <text x="380" y="404" text-anchor="middle" font-size="11" fill="#666">768 → 2432 → 768，逐位置（5.1 节）</text>
+    <line x1="380" y1="416" x2="380" y2="430" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
+    <circle cx="380" cy="445" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="380" y="451" text-anchor="middle" font-size="18" fill="#92400e">+</text>
+    <line x1="380" y1="460" x2="380" y2="476" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
+    <rect x="270" y="476" width="220" height="46" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="380" y="496" text-anchor="middle" font-size="14" fill="#333">输出</text>
+    <text x="380" y="513" text-anchor="middle" font-size="11.5" fill="#666">3 × 768：形状与输入完全相同</text>
+    <path d="M490,93 H585 V273 H397" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrCZ44)"/>
+    <text x="500" y="86" font-size="11.5" fill="#0891b2">残差旁路：x 原样直达</text>
+    <path d="M365,273 H175 V445 H363" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrCZ44)"/>
+    <text x="182" y="265" font-size="11.5" fill="#0891b2">残差旁路</text>
+    <text x="380" y="562" text-anchor="middle" font-size="12.5" fill="#666">每个子层都是「先 RMSNorm、再计算、最后残差相加」；形状全程 3 × 768，×8 层堆叠（minimind）</text>
+  </svg>
+  <div class="diagram-caption">图示：现代 LLM 一层 Block 的内部数据流（Pre-Norm 顺序，数字取自 minimind：768 维主干、FFN 中间层 2432、GQA 8 头 Q / 4 组 KV）。两个子层各自先过 RMSNorm 再计算，输入沿残差旁路原样直达加法点；张量形状从头到尾是 3 × 768，所以 8 层可以逐层接续。与 4.4.4 的原论文 Post-LN 图对照看：顺序从「相加后归一化」变成「归一化后计算再相加」，LN 换成 RMSNorm，原因在第 5 章。</div>
+</div>
+
 <h2>4.4.1 FFN：每个位置的独立思考</h2>
 
 <p>　　前两节的多头注意力解决的是 token 之间的信息交换：每个位置看看别的位置，把有用的信息加权搬回来。但搬回来的只是原料，还需要一道加工工序，这就是每层第二个子层——逐位置前馈网络（Position-wise Feed-Forward Network，FFN）要干的活。</p>

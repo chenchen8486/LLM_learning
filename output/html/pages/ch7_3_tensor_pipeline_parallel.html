@@ -29,6 +29,137 @@
 
 <p>　　读完本节，你应该能看懂任何一份大模型训练配置里的 <code>tensor_model_parallel_size</code>、<code>pipeline_model_parallel_size</code> 在干什么，并说出它们为什么这么配。</p>
 
+<p>　　两把刀展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及这个位置放大之后的内部结构。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS73tensorpipelineparallel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG73tensorpipelineparallel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS73tensorpipelineparallel)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS73tensorpipelineparallel)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG73tensorpipelineparallel)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG73tensorpipelineparallel)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG73tensorpipelineparallel)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG73tensorpipelineparallel)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG73tensorpipelineparallel)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：训练工程在 LLM 生命周期中的位置。数据（第 1 章）与预训练目标（第 6 章）就位后，这一站把训练摊到集群上跑起来，随后交给中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章）。本节管这一站里「模型本身装不下」的那半：把模型切开，横切归 TP、竖切归 PP。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？「横切」与「竖切」两刀分别切在什么上、切完各是什么形状？把两把刀并排拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 480" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrTp73" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrPp73" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <text x="24" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：两把刀——TP 横切层内矩阵，PP 竖切整个模型</text>
+    <text x="24" y="50" font-size="10.5" fill="#64748b">TP 输入：一层权重 + 一份激活；PP 输入：L 层堆栈（以 8 层分 2 段为例）</text>
+    <!-- 左半：TP -->
+    <text x="24" y="80" font-size="12.5" font-weight="bold" fill="#6d28d9">张量并行 TP：横切一层权重 A（h × 4h）</text>
+    <rect x="70" y="96" width="180" height="130" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="115" y1="96" x2="115" y2="226" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="205" y1="96" x2="205" y2="226" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="70" y1="128" x2="250" y2="128" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="70" y1="161" x2="250" y2="161" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="70" y1="194" x2="250" y2="194" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="160" y1="92" x2="160" y2="230" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="115" y="158" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">A₁</text>
+    <text x="115" y="176" text-anchor="middle" font-size="10" fill="#6d28d9">h × 2h</text>
+    <text x="205" y="158" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">A₂</text>
+    <text x="205" y="176" text-anchor="middle" font-size="10" fill="#6d28d9">h × 2h</text>
+    <line x1="115" y1="230" x2="105" y2="258" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrTp73)"/>
+    <line x1="205" y1="230" x2="255" y2="258" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrTp73)"/>
+    <rect x="40" y="262" width="130" height="64" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="105" y="286" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">GPU 1：左半列</text>
+    <text x="105" y="306" text-anchor="middle" font-size="10.5" fill="#555">算出 Y 的左半 Y₁</text>
+    <rect x="190" y="262" width="130" height="64" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="255" y="286" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">GPU 2：右半列</text>
+    <text x="255" y="306" text-anchor="middle" font-size="10.5" fill="#555">算出 Y 的右半 Y₂</text>
+    <text x="180" y="354" text-anchor="middle" font-size="10.5" fill="#555">第二层行切接住半份，各算部分和</text>
+    <text x="180" y="372" text-anchor="middle" font-size="10.5" fill="#555">一次 all-reduce 求和还原完整输出</text>
+    <text x="180" y="390" text-anchor="middle" font-size="10.5" fill="#dc2626">每层 4 次集合通信 → 困在单机 NVLink（≤ 8 卡）</text>
+    <!-- 右半：PP -->
+    <text x="400" y="80" font-size="12.5" font-weight="bold" fill="#0891b2">流水线并行 PP：竖切，按层分段</text>
+    <rect x="440" y="92" width="200" height="142" rx="8" fill="#ecfeff" fill-opacity="0.4" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="540" y="108" text-anchor="middle" font-size="10.5" fill="#155e75">第 1 段（第 1–4 层）→ 机器 A</text>
+    <rect x="470" y="114" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="129" text-anchor="middle" font-size="10.5" fill="#155e75">第 1 层</text>
+    <rect x="470" y="140" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="155" text-anchor="middle" font-size="10.5" fill="#155e75">第 2 层</text>
+    <rect x="470" y="166" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="181" text-anchor="middle" font-size="10.5" fill="#155e75">第 3 层</text>
+    <rect x="470" y="192" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="207" text-anchor="middle" font-size="10.5" fill="#155e75">第 4 层</text>
+    <line x1="540" y1="236" x2="540" y2="256" stroke="#0891b2" stroke-width="2" marker-end="url(#arrPp73)"/>
+    <text x="556" y="250" font-size="10.5" fill="#155e75">激活接力（点对点小包）</text>
+    <rect x="440" y="260" width="200" height="142" rx="8" fill="#ecfeff" fill-opacity="0.4" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="540" y="276" text-anchor="middle" font-size="10.5" fill="#155e75">第 2 段（第 5–8 层）→ 机器 B</text>
+    <rect x="470" y="282" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="297" text-anchor="middle" font-size="10.5" fill="#155e75">第 5 层</text>
+    <rect x="470" y="308" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="323" text-anchor="middle" font-size="10.5" fill="#155e75">第 6 层</text>
+    <rect x="470" y="334" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="349" text-anchor="middle" font-size="10.5" fill="#155e75">第 7 层</text>
+    <rect x="470" y="360" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="375" text-anchor="middle" font-size="10.5" fill="#155e75">第 8 层</text>
+    <text x="540" y="424" text-anchor="middle" font-size="10.5" fill="#555">micro-batch 连续灌流压气泡（气泡率 (p−1)/(m+p−1)）</text>
+    <text x="540" y="442" text-anchor="middle" font-size="10.5" fill="#555">通信只在段边界 → 敢跨机走 InfiniBand</text>
+    <!-- 底部通栏 -->
+    <text x="380" y="466" text-anchor="middle" font-size="11" fill="#4c1d95">实战两刀叠加再套 DP：MT-NLG 530B = TP 8 × PP 35 × DP 16 = 4480 张 A100（7.3.4）</text>
+  </svg>
+  <div class="diagram-caption">图示：模型装不下时的两把刀。左：张量并行横着切——一层权重矩阵按列劈给两张卡，各算输出的一半，第二层行切接住后用一次 all-reduce 把部分和加回完整输出，每层 4 次高频通信把它锁在单机 NVLink 内；右：流水线并行竖着切——8 层分两段交给两台机器，micro-batch 连续灌流压气泡，段间只传激活小包，可以跨机。两刀的内部细节（FFN 两刀、时间轴气泡）分别在 7.3.1 与 7.3.2 的图里展开。</div>
+</div>
+
 <h2>7.3.1 张量并行 TP：把一层切到多卡</h2>
 
 <p>　　先建立核心直觉：<strong>矩阵乘法天然可以拆着算</strong>。以 Transformer 的 FFN 第一层为例，\(Y = XA\)，\(X\) 是输入激活，\(A\) 是权重矩阵。把 \(A\) 沿<strong>列</strong>切成两半 \(A_1\)、\(A_2\)，输出 \(Y\) 就沿列分成 \(XA_1\)、\(XA_2\) 两块——两块之间没有任何依赖，两张卡各算一半，谁的活都不缺。一句话：按输出维度纵切权重，每张卡算出输出的一半。</p>

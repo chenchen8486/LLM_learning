@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>8.1 什么是中间训练：预训练与后训练之间的缓冲带</h1>
 <p class="subtitle">本页范围：第 8 章第 1 节　|　整理时间：2026-09-30</p>
 
@@ -28,6 +28,115 @@
 </ol>
 
 <p>　　读完本节，你应该能给任何一份技术报告里的「继续训练」段落归类：它属于中间训练还是后训练，依据是什么。</p>
+
+<p>　　按四个小节展开之前，先看一眼中间训练在整条生命周期中的位置，以及这个位置放大之后内部在忙什么。心里有这张地图，后面每一节都知道自己在替这条补强带拧哪颗螺丝：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS81midtrainingoverview" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG81midtrainingoverview" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS81midtrainingoverview)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS81midtrainingoverview)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS81midtrainingoverview)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG81midtrainingoverview)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG81midtrainingoverview)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG81midtrainingoverview)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG81midtrainingoverview)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：中间训练在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）与训练工程（第 7 章）产出通用 base model；随后进入本节主角中间训练——目标函数不换，只把数据配方与序列长度定向重配，负责质量收口、长上下文与领域补短；交棒给 SFT（第 9 章）之后，才轮到偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章）。本节只需记住：中间训练是预训练与后训练之间的补强带，只管把 base model 变得更值钱。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？它的输入是预训练 checkpoint，输出还是一台不会对话的 base model——中间训练在中间到底动了什么？把它单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 430" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="zArr81" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="40" y="34" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：中间训练内部——输入预训练 checkpoint，输出增强版 base model</text>
+    <!-- 输入节点 -->
+    <rect x="20" y="165" width="170" height="100" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="105" y="193" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">输入：预训练 checkpoint</text>
+    <text x="105" y="214" text-anchor="middle" font-size="11" fill="#555">通用 base model</text>
+    <text x="105" y="234" text-anchor="middle" font-size="10.5" fill="#888">只会续写，不会对话</text>
+    <line x1="190" y1="215" x2="226" y2="215" stroke="#6d28d9" stroke-width="2" marker-end="url(#zArr81)"/>
+    <!-- 中间训练容器 -->
+    <rect x="230" y="60" width="330" height="310" rx="10" fill="none" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="246" y="86" font-size="12.5" font-weight="bold" fill="#6d28d9">中间训练：两个改动，一个不动</text>
+    <!-- 改动一：换数据配方 -->
+    <rect x="246" y="100" width="298" height="106" rx="6" fill="#ffffff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="258" y="124" font-size="12" font-weight="bold" fill="#0891b2">改动一：换数据配方</text>
+    <text x="258" y="146" font-size="11" fill="#333">高质量精选收口（退火数据）</text>
+    <text x="258" y="166" font-size="11" fill="#333">长文档上采样（为扩窗供料）</text>
+    <text x="258" y="186" font-size="11" fill="#333">数学、代码等领域加重配比</text>
+    <!-- 改动二：拉长序列 -->
+    <rect x="246" y="218" width="298" height="78" rx="6" fill="#ffffff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="258" y="240" font-size="12" font-weight="bold" fill="#0891b2">改动二：拉长序列</text>
+    <text x="258" y="262" font-size="11" fill="#333">长度课程分阶段扩窗：4K → 32K → 128K</text>
+    <text x="258" y="280" font-size="10.5" fill="#888">DeepSeek-V3 两段各仅 1000 步（8.1.2）</text>
+    <!-- 一个不动 -->
+    <rect x="246" y="308" width="298" height="50" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="395" y="330" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">一个不动：训练目标仍是</text>
+    <text x="395" y="348" text-anchor="middle" font-size="11" fill="#4c1d95">next-token 自监督（与后训练的分界线）</text>
+    <line x1="560" y1="215" x2="596" y2="215" stroke="#6d28d9" stroke-width="2" marker-end="url(#zArr81)"/>
+    <!-- 输出节点 -->
+    <rect x="600" y="150" width="140" height="130" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="670" y="178" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">输出：增强版</text>
+    <text x="670" y="198" text-anchor="middle" font-size="12" font-weight="bold" fill="#ede9fe">base model</text>
+    <text x="670" y="220" text-anchor="middle" font-size="10.5" fill="#ede9fe">窗口更长 · 能力更强</text>
+    <text x="670" y="240" text-anchor="middle" font-size="10.5" fill="#d8b4fe">依然不会对话</text>
+    <text x="670" y="260" text-anchor="middle" font-size="10.5" fill="#d8b4fe">交棒第 9 章 SFT</text>
+    <!-- 底部与三阶段图的分工说明 -->
+    <text x="380" y="402" text-anchor="middle" font-size="11" fill="#64748b">与 8.1.1 三阶段流水线图的分工：那张图划阶段边界，这张图拆中间训练的内部动作</text>
+  </svg>
+  <div class="diagram-caption">图示：中间训练的内部动作。输入是预训练 checkpoint（只会续写的通用底座）；阶段内只做两个改动——换数据配方（高质量收口、长文档上采样、数学代码加重，8.3 与 8.4 展开）与拉长序列（分阶段长度课程，DeepSeek-V3 两段各仅 1000 步从 4K 扩到 128K），训练目标原地不动（仍是 next-token 自监督，这正是与后训练的分界线）；输出是窗口更长、能力更强的增强版 base model，交棒第 9 章 SFT。图中数字均出自本节正文引用的各家技术报告。</div>
+</div>
 
 <h2>8.1.1 流水线位置：预训练之后、后训练之前</h2>
 

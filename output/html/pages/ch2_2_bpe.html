@@ -28,6 +28,120 @@
 
 <p>　　读完本节，你应该能徒手跑完一轮 BPE 训练，也能说清 GPT-2 词表 50257 这个数字是怎么凑出来的。</p>
 
+<p>　　BPE 坐在链路的第二站：文本进门后的第一道加工。先看它的上下游都是谁：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="loc22P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="loc22G" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">本节主角：BPE</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">注入“第几格”</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（3.2–3.5 节）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc22P)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc22P)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc22G)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc22G)"/>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（4.6 节）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc22G)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc22G)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#loc22G)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="120" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="146" y="302" font-size="10.5" fill="#555">浅色实线框：输入起点</text>
+    <rect x="330" y="292" width="18" height="11" rx="2" fill="#6d28d9"/>
+    <text x="356" y="302" font-size="10.5" fill="#555">紫底框：本节主角</text>
+    <rect x="510" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="536" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：BPE 分词在前向链路中的位置。它是链路的第二站：原始文本先进来，切成 token ID 后交给 Embedding（3.1 节），后面各站在对应章节展开。</div>
+</div>
+
+<p>　　「切成 token ID」这个动作放大看，就是一套逐对合并的流程。用「我爱中国」在 minimind 分词器上的真实结果画出来：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 450" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="bpe22P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="60" y="36" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：分词器——输入文本，输出 3 个 token ID</text>
+    <text x="60" y="66" font-size="11" fill="#64748b">输入：原始文本（minimind 分词器实测）</text>
+    <rect x="60" y="76" width="200" height="42" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="160" y="102" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">「我爱中国」</text>
+    <line x1="160" y1="118" x2="160" y2="146" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#bpe22P)"/>
+    <text x="60" y="182" font-size="12" font-weight="bold" fill="#4c1d95">① 拆成单字</text>
+    <rect x="150" y="156" width="70" height="40" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="185" y="181" text-anchor="middle" font-size="13" fill="#4c1d95">我</text>
+    <rect x="240" y="156" width="70" height="40" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="275" y="181" text-anchor="middle" font-size="13" fill="#4c1d95">爱</text>
+    <rect x="330" y="156" width="70" height="40" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="365" y="181" text-anchor="middle" font-size="13" fill="#4c1d95">中</text>
+    <rect x="420" y="156" width="70" height="40" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="455" y="181" text-anchor="middle" font-size="13" fill="#4c1d95">国</text>
+    <text x="510" y="181" font-size="11" fill="#64748b">每个字先自成一个 token</text>
+    <line x1="270" y1="196" x2="270" y2="230" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#bpe22P)"/>
+    <text x="60" y="262" font-size="12" font-weight="bold" fill="#4c1d95">② 逐对合并</text>
+    <rect x="150" y="236" width="70" height="40" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="185" y="261" text-anchor="middle" font-size="13" fill="#4c1d95">我</text>
+    <rect x="240" y="236" width="70" height="40" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="275" y="261" text-anchor="middle" font-size="13" fill="#4c1d95">爱</text>
+    <rect x="330" y="236" width="70" height="40" rx="5" fill="#f5f3fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="365" y="261" text-anchor="middle" font-size="13" fill="#4c1d95">中</text>
+    <rect x="420" y="236" width="70" height="40" rx="5" fill="#f5f3fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="455" y="261" text-anchor="middle" font-size="13" fill="#4c1d95">国</text>
+    <polyline points="330,232 330,226 490,226 490,232" fill="none" stroke="#6d28d9" stroke-width="2"/>
+    <text x="410" y="218" text-anchor="middle" font-size="10" fill="#6d28d9">最优先的对：中 + 国（合并表第 1113 位，共 6108 条）</text>
+    <text x="292" y="300" font-size="11" fill="#64748b">其余各对在合并表中没有更优先的规则，停止合并</text>
+    <line x1="270" y1="276" x2="270" y2="310" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#bpe22P)"/>
+    <text x="60" y="342" font-size="12" font-weight="bold" fill="#4c1d95">③ 输出</text>
+    <rect x="150" y="316" width="70" height="40" rx="5" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="185" y="341" text-anchor="middle" font-size="13" fill="#333">我</text>
+    <rect x="240" y="316" width="70" height="40" rx="5" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="275" y="341" text-anchor="middle" font-size="13" fill="#333">爱</text>
+    <rect x="330" y="316" width="90" height="40" rx="5" fill="#6d28d9"/>
+    <text x="375" y="341" text-anchor="middle" font-size="13" font-weight="bold" fill="#ffffff">中国</text>
+    <text x="185" y="374" text-anchor="middle" font-size="11" fill="#6d28d9">ID = 463</text>
+    <text x="275" y="374" text-anchor="middle" font-size="11" fill="#6d28d9">ID = 2043</text>
+    <text x="375" y="374" text-anchor="middle" font-size="11" fill="#6d28d9">ID = 1405</text>
+    <line x1="270" y1="386" x2="270" y2="414" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#bpe22P)"/>
+    <text x="270" y="434" text-anchor="middle" font-size="11" fill="#64748b">这 3 个 ID 交给 Embedding 层查词向量（3.1 节）</text>
+  </svg>
+  <div class="diagram-caption">图示：BPE 分词的逐对合并流程（数字均为 minimind 分词器实测）。先把每个字拆成单字 token，再按合并表的优先级逐对合并：「中 + 国」是这里最优先的对（合并表第 1113 位，共 6108 条规则），合成一整块；没有更优先的对之后停止，输出 3 个 token 及其 ID。词表与合并表如何从语料统计出来，见 2.2.2 节的手工演算。</div>
+</div>
+
 <h2>2.2.1 起源：从数据压缩到神经机器翻译</h2>
 
 <p>　　BPE 的全称是 Byte Pair Encoding（字节对编码）。它本来是 1994 年 Philip Gage 发表在 C Users Journal 上的一种<strong>数据压缩算法</strong>，思路朴素：反复把数据里出现次数最多的相邻字节对替换成一个没用过的新字节，一份数据就能用更少的符号写下来。</p>

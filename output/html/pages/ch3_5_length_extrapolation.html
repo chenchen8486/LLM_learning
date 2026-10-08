@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>3.5 长度外推：从几千 token 到几十万</h1>
 <p class="subtitle">本页范围：第 3 章第 5 节　|　整理时间：2026-09-28</p>
 
@@ -26,6 +26,113 @@
 </ol>
 
 <p>　　读完全节，你应该能说清为什么“改刻度”和“拿长曲子集训”两步缺一不可。至此第 3 章收尾，第 4 章进入 Transformer 架构本体。</p>
+
+<p>　　逐节展开之前，先看一眼本节在链路中的位置：外推问题发生在位置编码这一站，链路本身和前几节完全一样，只是本节把目光移到这一站的边界上——输入长度超过训练见过的位置范围时会发生什么：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS35lengthextrapolation" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG35lengthextrapolation" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS35lengthextrapolation)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS35lengthextrapolation)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS35lengthextrapolation)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG35lengthextrapolation)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG35lengthextrapolation)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG35lengthextrapolation)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG35lengthextrapolation)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：长度外推问题在前向链路中的位置。链路本身不变：分词（第 2 章）→ Embedding（3.1 节）→ 位置编码（3.2–3.4 节）→ Transformer 层（第 4 章）→ 概率与采样（第 12 章），新 token 接回输入循环往复。本节仍站在位置编码这一站，只关心它的边界：序列长度一旦超过训练见过的范围，这一站怎么失灵、又怎么补救。</div>
+</div>
+
+<p>　　这个紫框在边界上放大之后长什么样？输入是多长的序列、输出的困惑度怎么变化？把「训练区间内外」单独画出来看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="le35" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="le35r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+      <marker id="le35t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <text x="60" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：位置编码与长度外推——训练区间内平稳，越过 L 困惑度起飞</text>
+    <text x="60" y="48" font-size="11" fill="#64748b">输入：长度 L′ 的 token ID 序列（L′×1）；输出：L′×6400 的逐位概率分布，用困惑度 PPL 评价</text>
+    <!-- 分区底色 -->
+    <rect x="90" y="70" width="300" height="270" fill="#ede9fe" opacity="0.45"/>
+    <rect x="390" y="70" width="270" height="270" fill="#fee2e2" opacity="0.45"/>
+    <text x="240" y="94" text-anchor="middle" font-size="11" fill="#4c1d95">训练见过的位置 0…L−1（内插）</text>
+    <text x="525" y="94" text-anchor="middle" font-size="11" fill="#dc2626">没见过的位置（外推）</text>
+    <!-- 坐标轴 -->
+    <line x1="90" y1="340" x2="90" y2="62" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#le35)"/>
+    <line x1="90" y1="340" x2="668" y2="340" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#le35)"/>
+    <text x="40" y="205" text-anchor="middle" font-size="11.5" fill="#666" transform="rotate(-90 40 205)">困惑度 PPL（越低越好）</text>
+    <!-- 训练长度分界线 -->
+    <line x1="390" y1="70" x2="390" y2="340" stroke="#dc2626" stroke-width="1.8" stroke-dasharray="6 4"/>
+    <text x="390" y="66" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#dc2626">L = 训练长度</text>
+    <!-- 直接外推曲线：区间内平稳，越过 L 垂直起飞 -->
+    <path d="M 90,306 C 210,302 330,299 390,295 C 425,290 452,272 468,238 C 484,204 500,156 514,110 L 522,88" fill="none" stroke="#dc2626" stroke-width="2.5" marker-end="url(#le35r)"/>
+    <text x="612" y="150" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">直接外推：</text>
+    <text x="612" y="166" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">PPL 垂直起飞</text>
+    <!-- 改刻度 + 续训曲线：区间外仍平稳 -->
+    <path d="M 90,306 C 210,302 330,299 390,295 C 470,290 570,283 644,276" fill="none" stroke="#0891b2" stroke-width="2.5" marker-end="url(#le35t)"/>
+    <text x="522" y="258" text-anchor="middle" font-size="11" font-weight="bold" fill="#0891b2">改刻度 + 长文档续训：仍平稳</text>
+    <!-- 横轴刻度 -->
+    <line x1="90" y1="340" x2="90" y2="346" stroke="#6d28d9" stroke-width="1.2"/>
+    <line x1="390" y1="340" x2="390" y2="346" stroke="#6d28d9" stroke-width="1.2"/>
+    <line x1="644" y1="340" x2="644" y2="346" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="90" y="362" text-anchor="middle" font-size="11" fill="#666">0</text>
+    <text x="390" y="362" text-anchor="middle" font-size="11" fill="#666">L</text>
+    <text x="644" y="362" text-anchor="middle" font-size="11" fill="#666">L′</text>
+    <text x="378" y="386" text-anchor="middle" font-size="11.5" fill="#666">横轴：输入序列覆盖的位置范围（序列长度）</text>
+    <text x="378" y="416" text-anchor="middle" font-size="11" fill="#64748b">本页示例：L = 8192 → L′ = 32768（s = 4，3.5.2 节）；minimind 的训练长度 L 为 340（预训练）/ 768（SFT），机制相同</text>
+  </svg>
+  <div class="diagram-caption">图示：长度外推示意。横轴是输入序列覆盖的位置范围，纵轴是困惑度（越低越好）。紫区是训练时见过的位置 0…L−1，曲线平稳；直接外推（红）一越过 L，旋转角度超出训练分布，困惑度几乎垂直起飞；先用 PI / NTK / YaRN 把位置刻度缩回训练区间、再用长文档配比上调的数据继续训练（青），长文上仍能保持平稳。minimind 的训练长度 L 为 340（预训练）/ 768（SFT）；3.5.2 节的示例为 L=8192 → L′=32768。</div>
+</div>
 
 <h2>3.5.1 外推问题：超出训练长度就翻车</h2>
 

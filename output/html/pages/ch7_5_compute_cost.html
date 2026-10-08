@@ -29,6 +29,128 @@
 
 <p>　　读完全节，你手里会多一把随身计算器：给一个模型规模、一份数据量、一批卡，三分钟估出训练要多少天、多少钱。</p>
 
+<p>　　四个问题展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及这个位置放大之后的内部结构。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS75computecost" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG75computecost" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS75computecost)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS75computecost)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG75computecost)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG75computecost)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG75computecost)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG75computecost)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG75computecost)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：训练工程在 LLM 生命周期中的位置。数据（第 1 章）与预训练目标（第 6 章）就位后，这一站把训练摊到集群上跑起来，随后交给中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章）。本节是这一站的收尾：把「多少天、多少钱」这笔账在开训之前算出来。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？6ND 这把尺子的刻度从哪来、代进真实数字算出多少？把它单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 500" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrNd75" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：C ≈ 6ND 的分解与代入</text>
+    <text x="24" y="50" font-size="10.5" fill="#64748b">输入：参数量 N、训练 token 数 D → 输出：总算力 C（FLOPs）；系数 6 = 前向 2 + 反向 4</text>
+    <!-- 三块拼图 -->
+    <rect x="40" y="66" width="190" height="58" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="135" y="90" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">前向传播</text>
+    <text x="135" y="110" text-anchor="middle" font-size="10.5" fill="#555">2N / token（每参数一次乘加）</text>
+    <text x="248" y="104" text-anchor="middle" font-size="16" font-weight="bold" fill="#6d28d9">+</text>
+    <rect x="270" y="66" width="190" height="58" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="365" y="90" text-anchor="middle" font-size="12" font-weight="bold" fill="#0891b2">反向 · 对激活求梯度</text>
+    <text x="365" y="110" text-anchor="middle" font-size="10.5" fill="#555">2N / token（误差传向上一层）</text>
+    <text x="478" y="104" text-anchor="middle" font-size="16" font-weight="bold" fill="#6d28d9">+</text>
+    <rect x="500" y="66" width="190" height="58" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="595" y="90" text-anchor="middle" font-size="12" font-weight="bold" fill="#0891b2">反向 · 对参数求梯度</text>
+    <text x="595" y="110" text-anchor="middle" font-size="10.5" fill="#555">2N / token（用来更新权重）</text>
+    <line x1="135" y1="124" x2="330" y2="148" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrNd75)"/>
+    <line x1="365" y1="124" x2="375" y2="148" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrNd75)"/>
+    <line x1="595" y1="124" x2="420" y2="148" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrNd75)"/>
+    <rect x="270" y="152" width="220" height="46" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="380" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6d28d9">每个 token 合计 ≈ 6N</text>
+    <line x1="380" y1="198" x2="380" y2="224" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrNd75)"/>
+    <text x="396" y="216" font-size="11" fill="#6d28d9">× D（训练 token 总数）</text>
+    <rect x="240" y="228" width="280" height="48" rx="8" fill="#6d28d9"/>
+    <text x="380" y="250" text-anchor="middle" font-size="13" font-weight="bold" fill="#ffffff">C ≈ 6ND</text>
+    <text x="380" y="268" text-anchor="middle" font-size="10.5" fill="#ede9fe">一次预训练的总算力（FLOPs）</text>
+    <!-- 代入区 -->
+    <text x="24" y="306" font-size="12" font-weight="bold" fill="#333">代入三组真实数字（正文 7.5.1 / 7.5.3）</text>
+    <rect x="40" y="316" width="270" height="42" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="175" y="333" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">GPT-3 175B（验证锚点）</text>
+    <text x="175" y="349" text-anchor="middle" font-size="10" fill="#555">N = 1.746×10¹¹ · D = 3×10¹¹</text>
+    <line x1="314" y1="337" x2="340" y2="337" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrNd75)"/>
+    <rect x="344" y="316" width="392" height="42" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="540" y="333" text-anchor="middle" font-size="11" fill="#333">C ≈ 3.14×10²³ FLOPs</text>
+    <text x="540" y="349" text-anchor="middle" font-size="10" fill="#555">与 GPT-3 论文附录的数字分毫不差</text>
+    <rect x="40" y="366" width="270" height="42" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="175" y="383" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">旗舰设想：100B × 2T tokens</text>
+    <text x="175" y="399" text-anchor="middle" font-size="10" fill="#555">N = 10¹¹ · D = 2×10¹²</text>
+    <line x1="314" y1="387" x2="340" y2="387" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrNd75)"/>
+    <rect x="344" y="366" width="392" height="42" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="540" y="383" text-anchor="middle" font-size="11" fill="#333">C = 1.2×10²⁴ FLOPs</text>
+    <text x="540" y="399" text-anchor="middle" font-size="10" fill="#555">1024 卡 H100 @ MFU 40% ≈ 34 天 · 84 万卡时 · 170万~340万美元</text>
+    <rect x="40" y="416" width="270" height="42" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="175" y="433" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">minimind 64M</text>
+    <text x="175" y="449" text-anchor="middle" font-size="10" fill="#555">N = 6.4×10⁷ · D ≈ 2.5×10⁸（体积粗估，待查证）</text>
+    <line x1="314" y1="437" x2="340" y2="437" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrNd75)"/>
+    <rect x="344" y="416" width="392" height="42" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="540" y="433" text-anchor="middle" font-size="11" fill="#333">C ≈ 10¹⁷ FLOPs</text>
+    <text x="540" y="449" text-anchor="middle" font-size="10" fill="#555">单卡 RTX 3090 实测 1.21 小时 → 隐含 MFU ≈ 31%</text>
+    <text x="380" y="484" text-anchor="middle" font-size="10.5" fill="#888">被忽略的一阶修正：注意力二次项（约 s/6h）、logits 投影、激活重计算（计入 HFU 口径）——见 7.5.1</text>
+  </svg>
+  <div class="diagram-caption">图示：6ND 法则的分解与代入。每个 token 前向花 2N（线性层每参数一次乘加），反向对激活、对参数各再花 2N，合计 6N，乘训练 token 总数 D 就是总算力。三组代入全部来自正文：GPT-3 是验证锚点，100B × 2T 是旗舰账单，minimind 是小模型对照（其 D 为体积粗估，沿用待查证标注）。</div>
+</div>
+
 <h2>7.5.1 FLOPs 推导：一次前向要多少计算</h2>
 
 <p>　　拆 6ND 之前，先回到最基础的算术：一次矩阵乘法要做多少次运算。设 \(C = AB\)，其中 \(A\) 是 \(m \times k\) 矩阵，\(B\) 是 \(k \times n\) 矩阵。结果 \(C\) 有 \(m \times n\) 个元素，每个元素是长度为 \(k\) 的点积：\(k\) 次乘法加 \(k-1\) 次加法，约 \(2k\) 次运算。于是：</p>

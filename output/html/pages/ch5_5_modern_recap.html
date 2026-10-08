@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>5.5 现代 LLM 架构总账：2017 到今天改了什么</h1>
 <p class="subtitle">本页范围：第 5 章第 5 节　|　整理时间：2026-09-29</p>
 
@@ -28,6 +28,130 @@
 </ol>
 
 <p>　　读完本节，「模型长什么样」这条线就完整了：你应该能给任意一个现代开源模型开出一张零件清单，说清每样零件的来历，也知道骨架为什么不动。</p>
+
+<p>　　按「先看全景、再算总账、装回图纸、最后叩问不变的部分」展开之前，先看一眼本章内容在整条链路中的位置。第 4 章搭好了 Transformer 块的骨架，本章四节都是对块内部的改造，本节是收官，要把换好的零件装回图纸。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS55modernrecap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG55modernrecap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.2–3.5 节）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS55modernrecap)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS55modernrecap)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS55modernrecap)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS55modernrecap)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG55modernrecap)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG55modernrecap)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG55modernrecap)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）切成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，再经输出投影算出各 token 的概率（第 4 章），采样出下一个 token（第 12 章）并接回输入循环。第 5 章是对这个紫框内部的改造：本节收官，把前四节换上的新零件装回块的图纸，盘点七年改了什么、什么没动。</div>
+</div>
+
+<p>　　这个紫框换上全部新零件之后长什么样？每个零件来自哪一节、minimind 把它们配成了什么规格？把现代块的全家福摆出来看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 800 474" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrR55" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：现代 Transformer 块全家福——每个零件来自哪一节，minimind 配成什么规格</text>
+    <!-- 输入 -->
+    <rect x="300" y="44" width="200" height="38" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="400" y="68" text-anchor="middle" font-size="12" fill="#333">输入：n 个 token × 768 维</text>
+    <line x1="400" y1="82" x2="400" y2="98" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrR55)"/>
+    <!-- 中央块框 -->
+    <rect x="250" y="102" width="300" height="240" rx="12" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.8" stroke-dasharray="6 4"/>
+    <text x="400" y="128" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">现代 Transformer 块（×8 层）</text>
+    <text x="400" y="147" text-anchor="middle" font-size="11" fill="#555">骨架不动：两个子层 ＋ 两条残差</text>
+    <rect x="290" y="160" width="220" height="54" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="400" y="182" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">注意力子层（Pre-LN）</text>
+    <text x="400" y="200" text-anchor="middle" font-size="10.5" fill="#555">归一化 → 注意力 → 加残差</text>
+    <rect x="290" y="228" width="220" height="54" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="400" y="250" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">前馈子层（Pre-LN）</text>
+    <text x="400" y="268" text-anchor="middle" font-size="10.5" fill="#555">归一化 → 前馈 → 加残差</text>
+    <text x="400" y="306" text-anchor="middle" font-size="11" fill="#0891b2">残差主干恒等直通（5.1.2）</text>
+    <text x="400" y="328" text-anchor="middle" font-size="10.5" fill="#888">每个零件的完整讲解见对应小节</text>
+    <!-- 输出 -->
+    <line x1="400" y1="342" x2="400" y2="358" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrR55)"/>
+    <rect x="300" y="362" width="200" height="38" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="400" y="386" text-anchor="middle" font-size="12" fill="#155e75">输出：n × 768，形状不变</text>
+    <!-- 组件卡 A：RMSNorm -->
+    <rect x="20" y="100" width="205" height="98" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="122" y="124" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">RMSNorm（5.1 节）</text>
+    <text x="122" y="144" text-anchor="middle" font-size="10.5" fill="#555">只缩放不对中，少一步统计</text>
+    <text x="122" y="162" text-anchor="middle" font-size="10.5" fill="#555">Pre-LN：挪到子层输入侧</text>
+    <text x="122" y="180" text-anchor="middle" font-size="10.5" fill="#888">minimind：每层 2 处</text>
+    <line x1="225" y1="160" x2="286" y2="180" stroke="#9ca3af" stroke-width="1.2"/>
+    <!-- 组件卡 B：GQA / MLA -->
+    <rect x="20" y="230" width="205" height="100" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="122" y="254" text-anchor="middle" font-size="12" font-weight="bold" fill="#155e75">GQA（5.2）／MLA（5.3）</text>
+    <text x="122" y="274" text-anchor="middle" font-size="10.5" fill="#555">注意力子层的缓存改造</text>
+    <text x="122" y="292" text-anchor="middle" font-size="10.5" fill="#555">GQA：8 查询头配 4 KV 头</text>
+    <text x="122" y="310" text-anchor="middle" font-size="10.5" fill="#555">MLA：只存 576 个数隐向量</text>
+    <line x1="225" y1="270" x2="286" y2="196" stroke="#9ca3af" stroke-width="1.2"/>
+    <!-- 组件卡 C：RoPE -->
+    <rect x="575" y="100" width="205" height="98" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="677" y="124" text-anchor="middle" font-size="12" font-weight="bold" fill="#155e75">RoPE（3.4 节）</text>
+    <text x="677" y="144" text-anchor="middle" font-size="10.5" fill="#555">位置信息旋转进 Q、K</text>
+    <text x="677" y="162" text-anchor="middle" font-size="10.5" fill="#555">基频可调，撑长上下文</text>
+    <text x="677" y="180" text-anchor="middle" font-size="10.5" fill="#888">（3.5 节与第 8 章展开）</text>
+    <line x1="575" y1="160" x2="514" y2="180" stroke="#9ca3af" stroke-width="1.2"/>
+    <!-- 组件卡 D：SwiGLU / MoE -->
+    <rect x="575" y="230" width="205" height="100" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="677" y="254" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">SwiGLU（5.1）／MoE（5.4）</text>
+    <text x="677" y="274" text-anchor="middle" font-size="10.5" fill="#555">前馈子层的两处升级</text>
+    <text x="677" y="292" text-anchor="middle" font-size="10.5" fill="#555">SwiGLU：768→2432→768 门控</text>
+    <text x="677" y="310" text-anchor="middle" font-size="10.5" fill="#555">MoE：4 个专家只激活 1 个</text>
+    <line x1="575" y1="270" x2="514" y2="258" stroke="#9ca3af" stroke-width="1.2"/>
+    <!-- minimind 配置汇总 -->
+    <rect x="20" y="416" width="760" height="46" rx="10" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="400" y="435" text-anchor="middle" font-size="11" fill="#4c1d95">minimind 默认配置汇总：hidden 768 · 8 层 · 词表 6400（与输出投影共享权重）· 8 查询头 / 4 KV 头 · 每头 96 维</text>
+    <text x="400" y="453" text-anchor="middle" font-size="11" fill="#4c1d95">FFN 中间维 2432 · 可选 MoE 4 选 1（辅助损失系数 5e-4）· 全量参数约 63.9M</text>
+  </svg>
+  <div class="diagram-caption">图示：现代 Transformer 块的零件全家福。块骨架与第 4 章一致（两个子层加两条残差，输入输出都是 n×768），换掉的是零件：归一化用 RMSNorm 并挪到 Pre-LN 位置（5.1），注意力配 GQA 或 MLA 压缩缓存（5.2、5.3），位置信息由 RoPE 注入（3.4），前馈换 SwiGLU 门控、可选 MoE 稀疏激活（5.1、5.4）。底部是 minimind 的默认配置汇总，各数字与正文及 minimind 源码一致。</div>
+</div>
 
 <h2>5.5.1 七年演化一图速览</h2>
 

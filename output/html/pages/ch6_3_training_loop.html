@@ -30,6 +30,118 @@
 
 <p>　　本节涉及的代码都在 minimind 工程的 <code>trainer/train_pretrain.py</code> 里，读完后建议对照源码把七步循环走一遍。</p>
 
+<p>　　逐行走查之前，先看一眼预训练在 LLM 整条生命周期中的位置，以及这一站落到代码里的样子。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS63trainingloop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG63trainingloop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS63trainingloop)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：预训练在 LLM 生命周期中的位置。训练数据（第 1 章）备好后进入预训练（本章，紫框）：在海量语料上做自监督学习，把文本规律压进参数；配套的并行、精度与稳定性工程在第 7 章，之后的中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）、推理与部署（第 12–13 章）在对应章节展开。本节只需记住：目标与优化器定了之后，预训练落到代码里就是一段几十行的训练循环，七步一个来回。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？一个 batch 从进来到参数更新，中间要走哪几步？把训练循环单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 470" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr63z" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="30" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：训练循环——一个 batch 的七步环形之旅</text>
+    <text x="30" y="50" font-size="11" fill="#64748b">对应 minimind train_pretrain.py 第 26–47 行；每步先用 get_lr 重算学习率（cosine，5×10⁻⁴ 降到 10%）</text>
+    <!-- 环形箭头（顺时针） -->
+    <line x1="435" y1="131.7" x2="480.5" y2="144.8" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="566.5" y1="195.5" x2="592.7" y2="264.4" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="565.1" y1="322.4" x2="507.1" y2="366.1" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="393.5" y1="395.1" x2="326.5" y2="395.1" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="212.9" y1="366.1" x2="154.9" y2="322.4" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="127.3" y1="264.4" x2="153.5" y2="195.5" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="239.5" y1="144.8" x2="285" y2="131.7" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <!-- 中心说明 -->
+    <text x="360" y="240" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">梯度累积：攒满 8 个小 batch</text>
+    <text x="360" y="260" text-anchor="middle" font-size="11" fill="#555">才执行一次 ⑤⑥ 更新</text>
+    <text x="360" y="279" text-anchor="middle" font-size="10.5" fill="#64748b">有效批量 32 × 8 = 256 条</text>
+    <!-- 七个节点 -->
+    <rect x="285" y="84" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="360" y="107" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">① 取 batch</text>
+    <text x="360" y="125" text-anchor="middle" font-size="10.5" fill="#555">input_ids：32 × 340</text>
+    <rect x="480.5" y="140.5" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="555.5" y="163.5" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">② forward 前向</text>
+    <text x="555.5" y="181.5" text-anchor="middle" font-size="10.5" fill="#555">logits 32×340×6400</text>
+    <rect x="528.7" y="267.4" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="603.7" y="290.4" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">③ 算损失</text>
+    <text x="603.7" y="308.4" text-anchor="middle" font-size="10.5" fill="#555">交叉熵 → 标量 loss</text>
+    <rect x="393.5" y="369.1" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="468.5" y="392.1" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">④ backward</text>
+    <text x="468.5" y="410.1" text-anchor="middle" font-size="10.5" fill="#555">梯度反传回全部参数</text>
+    <rect x="176.5" y="369.1" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="251.5" y="392.1" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">⑤ 梯度裁剪</text>
+    <text x="251.5" y="410.1" text-anchor="middle" font-size="10.5" fill="#555">全局范数裁到 1.0</text>
+    <rect x="41.3" y="267.4" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="116.3" y="290.4" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">⑥ 优化器 step</text>
+    <text x="116.3" y="308.4" text-anchor="middle" font-size="10.5" fill="#555">AdamW 更新 → zero_grad</text>
+    <rect x="89.5" y="140.5" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="164.5" y="163.5" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">⑦ 日志与 checkpoint</text>
+    <text x="164.5" y="181.5" text-anchor="middle" font-size="10" fill="#555">每 100 步日志 / 1000 步存盘</text>
+    <!-- 底部说明 -->
+    <text x="360" y="450" text-anchor="middle" font-size="11" fill="#64748b">一圈又一圈直到数据跑完；⑦ 的 checkpoint 是训练中断后唯一能接着跑的存档点</text>
+  </svg>
+  <div class="diagram-caption">图示：一个 batch 在训练循环里的七步环形路径。输入一批 32 × 340 的 token ID，前向得到 32 × 340 × 6400 的 logits，与右移一位的 labels 算交叉熵得到标量 loss，反向传播后裁剪梯度范数到 1.0，再由 AdamW 更新参数并清零梯度；日志与 checkpoint 周期性执行。梯度累积让 ⑤⑥ 每攒满 8 个小 batch 才做一次，有效批量 256 条。</div>
+</div>
+
 <h2>6.3.1 训练循环七步：从取数据到存盘</h2>
 
 <p>　　先给一个整体直觉。训练循环很像学生刷题：每轮拿一批题（取 batch），自己先做一遍（forward），对照答案算错得有多离谱（算损失），复盘错因、总结到笔记本上（backward 与优化器 step），每刷完一批就歇口气，记一笔进度、阶段性存档（日志与 checkpoint）。区别是学生靠脑子记，模型靠梯度更新参数。minimind 的 <code>trainer/train_pretrain.py</code> 里，<code>train_epoch</code> 函数（第 24 行起）就是这条流水线，核心循环只有二十来行：</p>

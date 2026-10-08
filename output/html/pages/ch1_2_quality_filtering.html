@@ -27,6 +27,105 @@
 
 <p>　　读完本节，你应该能讲清一条网页文本要闯过哪几道筛子才能成为训练语料，以及每道筛子问的问题有何不同。过滤管的是“质”，语料还有“量上的重复”问题，那是下一节去重的主题。</p>
 
+<p>　　逐道拆筛子之前，先看一眼质量过滤在整条 LLM 生命周期中的位置，以及这道工序放大之后的漏斗结构。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS12qualityfiltering" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG12qualityfiltering" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#6b7280">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG12qualityfiltering)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG12qualityfiltering)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG12qualityfiltering)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG12qualityfiltering)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG12qualityfiltering)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG12qualityfiltering)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG12qualityfiltering)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">紫底框：本节主角</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：训练数据在 LLM 生命周期中的位置。数据备好（本章）之后进入预训练（第 6 章），再经训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章），最后走向推理与部署（第 12–13 章）。虚线部分在对应章节展开，本节只需记住：数据是这条链路的第一站，本节的站位是其中的过滤工序，只回答「怎么把坏文本筛出去」。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？它的输入和输出各是什么？把过滤这道工序单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrZ12" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：质量过滤漏斗——逐级收窄，判断递深</text>
+    <text x="24" y="52" font-size="11" fill="#64748b">输入：Common Crawl 原始网页快照（每月数十亿页、原始数据 PB 级）</text>
+    <rect x="50" y="66" width="620" height="52" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="360" y="88" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">① 原始网页爬取</text>
+    <text x="360" y="108" text-anchor="middle" font-size="11" fill="#666">广告、模板碎片、乱码与机器垃圾混杂</text>
+    <line x1="360" y1="118" x2="360" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ12)"/>
+    <text x="336" y="140" text-anchor="end" font-size="10.5" fill="#dc2626">淘汰碎片行、脏词页、占位假文、代码页、短页</text>
+    <text x="384" y="140" font-size="10.5" fill="#888">启发式规则：C4 七把筛子，几乎零成本</text>
+    <rect x="130" y="152" width="460" height="52" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="360" y="174" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">② 规则幸存的文本</text>
+    <text x="360" y="194" text-anchor="middle" font-size="11" fill="#666">表面干净了，但规则看不懂内容</text>
+    <line x1="360" y1="204" x2="360" y2="234" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ12)"/>
+    <text x="336" y="226" text-anchor="end" font-size="10.5" fill="#dc2626">淘汰乱码、病句、机翻腔与水稿</text>
+    <text x="384" y="226" font-size="10.5" fill="#888">模型打分：KenLM 困惑度 / 蒸馏分类器</text>
+    <rect x="200" y="238" width="320" height="52" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="360" y="260" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">③ 高分文本</text>
+    <text x="360" y="280" text-anchor="middle" font-size="11" fill="#666">文风正、有教育价值</text>
+    <line x1="360" y1="290" x2="360" y2="320" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ12)"/>
+    <text x="336" y="312" text-anchor="end" font-size="10.5" fill="#dc2626">15T token 中只留下 1.3T</text>
+    <text x="384" y="312" font-size="10.5" fill="#888">FineWeb-Edu 口径：只留 3 分以上</text>
+    <rect x="260" y="324" width="200" height="52" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="360" y="346" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">④ 精选语料</text>
+    <text x="360" y="366" text-anchor="middle" font-size="11" fill="#ede9fe">FineWeb-Edu 1.3T token</text>
+    <text x="360" y="402" text-anchor="middle" font-size="11" fill="#64748b">输出：可直接进入去重工序的高质量文本（1.3 节）</text>
+    <text x="360" y="426" text-anchor="middle" font-size="10.5" fill="#888">三代筛子叠加：规则问「像不像垃圾」，困惑度问「像不像维基」，分类器问「值不值得学」</text>
+  </svg>
+  <div class="diagram-caption">图示：质量过滤漏斗。原始网页先过启发式规则（C4 七把筛子，成本几乎为零），再过模型打分（KenLM 困惑度量文风、蒸馏分类器量教育价值），逐级收窄。以 FineWeb-Edu 为例，15 万亿 token 中只留 3 分以上的 1.3 万亿。三代筛子叠加使用：规则问「像不像垃圾」，困惑度问「像不像维基」，分类器问「值不值得学」。</div>
+</div>
+
 <h2>1.2.1 垃圾进，垃圾出：过滤为什么是第一要务</h2>
 
 <p>　　机器学习有句老话：<strong>Garbage In, Garbage Out</strong>（垃圾进，垃圾出，简称 GIGO）。语言模型不会分辨教材的好坏，喂给它什么，它就学什么。这句朴素的话，就是整个数据工程的出发点。</p>
