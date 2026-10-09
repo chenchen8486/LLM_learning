@@ -1,0 +1,337 @@
+<article class="content">
+<h1>12.3 停止条件与流式输出</h1>
+<p class="subtitle">本页范围：第 12 章第 3 节　|　整理时间：2026-10-09</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>12.1 与 12.2 解决了「每步怎么算、候选怎么挑」，但生成循环什么时候停？模型没有「说完」的本能，它只会永远计算下一个 token；而等整段写完再交给用户，又慢得让人难受。</td></tr>
+      <tr><td>本节主张</td><td>停止靠三道刹车配合：EOS 是训练出来的主动停止信号，max_new_tokens 是生成循环的硬上限，stop 序列是 API 层架在模型外的剪刀；流式输出把交付从「攒齐再给」改成「逐 token 推送」，用户的等待被压缩成首 token 延迟。</td></tr>
+      <tr><td>一句话结论</td><td>会停是训练出来的行为，停不住有工程护栏兜底，边算边送改写的是交付节奏；读 finish_reason 才知道这一次停得圆不圆满。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>EOS</span><span>max_new_tokens</span><span>stop 序列</span><span>finish_reason</span><span>TextStreamer</span><span>SSE</span><span>首 token 延迟</span><span>finished 掩码</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　12.1 节把一步解码拆成了四个环节，12.2 节解决了「每步从候选里挑哪个」。但还有一个更根本的问题没碰：这个循环什么时候收工？模型的世界里没有「说完」的概念，给定上文算出下一个 token，是它唯一会做的事，不给刹车它能永远算下去。本节补齐解码机制的最后一块拼图：停止信号从哪来、模型不肯停时靠什么兜底、以及生成结果怎样不攒齐就先送到用户眼前。</p>
+
+<p>　　本节按「信号 → 刹车 → 推送 → 实现」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>EOS：模型怎么学会「说完就停」</strong>（12.3.1）：一个词表里普通又不普通的 token，它的意义全靠训练数据喂出来；</li>
+  <li><strong>max_tokens 与 stop 序列：三道刹车</strong>（12.3.2）：模型内、循环层、API 层各守一道，finish_reason 分辨三种结局；</li>
+  <li><strong>流式输出：逐 token 推送的工程意义</strong>（12.3.3）：首 token 延迟为什么成为体验的关键指标，SSE 怎样把字一个个送出去；</li>
+  <li><strong>minimind 的停止逻辑：finished 掩码</strong>（12.3.4）：批量推理中先停的序列如何「陪着走、不添乱」。</li>
+</ol>
+
+<p>　　读完本节，应该能说清三道刹车各守哪一层、「stop」与「length」两种 finish_reason 差在哪、流式输出把用户的等待从什么压缩成了什么，并能从 minimind 的 finished 掩码里读出批量推理的第一个对齐难题。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置：推理与部署是整条链路的终点站，训练了十一章的模型在这里真正面对用户。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS123stopping" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG123stopping" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS123stopping)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS123stopping)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS123stopping)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS123stopping)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS123stopping)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS123stopping)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS123stopping)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）与推理训练（第 11 章），交出会对话、懂分寸、会推理的模型；推理与部署（本章与第 13 章）是终点站，把「会打分的模型」变成送到用户眼前的文字。本节讲终点站里的停止与推送：生成循环何时刹车（12.3.1、12.3.2、12.3.4），回答怎样边生成边送达（12.3.3）。</div>
+</div>
+
+<p>　　把「推理与部署」这个紫框放大到一次请求的粒度：从请求发出到回答落定，每个 token 何时产出、何时推送，循环又在哪一步画上句号？画成一条时间线看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 610" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrT123a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrT123g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/>
+      </marker>
+      <marker id="arrT123y" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#d97706"/>
+      </marker>
+      <marker id="arrT123r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <text x="24" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：一次生成请求的时间线——首 token 延迟、逐 token 推送与三种结局（数字为 minimind 默认配置）</text>
+    <!-- TTFT 双向箭头与标注 -->
+    <line x1="70" y1="146" x2="218" y2="146" stroke="#6d28d9" stroke-width="1.5" marker-start="url(#arrT123a)" marker-end="url(#arrT123a)"/>
+    <text x="144" y="134" text-anchor="middle" font-size="10.5" fill="#555555">首 token 延迟：prompt 整体先过一遍模型</text>
+    <!-- 起点竖标 -->
+    <line x1="70" y1="160" x2="70" y2="224" stroke="#6d28d9" stroke-width="2"/>
+    <text x="70" y="244" text-anchor="middle" font-size="10.5" fill="#555555">请求发出</text>
+    <text x="70" y="258" text-anchor="middle" font-size="10" fill="#888888">prompt 的 N 个 token</text>
+    <!-- token 格 -->
+    <rect x="220" y="158" width="40" height="40" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="240" y="183" text-anchor="middle" font-size="11" fill="#4c1d95">t₁</text>
+    <rect x="272" y="158" width="40" height="40" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="292" y="183" text-anchor="middle" font-size="11" fill="#4c1d95">t₂</text>
+    <rect x="324" y="158" width="40" height="40" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="344" y="183" text-anchor="middle" font-size="11" fill="#4c1d95">t₃</text>
+    <rect x="376" y="158" width="40" height="40" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="396" y="183" text-anchor="middle" font-size="11" fill="#4c1d95">t₄</text>
+    <rect x="428" y="158" width="40" height="40" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="448" y="183" text-anchor="middle" font-size="11" fill="#4c1d95">t₅</text>
+    <rect x="480" y="158" width="40" height="40" rx="4" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+    <text x="500" y="183" text-anchor="middle" font-size="11" font-weight="bold" fill="#15803d">eos</text>
+    <rect x="532" y="158" width="40" height="40" rx="4" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <rect x="584" y="158" width="40" height="40" rx="4" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="558" y="146" text-anchor="middle" font-size="10" fill="#9ca3af">若不停，本该继续</text>
+    <text x="648" y="186" text-anchor="middle" font-size="14" fill="#9ca3af">…</text>
+    <!-- 时间轴主线 -->
+    <line x1="60" y1="200" x2="920" y2="200" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#arrT123a)"/>
+    <!-- 硬刹车红线 -->
+    <line x1="830" y1="128" x2="830" y2="232" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="830" y="110" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#dc2626">第 8192 个 token：硬上限</text>
+    <text x="830" y="124" text-anchor="middle" font-size="10" fill="#dc2626">max_new_tokens 默认 8192</text>
+    <!-- 推送注释框 -->
+    <rect x="560" y="246" width="250" height="50" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <text x="685" y="266" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#92400e">注释：边生成边推送</text>
+    <text x="685" y="284" text-anchor="middle" font-size="10" fill="#92400e">每个 token 产出即 streamer.put（287 行）</text>
+    <line x1="685" y1="246" x2="685" y2="204" stroke="#d97706" stroke-width="1.2" stroke-dasharray="3 3"/>
+    <!-- 结局引导线 -->
+    <polyline points="344,198 344,310 180,310 180,332" fill="none" stroke="#d97706" stroke-width="2" marker-end="url(#arrT123y)"/>
+    <line x1="500" y1="198" x2="500" y2="332" stroke="#16a34a" stroke-width="2" marker-end="url(#arrT123g)"/>
+    <line x1="830" y1="240" x2="830" y2="332" stroke="#dc2626" stroke-width="2" marker-end="url(#arrT123r)"/>
+    <!-- 结局②：stop 序列 -->
+    <rect x="40" y="340" width="280" height="150" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="180" y="366" text-anchor="middle" font-size="12" font-weight="bold" fill="#92400e">结局② 撞 stop 序列：模型外的剪刀</text>
+    <text x="180" y="388" text-anchor="middle" font-size="10.5" fill="#78350f">已生成文本撞上预设字符串即被截断</text>
+    <text x="180" y="406" text-anchor="middle" font-size="10.5" fill="#78350f">返回文本不含 stop 序列本身</text>
+    <text x="180" y="424" text-anchor="middle" font-size="10.5" fill="#78350f">上限各家自定：OpenAI 4 个、DeepSeek 16 个</text>
+    <text x="180" y="442" text-anchor="middle" font-size="10.5" fill="#78350f">模型全程不知情</text>
+    <text x="180" y="466" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#92400e">finish_reason =「stop」</text>
+    <!-- 结局①：eos -->
+    <rect x="340" y="340" width="280" height="150" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="480" y="366" text-anchor="middle" font-size="12" font-weight="bold" fill="#15803d">结局① 产出 eos：主动停，唯一圆满</text>
+    <text x="480" y="388" text-anchor="middle" font-size="10.5" fill="#166534">采样出 eos（id = 2，即 &lt;|im_end|&gt;）</text>
+    <text x="480" y="406" text-anchor="middle" font-size="10.5" fill="#166534">finished 置真 → 循环 break（289-290 行）</text>
+    <text x="480" y="424" text-anchor="middle" font-size="10.5" fill="#166534">decode 时被剥掉，不进最终文本</text>
+    <text x="480" y="466" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#15803d">finish_reason =「stop」：回答完整</text>
+    <!-- 结局③：撞上限 -->
+    <rect x="640" y="340" width="280" height="150" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="780" y="366" text-anchor="middle" font-size="12" font-weight="bold" fill="#b91c1c">结局③ 写满上限：硬刹车</text>
+    <text x="780" y="388" text-anchor="middle" font-size="10.5" fill="#991b1b">循环耗尽 max_new_tokens = 8192</text>
+    <text x="780" y="406" text-anchor="middle" font-size="10.5" fill="#991b1b">没有 eos，句子被砍在半截</text>
+    <text x="780" y="424" text-anchor="middle" font-size="10.5" fill="#991b1b">结构化输出场景尤其致命（12.4 伏笔）</text>
+    <text x="780" y="466" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#b91c1c">finish_reason =「length」</text>
+    <!-- 底部批量注释条 -->
+    <rect x="40" y="520" width="880" height="66" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="56" y="542" font-size="11.5" font-weight="bold" fill="#4c1d95">批量推理的对齐：先停的不能先走</text>
+    <text x="56" y="562" font-size="10.5" fill="#555555">finished 掩码把已停序列后续每步强制补 eos 占位（284 行），保持 batch 形状整齐；全部停下才整体 break（289-290 行）。</text>
+    <text x="56" y="580" font-size="10.5" fill="#555555">占位的 eos 在 decode 时被 skip_special_tokens 剥掉，不进最终回答（eval_llm.py:88）。</text>
+  </svg>
+  <div class="diagram-caption">图示：一次生成请求的完整时间线（数字为 minimind 默认配置）。请求发出后先经历首 token 延迟（prompt 整体过一遍模型），随后逐 token 推进、边产出边推送；三种结局里只有一种是圆满：结局①采样出 eos（id = 2）主动收工；结局②已生成文本撞上 stop 序列，被服务层在模型外截断；结局③写满 8192 步上限被硬刹车，回答是半截句子。底部是批量推理的对齐技巧：finished 掩码让先停的序列补 eos 占位，全部停下循环才收工。12.3.1 到 12.3.4 逐块讲清这张图。</div>
+</div>
+
+<h2>12.3.1 EOS：模型怎么学会「说完就停」</h2>
+
+<p>　　人类说话有句号，文章末尾有「全文完」，这些符号告诉读者到此为止。模型的世界里没有这套礼仪，它只会做一件事：给定上文，算出下一个 token。所谓「停止」，就是模型在某个位置上选中了词表里的一个特殊 token——EOS。它和普通 token 一样占一个词表位置、一样被 softmax 打分，唯一的特殊之处是人类给它约定了含义：一段文本到此结束。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">结束符 EOS</span>
+    <span class="term-en">End of Sequence = 序列结束；词表里的特殊 token，不对应任何可见文字</span>
+  </div>
+  <div class="term-body">
+    <p>EOS 是第 2 章讲过的特殊 token 家族成员：它在词表中占一个位置，本身不渲染成任何文字，唯一职责是充当「说完」的信号。minimind 的词表里它叫 &lt;|im_end|&gt;，token ID 是 2（tokenizer_config.json 的 eos_token 字段与 added_tokens_decoder 均可查）；推理时每生成一个 token，生成循环就检查它是不是 EOS，是就刹车。训练与推理两侧靠同一个 ID 对齐：minimind 的 generate 默认 eos_token_id=2（model_minimind.py:262），eval_llm.py 则把 tokenizer.eos_token_id 直接传进去（85 行）。</p>
+    <div class="term-analogy">像电报末尾的「全文完」、书信结尾的「此致敬礼」：它不是正文内容，是一个约定的收工暗号，读到的人知道后面没有了。</div>
+  </div>
+</div>
+
+<p>　　EOS 不是模型天生会给的，是训练刻进分布里的。预训练语料每条文档的末尾、SFT 数据每轮对话的回答末尾，都拼着这个 token——minimind 的 chat template 里，每条消息以 &lt;|im_end|&gt; 加换行收尾（tokenizer_config.json 的 chat_template 字段，模板格式见第 2 章）。交叉熵训练逐位置监督（第 6 章），几千万条样本看下来，「意思讲完 → EOS 概率飙升」就成了分布形状的一部分。所以推理时模型说完一段话会「主动」产出 EOS，这不是规则判断，是它学来的语言习惯。</p>
+
+<p>　　反过来，一个模型停不下来，多半是两个原因之一。一是没训好：SFT 数据没有严格带 EOS，或者训练不足，EOS 的概率始终抬不到被采样出来的程度。二是输入分布外：prompt 与训练分布差得太远，模型对「该不该收尾」失去了把握。这时它会一路写下去，直到撞上 12.3.2 的硬上限。解码阶段的这类失控是真实存在、被系统研究过的问题：Holtzman 等人 2019 年发现，以 likelihood 为解码目标产生的文本「干瘪且奇怪地重复」，与人类文本的分布差异明显（arXiv:1904.09751）——12.2 节的 nucleus sampling 正是针对这类退化的对策，12.5 节会统一收账。</p>
+
+<p>　　还有一个容易困惑的细节：EOS 被采样出来之后，最终展示的回答里并没有它。原因在解码回文本的那一步：eval_llm.py 用 skip_special_tokens=True 把特殊 token 从显示文本里剥掉（88 行）。所以「模型生成的 token 流」与「用户看到的文字」并不完全等同，EOS 就属于前者里有、后者里看不见的部分。这个不对称在 12.3.4 还会派上用场。</p>
+
+<h2>12.3.2 max_tokens 与 stop 序列：三道刹车</h2>
+
+<p>　　一次生成有三套互相独立的停止机制，各守一层。把它们摆在一起看：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>刹车</th><th>守在哪一层</th><th>触发条件</th><th>谁做的决定</th><th>finish_reason</th><th>类比</th></tr></thead>
+    <tbody>
+      <tr><td>EOS</td><td>模型内部</td><td>采样产出 EOS token</td><td>模型自己</td><td>stop</td><td>说话人自己说完了</td></tr>
+      <tr><td>max_new_tokens</td><td>生成循环</td><td>步数计满上限</td><td>调用方设的硬顶</td><td>length</td><td>截稿字数，写满即停笔</td></tr>
+      <tr><td>stop 序列</td><td>API 服务层</td><td>已生成文本撞上预设字符串</td><td>服务层在模型外拦截</td><td>stop</td><td>导播手里的剪刀</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　先看第二道。max_new_tokens 是生成循环的次数上限：minimind 的 generate 把它默认设为 8192（model_minimind.py:262），循环体就是一句 <code>for _ in range(max_new_tokens)</code>（268 行），计满即退。这里有个常见误解必须拆开：<strong>上限不等于能力</strong>。eval_llm.py 的命令行参数注释特意提醒「最大生成长度（注意：并非模型实际长文本能力）」（42 行）——8192 只是「最多转这么多圈」的保险丝，模型能可靠驾驭的长度由训练时的序列长度决定（minimind 的 SFT 序列长度只有 768，位置编码与长度外推见第 3 章）。把上限调到 8192，得到的往往是后半段胡言乱语，而不是更长的靠谱回答。</p>
+
+<div class="highlight-box danger">
+  撞上 max_new_tokens 的回答是半截句子：循环耗尽时没有 EOS，句子在半路被砍断。API 用 finish_reason =「length」标记这种结局，DeepSeek 官方文档明确提醒此时返回内容可能被部分截断。日常聊天里半句话只是难看，结构化输出里半个 JSON 会让解析器直接报错、全盘崩掉——这正是 12.4 节要解决的痛点。调用方务必检查 finish_reason，把「length」当异常处理（加大上限重试或走降级），不能当正常结果交付。
+</div>
+
+<p>　　第三道刹车 stop 序列完全长在模型外面。调用方在请求里附上几个字符串（比如「观察者：」「###」），服务层在生成过程中实时检查已产出文本的尾部，撞上即截断返回。三个关键事实值得记住：</p>
+
+<ul>
+  <li><strong>模型全程不知情</strong>。它照常生成，剪刀握在服务层手里；被剪掉的部分模型自己也不知道存在过。</li>
+  <li><strong>返回文本不含 stop 序列本身</strong>。OpenAI 帮助中心写得很直白：响应在 stop 序列之前收住，序列本身不进结果。</li>
+  <li><strong>数量上限各家自定</strong>。OpenAI 帮助中心给出的上限是 4 个，DeepSeek 的兼容接口放宽到 16 个；用之前查对应厂商的文档。</li>
+</ul>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">停止序列 Stop Sequence</span>
+    <span class="term-en">stop = 停止；调用方预设的字符串刹车</span>
+  </div>
+  <div class="term-body">
+    <p>API 请求里的一个参数，传一个或几个字符串；服务层在生成过程中实时比对已产出文本的尾部，出现完全匹配就截断。它与 EOS 的区别在层级：EOS 是模型自己「想说完了」，stop 序列是服务层「替模型说够了」。它与 max_tokens 的区别在触发方式：一个看内容，一个数个数。因为不需要模型配合，任何模型都能用，典型用途是防止模型自问自答（在下一轮用户发言的标记处截断）、卡住列表长度等。</p>
+    <div class="term-analogy">像访谈节目的导播掐信号：嘉宾（模型）还在说，导播（服务层）一听到预设的暗号词就切画面，播出的版本里不含暗号本身。</div>
+  </div>
+</div>
+
+<p>　　三种结局在 API 里统一用 finish_reason 字段区分：「stop」表示正常说完（产出 EOS 或命中 stop 序列都算），「length」表示撞上限被砍，另有 tool_calls、content_filter 等值对应工具调用与内容拦截场景。它是调用方的必修课：不看这个字段，就把「被砍半的回答」和「完整回答」混为一谈了。</p>
+
+<h2>12.3.3 流式输出：逐 token 推送的工程意义</h2>
+
+<p>　　自回归生成是逐 token 串行的（12.1 节），一段 500 token 的回答要跑几百次前向。非流式接口把整段攒齐了一次性返回，用户对着加载动画从头等到尾。流式输出换一种交付方式：每个 token 一产出就立刻推给前端，用户看着回答逐字长出来。内容与步数完全不变，变的只是交付节奏。</p>
+
+<p>　　minimind 的 generate 内置了推送钩子，三行代码撑起整个机制：循环开始前先把 prompt 推给 streamer（267 行），每步选词后 <code>streamer.put(next_token)</code> 把新 token 送出去（287 行），循环收尾 <code>streamer.end()</code>（291 行）。eval_llm.py 挂上的是 Hugging Face Transformers 的 TextStreamer（65 行），两个开关把「token 流」修剪成「给用户看的文字流」：skip_prompt=True 跳过 prompt 部分（用户知道自己问了什么，不必重打），skip_special_tokens=True 不显示特殊 token（EOS 之流不上屏）。</p>
+
+<p>　　流式改变的首先是时间感的账。非流式下，用户的等待 = prompt 前向 + 全部 N 个 token 的串行生成；流式下，用户等到第一个字的时间 = prompt 前向 + 第 1 个 token，之后的字在阅读过程中陆续到达。这个「发出请求到第一个字出现」的时间有专门的名字：</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">首 token 延迟 TTFT</span>
+    <span class="term-en">Time To First Token = 从发出请求到收到第一个 token 的时间</span>
+  </div>
+  <div class="term-body">
+    <p>TTFT 主要由两段构成：请求排队，加上 prompt 整体过一遍模型的那一次前向（这一步叫 prefill，预填充，第 13 章细讲）。它不随回答长度变化——回答再长，第一个字的等待都是这么多。与之相对的指标是 token 间延迟（每个后续 token 的间隔），它决定「打字速度」。流式把用户体验锚在前者上：几百毫秒的 TTFT 让人感觉即问即答，只要吐字速度超过阅读速度，等待感就消失了。这是流式成为 LLM 产品标配的原因。</p>
+    <div class="term-analogy">像餐厅点菜：TTFT 是「下单到第一道菜上桌」，token 间延迟是「之后每道菜的间隔」。只要头菜上得快、后面不停，没人介意整桌菜不是一瞬间摆满的。</div>
+  </div>
+</div>
+
+<p>　　工程上，流式靠 SSE（Server-Sent Events，服务器发送事件）落地：HTTP 连接不断开，服务器把每个 token 包成一条 data: 消息逐块推给客户端，流的末尾发一条 data: [DONE] 收尾——这是 OpenAI 兼容生态的通用格式（DeepSeek 官方文档对流式行为的描述与此一致）。流式里 finish_reason 的送达方式也跟着变：中间每个块里它是 null，直到最后一个内容块才携带真实值。除了体验，流式还有实打实的工程收益：可以中途止损——看到开头跑偏就断开连接，省下后面整段的算力；也可以边生成边做后处理，比如敏感词流式过滤、格式预检。至于吞吐、并发调度、KV Cache 这些系统层的账，统一留给第 13 章。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>维度</th><th>非流式</th><th>流式</th></tr></thead>
+    <tbody>
+      <tr><td>用户看到第一个字</td><td>整段生成完之后</td><td>首 token 延迟（TTFT）之后</td></tr>
+      <tr><td>感知等待</td><td>与回答长度成正比</td><td>锚定 TTFT，阅读过程覆盖后续生成</td></tr>
+      <tr><td>传输方式</td><td>一次性 HTTP 响应</td><td>SSE 逐块推送，data: [DONE] 收尾</td></tr>
+      <tr><td>中途止损</td><td>不行，算力花完才知道结果</td><td>可随时断开，省下剩余算力</td></tr>
+      <tr><td>finish_reason</td><td>响应体里一次给出</td><td>最后一个内容块携带，此前各块为 null</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box">
+  停止与流式是同一条时间线的两端：流式决定「文字何时到达用户」（逐 token，体验锚在 TTFT），停止决定「生成何时收工」（三道刹车，结局写在 finish_reason 里）。流式不改变生成的内容与步数，只改变交付节奏；三道刹车不改变交付方式，只决定循环在哪一步画上句号。
+</div>
+
+<h2>12.3.4 minimind 的停止逻辑：finished 掩码</h2>
+
+<p>　　单条序列的停止好办，麻烦在批量。推理服务为了吞吐会把多条请求拼成一个 batch 一起算（批量推理是第 13 章的话题），但 batch 里的回答长短不一：第 3 步就有一条停了，第 100 步还有一条在写。张量计算要求 batch 内所有序列形状整齐、同步步进，先停的不能先走，也不能真撂挑子——它得陪着走，还不许添乱。minimind 的 finished 掩码就是这个问题的教学版答案，拢共四步，都在 generate 里（model_minimind.py:261-293）：</p>
+
+<ol>
+  <li><strong>初始化（266 行）</strong>：finished 是一个形状为 batch 大小的全 False 布尔向量，含义是「还没有序列说完」。</li>
+  <li><strong>强制占位（284 行）</strong>：每步选词后，对 finished 已为真的序列，把本步 token 强行改写成 EOS——<code>torch.where(finished, eos, next_token)</code>。已停序列从此每步只产 EOS，不再添新内容。</li>
+  <li><strong>更新掩码（289 行）</strong>：本步新产出 EOS 的序列，finished 对应位置累积置真；|= 运算保证已置真的不会被翻回去。</li>
+  <li><strong>整体收工（290 行）</strong>：finished.all() 全真才 break——只要还有一条在写，循环继续，已停的继续补 EOS 占位。</li>
+</ol>
+
+<p>　　为什么占位要用 EOS，而不是随便一个 token？两个理由。语义上它是「结束」，补在末尾名正言顺；更实际的是，decode 回文本时 skip_special_tokens=True 会把特殊 token 整个剥掉（eval_llm.py:88），占位痕迹不进最终回答——12.3.1 那个「token 流里有、显示文本里没有」的不对称，在这里正好派上用场。假如补的是普通 token，每条先停序列的尾巴都会拖着一串乱码。</p>
+
+<p>　　一个两步的演化小例把机制坐实。设 batch 里有两条序列：A 是短回答，B 是长回答：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>时刻</th><th>序列 A</th><th>序列 B</th><th>finished 掩码</th><th>循环动作</th></tr></thead>
+    <tbody>
+      <tr><td>第 12 步</td><td>产出 EOS，说完</td><td>继续写</td><td>[True, False]</td><td>不 break，继续</td></tr>
+      <tr><td>第 13 步起</td><td>每步强制补 EOS 占位</td><td>继续写</td><td>[True, False]</td><td>不 break，继续</td></tr>
+      <tr><td>第 87 步</td><td>仍在补 EOS 占位</td><td>产出 EOS，说完</td><td>[True, True]</td><td>break，整体收工</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　这套方案的代价一眼可见：已停序列陪着跑到最后一刻，75 步空转的前向全是浪费。教学实现接受这份浪费，换来代码的直白；工业推理引擎的做法是连续批处理（continuous batching）——完成的序列即时踢出 batch、新请求随时插入，显存与算力一点不闲着。那属于第 13 章的地盘，届时细讲。到这里，「生成什么时候停、停了的怎么善后」就齐了；下一节换个方向：不只决定何时停，还要规定必须长什么样——结构化输出。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">模型的「说完就停」是哪来的？为什么有的模型停不下来？</div>
+    <div class="sc-key">EOS 是词表里的特殊 token（minimind 为 id = 2 的 &lt;|im_end|&gt;），训练数据每条样本以它收尾，交叉熵把「讲完 → EOS」刻进了分布；推理时采样出它即 break，decode 时被 skip_special_tokens 剥掉，所以用户看不到。停不下来多半是没训好（数据没带 EOS 或训练不足）或输入分布外，EOS 概率始终抬不上去。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">三道刹车各守哪一层？结局怎么区分？</div>
+    <div class="sc-key">EOS 在模型内部（主动停）、max_new_tokens 在生成循环（步数硬顶，minimind 默认 8192，且不代表模型的长文本能力）、stop 序列在 API 层（模型外截断，返回文本不含序列本身，模型不知情）。finish_reason =「stop」是圆满，「length」是被砍成半截，后者必须当异常处理，结构化输出场景尤其如此。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">批量推理时先停的序列去哪了？</div>
+    <div class="sc-key">finished 掩码接管：已停序列后续每步被强制补 EOS 占位，保持 batch 形状整齐，全部停下才整体 break；占位的 EOS 在 decode 时被剥掉，不进最终文本。代价是空转浪费，工业方案是连续批处理（第 13 章）。流式一侧，每个 token 产出即 streamer.put 推送，用户的等待从整段时长压缩成首 token 延迟（TTFT）。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Holtzman et al., 2019. The Curious Case of Neural Text Degeneration（nucleus sampling 原始论文，arXiv:1904.09751）：以 likelihood 为解码目标产生的文本「干瘪且奇怪地重复」、人类文本与机器文本存在分布差异的结论；已核对 arXiv 摘要页。</li>
+  <li>OpenAI 帮助中心：How do I use stop sequences in the OpenAI API（官方文档，无论文，https://help.openai.com/en/articles/5072263-how-do-i-use-stop-sequences-in-the-openai-api）：stop 参数让模型在指定位置停止、返回文本不含 stop 序列本身、上限 4 个序列；已核对原文。</li>
+  <li>DeepSeek 官方 API 文档：Create Chat Completion（OpenAI 兼容接口，官方文档，无论文，https://api-docs.deepseek.com/api/create-chat-completion/）：stop 上限 16 个序列、stream=true 时以 SSE 逐块推送并以 data: [DONE] 收尾、finish_reason 取值（stop / length / content_filter / tool_calls）、finish_reason 为「length」时内容可能被部分截断、流式中 finish_reason 由最后一个内容块携带；已核对原文。</li>
+  <li>OpenAI API 参考（官方文档，无论文，https://developers.openai.com/api/reference/）：finish_reason =「stop」的定义为「完整返回，或命中 stop 参数提供的序列而终止」，「length」为达到 max_tokens 上限的不完整输出；定义经官方文档与生态资料印证核对。</li>
+  <li>Hugging Face Transformers 官方文档：TextStreamer（生成 streamer 机制）。本次编写时文档站点网络受限未能打开全文，正文所述行为（skip_prompt / skip_special_tokens 语义、put / end 调用协议）以 minimind eval_llm.py 与 generate 的实际调用为准（待查证项：官方文档全文）。</li>
+  <li>minimind（Apache 2.0）：model/model_minimind.py 的 generate（261-293 行；默认参数 max_new_tokens=8192、eos_token_id=2 见 262 行，finished 初始化 266 行，循环上限 268 行，强制补 EOS 占位 284 行，streamer 推送 267、287、291 行，finished 更新与整体 break 288-290 行）；eval_llm.py（max_new_tokens 默认 8192 及「并非模型实际长文本能力」注释 42 行，TextStreamer(skip_prompt=True, skip_special_tokens=True) 65 行，generate 传入 eos_token_id 与 streamer 84-86 行，decode 剥特殊 token 88 行）；model/tokenizer_config.json（eos_token 为 &lt;|im_end|&gt;、其 ID 为 2，chat_template 每条消息以 &lt;|im_end|&gt; 收尾）。</li>
+</ul>
+
+</article>

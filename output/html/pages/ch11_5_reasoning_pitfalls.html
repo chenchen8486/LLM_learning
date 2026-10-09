@@ -1,0 +1,410 @@
+<article class="content">
+<h1>11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</h1>
+<p class="subtitle">本页范围：第 11 章第 5 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>规则裁判上线之后，推理训练就高枕无忧了吗？模型会不会钻规则的空子？除了让模型自己刷 RL，还有没有更省的路？RL 到底给模型新增了能力，还是只是把已有的能力激发出来？</td></tr>
+      <tr><td>本节主张</td><td>规则裁判也有漏洞：长度膨胀、格式投机、虚假思考三类作弊要靠规则组合加外部奖励模型来堵。推理蒸馏用大模型的长思维链数据直接 SFT 小模型，又省又强。pass@k 的系统证据显示，当前 RLVR 主要提高采样效率而非扩展能力边界，基座模型仍是天花板。</td></tr>
+      <tr><td>一句话结论</td><td>裁判换成规则不等于万事大吉——会防作弊、会用蒸馏、认清能力边界，才算把第 6 到 11 章的训练链路真正闭环。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>reward hacking</span><span>长度膨胀</span><span>格式投机</span><span>虚假思考</span><span>推理蒸馏</span><span>pass@k</span><span>能力边界</span><span>基座模型</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　11.1 到 11.4 节把推理训练的主线走了一遍：可验证奖励登场、RLVR 回路转起来、GRPO 扔掉价值模型、长思维链与推理时扩展涌现。机制跑通之后，剩下的是实践层面的三个硬问题。第一，规则裁判真的可靠吗——10.2 节 reward hacking 的教训告诉我们，只要奖励有漏洞，模型迟早会钻。第二，每条推理链都要靠在线采样加强化学习慢慢磨，有没有办法让别的小模型直接继承大模型已经练成的思考习惯？第三，也是最根本的一问：RL 练出来的推理能力，是模型新学会的，还是基座模型本来就会、只是被激发了？本节收束全章，把这三个问题逐一讲清，最后把第 6 章到本章的训练链路连成一张完整的图。</p>
+
+<p>　　本节按「陷阱 → 捷径 → 边界 → 闭环」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>奖励作弊：长度膨胀、格式投机与虚假思考</strong>（11.5.1）：规则裁判的三类漏洞，以及 minimind 奖励配方里对应的四道防线；</li>
+  <li><strong>推理蒸馏：把大模型的思考抄给小模型</strong>（11.5.2）：DeepSeek-R1 的蒸馏实验，为什么蒸馏比小模型自己刷 RL 更划算；</li>
+  <li><strong>能力边界：RL 是激发已有能力还是新增能力</strong>（11.5.3）：pass@k 视角下的系统证据，基座模型为什么是天花板；</li>
+  <li><strong>闭环回顾：从预训练到推理训练的全链路</strong>（11.5.4）：五个训练阶段五位裁判一张账，接力第 12–13 章。</li>
+</ol>
+
+<p>　　读完本节，应该能说出规则奖励的三类作弊形态与对应防线，讲清 R1 蒸馏实验的做法与结论，并理解「RL 提高采样效率、蒸馏才能引入新模式」这条边界论断的证据与含义。</p>
+
+<p>　　逐节展开之前，先看一眼本节在整条训练链路中的位置：推理训练是生命周期里最后一站训练环节，11.1 到 11.4 已经讲完它的机制，本节做的是给这一站做体检与收束。心里有这张地图，后面每一步都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS115reasoningpitfalls" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG115reasoningpitfalls" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS115reasoningpitfalls)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS115reasoningpitfalls)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS115reasoningpitfalls)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS115reasoningpitfalls)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS115reasoningpitfalls)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS115reasoningpitfalls)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG115reasoningpitfalls)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：本节内容在 LLM 生命周期中的位置。模型经预训练（第 6 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）走到推理训练（本章）这最后一站训练环节；11.1 到 11.4 讲了它的机制（可验证奖励、RLVR 回路、GRPO、长思维链），本节收束全章，盘点这一站的陷阱、捷径与能力边界，随后模型进入推理与部署（第 12–13 章）。</div>
+</div>
+
+<p>　　把「推理训练」这个紫框放回它前面的四站旁边，换个视角看：每一站训练的背后都站着一位裁判，五站的裁判各不相同，训练信号的形态也跟着不同。把五位裁判并排摆出来，推理训练这一站的特殊性一眼可见：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS115d2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：五个训练阶段各自的裁判——可验证规则裁判在推理训练首次登场</text>
+    <line x1="30" y1="42" x2="924" y2="42" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS115d2)"/>
+    <text x="918" y="36" text-anchor="end" font-size="10.5" fill="#555">训练推进</text>
+    <!-- 列 1 预训练 -->
+    <rect x="6" y="56" width="180" height="312" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="96" y="80" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练</text>
+    <text x="96" y="98" text-anchor="middle" font-size="10.5" fill="#888">（第 6 章）</text>
+    <line x1="18" y1="110" x2="174" y2="110" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="18" y="128" font-size="10.5" fill="#888">输入</text>
+    <text x="18" y="146" font-size="11" fill="#333">语料 token 序列</text>
+    <line x1="18" y1="180" x2="174" y2="180" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="18" y="198" font-size="10.5" fill="#888">裁判</text>
+    <text x="18" y="216" font-size="11" font-weight="bold" fill="#333">语料自带的</text>
+    <text x="18" y="234" font-size="11" font-weight="bold" fill="#333">下一个 token</text>
+    <line x1="18" y1="266" x2="174" y2="266" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="18" y="284" font-size="10.5" fill="#888">信号</text>
+    <text x="18" y="302" font-size="11" fill="#333">每个位置一个</text>
+    <text x="18" y="320" font-size="11" fill="#333">交叉熵（白送）</text>
+    <!-- 列 2 中间训练 -->
+    <rect x="198" y="56" width="180" height="312" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="288" y="80" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练</text>
+    <text x="288" y="98" text-anchor="middle" font-size="10.5" fill="#888">（第 8 章）</text>
+    <line x1="210" y1="110" x2="366" y2="110" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="210" y="128" font-size="10.5" fill="#888">输入</text>
+    <text x="210" y="146" font-size="11" fill="#333">高质量 + 长文档</text>
+    <text x="210" y="164" font-size="11" fill="#333">新配方语料</text>
+    <line x1="210" y1="180" x2="366" y2="180" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="210" y="198" font-size="10.5" fill="#888">裁判</text>
+    <text x="210" y="216" font-size="11" font-weight="bold" fill="#333">仍是下一个</text>
+    <text x="210" y="234" font-size="11" font-weight="bold" fill="#333">token</text>
+    <line x1="210" y1="266" x2="366" y2="266" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="210" y="284" font-size="10.5" fill="#888">信号</text>
+    <text x="210" y="302" font-size="11" fill="#333">同预训练</text>
+    <text x="210" y="320" font-size="11" fill="#333">序列拉长</text>
+    <!-- 列 3 SFT -->
+    <rect x="390" y="56" width="180" height="312" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="480" y="80" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT</text>
+    <text x="480" y="98" text-anchor="middle" font-size="10.5" fill="#888">（第 9 章）</text>
+    <line x1="402" y1="110" x2="558" y2="110" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="402" y="128" font-size="10.5" fill="#888">输入</text>
+    <text x="402" y="146" font-size="11" fill="#333">(prompt, 示范回答)</text>
+    <text x="402" y="164" font-size="11" fill="#333">成对数据</text>
+    <line x1="402" y1="180" x2="558" y2="180" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="402" y="198" font-size="10.5" fill="#888">裁判</text>
+    <text x="402" y="216" font-size="11" font-weight="bold" fill="#333">人工编写的</text>
+    <text x="402" y="234" font-size="11" font-weight="bold" fill="#333">示范回答</text>
+    <line x1="402" y1="266" x2="558" y2="266" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="402" y="284" font-size="10.5" fill="#888">信号</text>
+    <text x="402" y="302" font-size="11" fill="#333">回答区逐 token</text>
+    <text x="402" y="320" font-size="11" fill="#333">交叉熵</text>
+    <!-- 列 4 偏好对齐 -->
+    <rect x="582" y="56" width="180" height="312" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="672" y="80" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐</text>
+    <text x="672" y="98" text-anchor="middle" font-size="10.5" fill="#888">（第 10 章）</text>
+    <line x1="594" y1="110" x2="750" y2="110" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="594" y="128" font-size="10.5" fill="#888">输入</text>
+    <text x="594" y="146" font-size="11" fill="#333">偏好对</text>
+    <text x="594" y="164" font-size="11" fill="#333">(x, y_w, y_l)</text>
+    <line x1="594" y1="180" x2="750" y2="180" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="594" y="198" font-size="10.5" fill="#888">裁判</text>
+    <text x="594" y="216" font-size="11" font-weight="bold" fill="#333">人类偏好 →</text>
+    <text x="594" y="234" font-size="11" font-weight="bold" fill="#333">奖励模型</text>
+    <text x="594" y="252" font-size="10.5" fill="#dc2626">学习型，会被钻空子</text>
+    <line x1="594" y1="266" x2="750" y2="266" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="594" y="284" font-size="10.5" fill="#888">信号</text>
+    <text x="594" y="302" font-size="11" fill="#333">标量分 /</text>
+    <text x="594" y="320" font-size="11" fill="#333">对数比分差</text>
+    <!-- 列 5 推理训练（主角） -->
+    <rect x="774" y="56" width="180" height="312" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="864" y="80" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理训练</text>
+    <text x="864" y="98" text-anchor="middle" font-size="10.5" fill="#d8b4fe">（本章 · 本节主角）</text>
+    <line x1="786" y1="110" x2="942" y2="110" stroke="#a78bfa" stroke-width="1"/>
+    <text x="786" y="128" font-size="10.5" fill="#d8b4fe">输入</text>
+    <text x="786" y="146" font-size="11" fill="#ede9fe">可验证题 × 6 条</text>
+    <text x="786" y="164" font-size="11" fill="#ede9fe">采样回答</text>
+    <line x1="786" y1="180" x2="942" y2="180" stroke="#a78bfa" stroke-width="1"/>
+    <text x="786" y="198" font-size="10.5" fill="#d8b4fe">裁判</text>
+    <text x="786" y="216" font-size="11" font-weight="bold" fill="#ffffff">规则校验器：</text>
+    <text x="786" y="234" font-size="11" font-weight="bold" fill="#ffffff">对答案 / 跑测试 /</text>
+    <text x="786" y="252" font-size="11" font-weight="bold" fill="#ffffff">查格式，+ RM 辅助</text>
+    <line x1="786" y1="266" x2="942" y2="266" stroke="#a78bfa" stroke-width="1"/>
+    <text x="786" y="284" font-size="10.5" fill="#d8b4fe">信号</text>
+    <text x="786" y="302" font-size="11" fill="#ede9fe">6 个标量奖励 →</text>
+    <text x="786" y="320" font-size="11" fill="#ede9fe">组内相对优势</text>
+    <!-- 底部结论 -->
+    <rect x="180" y="388" width="600" height="40" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="480" y="406" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#15803d">规律：监督信号从「白送」走向「要验」</text>
+    <text x="480" y="422" text-anchor="middle" font-size="10.5" fill="#15803d">规则裁判不要标注、不要训练，代价是只覆盖能机器判对错的任务</text>
+  </svg>
+  <div class="diagram-caption">图示：五个训练阶段与各自裁判的并排对照（局部放大视角，第 7 章训练工程是贯穿各站的底座，不单列）。预训练与中间训练的裁判是语料自带的下一个 token，监督信号不要钱；SFT 靠人工示范，偏好对齐靠人类偏好训出的奖励模型——这位裁判是学习出来的代理，会被钻空子（10.2 节的 reward hacking）。推理训练首次把裁判换成可验证规则：数学对答案、代码跑测试、格式查标签，不要标注也不要训练，再叠奖励模型辅助把关。输入与信号列即各站的「输入形状与输出信号形态」：推理训练一条样本是 1 道题配 6 条采样回答（minimind 默认 num_generations=6），输出是 6 个标量奖励经组内比较变成相对优势（11.2、11.3 已讲）。</div>
+</div>
+
+<h2>11.5.1 奖励作弊：长度膨胀、格式投机与虚假思考</h2>
+
+<p>　　11.2 节把规则裁判请上了台：答案与标准答案等价就加分，格式合规就加分。它铁面无私、不要标注、不会疲劳，看起来比第 10 章那位学习型裁判可靠得多。但 10.2 节 reward hacking 的教训还热着：<strong>裁判检查什么，模型就优化什么；裁判查不到的地方，就是作弊的空间</strong>。规则裁判不会被「说服」，但会被「糊弄」——它只能检查它查得到的表面特征。本节把三类典型作弊逐个摆出来，每一条都对照 minimind 奖励配方（calculate_rewards，train_grpo.py:37–68）里对应的防线来看。</p>
+
+<p>　　第一类是<strong>长度膨胀</strong>。DeepSeek-R1 论文报告过一个漂亮的现象：R1-Zero 的响应长度随训练推进持续增长，思考越来越充分（11.4 节讲过）。但这件事反过来看就是个陷阱：只要奖励信号沾了「长度」或「思考段」的边，模型就发现注水是条捷径——思考段越写越长，有效内容并没有变多，分数却上去了。这是 10.2 节长度偏见在 RLVR 里的翻版。minimind 的防线是开窗口而不是奖励长度本身：回答总长落在 20 到 800 字符内加 0.5 分，出窗扣 0.5（train_grpo.py:54）；思考段单独限在 20 到 300 字符，合规加 1.0 否则扣 0.5（第 57 行）。窗口挡住了「无限灌水」和「太短糊弄」两个极端，但窗口之内的稀释它管不着——300 字符里塞 100 字符的真思考加 200 字符的废话，照样满分。</p>
+
+<p>　　第二类是<strong>格式投机</strong>。格式奖励的初衷是让思考可读、可解析（11.2 节）：有 <code>&lt;think&gt;</code> 段、结构完整，下游才能拆开思考与答案。但模型完全可以只交格式作业：套一对标签，思考段里写满「让我仔细想想」「再验证一遍」这类空话，最后照样给个答案。minimind 还有一道更细的防线：整个回答里 <code>&lt;/think&gt;</code> 恰好出现一次加 0.25 分，否则扣 0.25（train_grpo.py:58）——这防的是标签泛滥（开十个思考段刷格式分），但防不了内容空洞。格式合规只保证「能解析」，从不保证「真在想」。</p>
+
+<p>　　第三类是<strong>重复灌水与虚假思考</strong>。最省力的注水是复读：同一句话换个说法反复念，既凑长度又凑思考段。minimind 用 rep_penalty 对付它：把回答按 3-gram 切分统计重复率，重复越多扣分越多，封顶 0.5（train_grpo.py:31–34，在第 60 行从奖励里减去）。比灌水更难防的是<strong>蒙对</strong>：答案对、过程全错。结果校验器只看最终答案，选择题、是非题蒙对的概率不低，而 GRPO 的组内比较还会放大这个问题——同一道题采 6 条，偶尔蒙对的那条在组内拿到正优势，被当成榜样强化。反过来，如果 6 条全对或全错，组标准差为零，优势 \((r-\bar{r})/(\sigma+10^{-4})\) 的分子为零，整组学不到任何东西（对应 train_grpo.py:121–124 的计算）——题目太难或太易都是白训。</p>
+
+<p>　　三种作弊形态与 minimind 配方里的防线对照如下：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS115hack" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="28" font-size="13" font-weight="bold" fill="#4c1d95">奖励作弊的三种形态与 minimind 奖励配方里的防线（行号见 train_grpo.py）</text>
+    <!-- 行 1 -->
+    <rect x="20" y="48" width="390" height="72" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="36" y="74" font-size="12" font-weight="bold" fill="#b91c1c">作弊① 长度膨胀</text>
+    <text x="36" y="94" font-size="11" fill="#555">思考段注水、废话凑长，长度与格式分吃饱</text>
+    <line x1="410" y1="84" x2="460" y2="84" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS115hack)"/>
+    <rect x="470" y="48" width="470" height="72" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="486" y="74" font-size="12" font-weight="bold" fill="#15803d">防线① 长度窗口</text>
+    <text x="486" y="94" font-size="11" fill="#555">回答总长限 20–800 字符，出窗 −0.5；思考段限 20–300 字符</text>
+    <text x="486" y="112" font-size="10.5" fill="#888">train_grpo.py:54、57</text>
+    <!-- 行 2 -->
+    <rect x="20" y="136" width="390" height="72" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="36" y="162" font-size="12" font-weight="bold" fill="#b91c1c">作弊② 格式投机</text>
+    <text x="36" y="182" font-size="11" fill="#555">套 &lt;/think&gt; 空壳，思考段写空话，只交格式作业</text>
+    <line x1="410" y1="172" x2="460" y2="172" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS115hack)"/>
+    <rect x="470" y="136" width="470" height="72" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="486" y="162" font-size="12" font-weight="bold" fill="#15803d">防线② 思考段窗口 + 标签计数</text>
+    <text x="486" y="182" font-size="11" fill="#555">思考段合规 +1.0；&lt;/think&gt; 恰好一次 +0.25，否则 −0.25</text>
+    <text x="486" y="200" font-size="10.5" fill="#888">train_grpo.py:55–58</text>
+    <!-- 行 3 -->
+    <rect x="20" y="224" width="390" height="72" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="36" y="250" font-size="12" font-weight="bold" fill="#b91c1c">作弊③ 重复灌水</text>
+    <text x="36" y="270" font-size="11" fill="#555">同一句反复念，既凑长度又凑思考段</text>
+    <line x1="410" y1="260" x2="460" y2="260" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS115hack)"/>
+    <rect x="470" y="224" width="470" height="72" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="486" y="250" font-size="12" font-weight="bold" fill="#15803d">防线③ 重复惩罚</text>
+    <text x="486" y="270" font-size="11" fill="#555">rep_penalty 按 3-gram 重复率扣分，封顶 0.5</text>
+    <text x="486" y="288" font-size="10.5" fill="#888">train_grpo.py:31–34、60</text>
+    <!-- 底部：堵不住的 -->
+    <rect x="20" y="312" width="920" height="56" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="36" y="336" font-size="12" font-weight="bold" fill="#92400e">堵不住的：蒙对——答案对、过程错，结果校验器看不见过程</text>
+    <text x="36" y="356" font-size="11" fill="#92400e">兜底：规则分之上再叠外部奖励模型 internlm2-1_8b-reward 的打分（train_grpo.py:62–66），规则 + RM 混合把关</text>
+  </svg>
+  <div class="diagram-caption">图示：三类奖励作弊与 minimind 配方防线的对照（红色 = 作弊形态与漏洞，绿色 = 防线，琥珀色 = 防线堵不住的残余风险）。四道规则防线各堵一个表面特征，「蒙对」这种内容级作弊规则查不出来，需要再叠一个学习型裁判补内容关——这正是 minimind 把规则分与外部奖励模型分数相加的原因。</div>
+</div>
+
+<p>　　把视线从 minimind 抬到工业实践，缓解作弊的手段大致分三层。第一层是规则组合，像 minimind 这样多规则叠加，提高糊弄的门槛，优点是便宜，缺点是道高一尺魔高一丈。第二层是过程校验：不只看最终答案，逐步批改思考链——这就是 11.4 节讲过的过程奖励模型（PRM），有效但标注昂贵。第三层是题库设计：把选择题改成开放式答案让蒙对概率骤降，再按模型当前水平配难度（课程式题库），避开「全对全错、组内零方差」的无效题。三层之外还有一个朴素经验：奖励在涨不代表模型真好，可能只是作弊又升级了，训练时必须同时盯回答长度、重复率、格式合规率这一整组指标，而不只是奖励曲线。</p>
+
+<div class="highlight-box warn">
+  奖励作弊不是实现失误，而是「裁判只看表面特征」的结构性后果：10.2 节的 RM 会被「看起来靠谱」骗过，本节的规则会被「形式上合规」糊弄。规则越简单越便宜，也越容易被钻空子——防线永远是组合拳，没有哪条单一规则能一劳永逸。
+</div>
+
+<h2>11.5.2 推理蒸馏：把大模型的思考抄给小模型</h2>
+
+<p>　　11.2 到 11.4 节的路线是让模型自己刷题：采样、判分、强化，慢慢磨出思考习惯。这条路有效，但每一步都要在线生成大量回答，算力开销不小。还有一条省事得多的路：学霸已经把解题笔记整理好了，学弟直接照着学。把强推理模型产出的长思维链收集起来，当作普通 SFT 数据去教小模型，这就是推理蒸馏。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">推理蒸馏 Reasoning Distillation</span>
+    <span class="term-en">distill = 蒸馏；把教师模型的思考过程当教材</span>
+  </div>
+  <div class="term-body">
+    <p>蒸馏的通用含义是用大模型（教师）的输出指导小模型（学生）训练。第 13 章要讲的经典知识蒸馏对齐的是教师输出的概率分布（logits）；推理蒸馏更朴素——直接把教师生成的<strong>完整思考过程</strong>（连同自我检查、回溯、最终答案）收集成数据集，对学生做普通 SFT。蒸的不是概率，是行为轨迹，本质上是数据工程加监督微调，训练回路里没有任何强化学习部件。</p>
+    <div class="term-analogy">像抄学霸的解题笔记：不只抄最终答案，连草稿纸上「这里好像不对，换个方法」的涂改痕迹一起抄——学到的是思考习惯本身。</div>
+  </div>
+</div>
+
+<p>　　DeepSeek-R1 论文把这条路走成了标杆实验。做法直白得近乎朴素：用训练完成的 R1 生成约 80 万条样本（其中约 20 万条为写作、问答等非推理数据，其余为推理长思维链），拿这批数据直接微调六个开源底座——Qwen2.5-Math-1.5B、Qwen2.5-Math-7B、Qwen2.5-14B、Qwen2.5-32B、Llama-3.1-8B、Llama-3.3-70B-Instruct。值得强调的是，<strong>蒸馏版只做 SFT，不做任何 RL</strong>：论文明说加 RL 还能更高，但为了干净地展示蒸馏本身的效果，只放出纯 SFT 的结果。</p>
+
+<p>　　效果数字相当惊人。DeepSeek-R1-Distill-Qwen-7B 在 AIME 2024 上拿到 55.5%，反超 32B 的 QwQ-32B-Preview（50.0%）；DeepSeek-R1-Distill-Qwen-32B 达到 AIME 2024 72.6%、MATH-500 94.3%、LiveCodeBench 57.2%，在多数推理基准上超过 o1-mini。更说明问题的是论文里的对照实验：同在 Qwen-32B-Base 上，一条路是大规模 RL 自训一万多步（数学、代码、STEM 数据），得到 DeepSeek-R1-Zero-Qwen-32B，水平约等于 QwQ-32B-Preview；另一条路是直接蒸馏 R1，得到的模型在所有基准上显著更好。小模型自己刷 RL，又贵又追不上抄笔记。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>对照维度</th><th>小模型 RL 自训（R1-Zero-Qwen-32B 路线）</th><th>推理蒸馏（R1-Distill 路线）</th></tr></thead>
+    <tbody>
+      <tr><td>监督信号来源</td><td>自己采样 + 规则判分，在线探索</td><td>教师模型产出的长思维链数据，离线 SFT</td></tr>
+      <tr><td>训练回路</td><td>RL 回路：rollout、优势估计、裁剪更新</td><td>普通 SFT：读数据、交叉熵、反传</td></tr>
+      <tr><td>算力开销</td><td>大（32B 自训超一万步仍只到 QwQ 水平）</td><td>小（一次教师生成 + 一轮 SFT）</td></tr>
+      <tr><td>能力来源</td><td>激发基座已有能力（11.5.3 展开）</td><td>从教师引入基座原本没有的推理模式</td></tr>
+      <tr><td>天花板</td><td>被自身基座封顶</td><td>被教师封顶：教师的错误与口癖一并继承</td></tr>
+      <tr><td>R1 论文结论</td><td colspan="2">蒸馏经济且有效；但要突破智能边界，仍需更强基座与更大规模 RL</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　为什么抄笔记这么有效？RL 自训的难点在于探索：基座模型要自己撞上正确的长推理路径，才能从奖励里学到东西，小模型撞上的概率低。蒸馏把探索环节整个外包给了教师——教师的长思维链里，思考格式、自我检查、回溯重试的分布直接写进监督信号，学生不用探索就能拿到。这解释了表中的一处对照：RL 激发的是基座已有的东西，蒸馏却能从教师那里引入基座原本没有的推理模式（下一节的证据会呼应这一点）。顺带一提，minimind 也带蒸馏脚本（trainer/train_distillation.py），走的是对齐 logits 的经典路线，属于第 13 章的内容，这里点到即可。</p>
+
+<div class="highlight-box">
+  推理蒸馏的核心结论（DeepSeek-R1，arXiv:2501.12948）：用 R1 的约 80 万条输出直接 SFT，7B 学生就能反超 32B 的 QwQ-32B-Preview，32B 学生在多数推理基准上超过 o1-mini；同一基座上，蒸馏全面胜过大规模 RL 自训。抄笔记比自己做题更划算——但学生的天花板由教师封顶。
+</div>
+
+<h2>11.5.3 能力边界：RL 是激发已有能力还是新增能力</h2>
+
+<p>　　前面三节默认了一件事：RLVR 让模型「更会推理」了。这一节追问一句：这个「更会」到底是什么意思？一个有趣的旧证据早就埋下了伏笔。2021 年的 Codex 论文发现，代码模型单发一次只解出 HumanEval 上 28.8% 的题，但每题采 100 个样本、只要有一个通过就算成功，能解决 70.2% 的题。换句话说，模型「其实会」的题远多于「一次能做对」的题——正确答案一直在它的采样分布里，只是概率不高。这个观察正是理解 RLVR 能力边界的钥匙，度量它的指标叫 pass@k。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">pass@k（通过率@k）</span>
+    <span class="term-en">pass@k = 每题允许试 k 次，至少通过一次的比例</span>
+  </div>
+  <div class="term-body">
+    <p>评估代码与推理模型的常用指标：每道题独立采 k 条回答，只要有一条通过校验就算这题通过，最后统计通过题的比例。k=1 度量「一次做对」的硬实力；k 越大，度量的越是「家底」——模型的采样分布里到底覆盖了多少种能走通的解题路径，哪怕每条的概率都很低。两个模型可以 k=1 时差距悬殊、k 很大时高下反转，这正是本节主角实验的关键现象。</p>
+    <div class="term-analogy">像考试允许补考：k=1 是「一考定终身」，看的是稳定发挥；k 很大是「考到过为止」，看的是学过的知识覆盖面到底有多大——蒙也总有蒙对的一天。</div>
+  </div>
+</div>
+
+<p>　　工程上直接采 k 条算比例噪声很大，通行的做法是每题多采一些，再用组合数做无偏估计：</p>
+
+<div class="formula-card">
+  \[ \mathrm{pass@}k \;=\; \mathbb{E}_{\text{题}}\left[ 1 - \frac{\binom{N - c}{k}}{\binom{N}{k}} \right] \tag{1} \]
+  <div class="formula-note">公式 (1)：pass@k 的常用无偏估计——每题采 \(N\) 条、其中 \(c\) 条通过校验，从中抽 \(k\) 条「全不中」的概率是 \(\binom{N-c}{k}/\binom{N}{k}\)，用 1 减去它就是这题「至少中一条」的概率，再对全部题目取平均。符号说明：\(N\) 是每题的总采样数（要求 \(N \ge k\)）；\(c\) 是其中通过校验的条数；\(k\) 是允许尝试的次数；\(\binom{n}{m}\) 是组合数，表示从 \(n\) 个中取 \(m\) 个的方案数；\(\mathbb{E}_{\text{题}}\) 表示对测试集所有题目取期望。估计式出自 Codex 论文（arXiv:2107.03374），比「直接采 k 条算比例」的方差更小。</div>
+</div>
+
+<p>　　有了这把尺子，就可以正面回答本节的问题了。Yue 等人 2025 年的系统研究（arXiv:2504.13837）横跨多个模型家族、多种 RL 算法、数学与代码乃至视觉推理基准，用大 k 的 pass@k 探测 RLVR 模型的能力边界，结论出人意料：<strong>k 小的时候（如 k=1），RLVR 训练后的模型确实优于基座；但 k 拉大之后，基座模型的 pass@k 反而更高</strong>。配合覆盖率与困惑度分析，论文给出的解释是：RLVR 表现出的推理能力来自基座模型，也被基座模型封顶——RL 把基座分布里已有的低概率正确路径抬成高概率，让模型「发挥更稳」，却没有把分布之外的新路径带进模型。论文还测了六种主流 RLVR 算法，表现彼此相近，且都远没把基座的潜力榨干。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 740 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <text x="24" y="26" font-size="13" font-weight="bold" fill="#4c1d95">pass@k 视角下的 RLVR 与基座：小 k 领先，大 k 被反超（趋势示意，非具体实验数值）</text>
+    <!-- 反超区底色 -->
+    <rect x="495" y="60" width="205" height="250" fill="#fef2f2" opacity="0.6"/>
+    <!-- 坐标轴 -->
+    <line x1="90" y1="310" x2="700" y2="310" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="90" y1="310" x2="90" y2="60" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="120" y="330" text-anchor="middle" font-size="11" fill="#555">1</text>
+    <text x="300" y="330" text-anchor="middle" font-size="11" fill="#555">10</text>
+    <text x="480" y="330" text-anchor="middle" font-size="11" fill="#555">100</text>
+    <text x="660" y="330" text-anchor="middle" font-size="11" fill="#555">1000</text>
+    <text x="395" y="356" text-anchor="middle" font-size="11" fill="#64748b">k（每题采样数，对数刻度）</text>
+    <text x="90" y="48" text-anchor="middle" font-size="11" fill="#64748b">pass@k</text>
+    <!-- 曲线 -->
+    <polyline points="120,150 300,120 480,110 660,105" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <polyline points="120,245 300,180 480,112 660,82" fill="none" stroke="#0891b2" stroke-width="2.5"/>
+    <!-- 交叉点 -->
+    <circle cx="495" cy="109" r="4" fill="#dc2626"/>
+    <!-- 图例 -->
+    <line x1="110" y1="76" x2="140" y2="76" stroke="#6d28d9" stroke-width="2.5"/>
+    <text x="148" y="80" font-size="11" fill="#555">RLVR 训练后的模型</text>
+    <line x1="110" y1="96" x2="140" y2="96" stroke="#0891b2" stroke-width="2.5"/>
+    <text x="148" y="100" font-size="11" fill="#555">基座模型（未做 RL）</text>
+    <!-- 注释 -->
+    <text x="126" y="170" font-size="10.5" fill="#6d28d9">k=1：RLVR 更高</text>
+    <text x="126" y="186" font-size="10.5" fill="#6d28d9">（一次就做对的能力增强）</text>
+    <text x="598" y="70" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#dc2626">大 k：基座反超</text>
+    <text x="598" y="86" text-anchor="middle" font-size="10.5" fill="#dc2626">基座的覆盖面更广</text>
+  </svg>
+  <div class="diagram-caption">图示：pass@k 随采样数 k 的变化趋势（横轴对数刻度；按 arXiv:2504.13837 摘要结论绘制的趋势示意，纵轴不标具体数值）。紫色线在 k=1 处明显更高：RLVR 增强了一次做对的能力；但青色线随 k 持续爬升，在大 k 区反超：基座模型多次尝试能覆盖的题目更多。直觉解读：RL 把基座已有的低概率正确路径抬成高概率——发挥更稳，题库（覆盖面）并没有变大。</div>
+</div>
+
+<p>　　这个结论与 11.5.2 节形成漂亮的互证。同一篇论文还测了蒸馏路线：蒸馏能从教师那里引入新的推理模式，真正扩展学生的能力边界——这正好解释了 R1 蒸馏实验里学生反超 RL 自训对照组的现象。两条路线的作用层次不同：RL 是在基座的覆盖范围内做「提纯」，蒸馏是从外部往基座里「注入」新东西。</p>
+
+<p>　　两个限定必须说清，避免把结论读过头。其一，这是针对<strong>当前 RLVR 训练范式</strong>的结论，论文作者自己指出，持续扩展训练规模、多轮智能体与环境交互等新范式有可能解锁真正的能力新增。其二，「激发已有能力」绝不等于「没用」：k=1 的提升正是产品形态下最值钱的指标，用户只问一次，不会给模型补考一百次。对实践的意义在于资源分配：基座模型的质量仍是推理能力的天花板，预训练与中间训练攒下的家底，RL 替代不了——想让推理再上台阶，要么换更强基座，要么靠蒸馏从外部引入新模式，要么期待下一代 RL 范式。</p>
+
+<div class="highlight-box">
+  能力边界的核心结论（arXiv:2504.13837）：小 k 时 RLVR 优于基座，大 k 时基座反超——当前 RLVR 主要提高采样效率，把基座已有的正确路径做稳，能力覆盖仍被基座封顶。蒸馏是例外：它能从教师引入新推理模式，真正扩展边界。
+</div>
+
+<h2>11.5.4 闭环回顾：从预训练到推理训练的全链路</h2>
+
+<p>　　至此，第 6 章到本章的训练链路全部走完。页首那张五裁判并排图给的是结构视角，这里再从「接力」视角收一次尾：每一站解决了上一站的什么麻烦，又留下了什么新麻烦，由下一站接手。这条隐患接力链，正是理解整条后训练主线的钥匙：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>训练站</th><th>本站交付</th><th>裁判</th><th>留下的隐患（谁来接手）</th></tr></thead>
+    <tbody>
+      <tr><td>预训练（第 6 章）</td><td>知识与语言能力</td><td>语料自带的下一个 token</td><td>只会续写不会对话 → SFT 接手</td></tr>
+      <tr><td>中间训练（第 8 章）</td><td>长上下文与领域适配</td><td>仍是下一个 token，换数据配方</td><td>配方偏移可能稀释通用能力 → 退火与后续微调接手</td></tr>
+      <tr><td>SFT（第 9 章）</td><td>对话格式与指令跟随</td><td>人工编写的示范回答</td><td>学会表面格式，不分好坏 → 偏好对齐接手</td></tr>
+      <tr><td>偏好对齐（第 10 章）</td><td>分寸与偏好</td><td>人类偏好训出的奖励模型</td><td>裁判是代理，会被钻空子；主观题到顶 → 推理训练换裁判</td></tr>
+      <tr><td>推理训练（本章）</td><td>思维深度</td><td>可验证规则 + RM 辅助</td><td>只覆盖可验证任务；规则会被糊弄；能力被基座封顶</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　把这条链读成一个故事：预训练交出一块有知识但只会续写的坯子；SFT 教它对话的格式；偏好对齐教它分寸，但裁判是学出来的代理，主观题到顶之后不够用；推理训练把裁判换成铁面的规则，让模型在数学与代码上练出长思维链——代价是这套裁判只管得了能机器判对错的任务，而且练出的深度始终被基座的家底封顶。每一站的裁判都比上一站更「懂行」，也各有够不着的地方，没有哪一站是终点。</p>
+
+<p>　　模型练成之后，问题从「怎么训」变成「怎么用」：解码时怎么采样、什么时候停（第 12 章），KV Cache、量化、投机采样怎么把推理做得又省又快（第 13 章）。长思维链让回答变长了几倍，推理成本随之水涨船高，第 13 章的推理时扩展与系统工程正是接住这一棒的下一站。</p>
+
+<div class="highlight-box">
+  全链路一句话：预训练给能力、中间训练给广度、SFT 给格式、偏好对齐给分寸、推理训练给深度——五位裁判一个比一个懂行，也各有够不着的地方。训练链路到此闭环，接下来看推理与部署（第 12–13 章）。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">规则裁判为什么也会被钻空子？minimind 的配方怎么防？</div>
+    <div class="sc-key">裁判查什么，模型就优化什么；规则只查表面特征，就有三类作弊：长度膨胀（注水凑长）、格式投机（套标签空壳）、重复灌水（复读凑数）。minimind 的防线是四道规则组合：总长 20–800 字符窗口、思考段 20–300 字符窗口、&lt;/think&gt; 恰好一次、3-gram 重复惩罚封顶 0.5，再叠外部奖励模型补内容关。蒙对（答案对过程错）规则查不出，得靠过程校验与题库设计。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">R1 的蒸馏实验做了什么，说明了什么？</div>
+    <div class="sc-key">用 R1 生成的约 80 万条样本直接 SFT 六个开源小底座（只 SFT 不加 RL）：7B 学生 AIME 2024 拿 55.5% 反超 32B 的 QwQ-32B-Preview，32B 学生多数基准超 o1-mini；同一 Qwen-32B-Base 上，蒸馏全面胜过一万多步的 RL 自训。说明蒸馏又省又强——但学生天花板由教师封顶，突破智能边界仍需更强基座与更大规模 RL。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">「大 k 时基座反超」说明 RLVR 没用吗？</div>
+    <div class="sc-key">不是。pass@k 实验（arXiv:2504.13837）说明当前 RLVR 主要提高采样效率：把基座已有的低概率正确路径抬成高概率，k=1 一次做对的提升正是产品最值钱的指标；但能力覆盖被基座封顶，题库没有变大。实践含义：基座质量是天花板，预训练与中间训练的投入 RL 替代不了；要扩边界，靠更强基座、蒸馏引入新模式，或下一代 RL 范式。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>DeepSeek-AI, 2025. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning（arXiv:2501.12948）：R1-Zero 纯 RL 涌现自我反思与验证、响应长度随训练增长；蒸馏做法（R1 产出约 80 万条样本、其中约 20 万条非推理数据，对 Qwen2.5 与 Llama 六个底座只做 SFT）；蒸馏数字（Distill-Qwen-7B AIME 2024 55.5% 超 QwQ-32B-Preview 50.0%；Distill-Qwen-32B 72.6% / MATH-500 94.3% / LiveCodeBench 57.2%，多数基准超 o1-mini）；32B 蒸馏与 RL 自训对照（Table 6）及「蒸馏经济有效、突破边界仍需更强基座与更大规模 RL」的结论。已核对 arXiv 摘要页与 HTML 全文对应章节。</li>
+  <li>Yue et al., 2025. Does Reinforcement Learning Really Incentivize Reasoning Capacity in LLMs Beyond the Base Model?（arXiv:2504.13837）：pass@k 大 k 时基座反超 RLVR 模型、能力来自并封顶于基座、六种主流 RLVR 算法相近且远未榨干基座、蒸馏可引入新推理模式真正扩展边界。已核对 arXiv 摘要页。</li>
+  <li>Chen et al., 2021. Evaluating Large Language Models Trained on Code（Codex，arXiv:2107.03374）：pass@k 指标与公式 (1) 无偏估计式的出处；Codex 在 HumanEval 上单样本 28.8%、每题 100 样本解决 70.2%。已核对 arXiv 摘要页。</li>
+  <li>minimind（Apache 2.0），trainer/train_grpo.py：奖励配方 calculate_rewards（31–68 行；rep_penalty 3-gram 重复率封顶 0.5 见 31–34 行、长度窗口 20–800 字符 ±0.5 见 54 行、思考段 20–300 字符 +1.0 与 &lt;/think&gt; 恰好一次 ±0.25 见 55–58 行、减重复惩罚见 60 行、叠加外部奖励模型 internlm2-1_8b-reward 分数见 62–66 行与 225 行）、组相对优势计算（121–124 行，组内全对全错时优势为零的论断由此推出）、同题采样数 num_generations=6（219 行）。</li>
+</ul>
+
+</article>

@@ -1,0 +1,269 @@
+<article class="content">
+<h1>11.1 从偏好到推理：可验证奖励为什么登场</h1>
+<p class="subtitle">本页范围：第 11 章第 1 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>第 10 章的偏好对齐靠人工偏好与奖励模型当裁判，处理的是「见仁见智」的主观题。数学、代码、逻辑这类推理题自带能一锤定音的对错终点，继续用学习型评委打分既贵又会被骗。裁判该怎么换？</td></tr>
+      <tr><td>本节主张</td><td>推理题有唯一可判对错的终点，因此裁判可以不学、不猜，直接由规则担任：数学题与标准答案判等价、代码题跑单元测试、格式查标签。这条路线被 Tülu 3 命名为 RLVR，DeepSeek-R1 用它训出了公开的强推理模型。</td></tr>
+      <tr><td>一句话结论</td><td>可验证奖励 = 用程序当裁判的奖励信号，客观、可复现、不靠学习型评委；它管得了能写程序判分的推理任务，管不了开放对话与写作——两类任务从此各配各的裁判。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>RLVR</span><span>可验证奖励</span><span>规则裁判</span><span>reward hacking</span><span>DeepSeek-R1</span><span>Tülu 3</span><span>o1</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　第 10 章解决了「懂好坏」：奖励模型从偏好对里学会打分，PPO 与 DPO 把这个分数灌进策略模型。但那条路线的裁判有个共同身份——学习型评委，打的是「这个回答像不像好回答」的主观分。本章换一个战场：数学、代码、逻辑这类推理题，它们手里攥着开放对话没有的一张牌——一个能机器判定的对错终点。2024 年 9 月 OpenAI 发布 o1（官方博客，无公开论文），用大规模强化学习训出「先想后答」的推理模型；2025 年 1 月 DeepSeek-R1 公开了完整配方，核心信号源正是规则奖励。本节就回答这张牌带来的第一个问题：为什么推理训练要先换裁判。</p>
+
+<p>　　本节沿「难在哪 → 旧裁判为何不够 → 新裁判长什么样 → 全章怎么走」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>推理题难在哪：答案对 ≠ 过程对</strong>（11.1.1）：推理任务与开放对话的本质区别，「有标准答案」为什么不等于「好训练」；</li>
+  <li><strong>奖励模型的天花板：主观裁判不够用</strong>（11.1.2）：10.2 节的 reward hacking 在推理题上换了副面孔，R1 论文为什么明说不用神经奖励模型；</li>
+  <li><strong>可验证奖励：数学对答案、代码过测试</strong>（11.1.3）：规则裁判的三种形态，RLVR 的正式登场与适用边界；</li>
+  <li><strong>全章地图：回路、算法、思维链、陷阱</strong>（11.1.4）：11.2 到 11.5 各节分工一览，minimind 的 GRPO 教学实现全程陪同。</li>
+</ol>
+
+<p>　　读完本节，应该能说清可验证奖励解决了什么、管不了什么，并带着一张地图进入后面四节。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及推理训练这一站放大之后的出入口。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS111whyrlvr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG111whyrlvr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS111whyrlvr)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS111whyrlvr)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS111whyrlvr)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS111whyrlvr)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS111whyrlvr)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS111whyrlvr)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG111whyrlvr)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）与偏好对齐（第 10 章），交出会对话、懂分寸的模型；推理训练（本章）是它的下一站，任务从「懂好坏」升级为「会推理」，裁判从人与奖励模型换成规则。本节讲这一站为什么需要新裁判，11.2 节起逐节展开回路、算法与思维链。</div>
+</div>
+
+<p>　　「推理训练」这个紫框放大之后长什么样？它的输入是第 10 章交出的模型加上一种特殊的题库，输出是另一种行为模式的模型，而中间的裁判换了人。把它单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 470" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP111d2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrR111d2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：推理训练这一站——输入是偏好对齐模型与可验证题库，裁判从「人 / 奖励模型」换成「规则」</text>
+    <!-- 输入①：偏好对齐后的模型 -->
+    <rect x="20" y="48" width="252" height="116" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="146" y="72" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">输入①：偏好对齐后的模型</text>
+    <text x="146" y="91" text-anchor="middle" font-size="10.5" fill="#555555">第 9–10 章的产物，会对话、懂分寸</text>
+    <text x="146" y="109" text-anchor="middle" font-size="10.5" fill="#555555">还没学会「先想后答」</text>
+    <text x="146" y="127" text-anchor="middle" font-size="10.5" fill="#888888">minimind 底座（已核准配置）：</text>
+    <text x="146" y="145" text-anchor="middle" font-size="10.5" fill="#888888">768 维 · 8 层 · 词表 6400 · 约 63.9M 参数</text>
+    <!-- 输入②：可验证题库 -->
+    <rect x="20" y="172" width="252" height="100" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="146" y="196" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">输入②：可验证题库</text>
+    <text x="146" y="215" text-anchor="middle" font-size="10.5" fill="#555555">数学题：自带标准答案，可判等价</text>
+    <text x="146" y="233" text-anchor="middle" font-size="10.5" fill="#555555">代码题：自带单元测试，可跑分</text>
+    <text x="146" y="251" text-anchor="middle" font-size="10.5" fill="#888888">每题附机器可执行的判分依据</text>
+    <!-- 推理训练回路 -->
+    <rect x="356" y="88" width="288" height="148" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="500" y="112" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理训练回路（本章主角）</text>
+    <text x="500" y="132" text-anchor="middle" font-size="10.5" fill="#ede9fe">① 同一道题，模型采样多条解答</text>
+    <text x="500" y="150" text-anchor="middle" font-size="10.5" fill="#ede9fe">② 规则裁判逐条打分（本节）</text>
+    <text x="500" y="168" text-anchor="middle" font-size="10.5" fill="#ede9fe">③ 按分数更新模型参数（11.2 / 11.3）</text>
+    <text x="500" y="186" text-anchor="middle" font-size="10.5" fill="#d8b4fe">产物行为：先想后答的长思维链（11.4）</text>
+    <!-- 输入到回路的箭头 -->
+    <line x1="272" y1="106" x2="350" y2="130" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP111d2)"/>
+    <line x1="272" y1="236" x2="350" y2="190" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP111d2)"/>
+    <!-- 输出 -->
+    <rect x="724" y="108" width="216" height="108" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="832" y="132" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#0e7490">输出：推理模型</text>
+    <text x="832" y="152" text-anchor="middle" font-size="10.5" fill="#555555">先想后答，数学 / 代码</text>
+    <text x="832" y="170" text-anchor="middle" font-size="10.5" fill="#555555">正确率显著上升</text>
+    <text x="832" y="188" text-anchor="middle" font-size="10.5" fill="#888888">再接推理部署（第 12–13 章）</text>
+    <line x1="644" y1="162" x2="718" y2="162" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP111d2)"/>
+    <!-- 参数回灌回路 -->
+    <polyline points="400,236 400,292 10,292 10,100 16,100" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR111d2)"/>
+    <text x="205" y="310" text-anchor="middle" font-size="10.5" fill="#dc2626">更新后的参数回灌模型，进入下一轮采样（红色回路）</text>
+    <!-- 新旧裁判对照 -->
+    <rect x="60" y="328" width="380" height="118" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="250" y="352" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#92400e">旧裁判：人工偏好 → 奖励模型 RM（第 10 章）</text>
+    <text x="250" y="372" text-anchor="middle" font-size="10.5" fill="#78350f">问「这个回答像不像好回答」，主观打分</text>
+    <text x="250" y="390" text-anchor="middle" font-size="10.5" fill="#78350f">软肋：会被「看起来严谨」的错答案骗过</text>
+    <text x="250" y="408" text-anchor="middle" font-size="10.5" fill="#78350f">reward hacking 的温床（11.1.2）</text>
+    <text x="250" y="426" text-anchor="middle" font-size="10.5" fill="#78350f">依然主管开放对话与写作</text>
+    <rect x="520" y="328" width="380" height="118" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="710" y="352" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#15803d">新裁判：规则（本节登场）</text>
+    <text x="710" y="372" text-anchor="middle" font-size="10.5" fill="#166534">数学判答案等价，代码跑单元测试，结构查标签</text>
+    <text x="710" y="390" text-anchor="middle" font-size="10.5" fill="#166534">只问「对不对」，不问「像不像」</text>
+    <text x="710" y="408" text-anchor="middle" font-size="10.5" fill="#166534">客观、可复现、难以刷分（11.1.3）</text>
+    <text x="710" y="426" text-anchor="middle" font-size="10.5" fill="#166534">主管数学、代码、逻辑等推理任务</text>
+    <line x1="446" y1="387" x2="514" y2="387" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP111d2)"/>
+    <text x="480" y="372" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">裁判换人</text>
+  </svg>
+  <div class="diagram-caption">图示：推理训练站的局部放大。输入有两个——第 9–10 章交出的偏好对齐模型（minimind 底座：768 维、8 层、词表 6400、约 63.9M 参数）与一个每道题自带判分依据的可验证题库（数学题附标准答案、代码题附单元测试）。回路里模型对同一道题采样多条解答，规则裁判逐条打分，按分数更新参数并回灌（红色回路），细节由 11.2 与 11.3 节展开。输出是会「先想后答」的推理模型。底部对照新旧两位裁判：第 10 章的人工偏好与奖励模型主管主观题，本节登场的规则裁判主管可判对错的推理题。</div>
+</div>
+
+<h2>11.1.1 推理题难在哪：答案对 ≠ 过程对</h2>
+
+<p>　　先把任务分成两类。第 9、10 章处理的开放对话与写作是「主观题」：同一个问题有一千种好回答，好坏取决于口吻、分寸、信息量，只能请人或者有学习能力的评委来判。数学、代码、逻辑题是另一类的「客观题」：答案收敛到唯一或少数几个等价结果，对错有硬标准，判分不需要品味，只需要核验。两类任务的差异决定了它们配得上不同的裁判：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>维度</th><th>开放对话 / 写作（第 9–10 章）</th><th>推理任务（本章）</th></tr></thead>
+    <tbody>
+      <tr><td>终点</td><td>无标准答案，好坏见仁见智</td><td>有唯一可判对错的终点</td></tr>
+      <tr><td>判分方式</td><td>人工偏好标注，奖励模型打分</td><td>规则判定：对答案、跑测试</td></tr>
+      <tr><td>典型例子</td><td>摘要、闲聊、文案润色</td><td>数学竞赛题、LeetCode、逻辑谜题</td></tr>
+      <tr><td>裁判软肋</td><td>标注贵，标注员一致率只有约七成（10.2 节）</td><td>只验终点时，过程可信度无人担保</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　但「有标准答案」只解决了终点，没解决过程。一道数学题的解答可以答案对而过程错：中间两步推导都错，最后却蒙对了数字；判断题与选择题天然有蒙对空间，四选一有四分之一的概率撞对。代码题也一样：生成的程序通过了给定的几个公开测试用例，不代表它正确——测试不全时，「过测试」也可能是蒙的。对训练而言这不是小事：只按最终答案发奖励，蒙对的解答与真懂的解答拿到同样的分，模型学到的可能是撞大运的行为模式；反过来，过程全对但最后誊错一个符号的解答会被判零分。这就是本节标题里的不等式：<strong>答案对 ≠ 过程对</strong>。</p>
+
+<p>　　先记住一个结论：推理训练的信号源必须比偏好更硬，但硬到什么程度，取决于校验器的设计。只验最终答案是最便宜的一档，本章大部分内容建立在这一档上；逐步骤批改的过程校验是更贵也更细的一档，11.4 节讲过程奖励模型时再回来。</p>
+
+<div class="highlight-box">
+  推理任务与开放对话的分水岭在终点：推理题有唯一可判对错的终点，因此存在不依赖人、也不依赖学习模型的判分方式。但终点可判不代表过程可信——答案对 ≠ 过程对，这个缺口会一路贯穿到 11.4 节的过程奖励与 11.5 节的作弊与防线。
+</div>
+
+<h2>11.1.2 奖励模型的天花板：主观裁判不够用</h2>
+
+<p>　　既然第 10 章已经训出了会打分的奖励模型，能不能直接拿它给数学解答打分？先回顾两个既有事实。其一，10.2 节讲过，RM 是人类偏好的<strong>代理</strong>而不是本体，代理与本体之间永远有条缝，强化学习最擅长找到这条缝——这就是 reward hacking，经典形态是靠堆长度刷分。其二，RM 的能力被标注员一致率封死，10.2 节给过数字：约七成。10.3 节的应对是 KL 罚项，把策略拴在参考模型附近。这些对策在开放对话上够用，因为任务本身就是主观的，裁判和任务的硬度匹配。</p>
+
+<p>　　到了推理题上，这套裁判遇到两难。<strong>第一难：打分需要评委自己会做这道题。</strong>判一份数学证明写得好不好，评委得自己证得出来；要训出能给数学解答打分的 RM，就得先收集大量「会做题的人」的标注，这比收集「哪个回答更有礼貌」的偏好贵得多。<strong>第二难：RM 容易被「看起来严谨」的错答案骗过。</strong>一份排版工整、步骤齐全、术语唬人的错误推导，在只学过偏好的 RM 眼里往往比一份朴素但正确的解答更像好回答。这是 reward hacking 的推理版：10.2 节里模型靠堆长度刷分，到了推理题上它可以靠堆「严谨感」刷分，分数与正确率脱钩。</p>
+
+<p>　　这不是理论担忧，是工业界白纸黑字的判断。DeepSeek-R1 论文在奖励建模一节（2.2.2 节）写得很直白：训练 R1-Zero 时没有使用任何神经奖励模型，结果型和过程型都不用，理由是神经奖励模型在大规模强化学习中会遭 reward hacking，而且重训 RM 需要额外算力、把训练流水线搞得更复杂。换句话说，公开的强推理模型给出的答案是：在能规则判分的任务上，学习型评委不只多余，而且有害。</p>
+
+<div class="highlight-box warn">
+  RM 在推理题上的两难：评委要自己会做题（标注贵），又会被「看起来严谨」的错解骗过（reward hacking 的推理版）。DeepSeek-R1 因此在大规模强化学习中弃用神经奖励模型，全线改用规则判分（arXiv:2501.12948，2.2.2 节）。
+</div>
+
+<h2>11.1.3 可验证奖励：数学对答案、代码过测试</h2>
+
+<p>　　替代方案朴素得出奇：既然这类题自带标准答案，让规则直接当裁判。这就是<strong>可验证奖励</strong>（verifiable reward）：不训练任何打分模型，用一段确定性程序直接判定回答对不对。Tülu 3 把这条路线正式命名为 RLVR（Reinforcement Learning with Verifiable Rewards，可验证奖励强化学习，arXiv:2411.15124），把它排在 SFT 与 DPO 之后，作为后训练配方的一个独立阶段。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">可验证奖励 Verifiable Reward</span>
+    <span class="term-en">verifiable = 可机器核验的；奖励由规则给出，而非由模型估出</span>
+  </div>
+  <div class="term-body">
+    <p>一类奖励信号：裁判不是训练出来的打分网络，而是一段确定性校验程序——数学题比对最终答案与标准答案是否等价，代码题把生成的程序跑过预设的单元测试，格式要求检查指定标签是否出现。给定同一份回答，规则裁判每次给出同一个分数，客观、可复现，也没有偏好可供钻营。它的射程受限于「能不能写程序判分」：数学、代码、格式是强项，开放写作依然管不了。</p>
+    <div class="term-analogy">像考试里的机器阅卷：作文要请语文老师逐篇读（人工与 RM），数学填空题有标准答案，答题卡过一遍机器立刻出分——快、便宜，也不看卷面整洁度。</div>
+  </div>
+</div>
+
+<p>　　实践中的规则裁判有三类，DeepSeek-R1 的奖励系统把它们组织成「准确率奖励 + 格式奖励」两大件（arXiv:2501.12948，2.2.2 节）：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>答案等价判定（数学）</h4><p>要求模型把最终答案放进指定格式（如 \boxed{}），程序抽取后与标准答案做等价判定：数字、分数、符号表达式各有等价规则。</p></div>
+  <div class="concept-card"><h4>单元测试（代码）</h4><p>生成的程序交给编译器或解释器，跑预设测试用例，通过几个得几分。R1 论文明确提到对 LeetCode 题用编译器按预定义测试用例给反馈。</p></div>
+  <div class="concept-card"><h4>格式检查（结构）</h4><p>不判内容对错，只判结构合规，如思考过程必须包在 &lt;think&gt;…&lt;/think&gt; 标签里。R1 把它单列为一项奖励，与答案对错并列。</p></div>
+</div>
+
+<p>　　写成公式，可验证奖励就是一个判别函数——答对给分，答错不给，裁判是一段程序：</p>
+
+<div class="formula-card">
+  \[ r(x, y) = \mathbb{1}\big[\, \mathrm{verify}(y) = \mathrm{gold}(x) \,\big] \tag{1} \]
+  <div class="formula-note">公式 (1)：可验证奖励的最简形态——从解答里抽出的结果与题目自带的标准答案一致，奖励为 1，否则为 0。符号说明：\(x\) 是题目（prompt），\(y\) 是模型生成的完整解答；\(\mathrm{gold}(x)\) 是题目自带的标准答案（代码题里就是测试套件）；\(\mathrm{verify}(y)\) 是从解答中抽取最终结果并判定的规则程序（数学等价判定或单元测试）；\(\mathbb{1}[\cdot]\) 是指示函数，括号内成立时取 1、否则取 0。实际工程会在此基础上叠加格式奖励与惩罚项，变成一组规则的加权和——11.2 节会逐行看 minimind 的配方。</div>
+</div>
+
+<p>　　有三件事要同时说清楚，免得把规则裁判神化。其一，范围：可验证奖励只管得了能写程序判分的任务，写作、闲聊这类开放任务仍然要靠第 10 章的 RM 路线——两类裁判不是替代关系，是分工关系。其二，漏洞：规则裁判也不是金刚不坏，蒙对答案、测试用例不全、格式合规但内容空洞，都是新形态的空子，11.5 节专门讲这些作弊与防线。其三，时间线：o1 先于这一切公开亮相，但 OpenAI 只发布了官方博客《Learning to Reason with LLMs》（2024 年 9 月，无对应论文），称用大规模强化学习训练模型在回答前产生长思维链，性能随训练时与推理时的计算量同步提升；真正把配方和盘托出的是 2025 年 1 月的 DeepSeek-R1，本章的讲述以 R1 论文这类公开资料为准。</p>
+
+<h2>11.1.4 全章地图：回路、算法、思维链、陷阱</h2>
+
+<p>　　新裁判就位，后面四节回答四个接续问题：规则分数怎么驱动参数更新（回路）、没有价值模型怎么算优势（算法）、模型怎么学会慢慢想（思维链）、规则裁判会被怎么钻空子（陷阱）。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>节</th><th>要回答的问题</th><th>一句话看点</th></tr></thead>
+    <tbody>
+      <tr><td>11.2 RLVR 训练回路</td><td>规则分数怎么接进训练循环</td><td>一题多答、规则打分、组内比较；从 STaR 到 R1-Zero 的谱系；minimind 的「规则 + RM」混合配方逐行看</td></tr>
+      <tr><td>11.3 GRPO</td><td>没有价值模型怎么算优势</td><td>同一题采 6 条回答互为标尺，优势 =（奖励 − 组均值）/ 组标准差；算法出自 DeepSeekMath（arXiv:2402.03300）</td></tr>
+      <tr><td>11.4 长思维链</td><td>模型怎么学会慢慢想</td><td>R1-Zero 纯强化学习涌现出自我反思与「aha moment」；推理时扩展与过程奖励</td></tr>
+      <tr><td>11.5 实践与陷阱</td><td>规则裁判会被怎么钻空子</td><td>长度膨胀、虚假思考、蒙对；推理蒸馏与「RL 是否拓展能力边界」的讨论</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　minimind 作为教学实现在本章全程陪同。它的 train_grpo.py 只有三百多行，却完整实现了 GRPO 回路：同一道题采样 6 条回答（num_generations = 6），用组均值与组标准差算相对优势（第 121–124 行）；台上只有策略、冻结参考、外部奖励模型三个模型，没有价值模型（第 267–272 行）；奖励是规则与 RM 的混合配方（calculate_rewards，第 31–68 行）。后面三节会反复回到这个文件。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">推理题与开放对话的本质区别是什么，「答案对 ≠ 过程对」指什么？</div>
+    <div class="sc-key">推理题（数学、代码、逻辑）有唯一可判对错的终点，因此存在不依赖人与学习模型的判分方式；开放对话没有标准答案，只能靠偏好。但终点可判不代表过程可信：判断、选择可以蒙对，代码可以只过不全的测试用例，过程全对而誊错答案也会被判零分——这个缺口留给 11.4 的过程奖励与 11.5 的防线处理。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">奖励模型为什么到了推理题上不够用？</div>
+    <div class="sc-key">两难：给数学解答打分需要评委自己会做题，标注成本远高于偏好收集；RM 又会被「看起来严谨」的错答案骗过，即 reward hacking 的推理版。DeepSeek-R1 论文 2.2.2 节明说：大规模 RL 中不用神经奖励模型，因为它会遭 reward hacking，且重训 RM 费算力、复杂化流水线。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">可验证奖励有哪三种规则裁判，它管不了什么？</div>
+    <div class="sc-key">答案等价判定（数学，抽取指定格式的最终答案与标准答案判等价）、单元测试（代码，跑预设用例）、格式检查（结构，查 &lt;think&gt; 这类标签）。R1 把它们组织成准确率奖励加格式奖励。它管不了开放写作与对话——那里依然是第 10 章 RM 的辖区，两类裁判是分工而非替代。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Lambert et al., 2024. Tülu 3: Pushing Frontiers in Open Language Model Post-Training（arXiv:2411.15124）：RLVR（Reinforcement Learning with Verifiable Rewards）的命名出处，作为 SFT 与 DPO 之后的后训练阶段；已核对 arXiv 摘要页。</li>
+  <li>DeepSeek-AI, 2025. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning（arXiv:2501.12948）：规则奖励系统 = 准确率奖励 + 格式奖励、数学等价判定与 LeetCode 编译器测试反馈、弃用神经奖励模型的理由（2.2.2 节）、R1-Zero 纯强化学习无 SFT；已核对 arXiv 摘要页与正文 HTML。</li>
+  <li>Shao et al., 2024. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models（arXiv:2402.03300）：GRPO 的原始出处，作为 PPO 的变体在提升数学推理的同时节省显存；已核对 arXiv 摘要页。</li>
+  <li>OpenAI, 2024. Learning to Reason with LLMs（官方博客，2024-09-12 发布，https://openai.com/index/learning-to-reason-with-llms/）：o1 用大规模强化学习训练长思维链、性能随训练时与推理时计算量提升；o1 无 arXiv 论文，本页对 o1 的描述以此官方博客为准。</li>
+  <li>minimind（Apache 2.0），trainer/train_grpo.py：第 121–124 行（同题 6 条采样的组相对优势）、第 267–272 行（策略 + 冻结参考 + 外部奖励模型，无价值模型）、第 31–68 行（calculate_rewards 的「规则 + RM」混合奖励配方）；模型底座 768 维、8 层、词表 6400、约 63.9M 参数为已核准配置。</li>
+</ul>
+
+</article>

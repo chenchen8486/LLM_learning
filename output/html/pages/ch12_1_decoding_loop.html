@@ -1,0 +1,390 @@
+<article class="content">
+<h1>12.1 解码主循环：从 logits 到文字</h1>
+<p class="subtitle">本页范围：第 12 章第 1 节　|　整理时间：2026-10-09</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>第 11 章结束时模型已经训练完毕：给它一段上文，它能给词表里每个候选 token 打一个分。但分数不是文字——用户看到的是一句句回答，不是 6400 个数字。从「会打分」到「会说话」的最后一段路是怎么走的？</td></tr>
+      <tr><td>本节主张</td><td>解码是一条固定的逐步循环：模型前向吐出 logits，经温度、截断等修正后由 softmax 折算成概率，按概率抽样（或取最大）得到一个 token，接回输入再算下一步——逐 token 推进直到收尾。看懂这条循环，所有解码参数的作用位置就各就各位了。</td></tr>
+      <tr><td>一句话结论</td><td>模型只负责打分，把分数变成文字是解码的事；一步解码 = 出 logits → 修正 → softmax → 选一个，自回归循环 = 把选出的 token 接回输入再来一遍，minimind 的 generate 用 33 行代码把这两件事完整实现。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>logits</span><span>自回归解码</span><span>argmax 贪心</span><span>multinomial 抽样</span><span>KV Cache</span><span>eos</span><span>generate</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　第 11 章结束时，模型已经训练完毕。但要看清一件事：训练交出的不是一台「会说话的机器」，而是一台「会打分的机器」——给它一段上文，它做的唯一计算是给词表里每个候选 token 打一个分。用户看到的流畅回答，是这些分数经过一套固定流程一步步转换出来的。从「会打分」到「会说话」的最后一段路，就是本章的主题：推理机制与后处理。本节先把这条路的骨架——解码主循环——完整走一遍。</p>
+
+<p>　　本节沿「一步 → 选择 → 循环 → 实现」的顺序展开：先解剖一步解码的四个环节，看清分数如何变成文字；再讨论最简单的选词策略为什么不够用；然后把一步扩展成自回归循环；最后对照 minimind 的真实代码逐行走读。路线图如下：</p>
+
+<ol>
+  <li><strong>一步解码的解剖：logits → 修正 → softmax → 选词</strong>（12.1.1）：模型每推进一步到底算了什么，配一个可手算的数值小例；</li>
+  <li><strong>贪心与采样：argmax 为什么不够用</strong>（12.1.2）：最「保险」的选词策略为什么产出最枯燥的文本；</li>
+  <li><strong>自回归循环：每步只算新 token（KV Cache 预告）</strong>（12.1.3）：一步如何扩展成一段话，以及避免重复计算的那把钥匙；</li>
+  <li><strong>minimind 的 generate 逐行走读</strong>（12.1.4）：33 行真实代码，把本节全部概念一一对号入座。</li>
+</ol>
+
+<p>　　读完本节，应该能手算一步解码的概率、说清贪心退化的成因，并独立读懂 minimind generate 函数的每一行。这套循环是 12.2 到 12.5 节所有话题（采样参数、停止条件、结构化输出、调参实践）共同的舞台。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及「推理与部署」这一站放大之后的内部结构。心里有这张地图，后面每一步都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS121decodingloop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG121decodingloop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS121decodingloop)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS121decodingloop)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS121decodingloop)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS121decodingloop)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS121decodingloop)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS121decodingloop)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS121decodingloop)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）与推理训练（第 11 章），交出一个训练完毕的模型；推理与部署（第 12–13 章）是终点：模型在这里把打分能力变成实际输出。本节讲这一站的心脏——解码主循环：logits 怎样一步步变成文字；采样参数、停止条件与结构化输出由 12.2 到 12.4 节展开，系统工程留待第 13 章。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？一段 prompt 进去，模型每推一步算了什么，结果又怎样接回自己身上？把一步解码与它的自回归回路单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP121loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrR121loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+      <marker id="arrG121loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#d97706"/>
+      </marker>
+    </defs>
+    <text x="24" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：一步解码与红色自回归回路（数字为 minimind 默认配置，行号指 model_minimind.py）</text>
+    <!-- 主链：输入 -->
+    <rect x="20" y="60" width="130" height="120" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="85" y="86" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">输入</text>
+    <text x="85" y="106" text-anchor="middle" font-size="11" fill="#555555">prompt token IDs</text>
+    <text x="85" y="124" text-anchor="middle" font-size="11" fill="#555555">形状 [B, N]</text>
+    <text x="85" y="142" text-anchor="middle" font-size="10" fill="#888888">一句提问的分词结果</text>
+    <line x1="150" y1="120" x2="186" y2="120" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP121loop)"/>
+    <!-- 模型前向 -->
+    <rect x="190" y="60" width="160" height="120" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="270" y="84" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">MiniMind 前向</text>
+    <text x="270" y="104" text-anchor="middle" font-size="11" fill="#ede9fe">8 层 Transformer 块</text>
+    <text x="270" y="122" text-anchor="middle" font-size="11" fill="#ede9fe">hidden 768 · 词表 6400</text>
+    <text x="270" y="140" text-anchor="middle" font-size="11" fill="#ede9fe">约 63.9M 参数</text>
+    <line x1="350" y1="120" x2="386" y2="120" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP121loop)"/>
+    <!-- logits -->
+    <rect x="390" y="60" width="150" height="120" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="465" y="84" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">logits 原始打分</text>
+    <text x="465" y="104" text-anchor="middle" font-size="11" fill="#555555">只取末位 [B, 6400]</text>
+    <text x="465" y="122" text-anchor="middle" font-size="11" fill="#555555">词表每个 token 一个分</text>
+    <text x="465" y="140" text-anchor="middle" font-size="10" fill="#888888">272 行：修正之前</text>
+    <line x1="540" y1="120" x2="576" y2="120" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP121loop)"/>
+    <!-- 修正链 -->
+    <rect x="580" y="44" width="180" height="140" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="670" y="68" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">修正链（272–282 行）</text>
+    <text x="592" y="92" text-anchor="start" font-size="11" fill="#555555">① 温度：÷ 0.85</text>
+    <text x="592" y="114" text-anchor="start" font-size="11" fill="#555555">② top_k=50 名外置 −∞</text>
+    <text x="592" y="136" text-anchor="start" font-size="11" fill="#555555">③ top_p=0.85 尾部置 −∞</text>
+    <text x="592" y="158" text-anchor="start" font-size="10" fill="#888888">（rp=1 时重复惩罚跳过）</text>
+    <line x1="760" y1="120" x2="796" y2="120" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP121loop)"/>
+    <!-- softmax + 选词 -->
+    <rect x="800" y="44" width="144" height="152" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="872" y="68" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">softmax → 选词</text>
+    <text x="872" y="90" text-anchor="middle" font-size="11" fill="#555555">6400 个分归一成</text>
+    <text x="872" y="108" text-anchor="middle" font-size="11" fill="#555555">概率分布</text>
+    <text x="872" y="130" text-anchor="middle" font-size="11" fill="#555555">multinomial 抽样</text>
+    <text x="872" y="148" text-anchor="middle" font-size="11" fill="#555555">（argmax 即贪心）</text>
+    <text x="872" y="176" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#15803d">输出：1 个新 token [B, 1]</text>
+    <!-- KV Cache 注释框 -->
+    <line x1="270" y1="180" x2="270" y2="208" stroke="#d97706" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrG121loop)"/>
+    <rect x="190" y="212" width="330" height="50" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <text x="202" y="232" text-anchor="start" font-size="10.5" fill="#92400e">注释：KV Cache——第 2 步起只送新 token 进前向</text>
+    <text x="202" y="250" text-anchor="start" font-size="10.5" fill="#92400e">历史 KV 直接复用（269–270、286 行），第 13 章细讲</text>
+    <!-- 红色自回归回路 -->
+    <polyline points="872,196 872,292 85,292 85,186" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR121loop)"/>
+    <text x="478" y="312" text-anchor="middle" font-size="10.5" fill="#dc2626">自回归回路：新 token 接回输入末尾逐步重复，直到产出 eos 或撞 max_new_tokens=8192（284、288–290 行）</text>
+  </svg>
+  <div class="diagram-caption">图示：推理部署站的局部放大——一步解码的完整链路（数字均为 minimind 默认配置，行号指 model_minimind.py）。prompt 的 token ID 序列 [B, N] 进入 MiniMind 前向（8 层 Transformer 块、hidden 768、词表 6400、约 63.9M 参数），末位位置吐出词表大小的 logits [B, 6400]；修正链依次做温度除法（T=0.85）、top_k=50 截尾、top_p=0.85 截尾，softmax 归一后由 multinomial 抽出一个新 token [B, 1]；新 token 沿红色自回归回路接回输入末尾，循环直到产出 eos 或撞 max_new_tokens=8192 上限。琥珀色注释框是本节的 KV Cache 预告：第 2 步起只把新 token 送进前向，机制细节第 13 章展开。12.1.1 到 12.1.4 会逐块讲清这张图的每个环节。</div>
+</div>
+
+<h2>12.1.1 一步解码的解剖：logits → 修正 → softmax → 选词</h2>
+
+<p>　　先建立直觉。把训练好的模型想象成选秀比赛的评委：词表里的候选 token 是参赛选手，minimind 的词表有 6400 个（见第 2 章），每推进一步，评委就给全部 6400 名选手各打一个分。这个分数叫 logits——它不是概率，可正可负、可大可小，只表达「评委觉得谁更合适」的相对偏好。打分之后还要过三道手续才能产生文字：先按解码参数修正分数（调温度、砍掉不靠谱的尾巴），再用 softmax 把修正后的分数折算成概率，最后从概率里选出一个 token。logits → 修正 → softmax → 选词，这就是一步解码的四个环节。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">原始打分 Logits</span>
+    <span class="term-en">logit = 未归一化的打分；softmax 的输入</span>
+  </div>
+  <div class="term-body">
+    <p>模型输出层给每个候选 token 的原始分数。词表有多大，一步就吐出多少个 logits——minimind 是 6400 个。logits 可正可负、没有上界，彼此只有相对意义：分数高只表示模型在当前上文下更偏好这个 token。单看一个 logit 说不出「可能性几成」，要等全体分数一起过 softmax 归一化，才能换算成选中概率。</p>
+    <div class="term-analogy">像体操比赛的原始评分：7.8 分、9.2 分本身不是名次，要等所有选手的分数汇总比较之后，才知道每个人真正的胜率。</div>
+  </div>
+</div>
+
+<p>　　第三环节的 softmax 在第 6 章作为训练目标的一部分出现过（交叉熵损失，附录 A.4），它的数学细节与温度的作用机理在附录 A.3 有完整推导。这里只需要它的解码形态——把修正后的 logits 折算成各候选的选中概率：</p>
+
+<div class="formula-card">
+  \[ p_i = \frac{\exp(z_i / T)}{\sum_{j=1}^{V} \exp(z_j / T)} \tag{1} \]
+  <div class="formula-note">公式 (1)：带温度的 softmax——把词表大小的 logits 向量折算成概率分布，所有候选的概率为正且总和为 1。符号说明：\(z_i\) 是第 \(i\) 个候选 token 的 logit（模型输出的原始打分，已做过修正链处理）；\(T\) 是温度（temperature），\(T &lt; 1\) 放大分数差距让分布变尖锐，\(T &gt; 1\) 抹平差距让分布变平坦，机理见附录 A.3；\(V\) 是词表大小，minimind 为 6400；\(p_i\) 是第 \(i\) 个 token 被选中的概率。选词时，argmax 取 \(p_i\) 最大的那个，multinomial 按 \(p_i\) 抽签。</div>
+</div>
+
+<p>　　用一个能手算的小例把四个环节串起来。设某一步只有 4 个候选值得关注（其余 6396 个 token 的分数低到可以忽略）：「的」「是」「在」「了」，模型给出的 logits 依次是 4.0、3.0、1.0、0.0。按 minimind 的默认温度 0.85 修正，四个分数变成 4.71、3.53、1.18、0.00；再过 softmax，概率为 74.3%、22.9%、2.2%、0.7%。最后的选词有两条路线：multinomial 抽样按概率抽签——74.3% 抽中「的」、22.9% 抽中「是」、约 2.9% 翻到后两名；argmax 则不看概率直接锁定最高分，必然选中「的」。这段分数之旅画出来是这样的：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrN121step" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="24" font-size="13" font-weight="bold" fill="#4c1d95">数值小例：4 个候选 token 的一步解码（候选与 logits 为教学设定值，温度取 minimind 默认 0.85，概率可手算复现）</text>
+    <!-- 面板 1：logits -->
+    <rect x="20" y="48" width="210" height="196" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="125" y="72" text-anchor="middle" font-size="12" font-weight="bold" fill="#333333">① 模型打分：logits</text>
+    <text x="32" y="106" font-size="11" fill="#333333">的</text>
+    <rect x="56" y="95" width="110" height="14" rx="2" fill="#6d28d9"/>
+    <text x="172" y="106" font-size="10.5" fill="#555555">4.0</text>
+    <text x="32" y="138" font-size="11" fill="#333333">是</text>
+    <rect x="56" y="127" width="82" height="14" rx="2" fill="#6d28d9"/>
+    <text x="144" y="138" font-size="10.5" fill="#555555">3.0</text>
+    <text x="32" y="170" font-size="11" fill="#333333">在</text>
+    <rect x="56" y="159" width="28" height="14" rx="2" fill="#6d28d9"/>
+    <text x="90" y="170" font-size="10.5" fill="#555555">1.0</text>
+    <text x="32" y="202" font-size="11" fill="#333333">了</text>
+    <text x="62" y="202" font-size="10.5" fill="#555555">0.0</text>
+    <line x1="230" y1="146" x2="276" y2="146" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrN121step)"/>
+    <text x="253" y="132" text-anchor="middle" font-size="10.5" fill="#6d28d9">÷ 0.85</text>
+    <!-- 面板 2：温度后 -->
+    <rect x="280" y="48" width="210" height="196" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="385" y="72" text-anchor="middle" font-size="12" font-weight="bold" fill="#333333">② 温度修正后</text>
+    <text x="292" y="106" font-size="11" fill="#333333">的</text>
+    <rect x="316" y="95" width="110" height="14" rx="2" fill="#6d28d9"/>
+    <text x="432" y="106" font-size="10.5" fill="#555555">4.71</text>
+    <text x="292" y="138" font-size="11" fill="#333333">是</text>
+    <rect x="316" y="127" width="82" height="14" rx="2" fill="#6d28d9"/>
+    <text x="404" y="138" font-size="10.5" fill="#555555">3.53</text>
+    <text x="292" y="170" font-size="11" fill="#333333">在</text>
+    <rect x="316" y="159" width="28" height="14" rx="2" fill="#6d28d9"/>
+    <text x="350" y="170" font-size="10.5" fill="#555555">1.18</text>
+    <text x="292" y="202" font-size="11" fill="#333333">了</text>
+    <text x="322" y="202" font-size="10.5" fill="#555555">0.00</text>
+    <line x1="490" y1="146" x2="536" y2="146" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrN121step)"/>
+    <text x="513" y="132" text-anchor="middle" font-size="10.5" fill="#6d28d9">softmax</text>
+    <!-- 面板 3：概率 -->
+    <rect x="540" y="48" width="200" height="196" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="640" y="72" text-anchor="middle" font-size="12" font-weight="bold" fill="#333333">③ softmax：概率</text>
+    <text x="552" y="106" font-size="11" fill="#333333">的</text>
+    <rect x="576" y="95" width="110" height="14" rx="2" fill="#16a34a"/>
+    <text x="692" y="106" font-size="10.5" fill="#555555">74.3%</text>
+    <text x="552" y="138" font-size="11" fill="#333333">是</text>
+    <rect x="576" y="127" width="34" height="14" rx="2" fill="#16a34a"/>
+    <text x="616" y="138" font-size="10.5" fill="#555555">22.9%</text>
+    <text x="552" y="170" font-size="11" fill="#333333">在</text>
+    <rect x="576" y="159" width="4" height="14" rx="2" fill="#16a34a"/>
+    <text x="586" y="170" font-size="10.5" fill="#555555">2.2%</text>
+    <text x="552" y="202" font-size="11" fill="#333333">了</text>
+    <rect x="576" y="191" width="2" height="14" rx="1" fill="#16a34a"/>
+    <text x="584" y="202" font-size="10.5" fill="#555555">0.7%</text>
+    <!-- 第④步 -->
+    <rect x="20" y="264" width="720" height="52" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="36" y="286" font-size="11.5" font-weight="bold" fill="#15803d">④ 选词（二选一）：multinomial 按概率抽签——74.3% 抽中「的」、22.9% 抽中「是」、约 2.9% 翻到后两名</text>
+    <text x="36" y="306" font-size="10.5" fill="#555555">argmax 路线不看概率、锁定最高分：每步必中「的」——12.1.2 就讲这为什么反而出问题</text>
+  </svg>
+  <div class="diagram-caption">图示：一步解码的数值小例。四个候选 token 的原始打分（logits）先除以温度 0.85，再由 softmax 折算成概率；选词在 multinomial 抽签与 argmax 锁定最高分之间二选一。作为对照：不除温度（相当于 T=1）时四个概率是 69.6%、25.6%、3.5%、1.3%——T &lt; 1 会让分布更尖锐，这正是 12.2 节的主题。本例为聚焦「打分 → 概率 → 选词」只演示温度一站，top-k 与 top-p 的截断动作留到 12.2 节图示。</div>
+</div>
+
+<p>　　小例里第二环节只做了一步温度除法，完整的修正链还包括 top-k、top-p 截断与重复惩罚，它们各自的作用与相互顺序是 12.2 节的专章内容。本节的焦点是骨架：无论修正链多长，一步解码的两端永远是「模型出 logits」和「选出一个 token」。</p>
+
+<div class="highlight-box">
+  一步解码的本质：模型只负责给词表打分（minimind 每步吐出 6400 个 logits），把分数变成文字是解码器的事——先修正、再 softmax 归一、最后抽样或取最大。模型的全部学识都凝结在分数的相对高低里，解码参数能改变的只是「怎么从分数里挑」，改变不了分数本身（12.5 节还会回到这个结论）。
+</div>
+
+<h2>12.1.2 贪心与采样：argmax 为什么不够用</h2>
+
+<p>　　四环节里最自由的是最后的选词，最朴素的策略是 argmax：每步都选分数最高的那个，也叫贪心解码（greedy decoding）。它的直觉吸引力很强——既然模型给「的」打了最高分，选它不就是最「正确」的决定？而且结果确定、可复现，调试方便。12.1.1 的小例里，贪心路线会毫无悬念地每步锁定「的」。</p>
+
+<p>　　但实践给出的答案相反。Holtzman 等人在 2019 年的研究 The Curious Case of Neural Text Degeneration（arXiv:1904.09751，ICLR 2020 正式发表）系统比较了机器生成文本与人类文本的分布差异，得出一个反直觉的结论：用最大似然做训练目标能训出高质量的模型，用最大概率做解码目标却产出干瘪（bland）且诡异重复（strangely repetitive）的文本。同一个模型，仅改编码策略，文本质量就能发生戏剧性变化。贪心与它的近亲 beam search（束搜索）都属于高概率解码，在长文本生成上都会滑向「复读」——翻来覆去说同一句正确而无信息量的话：</p>
+
+<blockquote>
+  我喜欢吃苹果，我喜欢吃苹果，我喜欢吃苹果，……<br>
+  （这类复读输出是最大化解码退化的典型长相，此处为构造示意，非某个模型的实测输出）
+</blockquote>
+
+<p>　　退化的成因可以直观理解：「正确的废话」永远概率最高。语言里安全、通用、高频的接续天然拿高分；更要命的是自我强化——一旦模型说出「我喜欢」，「我喜欢吃」的概率就被抬高，说过的话反过来给自己的续写加分，循环越走越窄，最后困死在原地。人说话恰恰相反：好文本贵在信息量与意外性，人类作者会主动避开最容易被猜到的接续，写出的文本在概率分布上天然分散。这就是那篇论文揭示的人机文本分布差异：最大化概率的解码把模型按在分布头部不放，而人类文本覆盖整个分布。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">贪心解码与束搜索 Greedy / Beam Search</span>
+    <span class="term-en">greedy = 每步选当前最优；beam = 保留 b 条候选路径</span>
+  </div>
+  <div class="term-body">
+    <p>贪心解码每步取概率最大的 token，相当于温度趋近 0 的极限。束搜索（beam search）是它的扩展：每步保留累计概率最高的 b 条候选序列（b 叫束宽），最后挑整体概率最高的一条，曾是机器翻译的标配解码。两者共享同一个目标——概率最大化，也因此共享同一个病根：长文本上容易掉进重复与空转的陷阱。Holtzman 等人的退化研究正是以它们为对照，提出了按累计概率动态截尾的 nucleus sampling（top-p），12.2 节细讲。</p>
+    <div class="term-analogy">像走迷宫时每步都朝「看起来离出口最近」的方向迈：局部最优串起来往往不是全局最优，还容易在原地打转。</div>
+  </div>
+</div>
+
+<p>　　出路是给选词引入受控的随机性：不锁定最高分，按概率抽样（multinomial）。抽样让低概率但合适的 token 也有出场机会，文本立刻活起来；minimind 的默认配置（do_sample=True）走的正是这条路。但纯抽样会把分布尾巴里的垃圾 token 也放出来，所以工程上要配三件刹车——温度调节分布锐度，top-k 与 top-p 把不靠谱的尾巴砍掉。它们各自的机制、联合顺序与调参手感，构成 12.2 节的全部内容。</p>
+
+<div class="highlight-box warn">
+  贪心与高概率解码的退化是结构性的：概率最大化的目标会把生成困在分布头部，自我强化的重复随之产生——「分数最高的词」不等于「该选的词」。nucleus 论文的另一项发现同样关键：解码策略是独立于模型质量的变量，同一模型仅改编码策略就能显著改变输出质量。
+</div>
+
+<h2>12.1.3 自回归循环：每步只算新 token（KV Cache 预告）</h2>
+
+<p>　　一步只产出一个 token，一段话要靠循环。做法直白：把刚选出的 token 接在输入末尾，带着更长的上文再走一遍四环节，产出下一个 token，如此往复，直到模型产出结束标记 eos 或撞上长度上限。这个「输出接回输入」的结构就是自回归（autoregressive）生成，第 0 章与第 4 章已经讲过它如何配合因果掩码工作——每个位置只能看到自己和左边的内容，保证「用上文预测下一个词」在训练与推理时行为一致。用概率语言写，一段生成就是把联合概率拆成逐位条件概率的连乘：</p>
+
+<div class="formula-card">
+  \[ p(y \mid x) = \prod_{t=1}^{T} p(y_t \mid y_{&lt;t}, x) \tag{2} \]
+  <div class="formula-note">公式 (2)：自回归分解——一段回答的总概率等于逐位「下一个 token」概率的连乘，解码循环就是把这条链一步步兑现。符号说明：\(x\) 是 prompt 的 token 序列；\(y = (y_1, \dots, y_T)\) 是生成的 token 序列，\(T\) 是生成长度；\(y_{&lt;t}\) 表示第 \(t\) 步之前已生成的全部 token；\(p(y_t \mid y_{&lt;t}, x)\) 正是公式 (1) 给出的、经修正与 softmax 之后选中第 \(t\) 个 token 的概率。每一步的条件都包含 \(x\) 与不断变长的 \(y_{&lt;t}\)，这就是「接回输入」的数学表达。</div>
+</div>
+
+<p>　　循环结构定了，下一个问题是每步算什么。最朴素的实现每步都把完整上文重新送进模型：第 1 步算 prompt 的全部 \(N\) 个 token，第 2 步算 \(N+1\) 个，第 \(t\) 步算 \(N+t-1\) 个。但这里藏着巨大的浪费：前 \(N+t-2\) 个位置的前向结果与上一步一模一样——它们的输入没变，因果掩码又保证老位置看不到新 token，注意力的中间结果原封不动，重算纯属白费。minimind 的做法是把每步算出的注意力键值（Key 与 Value 向量）存下来，下一步只把新 token 送进前向（model_minimind.py:269–270 的 <code>input_ids[:, past_len:]</code>），历史部分直接复用缓存（286 行）。这个缓存就是大名鼎鼎的 KV Cache：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>时间点</th><th>送进前向的 token</th><th>新算的注意力 KV</th><th>复用的内容</th><th>产出</th></tr></thead>
+    <tbody>
+      <tr><td>第 1 步</td><td>prompt 全部 \(N\) 个</td><td>\(N\) 个位置的 KV（建立缓存）</td><td>无</td><td>第 1 个新 token</td></tr>
+      <tr><td>第 2 步</td><td>仅新 token 1 个</td><td>1 个位置的 KV（追加）</td><td>前 \(N\) 个位置的 KV</td><td>第 2 个新 token</td></tr>
+      <tr><td>第 \(t\) 步</td><td>仅最新 1 个</td><td>1 个位置的 KV（追加）</td><td>前 \(N+t-2\) 个位置的 KV</td><td>第 \(t\) 个新 token</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">KV 缓存 KV Cache</span>
+    <span class="term-en">cache = 暂存已算好的结果，下次直接取用</span>
+  </div>
+  <div class="term-body">
+    <p>自回归解码时，每个已处理的 token 在各注意力层都算出过一对 Key / Value 向量。因果掩码保证这些向量不随后续生成而改变，于是把它们缓存起来：下一步只需为新 token 计算注意力——新位置的 Query 与缓存里全部历史 Key 做匹配（Query / Key 的机制见第 4 章）。每步的计算量从「重算整段」降为「只算一个位置的增量」，代价是显存里多存一份随序列长度增长的历史 KV。它是现代推理系统最重要的优化对象，显存账、分页管理与批量调度都属第 13 章。</p>
+    <div class="term-analogy">像开会做纪要：已经记下的内容不用每次重听录音，会上每说一句新话只补记这一句，需要回顾时翻纪要就行。</div>
+  </div>
+</div>
+
+<div class="highlight-box info">
+  注释：KV Cache 把解码从「每步重算整段」变成「每步只算增量」，是逐 token 生成在工程上可行的基础。它的显存开销（随序列长度与批大小增长）、分页管理与吞吐优化是推理系统的核心议题，统一在第 13 章展开；本节只需记住它的接口形态：每步只送新 token，历史 KV 随步追加。
+</div>
+
+<h2>12.1.4 minimind 的 generate 逐行走读</h2>
+
+<p>　　概念齐了，看它们怎样在真实代码里排布。minimind 的 generate 函数（model/model_minimind.py:261–293，共 33 行）是本节内容的最小完整实现，去掉批处理扩展与流式细节后恰好五段：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>段落</th><th>行号</th><th>干什么</th><th>对应本节概念</th></tr></thead>
+    <tbody>
+      <tr><td>循环外准备</td><td>261–267</td><td><code>@torch.inference_mode()</code> 关掉梯度记录；初始化 finished 掩码记录各序列是否已停</td><td>生成不是训练，没有反向传播</td></tr>
+      <tr><td>前向</td><td>269–271</td><td>取已缓存长度 past_len，只把新 token 送进前向；attention_mask 每步右补一位</td><td>12.1.3 的 KV Cache 增量计算</td></tr>
+      <tr><td>修正</td><td>272–282</td><td>末位 logits 除以温度 → 重复惩罚 → top_k 截尾 → top_p 截尾</td><td>12.1.1 的第二环节（细节见 12.2）</td></tr>
+      <tr><td>选词与拼接</td><td>283–286</td><td>do_sample=True 时 multinomial 抽签，否则 argmax；已停序列强制补 eos；新 token 接回输入；KV 缓存交给下一步</td><td>12.1.1 的第四环节 + 12.1.3 的回路</td></tr>
+      <tr><td>停止</td><td>288–290</td><td>更新 finished 掩码，全部序列停下才 break 退出循环</td><td>12.3 节停止条件的前奏</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　把关键行放在一起看（精简转写，省略批处理扩展与 streamer 细节，行号对应原文件）：</p>
+
+<pre><code># minimind model_minimind.py:261-293 精简转写
+@torch.inference_mode()                                        # 261 不建梯度图
+def generate(..., max_new_tokens=8192, temperature=0.85,
+             top_p=0.85, top_k=50, eos_token_id=2, ...):       # 262 默认参数
+    finished = torch.zeros(B, dtype=torch.bool)                # 266 各序列「是否已停」
+    for _ in range(max_new_tokens):                            # 268 主循环，硬上限
+        past_len = past_key_values[0][0].shape[1] if past_key_values else 0  # 269 已缓存长度
+        outputs = self.forward(input_ids[:, past_len:], ...)   # 270 只送新 token
+        logits = outputs.logits[:, -1, :] / temperature        # 272 取末位 ÷ 温度
+        # 273-275 重复惩罚：已出现过的 token，正分 ÷rp、负分 ×rp
+        logits[logits &lt; torch.topk(logits, top_k)[0][..., -1, None]] = -float('inf')  # 276-277 top_k 截尾
+        # 278-282 top_p：按累计概率截尾，掩码右移一格保住阈值线上的第一个
+        next_token = multinomial(softmax(logits)) if do_sample else argmax(logits)     # 283 选词
+        next_token = torch.where(finished, eos, next_token)    # 284 已停序列强制补 eos
+        input_ids = torch.cat([input_ids, next_token], dim=-1) # 285 接回输入
+        past_key_values = outputs.past_key_values              # 286 缓存交给下一步
+        if finished.all(): break                               # 288-290 全停才退出</code></pre>
+
+<p>　　几处细节值得圈点。其一，261 行的 <code>@torch.inference_mode()</code> 让整个生成过程不建梯度图，省显存也省时间——推理没有反向传播。其二，271 行 attention_mask 每步右补一位：序列每长一格，掩码同步放行一格。其三，281 行 top_p 的掩码右移一格：累计概率第一个越过 p 的位置是「核」的边界，右移保证边界上的 token 不被误删，这个分寸 12.2 节会配图细讲。其四，284 行已停序列强制补 eos：批量生成时各序列长短不一，先停的用 eos 占位补齐，全部停下（finished.all()）才整体退出（288–290 行）——批量对齐的完整故事留到 12.3 节。</p>
+
+<p>　　函数签名里的默认值（262 行：temperature 0.85、top_p 0.85、top_k 50、max_new_tokens 8192、eos_token_id 2）只是缺省配置，实际跑起来的参数由调用方决定。以 eval_llm.py 为例：命令行默认 temperature 0.85、top_p 0.95、max_new_tokens 8192（eval_llm.py:42–44），调用时指定 do_sample=True、repetition_penalty=1（82–87 行）——即默认走抽样路线、不启用重复惩罚；top_k 未传，沿用函数默认的 50；top_p 则被命令行的 0.95 覆盖。max_new_tokens 8192 旁边还挂着一句官方注释：「并非模型实际长文本能力」——它只是循环的硬上限，模型能不能写出 8192 个 token 的连贯文本是另一回事，停止条件的完整讨论在 12.3 节。流式输出由 TextStreamer 完成（eval_llm.py:65 创建、84 行传入 generate），逐 token 打印的机制同样在 12.3 节展开。</p>
+
+<div class="highlight-box">
+  走读的收获：generate 的 33 行里，前向、修正、选词、接回、停止五段与本节概念一一对应，没有任何黑魔法。工业级推理框架（vLLM、llama.cpp 等）的解码循环与它同构，差别只在 KV Cache 管理、批量调度与硬件优化的工程深度——那是第 13 章的世界。
+</div>
+
+<p>　　主循环搭好了，旋钮该登场了：温度怎么拧、top-k 与 top-p 两把刀怎么配合、重复惩罚何时启用——12.2 节逐个拆解采样三件套。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">一步解码的四个环节是什么？logits 和概率差在哪？</div>
+    <div class="sc-key">模型前向出 logits（词表大小的原始打分，minimind 为 6400 个）→ 按解码参数修正（温度、重复惩罚、top-k、top-p）→ softmax 归一成概率 → multinomial 抽样或 argmax 取一个 token。logits 是未归一化的相对打分，可正可负；概率是归一化后的选中几率，全部为正且和为 1。模型的学识凝结在 logits 的相对高低里，解码参数只改变「怎么从分数里挑」，改变不了分数本身。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">贪心解码每步都选最优，为什么反而不好用？</div>
+    <div class="sc-key">概率最大化会把生成困在分布头部：高频安全的接续天然拿高分，说过的话又抬高自身概率，自我强化成复读循环。nucleus 论文（Holtzman et al., arXiv:1904.09751）证实最大化解码产出干瘪且诡异重复的文本，同一模型仅改编码策略就能显著改变质量。对策是按概率抽样，再配温度、top-k、top-p 三件刹车控制随机性（12.2 节）。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">minimind 的 generate 每步为什么只送一个新 token 进模型？</div>
+    <div class="sc-key">因果掩码保证老位置的前向结果不随新 token 改变，重算纯属浪费；把每步算出的注意力键值缓存起来（KV Cache），下一步只需为新 token 计算（model_minimind.py:269–270 切片、286 行复用）。生成循环在产出 eos 或撞 max_new_tokens 上限时停止；批量场景下先停的序列用 eos 占位，全部停才退出（284、288–290 行）。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Holtzman et al., 2019. The Curious Case of Neural Text Degeneration（arXiv:1904.09751，ICLR 2020 正式发表）：最大似然训练目标与最大概率解码目标的反差、解码导致文本干瘪且诡异重复的结论、人机文本的分布差异、nucleus sampling 的提出动机。已核对 arXiv 摘要页。</li>
+  <li>minimind（Apache 2.0），model/model_minimind.py：generate 主循环（261–293 行；默认参数 262 行：temperature 0.85、top_p 0.85、top_k 50、max_new_tokens 8192、eos_token_id 2；只送新 token 269–270 行、attention_mask 补位 271 行、温度 272 行、重复惩罚 273–275 行、top_k 276–277 行、top_p 278–282 行、选词 283 行、强制补 eos 284 行、接回输入 285 行、KV 复用 286 行、停止判断 288–290 行）。</li>
+  <li>minimind（Apache 2.0），eval_llm.py：命令行默认（max_new_tokens 8192 及「并非模型实际长文本能力」注释 42 行、temperature 0.85 见 43 行、top_p 0.95 见 44 行）、调用配置（do_sample=True、repetition_penalty=1，82–87 行）、TextStreamer 流式（65 行创建、84 行传入）。</li>
+  <li>手册内部衔接：softmax 与温度的数学见附录 A.3，交叉熵训练目标见第 6 章与附录 A.4，因果掩码与自回归结构见第 4 章，KV Cache 工程展开见第 13 章。</li>
+</ul>
+
+</article>

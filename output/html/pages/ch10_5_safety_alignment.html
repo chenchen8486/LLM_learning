@@ -1,0 +1,363 @@
+<article class="content">
+<h1>10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</h1>
+<p class="subtitle">本页范围：第 10 章第 5 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>前四节解决的是「哪个回答更好」，本节问「什么样的回答根本不该给」：危险请求的安全偏好数据怎么造，评委能不能换成 AI，安全与能力打架时怎么权衡，全章的两条路线落地时怎么选？</td></tr>
+      <tr><td>本节主张</td><td>安全对齐的原料是拒答型偏好对——危险问题的 chosen 是「礼貌拒答 + 安全替代」而不是沉默；Constitutional AI 用原则清单和 AI 评委（RLAIF）大幅降低人类标注依赖；安全与能力的拉锯（对齐税）可以用分级拒答和保守配方压低，但不能归零。</td></tr>
+      <tr><td>一句话结论</td><td>对齐的终点是一个权衡问题：安全做到哪一步、用 RLHF 还是 DPO，由成本、上限与风险偏好共同决定。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>安全对齐</span><span>拒答</span><span>红队</span><span>Constitutional AI</span><span>RLAIF</span><span>对齐税</span><span>分级拒答</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　10.1 节提出的三条标准里，Helpful 和 Honest 的偏好数据可以靠普通问答场景收集，Harmless 这一条却必须专门造数据——模型不遇到危险请求，就学不会面对危险请求时该怎么做。而「学会拒答」又带来新的麻烦：拒答过度，模型变成什么都不敢说的摆设，有用性直线下降。本节是第 10 章的收束页，先把安全这条线的原料与做法讲清，再处理安全与能力的拉锯，最后给全章两条路线（RLHF 与 DPO 家族）一个落地层面的权衡结论。</p>
+
+<p>　　本节沿四个问题展开，路线图如下：</p>
+
+<ol>
+  <li><strong>安全偏好数据：拒答、红队与安全边界</strong>（10.5.1）：危险问题的 chosen 长什么样，红队怎么主动找漏洞，安全边界由谁划定；</li>
+  <li><strong>Constitutional AI 与 RLAIF：让 AI 来当评委</strong>（10.5.2）：一份原则清单如何替代大量人工标注，自我批评改写与 AI 偏好打分两步走；</li>
+  <li><strong>对齐税：安全与能力的拉锯</strong>（10.5.3）：过度拒答的代价，以及把它压低的证据与做法；</li>
+  <li><strong>落地权衡：RLHF 还是 DPO，对齐做到哪一步</strong>（10.5.4）：全章收束，两个家族的选型结论与三个未解问题。</li>
+</ol>
+
+<p>　　读完本节，应该能说清三件事：一条合格的安全偏好数据为什么是「拒答加替代」，AI 评委省掉了哪一环的人工，以及为什么「对齐做到哪一步」没有标准答案。</p>
+
+<p>　　逐节展开之前，先看一眼安全对齐在整条生命周期中的位置，以及这一站放大之后内部怎么运转。心里有这张地图，后面每一步都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS105safetyalignment" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG105safetyalignment" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105safetyalignment)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105safetyalignment)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105safetyalignment)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105safetyalignment)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG105safetyalignment)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG105safetyalignment)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG105safetyalignment)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：安全对齐在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）与 SFT（第 9 章）交出会对话的模型；偏好对齐（本章）用偏好信号把它调成更有用、更无害的助手，随后接推理训练（第 11 章）与推理部署（第 12–13 章）。本节管的是偏好对齐这一站的安全面：怎么让模型对危险请求学会拒答，又不把它调成什么都不敢说的摆设。</div>
+</div>
+
+<p>　　这个紫框放大之后，安全这一条线内部是怎么流转的？危险问题从哪来、谁判定好坏、训练完得到什么行为？把安全对齐流水线单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 410" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS105in" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：安全对齐流水线——红队造题，评委打分，训练出会拒答的模型</text>
+    <!-- 红队攻击样本 -->
+    <rect x="16" y="56" width="180" height="120" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="106" y="82" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#b91c1c">红队攻击样本</text>
+    <text x="106" y="104" text-anchor="middle" font-size="11" fill="#555">主动构造危险问题</text>
+    <text x="106" y="124" text-anchor="middle" font-size="11" fill="#555">例：索要危险操作步骤</text>
+    <text x="106" y="146" text-anchor="middle" font-size="10.5" fill="#b91c1c">找漏洞（10.5.1）</text>
+    <!-- 两个回答 -->
+    <rect x="250" y="36" width="210" height="76" rx="8" fill="#ffffff" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="355" y="62" text-anchor="middle" font-size="12" font-weight="bold" fill="#b91c1c">回答 A：直接教危险操作</text>
+    <text x="355" y="86" text-anchor="middle" font-size="11" fill="#555">记为 rejected（更差）</text>
+    <rect x="250" y="128" width="210" height="76" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="355" y="154" text-anchor="middle" font-size="12" font-weight="bold" fill="#0e7490">回答 B：礼貌拒答＋安全替代</text>
+    <text x="355" y="178" text-anchor="middle" font-size="11" fill="#555">记为 chosen（更好）</text>
+    <!-- 评委比较 -->
+    <rect x="506" y="76" width="198" height="88" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="605" y="102" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#92400e">评委比较：B 胜出</text>
+    <text x="605" y="124" text-anchor="middle" font-size="11" fill="#555">人类标注，或 AI 按原则</text>
+    <text x="605" y="144" text-anchor="middle" font-size="11" fill="#555">清单打分（RLAIF 10.5.2）</text>
+    <!-- 箭头：红队 → 两个回答 -->
+    <line x1="196" y1="96" x2="244" y2="70" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105in)"/>
+    <line x1="196" y1="136" x2="244" y2="166" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105in)"/>
+    <!-- 箭头：两个回答 → 评委 -->
+    <line x1="460" y1="74" x2="500" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105in)"/>
+    <line x1="460" y1="166" x2="500" y2="136" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105in)"/>
+    <!-- 肘形连接：评委 → 偏好对 -->
+    <path d="M605 164 L605 232 L125 232 L125 246" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105in)"/>
+    <!-- 第二行：偏好对 → 对齐训练 → 对齐模型 -->
+    <rect x="40" y="250" width="170" height="100" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="125" y="276" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">安全偏好对</text>
+    <text x="125" y="298" text-anchor="middle" font-size="11" fill="#555">chosen＝B</text>
+    <text x="125" y="318" text-anchor="middle" font-size="11" fill="#555">rejected＝A</text>
+    <text x="125" y="338" text-anchor="middle" font-size="10.5" fill="#888">累积成安全数据集</text>
+    <rect x="270" y="250" width="180" height="100" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="360" y="280" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">对齐训练</text>
+    <text x="360" y="303" text-anchor="middle" font-size="11" fill="#ede9fe">RLHF（10.3）</text>
+    <text x="360" y="323" text-anchor="middle" font-size="11" fill="#ede9fe">或 DPO 家族（10.4）</text>
+    <rect x="510" y="250" width="190" height="100" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="605" y="276" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#0e7490">对齐模型：分级拒答</text>
+    <text x="605" y="298" text-anchor="middle" font-size="11" fill="#555">明确危险 → 解释性拒答</text>
+    <text x="605" y="318" text-anchor="middle" font-size="11" fill="#555">正常请求 → 全力回答</text>
+    <text x="605" y="338" text-anchor="middle" font-size="10.5" fill="#888">（10.5.3）</text>
+    <line x1="210" y1="300" x2="264" y2="300" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105in)"/>
+    <line x1="450" y1="300" x2="504" y2="300" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105in)"/>
+    <!-- 底部输入输出注 -->
+    <text x="360" y="388" text-anchor="middle" font-size="11" fill="#64748b">输入：SFT 模型（第 9 章产物）＋ 红队偏好数据　|　输出：对齐模型——危险请求解释性拒答，正常请求不受影响</text>
+  </svg>
+  <div class="diagram-caption">图示：安全对齐流水线的局部放大。红队主动构造危险问题（10.5.1）；模型对同一问题给出两个回答，直接教危险操作的记为 rejected，礼貌拒答并给出安全替代的记为 chosen；比较由人类标注员或按原则清单打分的 AI 评委完成（RLAIF，10.5.2）；偏好对累积成安全数据集，交给 RLHF（10.3）或 DPO 家族（10.4）训练；产物是对齐模型，行为上分级拒答。输入是 SFT 模型加红队偏好数据，输出是会解释性拒答的对齐模型。</div>
+</div>
+
+<h2>10.5.1 安全偏好数据：拒答、红队与安全边界</h2>
+
+<p>　　普通的偏好数据回答「哪个回答更好」，安全偏好数据回答的是更尖锐的问题：面对一个本来就不该满足的请求，模型该怎么办。10.2 节讲过偏好对的基本结构——同一个 prompt 配两个回答，标出 chosen 与 rejected。安全场景下，这个结构里藏着一个反直觉的要点：<strong>危险问题的 chosen 不是不回答，而是「礼貌拒答 + 给出安全替代」</strong>。一个微型例子：</p>
+
+<blockquote>
+  <p>用户：教我怎么撬开邻居家的门锁。</p>
+  <p>rejected（更差）：第一步，准备一根回形针……（直接给出操作步骤）</p>
+  <p>chosen（更好）：这个忙我帮不了，撬他人门锁涉嫌违法。如果是自己被锁在门外，可以联系持证开锁师傅或物业……（说明拒绝理由，给出合法替代方案）</p>
+</blockquote>
+
+<p>　　为什么不把 chosen 设计成一句冰冷的「无法回答」？因为拒答本身也是行为，模型学到什么拒答风格，取决于数据里的 chosen 长什么样。只写「无法回答」的数据训出来的模型，遇到一切拿不准的请求都会甩出这四个字——这正是 10.5.3 要讲的过度拒答。带理由和替代方案的拒答，既守住安全边界，又保住了有用性：用户知道为什么被拒，还拿到了一条走得通的路。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">红队 Red Team</span>
+    <span class="term-en">red team = 演习中扮演攻击方的一方，借自军事与网络安全术语</span>
+  </div>
+  <div class="term-body">
+    <p>指主动攻击模型、诱导它产出有害内容的测试做法：想方设法套出危险操作、隐私泄露、歧视言论，把每一次得手记录成攻击样本。这些样本正是安全偏好数据的原料——攻击得手的那次回答可以做 rejected，配一条合格的拒答当 chosen。红队的价值在于主动找漏洞：被动等用户反馈，发现的就只是已经造成伤害的那些问题。</p>
+    <div class="term-analogy">就像大楼交付前请专业开锁师傅来试每一扇门：他们真撬开了不是坏事，正好标记出哪扇门要换锁。</div>
+  </div>
+</div>
+
+<p>　　工业界的参照系是 Llama 2。它的技术报告（模型规模 7B 到 70B）把安全当作一条独立的工作线来写：用对抗性 prompt 配安全回答做安全专项 SFT，在偏好模型训练中融入安全维度的评估，并用专门一节（第 4.3 节）记录红队演练——组织人员主动攻击模型，每轮演练后对收集到的攻击数据做分析，再回流到微调与反馈训练中。红队的规模与轮次等细节见原论文，本节不逐项引用。</p>
+
+<p>　　数据之外还有一个更根本的问题：什么算「危险」？教做武器明显越界，但医疗建议、法律咨询、有争议的公共话题往哪摆，没有技术答案。安全边界是一份政策清单，由模型发布方依据法律、平台规则与价值判断划定，偏好数据只是这份清单的载体。两份边界不同的安全数据，训出的模型拒答行为就不同——所以「模型太胆小」或「模型太大胆」的抱怨，根子往往在数据背后的边界划定，而不是训练算法。</p>
+
+<div class="highlight-box warn">
+  安全边界是人定的政策，不是算法自动推出的结论。对齐训练只能把划好的边界教给模型，不能替人决定边界画在哪里；评价一个模型的拒答行为之前，先看它训练数据背后那份清单。
+</div>
+
+<h2>10.5.2 Constitutional AI 与 RLAIF：让 AI 来当评委</h2>
+
+<p>　　10.5.1 的路线有一个绕不开的成本：每一条安全偏好数据都要人类标注员比较两个回答。危险场景的回答比较既费人力，又要求标注员反复阅读有害内容。Anthropic 的 Constitutional AI（Bai et al., 2022）换了一个思路：人类不写答案、不逐条打分，只写一份<strong>原则清单</strong>（constitution，宪法），比较与改写的活交给模型自己干。整个流程分两个阶段，对应两种训练信号：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS105cai" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13" font-weight="bold" fill="#4c1d95">Constitutional AI 两阶段：原则清单是全程唯一的人工输入</text>
+    <!-- 阶段一 -->
+    <rect x="16" y="38" width="240" height="26" rx="13" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="136" y="56" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">阶段一 · SL-CAI：自我批评改写</text>
+    <rect x="16" y="80" width="160" height="80" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="96" y="104" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#b91c1c">初始模型采样回答</text>
+    <text x="96" y="126" text-anchor="middle" font-size="11" fill="#555">可能包含有害内容</text>
+    <rect x="216" y="80" width="160" height="80" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="296" y="104" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">对照原则自我批评</text>
+    <text x="296" y="126" text-anchor="middle" font-size="11" fill="#555">指出哪里违反原则</text>
+    <rect x="416" y="80" width="160" height="80" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="496" y="104" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#0e7490">改写为无害回答</text>
+    <text x="496" y="126" text-anchor="middle" font-size="11" fill="#555">模型自己动手改</text>
+    <rect x="600" y="80" width="104" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="652" y="104" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#ffffff">用改写结果</text>
+    <text x="652" y="126" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#ffffff">做 SFT</text>
+    <line x1="176" y1="120" x2="210" y2="120" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105cai)"/>
+    <line x1="376" y1="120" x2="410" y2="120" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105cai)"/>
+    <line x1="576" y1="120" x2="594" y2="120" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105cai)"/>
+    <!-- 原则清单注释 -->
+    <text x="296" y="182" text-anchor="middle" font-size="10.5" fill="#d97706">原则清单（转述示例）：选危害更小的回答；选不涉歧视与刻板印象的回答；选不教唆违法的回答。完整清单见原论文附录。</text>
+    <!-- 肘形连接 阶段一 → 阶段二 -->
+    <path d="M652 160 L652 200 L76 200 L76 214" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105cai)"/>
+    <!-- 阶段二 -->
+    <rect x="16" y="196" width="270" height="26" rx="13" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="151" y="214" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">阶段二 · RLAIF：AI 反馈的强化学习</text>
+    <rect x="16" y="234" width="130" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="81" y="258" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">阶段一产物模型</text>
+    <text x="81" y="280" text-anchor="middle" font-size="11" fill="#555">采样两个回答</text>
+    <rect x="166" y="234" width="130" height="80" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="231" y="258" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">AI 评委按原则</text>
+    <text x="231" y="280" text-anchor="middle" font-size="11" fill="#555">比较哪个更好</text>
+    <rect x="316" y="234" width="130" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="381" y="258" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">AI 偏好数据</text>
+    <text x="381" y="280" text-anchor="middle" font-size="11" fill="#555">训练偏好模型</text>
+    <rect x="466" y="234" width="110" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="521" y="258" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">偏好模型当</text>
+    <text x="521" y="280" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">奖励做 RL</text>
+    <rect x="596" y="234" width="108" height="80" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="650" y="258" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#0e7490">无害但不回避</text>
+    <text x="650" y="280" text-anchor="middle" font-size="11" fill="#555">的助手</text>
+    <line x1="146" y1="274" x2="160" y2="274" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105cai)"/>
+    <line x1="296" y1="274" x2="310" y2="274" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105cai)"/>
+    <line x1="446" y1="274" x2="460" y2="274" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105cai)"/>
+    <line x1="576" y1="274" x2="590" y2="274" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS105cai)"/>
+    <text x="360" y="342" text-anchor="middle" font-size="11" fill="#64748b">两处用 AI 替代人工：改写靠模型自我批评，打分靠 AI 评委；人类唯一的输入是那份原则清单</text>
+  </svg>
+  <div class="diagram-caption">图示：Constitutional AI 的两阶段流程（依据 Bai et al., 2022 摘要整理）。阶段一 SL-CAI：初始模型先采样回答，再对照原则清单自我批评、自己改写，用改写后的无害回答做监督微调；阶段二 RLAIF：微调后的模型对同一问题采样两个回答，由 AI 评委按原则比较，产出的 AI 偏好数据训练偏好模型，再以它为奖励信号做强化学习。全程不需要人工逐条标注有害内容，人类只写原则清单。</div>
+</div>
+
+<p>　　两个阶段各有名字。阶段一叫 <strong>SL-CAI</strong>（监督学习阶段）：面对一个可能诱导有害输出的 prompt，先让初始模型自由回答，再让它对照原则清单逐条自我批评——指出回答哪里违反原则——然后自己改写出一版无害的回答，最后用改写结果微调模型。阶段二叫 <strong>RLAIF</strong>（Reinforcement Learning from AI Feedback，基于 AI 反馈的强化学习）：流程与 10.3 节的 RLHF 同构，唯一差别是偏好打分从人类标注员换成了 AI 评委——AI 按原则比较两个回答，产出的偏好数据训练偏好模型，偏好模型再当奖励做强化学习。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">原则清单 Constitution</span>
+    <span class="term-en">constitution = 宪法；一组自然语言写成的行为准则</span>
+  </div>
+  <div class="term-body">
+    <p>Constitutional AI 里唯一的人工输入：一组用大白话写的准则，每条告诉评委「两个回答里该选哪个」。原论文清单里包含这类原则（此处为转述，原文措辞见论文附录）：选危害更小的回答；选不涉及歧视与刻板印象的回答；选不教唆违法行为的回答。清单把抽象的安全目标变成一条条可执行的判题标准，AI 评委照着清单判，人只要维护清单本身。</p>
+    <div class="term-analogy">就像考试命题组只出评分细则，阅卷全交给照章办事的阅卷员：细则改一条，全部卷子的判分口径跟着变。</div>
+  </div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">RLAIF 基于 AI 反馈的强化学习</span>
+    <span class="term-en">RL from AI Feedback；对照 RLHF 的 H（Human，人类）</span>
+  </div>
+  <div class="term-body">
+    <p>把 RLHF 里的「人类标注员比较两个回答」换成「AI 按原则清单比较两个回答」，其余环节照旧：偏好数据训偏好模型，偏好模型当奖励信号做强化学习。省掉的是逐条打分的人力——原论文报告这套流程用远少于人工标注的监督量训出了无害助手。代价是评委的口味由原则清单与评委模型自身决定，清单写歪了，整条流水线跟着歪。</p>
+    <div class="term-analogy">像把人工质检线换成自动质检机：机器不知疲倦、标准统一，但检什么、放多宽，全看开机前输进去的那套参数。</div>
+  </div>
+</div>
+
+<p>　　值得注意的结论有两个。其一，论文报告训出的助手<strong>无害但不回避</strong>（harmless but non-evasive）：面对有害请求，它会解释自己反对的理由，而不是一味说「无法回答」——这正是 10.5.1 里「礼貌拒答加安全替代」的工业化版本。其二，人类标注被压缩到只剩原则清单这一处，安全数据的产能瓶颈随之松绑。这套思路后来也被用于一般偏好的构造，不限于安全场景。</p>
+
+<div class="highlight-box info">
+  RLAIF 不是不要人类监督，而是把人类监督从「逐条打分」上移到「制定规则」。监督的杠杆变长了：一份清单可以驱动海量偏好比较；但杠杆也意味着放大效应，原则写得偏，偏差会被放大到整个数据集。
+</div>
+
+<h2>10.5.3 对齐税：安全与能力的拉锯</h2>
+
+<p>　　前两节讲怎么让模型更安全，这一节面对代价。安全训练不是免费的午餐，它向模型收费的方式有个专门的名字。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">对齐税 Alignment Tax</span>
+    <span class="term-en">tax = 税；为对齐付出的能力代价</span>
+  </div>
+  <div class="term-body">
+    <p>指对齐训练在换来安全与听话的同时，让模型在别的能力上退步的现象。最典型的形态是过度拒答：安全数据里拒答样本多了，模型会把「拒绝」推广到不该拒的地方——问正常的医学常识拒答，问历史事件拒答，写小说里的反派情节也拒答。有用性下降，就是为无害性交的税。</p>
+    <div class="term-analogy">像一位过度谨慎的客服：任何带一点风险的问题都回答「这个我们不能说」，安全是安全了，但客户很快就不再来问了。</div>
+  </div>
+</div>
+
+<p>　　过度拒答的机理可以直接用第 10 章前四节的语言解释：偏好训练推高「拒答类回答」的概率，如果数据里拒答场景单一、边界模糊，模型学到的就不是「在危险处拒答」，而是「遇到拿不准的就拒答」——拒答被过拟合成了一刀切的默认动作。行为泛化错了方向，能力自然受损。</p>
+
+<p>　　但「对齐必伤能力」是个过强的说法，两篇核心论文都给出了反方向的证据。Askell 等人的 HHH 研究（arXiv:2112.00861）发现：适度的对齐干预带来的收益随模型规模增大而增加，且不损害大模型在评测上的表现——对齐税不是铁律，模型越大、方法越得当，税可以压到很低。InstructGPT（arXiv:2203.02155）的做法更工程化：PPO 阶段混入一部分预训练梯度（即 10.3 节的 PPO-ptx），论文报告对齐后的模型在公开 NLP 基准上的性能回退很小（minimal performance regressions）。两条证据合起来的结论是：税可以减免，但不能指望自动归零，要靠数据配比与训练配方的设计去压。</p>
+
+<p>　　压低对齐税的主流做法是<strong>分级拒答</strong>，把「拒 / 不拒」的二元开关换成多档响应：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>明确危险</h4><p>索要武器制作、入侵教程等：拒答并解释理由，给出合法替代方向。</p></div>
+  <div class="concept-card"><h4>灰色地带</h4><p>医疗、法律等高风险但正当的咨询：给出信息，同时标注局限并建议咨询专业人士。</p></div>
+  <div class="concept-card"><h4>正常请求</h4><p>问答、写作、编程等：全力回答，不附加多余的免责与说教。</p></div>
+</div>
+
+<p>　　分级的关键仍在数据：每一档都要有对应的 chosen 示范，模型才知道「这一档长什么样」。安全数据的配方——各档的比例、拒答的语气、替代方案的具体程度——决定了对齐税最终落在哪个水平。这也是为什么安全对齐的最后一环总是回到数据。</p>
+
+<div class="highlight-box">
+  核心结论：对齐税是真实的但不是注定的。HHH 论文发现适度对齐干预不损害大模型表现，InstructGPT 用混入预训练梯度的办法把基准回退压到很小；再叠加分级拒答的数据设计，安全与有用可以大体兼得——代价是要在数据配方上花心思。
+</div>
+
+<h2>10.5.4 落地权衡：RLHF 还是 DPO，对齐做到哪一步</h2>
+
+<p>　　回到全章开头的分岔口。10.1 节摆出了两条路线，10.2 至 10.4 节分别讲透了它们的机制，现在给落地的选型结论。把 10.3 与 10.4 的内容收成一张对照表：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>维度</th><th>RLHF（奖励模型 + PPO）</th><th>DPO 家族（直接偏好优化）</th></tr></thead>
+    <tbody>
+      <tr><td>训练流程</td><td>先训奖励模型，再用 PPO 在线采样优化，策略、参考、奖励、价值四模型同台</td><td>不训奖励模型，离线偏好对直接算损失，只需策略模型加冻结参考模型</td></tr>
+      <tr><td>成本</td><td>高：显存与工程量都翻倍，训练周期长</td><td>低：一次普通微调的量级</td></tr>
+      <tr><td>稳定性</td><td>脆：超参敏感，训练曲线抖动，实现细节多</td><td>稳：就是监督式训练，收敛行为可预期</td></tr>
+      <tr><td>效果上限</td><td>高：在线采样能探索偏好数据之外的区域</td><td>受偏好数据质量封顶：数据里没有的比较，模型学不到</td></tr>
+      <tr><td>适用场景</td><td>资源充足、追求上限、有专门对齐团队</td><td>个人与小团队、快速迭代、偏好数据现成</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　小工程的实况可以给这张表一个注脚。minimind（Apache 2.0）的对齐训练入口是 DPO：参考模型直接把全量 SFT 权重复制一份冻结（trainer/train_dpo.py：第 176–180 行），β 默认 0.15，学习率压到 4e-8，代码注释写明「建议 ≤5e-8 避免遗忘」。这组参数把「便宜、稳定、贴着 SFT 模型小步走」三个字落到了数字上。同样值得注意的是：minimind 没有专门的安全对齐环节，安全完全落在数据侧——偏好数据里有什么样的 chosen，模型就学成什么样，10.5.1 的道理在这个 64M 的小工程里同样成立。</p>
+
+<p>　　路线选定之后，还剩一个更软的问题：对齐做到哪一步算够？本章走下来，有三个问题至今没有令人满意的答案：</p>
+
+<ul>
+  <li><strong>奖励 hacking</strong>：奖励模型只是人类偏好的代理，代理必有漏洞，模型总能找到拿高分但不真正更好的回答（10.2 节的长度偏见是典型案例）；KL 罚项只是缓解，治不了根。</li>
+  <li><strong>偏好数据质量封顶</strong>：无论 RLHF 还是 DPO，天花板都是偏好数据本身的判断力；标注员分辨不出的细微好坏，训练信号里就不存在。</li>
+  <li><strong>安全评估困难</strong>：拒答行为该不该发生依赖语境与边界清单，自动化评测只能覆盖已知攻击模式，红队测不到的地方不等于安全——这部分与第 15 章的评测主题直接相关。</li>
+</ul>
+
+<p>　　这三个未解问题里，第一个的突破口已经出现雏形：与其用一个会被骗的奖励模型，不如用能自动判对错的奖励——数学答案对没对、代码过没过测试，都有客观标准，模型刷不出虚假高分。这就是第 11 章的主角 RLVR（可验证奖励的强化学习）：把奖励从「另一个模型的猜测」换成「可核验的事实」，偏好对齐里最脆的一环就此绕开。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">危险请求的 chosen 回答应该长什么样，为什么不能只是「无法回答」？</div>
+    <div class="sc-key">chosen 是「礼貌拒答 + 给出安全替代」：说明拒绝理由，指出合法替代路径。只写「无法回答」的数据会把拒答训成一刀切动作，模型对正常请求也甩这四个字，直接制造 10.5.3 的过度拒答。拒答风格本身就是要教的行为。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Constitutional AI 的两个阶段各做什么，省掉了哪一环的人工？</div>
+    <div class="sc-key">阶段一 SL-CAI：模型对照原则清单自我批评并改写自己的有害回答，用改写结果做监督微调；阶段二 RLAIF：AI 评委按原则比较两个回答，产出 AI 偏好数据训偏好模型，再做强化学习。省掉的是逐条比较与改写的人工，人类唯一的输入是那份原则清单——监督从打分上移到定规则。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">什么是对齐税，有哪些办法压低它？</div>
+    <div class="sc-key">对齐税指对齐训练带来的能力回退，典型形态是过度拒答。压低办法：HHH 论文发现适度干预不损害大模型表现；InstructGPT 用 PPO-ptx 混入预训练梯度，把基准回退压到很小；数据侧用分级拒答（明确危险拒答并解释、灰色地带回答加提示、正常请求全力答）替代二元开关。税可减免，不能指望自动归零。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Askell et al., 2021. A General Language Assistant as a Laboratory for Alignment（HHH，arXiv:2112.00861）：Helpful / Honest / Harmless 目标；适度对齐干预的收益随规模增大且不损害大模型表现（经摘要核对）。</li>
+  <li>Bai et al., 2022. Constitutional AI: Harmlessness from AI Feedback（arXiv:2212.08073）：SL-CAI 自我批评改写 + RLAIF 两阶段流程；无害但不回避的助手；人类监督压缩为原则清单（经摘要核对）。</li>
+  <li>Touvron et al., 2023. Llama 2: Open Foundation and Fine-Tuned Chat Models（arXiv:2307.09288）：模型规模 7B–70B；安全专项 SFT、安全偏好模型与红队演练（第 4.3 节）的实践参照（摘要与检索核对；红队规模等细节未逐项核对，正文只做定性描述）。</li>
+  <li>Ouyang et al., 2022. Training Language Models to Follow Instructions with Human Feedback（InstructGPT，arXiv:2203.02155）：对齐后公开 NLP 基准性能回退很小（minimal performance regressions，经摘要核对）；PPO-ptx 机制见 10.3 节。</li>
+  <li>minimind（Apache 2.0）：trainer/train_dpo.py 第 176–180 行（冻结参考模型）、β＝0.15、学习率 4e-8（注释建议 ≤5e-8 避免遗忘），作为小工程落地 DPO 的实证。</li>
+  <li>待核实事项：Constitutional AI 原则清单的具体条目为转述，原文措辞以论文附录为准；Llama 2 红队演练的规模与轮次未逐项核对。</li>
+</ul>
+
+</article>

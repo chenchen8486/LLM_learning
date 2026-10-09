@@ -1,0 +1,308 @@
+<article class="content">
+<h1>10.1 偏好差距：为什么 SFT 之后还要对齐</h1>
+<p class="subtitle">本页范围：第 10 章第 1 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>第 9 章的 SFT 教会了模型按指令作答，为什么还不够？「会模仿示范」与「会分辨好坏」之间差的这道沟，由什么信号、什么路线来填？</td></tr>
+      <tr><td>本节主张</td><td>SFT 的模仿范式有三块天花板：学不到「哪个更好」、质量封顶于标注员、把多种合格回答压成单一路径。补它的信号是「偏好标注」——同一问题两个回答、标出谁更好；基于这份信号分出两条路线：先训奖励模型再做强化学习的 RLHF，与把偏好对直接写进损失函数的 DPO 家族。</td></tr>
+      <tr><td>一句话结论</td><td>偏好对齐用「哪个回答更好」的相对判断替代「标准答案」的绝对示范，把 SFT 之后的助手从「合格」推向「有用、诚实、无害」。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>偏好对齐</span><span>HHH</span><span>偏好标注</span><span>RLHF</span><span>DPO</span><span>InstructGPT</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　第 9 章走完，SFT 把 base model 改造成了会按指令作答的 instruct model：对话格式立住了，答完也知道收尾。但「会对话」不等于「对话得好」。同一个问题，模型能给出合格的回答，却分不出几个合格回答里哪个更有用、更可信、更稳妥——训练它的人也从来没给过它这种判断信号：SFT 数据里只有「该怎么答」，没有「哪个答法更好」。本节是第 10 章的开篇，先把这道差距摆清楚，再依次回答两个问题：「好回答」到底指什么，以及对齐的信号从哪里来、训练路线怎么分。</p>
+
+<p>　　本节沿四个问题展开，路线图如下：</p>
+
+<ol>
+  <li><strong>SFT 的上限：模仿训练缺了什么</strong>（10.1.1）：模仿范式的三块天花板，以及为什么它们靠加数据补不上；</li>
+  <li><strong>什么是「好回答」：Helpful、Honest、Harmless</strong>（10.1.2）：对齐领域最常用的一套评价标准，逐条定义配微型例子；</li>
+  <li><strong>从「标答案」到「标偏好」：对齐的信号来源</strong>（10.1.3）：为什么二选一的偏好标注比手写示范便宜且对准目标，InstructGPT 的真实数据规模做参照；</li>
+  <li><strong>两条对齐路线：RLHF 与直接偏好优化</strong>（10.1.4）：同一份偏好信号的两种用法，对比表收束并给本章后续三节分工。</li>
+</ol>
+
+<p>　　读完本节，应该能说清三件事：SFT 的模仿范式缺了什么，HHH 三条标准各管什么，以及 RLHF 与 DPO 为什么都建立在同一份偏好信号上。</p>
+
+<p>　　逐节展开之前，先看一眼偏好对齐在 LLM 生命周期中的位置，以及这一站放大之后的结构。心里有这张地图，后面四节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS101alignmentgap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG101alignmentgap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS101alignmentgap)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS101alignmentgap)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS101alignmentgap)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS101alignmentgap)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG101alignmentgap)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG101alignmentgap)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG101alignmentgap)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：偏好对齐在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）与 SFT（第 9 章）交出会对话的 instruct model；偏好对齐（本章）在此基础上教模型分辨回答的好坏，随后接推理训练（第 11 章），最终进入推理与部署（第 12–13 章）。本节管的是这一站的入口问题：为什么需要它、信号从哪来、路线怎么分。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？它的输入和输出各是什么？把偏好对齐这一站单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 460" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS101in" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：偏好对齐这一站——输入 SFT 模型与偏好信号，输出对齐模型</text>
+    <!-- 输入包 -->
+    <rect x="170" y="48" width="380" height="92" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="360" y="74" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">输入：SFT 模型 + 成对偏好数据</text>
+    <text x="360" y="97" text-anchor="middle" font-size="11" fill="#555">SFT 模型：第 9 章产物，已会按指令作答</text>
+    <text x="360" y="119" text-anchor="middle" font-size="11" fill="#555">偏好数据：同一问题的两个回答 + 哪个更好（10.1.3）</text>
+    <!-- 输入到分叉 -->
+    <line x1="360" y1="140" x2="360" y2="186" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS101in)"/>
+    <text x="374" y="170" font-size="11" fill="#555">偏好信号</text>
+    <!-- 路线一 -->
+    <rect x="40" y="192" width="300" height="118" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="190" y="218" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">路线一 · RLHF（10.2–10.3 节）</text>
+    <text x="190" y="242" text-anchor="middle" font-size="11" fill="#555">先训奖励模型，给回答打分（10.2）</text>
+    <text x="190" y="264" text-anchor="middle" font-size="11" fill="#555">再用 PPO 按分数做强化学习（10.3）</text>
+    <text x="190" y="288" text-anchor="middle" font-size="11" fill="#888888">多个模型同台：效果上限高，贵且脆</text>
+    <!-- 路线二 -->
+    <rect x="380" y="192" width="300" height="118" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="530" y="218" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">路线二 · DPO 家族（10.4 节）</text>
+    <text x="530" y="242" text-anchor="middle" font-size="11" fill="#555">不训奖励模型</text>
+    <text x="530" y="264" text-anchor="middle" font-size="11" fill="#555">偏好对直接进损失函数，一步到位</text>
+    <text x="530" y="288" text-anchor="middle" font-size="11" fill="#888888">便宜稳定，上限受偏好数据质量封顶</text>
+    <!-- 汇聚箭头 -->
+    <line x1="190" y1="310" x2="330" y2="354" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS101in)"/>
+    <line x1="530" y1="310" x2="390" y2="354" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS101in)"/>
+    <!-- 输出 -->
+    <rect x="230" y="360" width="260" height="64" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="360" y="385" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#0e7490">输出：对齐模型</text>
+    <text x="360" y="407" text-anchor="middle" font-size="11" fill="#555">更有用 · 更诚实 · 更无害（HHH，10.1.2）</text>
+    <!-- 底部注 -->
+    <text x="360" y="446" text-anchor="middle" font-size="11" fill="#64748b">两条路线共用同一份偏好信号与同一个 SFT 起点，差别只在谁来打分、怎么更新</text>
+  </svg>
+  <div class="diagram-caption">图示：偏好对齐这一站的输入与输出。输入是两样东西——第 9 章交出的 SFT 模型，以及「同一问题两个回答、标出谁更好」的成对偏好数据；此后路线分叉：RLHF 先把偏好蒸馏成奖励模型再用 PPO 强化学习（10.2–10.3 节），DPO 家族跳过奖励模型、把偏好对直接写进损失函数（10.4 节）；两条路线收敛到同一个输出——更有用、更诚实、更无害的对齐模型，它也是第 11 章推理训练的起点之一。</div>
+</div>
+
+<h2>10.1.1 SFT 的上限：模仿训练缺了什么</h2>
+
+<p>　　先回顾 SFT 在做什么。按 9.3 节的公式 (1)，它的损失是逐 token 交叉熵：给定指令，让模型生成的每个 token 都逼近标注员手写的参考回答。这套机制教会了模型「像参考答案那样应答」，效果立竿见影。但也正是这套机制，给 SFT 封顶了三块天花板：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>短板一 · 学不到「哪个更好」</h4><p>损失只问「像不像参考答案」。两个回答都合格时，数据里没有任何字段表达谁更好，模型自然学不会分辨。</p></div>
+  <div class="concept-card"><h4>短板二 · 质量封顶于标注员</h4><p>参考答案由人手写，标注员写不出的好回答，模型无从模仿。示范数据的最高水平就是模型的天花板。</p></div>
+  <div class="concept-card"><h4>短板三 · 单一路径浪费</h4><p>同一问题的合格回答有许多种写法，逼模型逐字模仿其中一条，等于把其余合格写法都当成「错」往下压。</p></div>
+</div>
+
+<p>　　三块天花板用一对类比看得最清楚。SFT 像照着字帖练字：字帖写成什么样，上限就是什么样，而且帖上没有的东西——比如两幅字哪幅更有神韵——临摹永远学不到。对齐更像老师批改：不替学生写字，只在两篇作业上圈点打分、指出哪篇好在哪里。后者传递的是判断，不是范本。</p>
+
+<p>　　回头对照 9.1 节的表层对齐假说，分工就更清楚了。假说说 SFT 学的主要是交互样式：口吻、结构、何时收尾。样式可以靠模仿学会，判断不行——「哪个回答更有用、更可信」是一个比较问题，需要的是成对的样本和相对的标准，这超出了「指令-回答」示范数据所能携带的信息量。要补的不是更多示范，而是一种新的信号。</p>
+
+<div class="highlight-box">
+  SFT 给的是「一份合格答卷的写法」，给不了「两份答卷哪份更好」的判断力。模仿范式的三块天花板——学不到比较、封顶于标注员、压平多样合格解——靠追加示范数据补不上，需要把监督信号从「标准答案」换成「相对偏好」。这就是第 10 章存在的理由。
+</div>
+
+<h2>10.1.2 什么是「好回答」：Helpful、Honest、Harmless</h2>
+
+<p>　　要教模型分辨好坏，先得说清「好」指什么。对齐领域最常用的一套标准来自 Askell 等人 2021 年的论文：一个好助手应当 <strong>Helpful</strong>（有用）、<strong>Honest</strong>（诚实）、<strong>Harmless</strong>（无害），合称 HHH。InstructGPT 直接沿用了这套语言，它至今仍是描述对齐目标最简洁的框架。先把「对齐」这个本章核心术语立住：</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">对齐 Alignment</span>
+    <span class="term-en">align = 使对齐、使一致；让模型的行为对齐到人的意图与价值观</span>
+  </div>
+  <div class="term-body">
+    <p>指让模型的实际行为符合使用者的意图与人类的价值观：该帮忙时帮上忙（有用），不知道的不编造（诚实），会伤人的不做（无害）。预训练的目标「像语料那样续写」与这个目标天然错位——语料里什么都有，模型照单全收就会好坏兼学。第 9 章的 SFT 对齐了「交互格式」，本章对齐的是「内容偏好」。</p>
+    <div class="term-analogy">像新员工入职培训：岗前培训（SFT）教他工作流程和表格怎么填，企业文化培训（偏好对齐）教他什么事该做、什么事再急也不能做。</div>
+  </div>
+</div>
+
+<p>　　HHH 三条各管一个方向，逐条定义配一个微型例子：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>Helpful 有用</h4><p>真正帮用户解决手上的任务，而不是绕开问题或输出一堆正确的废话。例：问「怎么挑西瓜」，回答给出可操作的挑选步骤，而不是背诵西瓜的植物学分类。</p></div>
+  <div class="concept-card"><h4>Honest 诚实</h4><p>不编造信息、不误导用户，不知道就承认不知道。例：被问一个查无出处的「名人名言」，老实说明无法核实，而不是煞有介事地编一段出处。</p></div>
+  <div class="concept-card"><h4>Harmless 无害</h4><p>不对人或环境造成身体、心理或社会层面的伤害。例：被问「怎么配制危险品」时拒答并说明原因，而不是有问必答。</p></div>
+</div>
+
+<p>　　三条标准不是总能同时满足，它们会打架。最典型的冲突发生在有用与无害之间：用户执意索要有害内容时，顺着用户是「有用」，拒绝才是「无害」。InstructGPT 的做法值得记住：训练阶段优先 helpfulness（对用户的帮助），最终评估阶段则让标注员优先 truthfulness 与 harmlessness——因为后者才是部署时真正在乎的底线。标准之间的优先级怎么排、拒答的边界画在哪，是 10.5 节安全对齐的主题。</p>
+
+<div class="highlight-box info">
+  HHH 是评价坐标，不是训练信号。它回答了「往哪个方向对齐」，但没回答「用什么数据对齐」——没人能给「有用」写出一条规定格式。把坐标变成可训练的梯度，靠的是下一节的偏好标注。
+</div>
+
+<h2>10.1.3 从「标答案」到「标偏好」：对齐的信号来源</h2>
+
+<p>　　对齐需要的信号是「哪个回答更好」。获取它有两种标法：一种是 SFT 已经用过的「标答案」——标注员现场手写一份满分示范；另一种是「标偏好」——让模型对同一问题生成两个回答，标注员只做一件事：指出哪个更好。后者的门槛低了整整一个量级。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">偏好标注 Preference Labeling</span>
+    <span class="term-en">preference = 偏好；对成对回答做相对比较，而非给出绝对答案</span>
+  </div>
+  <div class="term-body">
+    <p>对齐阶段的核心数据形态：同一个 prompt 配两个（或多个）回答，标注员标出更好的那个。更好的记为 chosen（被选中的），较差的记为 rejected（被放弃的）。文献里常写作 \(y_w \succ y_l\)：\(y_w\)（winner）是同一提示下胜出的回答，\(y_l\)（loser）是落败的回答，\(\succ\) 读作「优于」。一份偏好数据就是一大批这样的三元组：提示、好回答、差回答。</p>
+    <div class="term-analogy">像咖啡盲测：写出一份「满分咖啡配方」需要咖啡师级别的功力，但盲测两杯、指出哪杯好喝，普通人一口就能做到。偏好标注把标注员从「创作者」降级成「评委」，便宜、快速，还更稳定。</div>
+  </div>
+</div>
+
+<p>　　把两种标法摆在一起对照，差异一目了然：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 345" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP101" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrC101" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <!-- 栏标题 -->
+    <text x="245" y="36" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">标答案：手写示范（SFT 的数据）</text>
+    <text x="715" y="36" text-anchor="middle" font-size="14" font-weight="bold" fill="#0891b2">标偏好：二选一（对齐的数据）</text>
+    <!-- 左栏 -->
+    <rect x="60" y="52" width="370" height="42" rx="8" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="245" y="79" text-anchor="middle" font-size="12" fill="#333">问题：「怎么挑一个好西瓜？」</text>
+    <line x1="245" y1="94" x2="245" y2="124" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP101)"/>
+    <rect x="60" y="130" width="370" height="104" rx="8" fill="#ffffff" stroke="#9ca3af" stroke-width="1.5"/>
+    <text x="245" y="156" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">标注员现场写完整参考答案</text>
+    <text x="245" y="180" text-anchor="middle" font-size="11.5" fill="#555">「先看瓜藤是否新鲜，再托起来拍一拍，</text>
+    <text x="245" y="201" text-anchor="middle" font-size="11.5" fill="#555">声音清脆、纹路清晰的通常更甜……」</text>
+    <text x="245" y="223" text-anchor="middle" font-size="11" fill="#888888">（要写得全、写得对、写得有条理）</text>
+    <rect x="60" y="254" width="370" height="40" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/>
+    <text x="245" y="279" text-anchor="middle" font-size="12" font-weight="bold" fill="#92400e">写出满分解答：难、慢，质量封顶于标注员</text>
+    <!-- 右栏 -->
+    <rect x="530" y="52" width="370" height="42" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="715" y="79" text-anchor="middle" font-size="12" fill="#333">问题：「怎么挑一个好西瓜？」</text>
+    <line x1="715" y1="94" x2="715" y2="124" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC101)"/>
+    <rect x="530" y="130" width="178" height="80" rx="8" fill="#ffffff" stroke="#9ca3af" stroke-width="1.5"/>
+    <text x="619" y="153" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">回答 A（模型生成）</text>
+    <text x="619" y="176" text-anchor="middle" font-size="11" fill="#555">「挑纹路清楚的。」</text>
+    <text x="619" y="196" text-anchor="middle" font-size="11" fill="#888888">未选中</text>
+    <rect x="722" y="130" width="178" height="80" rx="8" fill="#ffffff" stroke="#0891b2" stroke-width="2"/>
+    <text x="811" y="153" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">回答 B（模型生成）</text>
+    <text x="811" y="176" text-anchor="middle" font-size="11" fill="#555">「拍一拍听声音，</text>
+    <text x="811" y="196" text-anchor="middle" font-size="11" fill="#555">清脆的更甜……」</text>
+    <text x="811" y="232" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#0891b2">√ 标注员勾选：B 更好</text>
+    <rect x="530" y="254" width="370" height="40" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="715" y="279" text-anchor="middle" font-size="12" font-weight="bold" fill="#0e7490">盲测二选一：易、快，直接对准「哪个好」</text>
+    <!-- 中缝 -->
+    <line x1="490" y1="52" x2="490" y2="294" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="4 4"/>
+    <!-- 底部注 -->
+    <text x="480" y="322" text-anchor="middle" font-size="11" fill="#64748b">同一个问题：左边要「创作一份好答案」，右边只需「判断两个答案谁好」——后者便宜得多，也更接近对齐需要的信号</text>
+  </svg>
+  <div class="diagram-caption">图示：两种标注任务的对照（原创示意）。左栏「标答案」要求标注员现场创作一份完整参考答案，难度高、速度慢，质量还被标注员自身水平封顶；右栏「标偏好」只需在两个模型回答中二选一，门槛低、速度快，产生的恰好是「哪个更好」这一对齐最缺的信号。InstructGPT 用于训奖励模型的排序数据（33k prompts）比 SFT 示范数据（约 13k prompts）多出一倍有余，正是「偏好比示范便宜」的直接体现。</div>
+</div>
+
+<p>　　InstructGPT 的真实数字给这套对照做了背书。它的标注团队约 40 名标注员，经筛选测试选出，通过 Upwork 与 ScaleAI 招募。论文报告了三种数据集：SFT 数据集约 13k 个 prompt，由标注员手写示范回答；RM 数据集 33k 个 prompt，由标注员对模型输出的多个回答做排序；PPO 数据集 31k 个 prompt，不带任何人工标签、直接作为强化学习的输入。排序数据的体量是示范数据的两倍半——同一个标注团队，做判断远比做创作高产。</p>
+
+<div class="highlight-box warn">
+  偏好标注不是无噪声的金标准。InstructGPT 报告训练标注员之间的一致率为 72.6%±1.5%，留出标注员为 77.3%±1.3%——大约每四对判断就有一对存在分歧。论文也承认 40 人的团队无法代表全部用户的价值光谱。偏好数据对齐的是「这群标注员的平均口味」，这一点在 10.5 节讨论安全与偏见时还会回来。
+</div>
+
+<h2>10.1.4 两条对齐路线：RLHF 与直接偏好优化</h2>
+
+<p>　　偏好数据备齐之后，怎么把它变成梯度？历史上先后出现两条路线。经典路线是 <strong>RLHF</strong>（9.1 节已给过最小定义）：先用偏好数据训一个奖励模型——一个吃进 prompt 和回答、吐出标量分数的评分器（10.2 节细讲）——再用 PPO 强化学习驱动 SFT 模型去产出高分回答（10.3 节细讲）。这条路线的成绩单足够硬：InstructGPT 的 1.3B 对齐模型，在人类偏好评估中胜过了 175B 的 GPT-3——参数差着两个数量级，对齐把差距抹平了还多。</p>
+
+<p>　　简化路线是 <strong>DPO 家族</strong>（Direct Preference Optimization，直接偏好优化）。DPO 在 2023 年证明：带 KL 约束的 RLHF 目标存在闭式最优解，奖励可以被「策略模型与参考模型的对数概率比」替代——于是不需要单独训奖励模型，也不需要强化学习循环，偏好对直接进一个分类形态的损失函数就能完成对齐，训练稳定、实现轻量。它之后又衍生出 IPO、KTO、SimPO 等变体，家族图谱留到 10.4 节展开。</p>
+
+<p>　　两条路线的对照如下：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>维度</th><th>RLHF（训 RM + PPO）</th><th>DPO 家族（直接偏好优化）</th></tr></thead>
+    <tbody>
+      <tr><td>代表工作</td><td>InstructGPT（2022，arXiv:2203.02155）；PPO 算法（2017，arXiv:1707.06347）</td><td>DPO（2023，arXiv:2305.18290）；IPO / KTO / SimPO</td></tr>
+      <tr><td>监督信号</td><td>偏好对先蒸馏成奖励模型的分数，分数再当强化学习奖励</td><td>偏好对直接构成损失函数</td></tr>
+      <tr><td>需训练的模型</td><td>奖励模型 + 策略模型（训练中还有参考模型与价值模型同台，10.3 节细讲）</td><td>只有策略模型（参考模型冻结，不参与训练）</td></tr>
+      <tr><td>训练方式</td><td>在线强化学习：模型边生成、边打分、边更新</td><td>离线监督式训练：一次前向一条损失，与 SFT 同形态</td></tr>
+      <tr><td>特点</td><td>效果上限高；多个模型同台，显存与调参成本高，训练脆</td><td>便宜、稳定、实现简单；上限受偏好数据质量封顶</td></tr>
+      <tr><td>详解章节</td><td>10.2（奖励模型）、10.3（PPO）</td><td>10.4（DPO 与变体）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　两条路线在 minimind（Apache 2.0）里都有可读的实现：trainer/train_ppo.py 对应 RLHF，trainer/train_dpo.py 对应 DPO。后者有一个细节印证了本节的主线：DPO 的参考模型是把 SFT 权重完整复制一份并冻结（train_dpo.py 第 176–180 行）——无论走哪条路线，起点都是第 9 章交出的那个 SFT 模型。</p>
+
+<div class="highlight-box">
+  本章地图：偏好对齐 = 同一份偏好信号 × 两条路线。10.2 节讲偏好数据与奖励模型，把「谁更好」变成可微分的分数；10.3 节走经典路线，PPO 强化学习对齐；10.4 节走简化路线，DPO 家族一步到位的损失；10.5 节收束到安全对齐与工程权衡。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">SFT 已经让模型会对话了，为什么还要对齐？</div>
+    <div class="sc-key">模仿范式有三块天花板：损失只奖励「像参考答案」，学不到「哪个更好」；质量封顶于标注员的手写水平；同一问题的多种合格写法被压成单一路径。这些靠追加示范数据补不上，需要把监督信号换成「相对偏好」。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么「标偏好」比「标答案」更适合对齐？</div>
+    <div class="sc-key">写出满分示范是创作，门槛高、速度慢、质量封顶；在两个回答中二选一是判断，门槛低得多。InstructGPT 的排序数据（33k prompts）因此能超过示范数据（约 13k prompts）一倍有余。注意噪声：标注员间一致率约七成出头，偏好数据对齐的是标注团队的平均口味。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">RLHF 与 DPO 两条路线的本质差别是什么？</div>
+    <div class="sc-key">同一份偏好信号的两种用法：RLHF 先把偏好蒸馏成奖励模型，再用 PPO 在线强化学习，上限高但多个模型同台、贵且脆；DPO 利用 KL 约束下最优策略的闭式解，把偏好对直接写进分类形态的损失，便宜稳定但受数据质量封顶。两者的起点都是 SFT 模型。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Ouyang et al., 2022. Training Language Models to Follow Instructions with Human Feedback（InstructGPT，arXiv:2203.02155）：约 40 名标注员；SFT / RM / PPO 数据集分别约 13k / 33k / 31k 个 prompt；标注员一致率 72.6%±1.5%（训练组）与 77.3%±1.3%（留出组）；训练期优先 helpfulness、评估期优先 truthfulness 与 harmlessness；1.3B 对齐模型的人类偏好超过 175B GPT-3。以上数字均已对照 arXiv 原文核实。</li>
+  <li>Askell et al., 2021. A General Language Assistant as a Laboratory for Alignment（arXiv:2112.00861）：Helpful、Honest、Harmless（HHH）标准的出处。</li>
+  <li>Schulman et al., 2017. Proximal Policy Optimization Algorithms（PPO，arXiv:1707.06347）：RLHF 路线所用的强化学习算法（10.3 节细讲）。</li>
+  <li>Rafailov et al., 2023. Direct Preference Optimization: Your Language Model is Secretly a Reward Model（DPO，arXiv:2305.18290）：KL 约束下的闭式最优解与分类形态损失（10.4 节细讲）。</li>
+  <li>Zhou et al., 2023. LIMA: Less Is More for Alignment（arXiv:2305.11206）：表层对齐假说，9.1 节已详述，本节用于划分 SFT 与偏好对齐的职责边界。</li>
+  <li>minimind（Apache 2.0），trainer/train_ppo.py、trainer/train_dpo.py：两条对齐路线的实现参照，其中 train_dpo.py 第 176–180 行把 SFT 权重复制并冻结为参考模型。</li>
+</ul>
+
+</article>

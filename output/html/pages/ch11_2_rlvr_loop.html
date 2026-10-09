@@ -1,0 +1,312 @@
+<article class="content">
+<h1>11.2 RLVR：可验证奖励的训练回路</h1>
+<p class="subtitle">本页范围：第 11 章第 2 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>11.1 节请出了新裁判「可验证奖励」：不要学习型评委，规则程序直接判分。但裁判不会自动让模型变强——这个不会被骗的裁判怎么接进训练循环，一轮一轮驱动策略更新？</td></tr>
+      <tr><td>本节主张</td><td>RLVR 把可验证奖励接进一条在线强化回路：同一道题采多条回答、规则逐条打分、组内比较出优势、按优势小步更新策略。裁判从奖励模型换成确定性程序，训练台上随之少了一个既要训练、又可能被钻营的模型。</td></tr>
+      <tr><td>一句话结论</td><td>RLVR = 可验证奖励 + 「采样 → 打分 → 组内比较 → 更新」的在线循环；它是 STaR 与拒绝采样微调这条「离线筛数据」谱系走到在线化的一步，配套算法 GRPO 由 11.3 节专讲。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>RLVR</span><span>可验证奖励</span><span>答案校验器</span><span>格式奖励</span><span>组内比较</span><span>STaR</span><span>拒绝采样微调</span><span>R1-Zero</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　11.1 节完成了裁判换代：主观偏好题上，奖励模型（RM）这个评委又贵又有可被钻营的盲区；数学、代码这类推理题则天然带着标准答案，一段校验程序就能判分，这就是可验证奖励。但换了裁判不等于模型自动变强，分数本身还只是一把尺子。本节回答「怎么练」：这个不会被骗的裁判怎样接进训练循环，一轮一轮驱动策略更新。这套以可验证奖励为训练信号的强化学习流程，就是 RLVR（Reinforcement Learning with Verifiable Rewards，可验证奖励强化学习），名字由 Tülu 3 报告在 2024 年底正式提出。</p>
+
+<p>　　本节按「裁判 → 回路 → 谱系 → 配方」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>规则当裁判：答案校验器与格式奖励</strong>（11.2.1）：两类校验器各管什么，R1-Zero 凭什么敢把神经奖励模型整个请下训练台；</li>
+  <li><strong>训练回路：一题多答、规则打分、强化更新</strong>（11.2.2）：一轮 RLVR 的五步流转，同一道题为什么要采多条回答；</li>
+  <li><strong>谱系：从拒绝采样与 STaR 到 R1-Zero</strong>（11.2.3）：可验证奖励的思想如何在三年内从「离线筛数据」进化到「在线强化」；</li>
+  <li><strong>minimind 的奖励配方逐行看</strong>（11.2.4）：calculate_rewards 函数里三条规则加一个 RM 分的混合配方。</li>
+</ol>
+
+<p>　　读完本节，应该能画出 RLVR 的一轮训练循环，说清它与 10.3 节 RLHF 循环的同与不同，并能从 minimind 的真实代码里读出工程界「规则与 RM 混用」的常态。讲解全程对照 minimind（Apache 2.0）的 train_grpo.py，它把这条回路完整实现了一遍。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及推理训练这一站放大之后的内部回路。心里有这张地图，后面每一步都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS112rlvrloop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG112rlvrloop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS112rlvrloop)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS112rlvrloop)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS112rlvrloop)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS112rlvrloop)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS112rlvrloop)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS112rlvrloop)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG112rlvrloop)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）与偏好对齐（第 10 章），交出会对话、懂分寸的模型；推理训练（本章）是它的下一站，任务从「懂分寸」升级为「会推理」。本节讲这一站的训练回路 RLVR——规则当裁判的强化学习循环，配套算法 GRPO 由 11.3 节专讲，随后接推理与部署（第 12–13 章）。</div>
+</div>
+
+<p>　　「推理训练」这个紫框放大之后长什么样？一道题进去，模型怎样在规则的评判下越练越强？把 RLVR 的一轮训练循环单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 800 700" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP112loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrR112loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <text x="24" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：RLVR 一轮训练循环（数字为 minimind 默认配置）——一题采 6 条 → 规则打分 → 组内比较 → 更新策略</text>
+    <!-- 输入 prompt -->
+    <rect x="60" y="46" width="200" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="160" y="72" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">输入：1 个 prompt</text>
+    <text x="160" y="94" text-anchor="middle" font-size="10.5" fill="#555555">RLAIF 数据集 · ≤ 768 token</text>
+    <line x1="160" y1="110" x2="160" y2="125" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP112loop)"/>
+    <!-- actor -->
+    <rect x="60" y="128" width="200" height="100" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="160" y="152" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">策略模型 actor（要训练）</text>
+    <text x="160" y="172" text-anchor="middle" font-size="11" fill="#ede9fe">从 SFT 权重 full_sft 出发</text>
+    <text x="160" y="192" text-anchor="middle" font-size="11" fill="#ede9fe">同一道题采样 6 条</text>
+    <text x="160" y="212" text-anchor="middle" font-size="11" fill="#ede9fe">temperature 0.8</text>
+    <line x1="260" y1="178" x2="296" y2="178" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP112loop)"/>
+    <!-- 6 条回答 -->
+    <rect x="300" y="104" width="260" height="140" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="430" y="126" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">输出：6 条回答 · 每条 ≤ 1024 token</text>
+    <text x="318" y="147" text-anchor="middle" font-size="10" fill="#6d28d9">①</text>
+    <rect x="332" y="140" width="210" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="0.8"/>
+    <text x="318" y="163" text-anchor="middle" font-size="10" fill="#6d28d9">②</text>
+    <rect x="332" y="156" width="210" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="0.8"/>
+    <text x="318" y="179" text-anchor="middle" font-size="10" fill="#6d28d9">③</text>
+    <rect x="332" y="172" width="210" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="0.8"/>
+    <text x="318" y="195" text-anchor="middle" font-size="10" fill="#6d28d9">④</text>
+    <rect x="332" y="188" width="210" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="0.8"/>
+    <text x="318" y="211" text-anchor="middle" font-size="10" fill="#6d28d9">⑤</text>
+    <rect x="332" y="204" width="210" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="0.8"/>
+    <text x="318" y="227" text-anchor="middle" font-size="10" fill="#6d28d9">⑥</text>
+    <rect x="332" y="220" width="210" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="0.8"/>
+    <!-- rollout 引擎注释 -->
+    <rect x="588" y="104" width="188" height="64" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <text x="682" y="126" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#92400e">注释：rollout 引擎可插拔</text>
+    <text x="682" y="146" text-anchor="middle" font-size="10.5" fill="#92400e">torch / sglang（第 13 章细讲）</text>
+    <line x1="430" y1="244" x2="430" y2="286" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP112loop)"/>
+    <!-- 对照：纯 RLVR -->
+    <rect x="60" y="290" width="200" height="124" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="160" y="312" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#6b7280">对照 · 纯 RLVR</text>
+    <text x="160" y="330" text-anchor="middle" font-size="10" fill="#9ca3af">（R1-Zero 配方）</text>
+    <text x="160" y="350" text-anchor="middle" font-size="10.5" fill="#6b7280">准确率奖励：答案等价</text>
+    <text x="160" y="368" text-anchor="middle" font-size="10.5" fill="#6b7280">或单元测试通过</text>
+    <text x="160" y="386" text-anchor="middle" font-size="10.5" fill="#6b7280">格式奖励：结构合规</text>
+    <text x="160" y="404" text-anchor="middle" font-size="10.5" fill="#6b7280">全程不用神经 RM</text>
+    <!-- 打分装置 -->
+    <rect x="300" y="290" width="476" height="124" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="538" y="314" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">逐条打分：规则当裁判，一条回答一个分</text>
+    <text x="538" y="336" text-anchor="middle" font-size="11" fill="#555555">长度：回答 20..800 字符 +0.5，越界 −0.5</text>
+    <text x="538" y="356" text-anchor="middle" font-size="11" fill="#555555">格式：think 段 20..300 字符 +1.0；&lt;/think&gt; 恰好一次 ±0.25</text>
+    <text x="538" y="376" text-anchor="middle" font-size="11" fill="#555555">去重：3-gram 重复惩罚，最多扣 0.5</text>
+    <text x="538" y="396" text-anchor="middle" font-size="11" fill="#92400e">＋ 外部 RM 分（internlm2-1_8b-reward）· 混合配方见 11.2.4</text>
+    <line x1="538" y1="414" x2="538" y2="450" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP112loop)"/>
+    <text x="550" y="436" font-size="10.5" fill="#555555">6 个标量奖励 r₁…r₆</text>
+    <!-- 组内比较 -->
+    <rect x="300" y="454" width="476" height="84" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="538" y="478" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#15803d">组内比较算优势：全程没有价值模型 critic</text>
+    <text x="538" y="500" text-anchor="middle" font-size="11" fill="#555555">组均值 μ、组标准差 σ（6 条一组）：A = (r − μ) / (σ + 1e−4)</text>
+    <text x="538" y="522" text-anchor="middle" font-size="11" fill="#555555">输出：6 个优势，每条回答一个</text>
+    <line x1="538" y1="538" x2="538" y2="572" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP112loop)"/>
+    <text x="550" y="556" font-size="10.5" fill="#555555">6 个优势</text>
+    <!-- 更新 -->
+    <rect x="300" y="576" width="476" height="84" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="538" y="600" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">裁剪式策略更新（ε = 0.2，另含 cispo 分支）＋ KL 罚项（β = 0.1）</text>
+    <text x="538" y="622" text-anchor="middle" font-size="11" fill="#ede9fe">KL 锚点：冻结的 ref（full_sft 复制一份）</text>
+    <text x="538" y="642" text-anchor="middle" font-size="11" fill="#ede9fe">只更新 actor；目标函数逐项拆解见 11.3 节</text>
+    <!-- 红色回路 -->
+    <polyline points="300,618 24,618 24,178 58,178" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR112loop)"/>
+    <text x="400" y="686" text-anchor="middle" font-size="10.5" fill="#dc2626">红色回路：更新后的参数回灌 actor（产物：新一轮策略，约 63.9M 参数），进入下一轮采样</text>
+  </svg>
+  <div class="diagram-caption">图示：推理训练站内，RLVR 一轮训练循环的局部放大（数字均为 minimind 默认配置，train_grpo.py）。输入一道题（prompt ≤ 768 token），actor 以 temperature 0.8 同题采样 6 条回答（每条 ≤ 1024 token）；打分装置逐条算分——长度、格式、去重三条规则外加一个外部 RM 分（混合配方，11.2.4 展开），左侧灰框给出 R1-Zero 纯规则配方的对照；6 个标量奖励按组内均值与标准差折算成 6 个优势（全程没有价值模型）；最后按裁剪目标加 KL 罚项更新 actor（目标函数逐项拆解见 11.3 节），新参数经红色回路回灌，进入下一轮采样。11.2.2 会逐步讲清这张图的每一格。</div>
+</div>
+
+<h2>11.2.1 规则当裁判：答案校验器与格式奖励</h2>
+
+<p>　　11.1 节把推理题比作有标准答案的数学考试：机器阅卷能成立，靠的是「判分不需要理解题目，只需要核对结果」。本节把这个直觉落成可执行的程序——校验器（verifier）。它是一段确定性代码：输入一道题和一条回答，输出一个分数，没有参数、不用训练，同样的输入永远给出同样的分。按核对对象的不同，校验器分两类：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>校验器类型</th><th>核对对象</th><th>典型实现</th><th>实例</th></tr></thead>
+    <tbody>
+      <tr><td>结果校验（答案校验器）</td><td>最终答案对不对</td><td>从回答中抽出最终答案，与标准答案做等价判定；或把代码交给编译器跑预置测试用例</td><td>数学题规定位置（如 <code>\boxed{}</code>）内的数值与标准答案等价；LeetCode 风格代码通过全部单元测试</td></tr>
+      <tr><td>格式校验</td><td>卷面结构合不合规</td><td>正则表达式或解析器检查标签、字段是否齐全、出现次数是否正确</td><td>思考过程包在 &lt;think&gt;…&lt;/think&gt; 之间；最终答案放在指定格式里</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　DeepSeek-R1 训练 R1-Zero 时用的正是这两类的标准组合，论文 §2.2.2 写得很明白：奖励系统完全基于规则，主体是两部分——<strong>准确率奖励</strong>核对答案对错（数学题要求最终答案写在规定格式里，程序才能可靠核对；代码题用编译器按预置测试用例给反馈），<strong>格式奖励</strong>核对卷面结构（强制把思考过程放在 think 标签之间）。同一节还有一个更激进的选择：训练 R1-Zero 全程不用任何神经奖励模型，看结果的（outcome）与看过程的（process）都不用。论文给出的理由有两条：大规模强化学习里神经 RM 会被策略摸到盲区，重演 10.2 节的 reward hacking；跟着策略重训 RM 既要额外算力，又把整条流水线搅得更复杂。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">可验证奖励 Verifiable Reward</span>
+    <span class="term-en">verifiable = 可被程序核验的；奖励不再出自学习型评委</span>
+  </div>
+  <div class="term-body">
+    <p>指评分过程不含任何学习型组件的奖励：给定题目与回答，一段确定性程序（答案等价判定、单元测试、格式检查）直接输出分数，无需训练、没有参数、行为完全可复现。它只活在有客观对错的任务上——数学、代码、逻辑谜题都行；开放式写作、闲聊这类没有标准答案的场合用不上。RLVR 就是拿这种分数当训练信号的强化学习。</p>
+    <div class="term-analogy">像客观题答题卡：阅卷机只认涂点对不对，不需要请老师来判断「这个答案大概有多好」——便宜、稳定、没法讨好。</div>
+  </div>
+</div>
+
+<div class="highlight-box">
+  RLVR 的裁判换代：打分从「学习型评委」换成「确定性程序」。RM 由数据训出来，训出来的评委就有可被钻营的盲区；规则是写死的程序，只认等价与通过。这从裁判端釜底抽薪地解决了 10.2 节 reward hacking 的漏洞，代价是适用范围被限制在有客观对错的任务上。
+</div>
+
+<p>　　格式奖励值得单独说一句。它管的不是对错，是「卷面」：思考段要包在指定标签里，答案要放在指定位置。表面看这是形式主义，实际是基础设施——思考段有了固定容器，人读得懂模型的推理过程，下游程序（评测脚本、数据筛选）也能稳定地把思考与答案拆开处理。11.4 节讲长思维链时会看到，这个不起眼的格式约定正是「思考可读、可解析」的前提。</p>
+
+<h2>11.2.2 训练回路：一题多答、规则打分、强化更新</h2>
+
+<p>　　裁判就位，看它怎样驱动训练。RLVR 的一轮循环走五步（对照前面的局部放大图）：</p>
+
+<ol>
+  <li><strong>抽题</strong>：从题库取出一个 prompt（minimind 用 RLAIF 数据集，单题最长 768 token，train_grpo.py:216）；</li>
+  <li><strong>同题多答</strong>：策略模型以温度采样为同一道题生成 G 条回答（minimind 默认 G = 6、temperature 0.8，85、219 行），温度大于零保证几条回答互不相同；</li>
+  <li><strong>规则打分</strong>：校验器逐条核分，每条回答得到一个标量奖励；</li>
+  <li><strong>组内比较</strong>：把同一题的 G 个奖励放在一起算相对优劣，得出每条回答的优势；</li>
+  <li><strong>强化更新</strong>：按优势抬高压低各条回答的生成概率，更新策略参数，回到第一步进入下一轮。</li>
+</ol>
+
+<p>　　五步里最关键的是第二步「一题多答」，它是整条回路的心脏。原因要回到推理任务奖励的稀疏性：一整段回答写完才有一个分，中间没有任何步骤级信号。10.3 节的 PPO 靠价值模型（critic）在每个中间位置估「局势值多少分」来补这个窟窿，但 critic 本身难训又占显存，在推理任务的长链条上更难估准。RLVR 的落地做法（R1 与 minimind 都如此）干脆换一个基线来源：同一道题的 G 条回答互为标尺，组内平均奖励就是「这道题的正常水平」。比平均好的回答抬概率，比平均差的压概率，每条回答的优势写成 \(A_i = (r_i - \mu) / (\sigma + 10^{-4})\)——\(r_i\) 是第 \(i\) 条回答的奖励，\(\mu\) 与 \(\sigma\) 是同题 G 个奖励的均值与标准差，分母加 \(10^{-4}\) 防除零（实现见 train_grpo.py:121–124）。</p>
+
+<p>　　直觉上这就是「同考场排名」：题目难时人人低分，绝对分数看不出谁强；换成组内相对排名，好坏立刻分明。这个基线还有个额外的好处：不用训练。它从同批数据里直接算出来，天然跟着题目难度走，难题的基线自动低、易题自动高。组内比较只是 RLVR 回路里的一环，完整的优势公式、裁剪目标与 KL 罚项合起来就是 GRPO 算法，11.3 节逐项拆解；minimind 的损失还备有 grpo 与 cispo 两个分支（train_grpo.py:221），到时一并对照。</p>
+
+<p>　　回路的其余工程细节也值得圈点。采样是一轮里最耗时的一段：逐 token 自回归生成，最长 1024 token（217 行），所以 minimind 把采样做成可插拔的 rollout 引擎，默认 torch 实现，可换成专门的推理框架 sglang（233、273–283 行；推理引擎属于第 13 章的话题）。更新端沿用第 10 章的保险丝：裁剪半径 ε = 0.2、KL 罚项系数 β = 0.1，KL 的锚点是冻结的参考模型——从 SFT 权重 full_sft 原样复制一份，全程只推理不训练（267–272 行）。</p>
+
+<div class="highlight-box">
+  RLVR 与 10.3 节 RLHF 的回路同构，都是「采样 → 打分 → 优势 → 小步更新」四拍；差别只有两处：裁判从 RM 换成规则程序，基线从 critic 估值换成同题组均值（R1 与 minimind 的落地均如此）。两处合起来的效果是：训练台上又少了一个既要训练、又可能被骗的模型。
+</div>
+
+<h2>11.2.3 谱系：从拒绝采样与 STaR 到 R1-Zero</h2>
+
+<p>　　RLVR 不是凭空冒出来的。「用客观对错指导模型学推理」这个思想，在在线强化之前经历过两代离线形态。看清这条谱系，才能明白 R1-Zero 真正新在哪。</p>
+
+<p>　　第一代是 STaR（Self-Taught Reasoner，自学推理者，Zelikman 等 2022）。它的循环很朴素：用少样本示例提示模型生成思维链答题；答对的，连推理带答案留下当训练数据；答错的，把标准答案当提示塞给模型，让它反推一条说得通的推理（论文称之为 rationalization，合理化），推出来也留下；然后只在这些最终答对的样本上微调，再从微调后的模型重新采样，循环往复。论文报告它在 CommonsenseQA 上达到与直接微调一个 30 倍大的当时最佳模型相当的成绩。这里答案对错是把筛子：它决定哪些样本配进数据集，本身不进梯度。</p>
+
+<p>　　第二代是拒绝采样微调（Rejection sampling Fine-Tuning，RFT），代表框架是 RAFT（Dong 等 2023）：同一道题采多条回答，用奖励（RM 或规则）排序，只在高分样本上做微调。与 STaR 一样，它也是「采样 → 筛选 → 微调」的离线三段式。这条路线并没有被时代淘汰——R1 自己的流水线就把拒绝采样收编为数据制造环节：第二阶段的推理数据从 RL 检查点采样、只保留正确回答，共约 60 万条（论文 §2.3.3）。筛数据退居配角，但一直在场。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">拒绝采样微调 Rejection Sampling Fine-Tuning</span>
+    <span class="term-en">rejection sampling = 采一堆、拒绝差的；fine-tuning = 微调</span>
+  </div>
+  <div class="term-body">
+    <p>对同一个 prompt 采样多条回答，用奖励信号（规则或 RM）排序，只留高分样本做监督微调。它是「可验证信号指导学习」的离线形态：奖励决定哪些样本进数据集，不进梯度。好处是稳，训练循环与 SFT 完全一样；代价是浪费——低分样本里「错在哪一步」的对照信息被整批扔掉，而且每轮都要重新采样。</p>
+    <div class="term-analogy">像老师只把满分答卷贴出来让大家临摹，而不当面批改错卷：临摹能学样子，但学不到自己具体错在哪一步。</div>
+  </div>
+</div>
+
+<p>　　第三代就是 R1-Zero（DeepSeek，2025 年初），关键一跃是把筛子换成梯度：不再只留好样本，每条回答的得分直接折算成优势信号，经裁剪目标逐 token 进梯度，模型边产出、边被打分、边更新。它在基座模型上做纯强化学习，没有任何 SFT 预热，奖励只有规则（准确率加格式），所用的 RL 框架是 GRPO（11.3 节专讲）。结果令整个行业侧目：自我检查、反思、重试这些推理行为在训练中自己长了出来，响应长度也随训练持续增长（论文记录的「aha moment」与长度曲线留到 11.4 节细讲）。完整的 DeepSeek-R1 在这条路线上加冷启动数据与多阶段训练，治 R1-Zero 可读性差、语言混杂的毛病。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>方法</th><th>年份与出处</th><th>裁判</th><th>奖励信号怎么用</th><th>学习方式</th></tr></thead>
+    <tbody>
+      <tr><td>STaR</td><td>2022，arXiv:2203.14465</td><td>最终答案对错</td><td>答对的样本留下当 SFT 数据；答错的给答案提示重写后留下</td><td>离线迭代：采样 → 筛选 → 微调 → 重来</td></tr>
+      <tr><td>RAFT（拒绝采样微调）</td><td>2023，arXiv:2304.06767</td><td>RM 或规则打分</td><td>同题多条按分排序，只在高分样本上微调</td><td>离线批处理</td></tr>
+      <tr><td>R1-Zero</td><td>2025，arXiv:2501.12948</td><td>规则：准确率 + 格式</td><td>分数直接折算成 RL 优势，逐 token 进梯度</td><td>在线强化学习循环</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　三代排在一起，演化方向很清楚：奖励信号离参数越来越近。STaR 用它筛数据，RAFT 用它排样本，R1-Zero 让它直接进梯度。信号传递的链路越短，监督越及时，这是在线 RL 胜出的原因；代价是训练稳定性骤降，于是才有了 11.3 节要讲的整套刹车装置。</p>
+
+<h2>11.2.4 minimind 的奖励配方逐行看</h2>
+
+<p>　　理论讲完看实现。minimind 的 GRPO 训练器里，每条回答的奖励由 calculate_rewards 函数（train_grpo.py:37–68）逐条累加，配方是三条规则加一个 RM 分：</p>
+
+<ol>
+  <li><strong>长度奖励（第 54 行）</strong>：回答去首尾空白后，字符数落在 20 到 800 之间加 0.5 分，否则扣 0.5 分。防空答也防灌水。注意单位是字符数，不是 token 数。</li>
+  <li><strong>think 段奖励（第 55–58 行）</strong>：回答里出现 &lt;/think&gt; 标签时，标签之前的思考段字符数在 20 到 300 之间加 1.0 分，否则扣 0.5 分；&lt;/think&gt; 恰好出现一次再加 0.25 分，多贴则扣 0.25 分。回答里压根没有这个标签则不触发本项。这就是格式奖励的教学版：思考段要存在、长度要像样、标签要唯一可解析。</li>
+  <li><strong>重复惩罚（第 60 行调用，31–34 行定义）</strong>：rep_penalty 统计答案段的 3-gram 重复率（有 think 标签时先剥掉思考段，只算答案），重复越多扣得越多，最多扣 0.5 分。作用是防模型靠车轱辘话刷长度。</li>
+  <li><strong>外部 RM 分（第 62–66 行）</strong>：把 prompt 里的对话历史与答案段一起送给外部奖励模型（默认 internlm2-1_8b-reward），返回的分数直接加进奖励。</li>
+</ol>
+
+<p>　　重复惩罚的算式值得展开看一眼，它是这类规则惩罚的典型写法：</p>
+
+<div class="formula-card">
+  \[ p = \min\left(c,\; \frac{(N - N_{\mathrm{uniq}}) \cdot 2c}{N}\right) \tag{1} \]
+  <div class="formula-note">公式 (1)：minimind 的 n-gram 重复惩罚——重复片段占比越高扣分越多，到上限封顶。符号说明：\(N\) 是答案段切词后 n-gram 的总数（取 n = 3，即连续三个词或标点为一组，逐位滑动取遍全文）；\(N_{\mathrm{uniq}}\) 是这些 n-gram 去重后的种数；\((N - N_{\mathrm{uniq}})/N\) 是重复率，即重复的组占全部组的比例；\(c\) 是惩罚上限，minimind 取 0.5；系数 2 让重复率达到 50% 时恰好顶满上限。回答太短、连一个 3-gram 都凑不出来时惩罚为 0（train_grpo.py:31–34）。</div>
+</div>
+
+<p>　　配方读完，一个事实浮出水面：minimind 这套奖励不算纯 RLVR。11.2.1 说纯 RLVR 的裁判只有规则，这里却把外部 RM 的分数也加了进去，是「规则 + RM」的混合配方。这恰是真实工程的常态：能写成规则的维度全部写成规则——长度、格式、去重，便宜、稳定、没法被讨好；写不成规则的开放维度（回答整体质量如何）才交给 RM 补位。R1 自己也一样：第二阶段给通用数据配了生成式 RM，把标准答案与模型回答一起喂给 DeepSeek-V3 评判（论文 §2.3.3、§2.3.4）。规则保底线、RM 管弹性，再配 KL 锚点防跑偏，这就是线上推理训练奖励设计的标准姿势。至于这些规则阈值会被模型怎样钻空子（思考注水、格式投机），11.5 节专门收账。</p>
+
+<div class="highlight-box info">
+  注释：minimind 是教学实现，它把工业界「规则 + RM」混合奖励的标准动作完整演示了一遍。读这份配方时多留意量级搭配——±0.5、+1.0、上限 0.5 都是手工定的直觉值，哪条规则说了算、规则与 RM 谁的分量重，这种平衡本身就是奖励设计的核心手艺。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">两类校验器各管什么？R1-Zero 为什么敢不用神经奖励模型？</div>
+    <div class="sc-key">结果校验管「答案对不对」：最终答案与标准答案做等价判定、代码过预置测试用例。格式校验管「卷面合不合规」：思考段包在 think 标签里、答案放在指定位置。规则是确定性程序，同样的输入永远同样的分，没有可被钻营的盲区；R1 论文明确指出大规模 RL 中神经 RM 会遭 reward hacking、重训又贵，这是 R1-Zero 弃用它的直接理由。代价是只适用于有客观对错的任务。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">RLVR 回路里，为什么同一道题要采多条回答？</div>
+    <div class="sc-key">推理奖励稀疏，整段答完才有一个分，且没有 critic 提供中间估值；同一题的 G 条回答互为标尺，组均值充当难度自适应的基线，比均值好抬概率、比均值差压概率。minimind 默认每题 6 条、temperature 0.8，优势 = (r − 组均值) / (组标准差 + 1e-4)。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">minimind 的奖励配方为什么不算纯 RLVR？对实践有什么启示？</div>
+    <div class="sc-key">它在长度、think 段格式、3-gram 重复三条规则之外叠加了外部 RM（internlm2-1_8b-reward）的分数，是「规则 + RM」混合配方。启示：能写成规则的维度（长度、格式、去重）尽量用规则，免疫 hacking 又便宜；写不成规则的开放维度才交给 RM，并配 KL 锚点防跑偏。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Lambert et al., 2024. Tülu 3: Pushing Frontiers in Open Language Model Post-Training（arXiv:2411.15124）：RLVR（Reinforcement Learning with Verifiable Rewards）名称的出处，摘要把 SFT、DPO、RLVR 列为后训练三件套。已核对 arXiv 摘要页。</li>
+  <li>Zelikman et al., 2022. STaR: Bootstrapping Reasoning with Reasoning（arXiv:2203.14465）：答对留样、答错给答案提示重写（rationalization）、只在答对样本上微调的迭代循环；CommonsenseQA 上与微调 30 倍大模型相当的结论。已核对 arXiv 摘要页。</li>
+  <li>Dong et al., 2023. RAFT: Reward rAnked FineTuning for Generative Foundation Model Alignment（arXiv:2304.06767）：采样、按奖励排序、只在高分样本上微调的拒绝采样框架。已核对 arXiv 摘要页。</li>
+  <li>DeepSeek-AI, 2025. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning（arXiv:2501.12948）：R1-Zero 纯 RL 无 SFT 预热、规则奖励 = 准确率奖励 + 格式奖励、弃用神经 RM 的两条理由（reward hacking 风险与重训成本）、以 GRPO 为 RL 框架、R1 的冷启动与多阶段、第二阶段拒绝采样造约 60 万条推理数据。已核对论文 HTML 版 §2.2.2 与 §2.3。</li>
+  <li>minimind（Apache 2.0），trainer/train_grpo.py：calculate_rewards 奖励配方（37–68 行；长度 20..800 字符 ±0.5 见第 54 行，think 段 20..300 字符 +1.0 与标签唯一 ±0.25 见第 55–58 行，重复惩罚见第 60 行，外部 RM 分见第 62–66 行）；rep_penalty（31–34 行，3-gram 重复率、上限 0.5）；组内优势（121–124 行）；裁剪损失与 KL 罚项（132–143 行；ε = 0.2、β = 0.1 见 220、222 行，grpo / cispo 分支选择见 221 行）；采样配置（temperature 0.8 见 85 行，prompt ≤ 768 与生成 ≤ 1024 见 216–217 行，每题 6 条见 219 行）；rollout 引擎可插拔（233、273–283 行）；三模型台账（policy 与 ref 同出 full_sft、ref 冻结、外部 RM，267–272 行）。</li>
+</ul>
+
+</article>

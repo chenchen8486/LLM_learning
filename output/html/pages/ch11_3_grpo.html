@@ -1,0 +1,393 @@
+<article class="content">
+<h1>11.3 GRPO：扔掉价值模型的组相对优化</h1>
+<p class="subtitle">本页范围：第 11 章第 3 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>10.3 节的 PPO 靠价值模型（critic）估计「每一步比预期好多少」，但 critic 与策略模型一样大、要陪训、占显存；推理任务整段答完才有一个奖励分，critic 更难训准。能不能不要 critic，也算出优势？</td></tr>
+      <tr><td>本节主张</td><td>可以。GRPO 对同一道题连采一组回答，用组内平均奖励当基线、组标准差做归一：优势 =（自己的分 − 组平均）÷ 组标准差。critic 连同 GAE 一起删掉，PPO 的 clip 刹车原样保留，KL 缰绳则从奖励里挪进损失。</td></tr>
+      <tr><td>一句话结论</td><td>GRPO = PPO 的刹车与缰绳 + 组内互比的基线 − 价值模型；它由 DeepSeekMath 提出，DeepSeek-R1 靠它把推理训练跑到了大规模。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>GRPO</span><span>组相对优势</span><span>基线</span><span>价值模型</span><span>clip</span><span>KL 进损失</span><span>k3 估计</span><span>DeepSeekMath</span><span>DeepSeek-R1</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　11.2 节搭好了 RLVR 的训练回路：同一道题让模型连答多条，规则逐条打分。回路走到最后还差一块拼图——拿到这一组分数之后，按什么规则更新参数？本节的主角 GRPO（Group Relative Policy Optimization，组相对策略优化）就是这块拼图：它是 PPO 的直系变体，保留了 PPO 的裁剪刹车，却把 PPO 里最贵、最难训的价值模型整个扔掉，换成一个谁都算得起的基线——同一组回答的平均分。</p>
+
+<p>　　本节按「痛点 → 基线 → 目标 → 实现」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>PPO 的痛点：价值模型难训又占显存</strong>（11.3.1）：呼应 10.3 节的四模型台账，说清 critic 为什么是最先被开刀的那个；</li>
+  <li><strong>组内相对优势：同一题的多条回答互为标尺</strong>（11.3.2）：组平均当基线的直觉与公式，配一个 3 条回答的数值小例；</li>
+  <li><strong>目标函数逐项拆解：clip、KL 罚项、长度归一</strong>（11.3.3）：GRPO 完整目标逐项读，KL 从奖励搬进损失的缘由，附 PPO/GRPO 对照表；</li>
+  <li><strong>minimind 实现对照：train_grpo.py 逐段读</strong>（11.3.4）：从采样到优势的每一步代码落点，三个模型的台账与默认配方。</li>
+</ol>
+
+<p>　　读完本节，应该能手算一组回答的组相对优势，逐项读懂 GRPO 的目标函数，并说清它与 PPO 的三处差异。讲解过程对照 minimind（Apache 2.0）的 train_grpo.py 真实实现，它把 DeepSeekMath 论文里的 GRPO 完整做了一遍教学版。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及 GRPO 在推理训练这一站里扮演的角色。心里有这张地图，后面每一步都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS113grpo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG113grpo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS113grpo)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS113grpo)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS113grpo)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS113grpo)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS113grpo)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS113grpo)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG113grpo)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：本节内容在 LLM 生命周期中的位置。偏好对齐（第 10 章）交出懂分寸的模型后，推理训练（本章）用可验证奖励继续打磨思维能力；本节讲这一站的主力算法 GRPO——它嵌在 11.2 节的 RLVR 回路里，把「同题多条回答的组内互比」变成不依赖价值模型的更新信号，11.4 节再看它训出的长思维链。</div>
+</div>
+
+<p>　　推理训练这个紫框放大之后，GRPO 的一步训练长什么样？数据从一道题流到参数更新，中间经过了谁、又绕开了谁？把它单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 700" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP113flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrR113flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <text x="24" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：GRPO 一步训练的数据流——同题 6 采、组内定基线、clip 更新，全程没有价值模型（数字为 minimind 默认配置）</text>
+    <!-- 输入与策略 -->
+    <rect x="30" y="56" width="180" height="76" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="120" y="82" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">输入：1 个 prompt</text>
+    <text x="120" y="102" text-anchor="middle" font-size="11" fill="#555555">来自 RLAIF 数据集</text>
+    <text x="120" y="120" text-anchor="middle" font-size="10.5" fill="#888888">≤ 768 token</text>
+    <line x1="210" y1="94" x2="236" y2="94" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <rect x="242" y="48" width="250" height="92" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="367" y="74" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">策略模型 π_θ（唯一被训练）</text>
+    <text x="367" y="95" text-anchor="middle" font-size="11" fill="#ede9fe">同题连采 G = 6 条 · temperature 0.8</text>
+    <text x="367" y="114" text-anchor="middle" font-size="11" fill="#ede9fe">从 full_sft 出发 · 约 63.9M 参数</text>
+    <text x="367" y="132" text-anchor="middle" font-size="11" fill="#ede9fe">每条回答 ≤ 1024 token</text>
+    <!-- 分发总线 -->
+    <line x1="367" y1="140" x2="367" y2="158" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="95" y1="158" x2="810" y2="158" stroke="#6d28d9" stroke-width="2"/>
+    <text x="379" y="152" text-anchor="start" font-size="10.5" fill="#555555">同一个 prompt 复制 6 份，各自独立采样</text>
+    <line x1="95" y1="158" x2="95" y2="168" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <line x1="238" y1="158" x2="238" y2="168" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <line x1="381" y1="158" x2="381" y2="168" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <line x1="524" y1="158" x2="524" y2="168" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <line x1="667" y1="158" x2="667" y2="168" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <line x1="810" y1="158" x2="810" y2="168" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <!-- 6 条回答 -->
+    <rect x="30" y="172" width="130" height="52" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="203" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">回答 o₁</text>
+    <rect x="173" y="172" width="130" height="52" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="238" y="203" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">回答 o₂</text>
+    <rect x="316" y="172" width="130" height="52" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="381" y="203" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">回答 o₃</text>
+    <rect x="459" y="172" width="130" height="52" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="524" y="203" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">回答 o₄</text>
+    <rect x="602" y="172" width="130" height="52" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="667" y="203" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">回答 o₅</text>
+    <rect x="745" y="172" width="130" height="52" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="810" y="203" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">回答 o₆</text>
+    <!-- 打分 -->
+    <line x1="95" y1="224" x2="95" y2="264" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <line x1="238" y1="224" x2="238" y2="264" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <line x1="381" y1="224" x2="381" y2="264" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <line x1="524" y1="224" x2="524" y2="264" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <line x1="667" y1="224" x2="667" y2="264" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <line x1="810" y1="224" x2="810" y2="264" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <text x="103" y="250" text-anchor="start" font-size="10.5" fill="#888888">逐条打分</text>
+    <rect x="30" y="268" width="130" height="52" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="95" y="290" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">r₁（标量分）</text>
+    <text x="95" y="308" text-anchor="middle" font-size="10" fill="#92400e">规则 + RM</text>
+    <rect x="173" y="268" width="130" height="52" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="238" y="290" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">r₂</text>
+    <text x="238" y="308" text-anchor="middle" font-size="10" fill="#92400e">规则 + RM</text>
+    <rect x="316" y="268" width="130" height="52" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="381" y="290" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">r₃</text>
+    <text x="381" y="308" text-anchor="middle" font-size="10" fill="#92400e">规则 + RM</text>
+    <rect x="459" y="268" width="130" height="52" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="524" y="290" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">r₄</text>
+    <text x="524" y="308" text-anchor="middle" font-size="10" fill="#92400e">规则 + RM</text>
+    <rect x="602" y="268" width="130" height="52" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="667" y="290" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">r₅</text>
+    <text x="667" y="308" text-anchor="middle" font-size="10" fill="#92400e">规则 + RM</text>
+    <rect x="745" y="268" width="130" height="52" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="810" y="290" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">r₆</text>
+    <text x="810" y="308" text-anchor="middle" font-size="10" fill="#92400e">规则 + RM</text>
+    <!-- 汇总总线 -->
+    <line x1="95" y1="320" x2="95" y2="344" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="238" y1="320" x2="238" y2="344" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="381" y1="320" x2="381" y2="344" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="524" y1="320" x2="524" y2="344" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="667" y1="320" x2="667" y2="344" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="810" y1="320" x2="810" y2="344" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="95" y1="344" x2="810" y2="344" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="480" y1="344" x2="480" y2="364" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <text x="490" y="340" text-anchor="start" font-size="10.5" fill="#555555">组内归一化（只在同一题的 6 条之间）</text>
+    <!-- 组内统计 -->
+    <rect x="330" y="368" width="300" height="84" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="480" y="392" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">组内统计：均值 μ、标准差 σ</text>
+    <text x="480" y="412" text-anchor="middle" font-size="11" fill="#555555">A_i = (r_i − μ) / (σ + 1e-4)</text>
+    <text x="480" y="432" text-anchor="middle" font-size="10.5" fill="#888888">σ 取总体标准差（除以 G，minimind 口径）</text>
+    <line x1="630" y1="410" x2="684" y2="410" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <!-- 优势输出 -->
+    <rect x="690" y="368" width="240" height="84" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="810" y="392" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">输出：6 个优势 A₁…A₆</text>
+    <text x="810" y="412" text-anchor="middle" font-size="11" fill="#555555">高于组平均为正、低于为负</text>
+    <text x="810" y="432" text-anchor="middle" font-size="10.5" fill="#888888">同一条回答的所有 token 共享</text>
+    <!-- 幽灵 critic -->
+    <rect x="30" y="368" width="240" height="84" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="150" y="392" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">价值模型 critic（不存在）</text>
+    <text x="150" y="412" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">GRPO 把它连同 GAE 一起删掉</text>
+    <text x="150" y="432" text-anchor="middle" font-size="10.5" fill="#9ca3af">PPO 里它要逐 token 估价值</text>
+    <!-- 损失 -->
+    <polyline points="810,452 810,530 672,530" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <rect x="300" y="508" width="360" height="88" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="480" y="533" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">GRPO 损失 = −min(clip 两项) + β·KL</text>
+    <text x="480" y="554" text-anchor="middle" font-size="11" fill="#ede9fe">clip ε = 0.2（与 PPO 同款刹车）</text>
+    <text x="480" y="573" text-anchor="middle" font-size="11" fill="#ede9fe">KL 用 k3 估计 · β = 0.1 · 按回答长度归一</text>
+    <!-- ref -->
+    <rect x="700" y="508" width="230" height="88" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="815" y="533" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">参考模型 ref（冻结）</text>
+    <text x="815" y="554" text-anchor="middle" font-size="11" fill="#6b7280">full_sft 再复制一份</text>
+    <text x="815" y="573" text-anchor="middle" font-size="11" fill="#6b7280">逐 token 出 log π_ref 当 KL 锚点</text>
+    <line x1="700" y1="552" x2="666" y2="552" stroke="#dc2626" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrR113flow)"/>
+    <text x="683" y="542" text-anchor="middle" font-size="10.5" fill="#dc2626">KL</text>
+    <!-- 产物 -->
+    <line x1="480" y1="596" x2="480" y2="622" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113flow)"/>
+    <rect x="330" y="626" width="300" height="56" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="480" y="650" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#0e7490">产物：更新后的策略 π_θ</text>
+    <text x="480" y="668" text-anchor="middle" font-size="11" fill="#555555">保存为 grpo 权重，进入下一轮采样</text>
+    <!-- 回路 -->
+    <polyline points="300,552 12,552 12,40 367,40 367,44" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR113flow)"/>
+    <text x="20" y="540" text-anchor="start" font-size="10.5" fill="#dc2626">参数回灌（下一轮用新策略采样）</text>
+  </svg>
+  <div class="diagram-caption">图示：GRPO 一步训练的局部放大（数字均为 minimind 默认配置，见 train_grpo.py）。流程为：一个 prompt（≤ 768 token）交给策略模型同题连采 6 条回答（temperature 0.8，每条 ≤ 1024 token）；每条回答由规则加外部奖励模型打出一个标量分；6 个分数在组内求均值 μ 与总体标准差 σ，算出 6 个优势；优势进入带 clip（ε = 0.2）的损失，外加一项直接写进损失的 KL 罚项（k3 估计，β = 0.1，锚点是冻结的参考模型）；梯度只回灌策略模型。对照 10.3 节 RLHF 那张四模型同台图：这里的台上只剩三个模型，价值模型连同 GAE 一起消失——这正是 GRPO 名字里「组相对」的含义。</div>
+</div>
+
+<h2>11.3.1 PPO 的痛点：价值模型难训又占显存</h2>
+
+<p>　　要理解 GRPO 省掉了什么，先回到 10.3 节的四模型台账：actor 生成、ref 当锚、RM 打分、critic 估价值。四个模型里，critic 是处境最尴尬的一个——它不出现在最终交付物里，却要陪跑全程。它的麻烦有两层。</p>
+
+<p>　　第一层是<strong>显存与算力</strong>。DeepSeekMath 论文（GRPO 的出处）直言：PPO 里的价值函数通常是与策略模型同样大小的另一个模型，带来可观的显存和计算负担。critic 不是小探头，而是一整个模型：10.3 节见过 minimind 的做法，CriticModel 直接继承完整的语言模型，只把输出头换成一个 768 维到 1 维的线性层。它要带自己的参数、梯度和 AdamW 优化器状态，还有自己的学习率（minimind 的 PPO 里 critic 用 5e-7，与 actor 的 3e-7 分开调）和价值损失系数（vf_coef 0.5）。按第 7 章的显存账口径，这等于把训练状态的负担又翻了一份。</p>
+
+<p>　　第二层是<strong>难训</strong>，这一点在推理任务上格外尖锐。critic 的职责是对每个中间位置预估「照这么写下去能拿多少分」，但 RLHF 与 RLVR 的奖励是稀疏的：奖励模型或规则只在整段回答的末位 token 给一个分，中间没有任何信号。DeepSeekMath 论文点破了由此产生的错位——通常只有最后一个 token 被奖励模型赋予分数，这让「在每个 token 上都估值准确」的价值函数很难训出来。critic 学不准，优势估计就跟着失真，策略被带偏，10.3.4 节的「脆」有它一份功劳。</p>
+
+<div class="highlight-box warn">
+  PPO 的结构性痛点：价值模型与策略模型同量级，显存与训练状态翻倍；而稀疏奖励（整段答完才一个分）又让它难以训准。critic 贵、难、还牵连策略——它成了简化 PPO 时第一个被开刀的对象。
+</div>
+
+<p>　　DeepSeek-R1 的技术报告把动机说得更直白：为了节省 RL 的训练成本，R1 采用 GRPO，它去掉了通常与策略模型同样大小的 critic，改用组分数（group scores）估计基线。问题于是变成一个纯技术问题：没有 critic，「比平均水平好多少」这个基线从哪来？GRPO 的回答是下一节的主题——基线不用学，直接算。</p>
+
+<h2>11.3.2 组内相对优势：同一题的多条回答互为标尺</h2>
+
+<p>　　先用类比建立直觉。要评价一个学生这次考试发挥得如何，有两种办法。PPO 的办法是请一位「预估专家」，根据这个学生前半场的表现随时预测总分，再拿实际总分跟预测比——这位专家就是 critic，他自己得先经过大量训练才能估得准。GRPO 的办法干脆得多：让同一个学生就同一道题连写 6 份答卷，直接拿这 6 份的平均分当及格线，高于平均的就是发挥好，低于平均的就是发挥差。不需要任何专家，标尺就在这组答卷自己身上。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">基线 Baseline</span>
+    <span class="term-en">baseline = 基准线；评判「好坏」之前先要有的「平均水平」</span>
+  </div>
+  <div class="term-body">
+    <p>策略梯度里，直接用原始奖励驱动更新会有个问题：奖励全是正数时，好回答和差回答的概率都被往上抬，只是抬的幅度不同，梯度噪声很大。减掉一个基线之后，信号变成「超出平均多少」，方向才有意义——高于平均的抬、低于平均的压。PPO 用学出来的价值函数当基线，GRPO 用同组回答的平均奖励当基线：前者准但要训一个模型，后者免费但要求同一道题采多条。10.3 节的优势函数（A = Q − V）里，V 扮演的就是基线角色。</p>
+    <div class="term-analogy">像老师改卷：与其请专家预测「这班学生大概考多少」，不如直接算全班平均分，高于平均的表扬、低于平均的补课。前提是每个学生的卷子够多——同一道题得有一组答卷可比较。</div>
+  </div>
+</div>
+
+<p>　　把类比写成公式。对每道题 \(q\)，GRPO 用旧策略采一组 \(G\) 条回答 \(\{o_1, o_2, \dots, o_G\}\)，每条拿到一个标量奖励 \(r_i\)，组相对优势就是奖励的组内标准化：</p>
+
+<div class="formula-card">
+  \[ \hat{A}_i = \frac{r_i - \mathrm{mean}(\mathbf{r})}{\mathrm{std}(\mathbf{r})}, \qquad \mathbf{r} = \{r_1, r_2, \dots, r_G\} \tag{1} \]
+  <div class="formula-note">公式 (1)：组相对优势——自己的分数减去组平均，再除以组标准差。符号说明：\(r_i\) 是第 \(i\) 条回答的标量奖励（RLVR 里来自规则，minimind 里来自规则加奖励模型）；\(\mathrm{mean}(\mathbf{r})\) 是同一道题 \(G\) 条回答的平均奖励，充当基线；\(\mathrm{std}(\mathbf{r})\) 是组内标准差，把不同题目、不同奖励量纲拉到同一尺度；\(\hat{A}_i\) 是第 \(i\) 条回答的优势。按 DeepSeekMath 论文的结果监督设定，\(\hat{A}_i\) 对回答 \(o_i\) 里的每个 token 都取同一个值——整条回答一荣俱荣、一损俱损，不再像 GAE 那样逐 token 分配功劳。</div>
+</div>
+
+<p>　　一个数值小例把公式 (1) 算透。设同一题的 3 条回答各拿到奖励 \(r = \{1.0,\ 0.0,\ -1.0\}\)。组平均 \(\mu = 0\)，按 minimind 的口径取总体标准差（除以 \(G\) 而非 \(G-1\)），\(\sigma = \sqrt{2/3} \approx 0.816\)。于是三条优势为 \(\hat{A}_1 = 1.0/0.816 \approx +1.22\)，\(\hat{A}_2 = 0\)，\(\hat{A}_3 \approx -1.22\)：拿高分的回答被加强，拿低分的被压制，恰在平均水平上的那条不动。画出来更直观：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 350" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP113ex" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="28" font-size="13" font-weight="bold" fill="#4c1d95">数值小例：同一题的 3 条回答，奖励 {1.0, 0.0, −1.0} 如何变成优势 {+1.22, 0, −1.22}</text>
+    <text x="190" y="58" text-anchor="middle" font-size="12" font-weight="bold" fill="#333333">① 奖励（打分结果）</text>
+    <text x="560" y="58" text-anchor="middle" font-size="12" font-weight="bold" fill="#333333">② 优势（进损失的信号）</text>
+    <!-- 左图 -->
+    <rect x="60" y="134.7" width="260" height="130.6" fill="#fef3c7" opacity="0.55"/>
+    <line x1="60" y1="200" x2="320" y2="200" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="60" y1="200" x2="60" y2="70" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="60" y1="200" x2="320" y2="200" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <rect x="85" y="120" width="50" height="80" fill="#16a34a" opacity="0.85"/>
+    <rect x="235" y="200" width="50" height="80" fill="#dc2626" opacity="0.85"/>
+    <text x="110" y="112" text-anchor="middle" font-size="11" font-weight="bold" fill="#15803d">r₁ = 1.0</text>
+    <text x="185" y="192" text-anchor="middle" font-size="11" font-weight="bold" fill="#555555">r₂ = 0</text>
+    <text x="260" y="296" text-anchor="middle" font-size="11" font-weight="bold" fill="#b91c1c">r₃ = −1.0</text>
+    <text x="66" y="188" text-anchor="start" font-size="10.5" fill="#6d28d9">μ = 0（组平均）</text>
+    <text x="325" y="150" text-anchor="start" font-size="10.5" fill="#92400e">±σ ≈ ±0.82</text>
+    <text x="110" y="322" text-anchor="middle" font-size="11" fill="#555555">回答 o₁</text>
+    <text x="185" y="322" text-anchor="middle" font-size="11" fill="#555555">回答 o₂</text>
+    <text x="260" y="322" text-anchor="middle" font-size="11" fill="#555555">回答 o₃</text>
+    <!-- 中间箭头 -->
+    <line x1="345" y1="200" x2="395" y2="200" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP113ex)"/>
+    <text x="370" y="184" text-anchor="middle" font-size="10.5" fill="#555555">减 μ 除以 σ</text>
+    <!-- 右图 -->
+    <line x1="430" y1="200" x2="690" y2="200" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="430" y1="200" x2="430" y2="70" stroke="#9ca3af" stroke-width="1.2"/>
+    <rect x="455" y="102" width="50" height="98" fill="#16a34a" opacity="0.85"/>
+    <rect x="605" y="200" width="50" height="98" fill="#dc2626" opacity="0.85"/>
+    <text x="480" y="94" text-anchor="middle" font-size="11" font-weight="bold" fill="#15803d">A₁ ≈ +1.22</text>
+    <text x="555" y="192" text-anchor="middle" font-size="11" font-weight="bold" fill="#555555">A₂ = 0</text>
+    <text x="630" y="314" text-anchor="middle" font-size="11" font-weight="bold" fill="#b91c1c">A₃ ≈ −1.22</text>
+    <text x="560" y="336" text-anchor="middle" font-size="10.5" fill="#64748b">（同样对应回答 o₁ / o₂ / o₃）</text>
+    <text x="190" y="340" text-anchor="middle" font-size="10.5" fill="#64748b">μ = 0、σ = √(2/3) ≈ 0.816（总体标准差）</text>
+  </svg>
+  <div class="diagram-caption">图示：组相对优势的数值小例（对应正文计算）。左图是三条回答的奖励，紫色虚线是组平均 μ = 0，琥珀色带是 ±σ 区间；右图是变换后的优势，绿柱被加强、红柱被压制、恰在均值上的那条归零。整个过程只是一次组内标准化，没有任何需要训练的组件——minimind 实现里对应 train_grpo.py 第 121–124 行，分母另加 1e-4 防除零。</div>
+</div>
+
+<p>　　对照 minimind 的实现，公式 (1) 就是三行代码：把奖励按「每题 6 条」reshape 成组（<code>rewards.view(-1, args.num_generations)</code>），沿组维度求均值与标准差（<code>std(dim=1, unbiased=False)</code>，即除以 \(G\) 的总体标准差），最后 <code>(rewards - mean_r) / (std_r + 1e-4)</code>（train_grpo.py:121–124）。那个 1e-4 是兜底：如果一组 6 条回答分数全一样，标准差为 0，优势全部归零，这道题这一步不产生任何梯度——模型在这道题上本来就分不出好坏，没有可学的东西。</p>
+
+<p>　　组规模 \(G\) 是这条路线的主要代价：基线是算出来的，代价就是同一道题要采多条。DeepSeekMath 论文的实验每题采 64 条，minimind 教学版默认 6 条（num_generations，train_grpo.py:219）。\(G\) 越大基线越稳，采样开销也越大——第 7 章的算力账在这里换成了一种更温和的形式：不再养一个 critic，而是多跑几遍策略前向。另外，DeepSeekMath 论文还指出一个理论上的契合点：奖励模型本身就是按「同一问题的回答两两比较」的数据训出来的（10.2 节），用组内相对比较来利用它的分数，正好顺应了它的天性。</p>
+
+<div class="highlight-box">
+  组相对优势一句话：同一道题采一组回答，组平均当基线、组标准差做归一，高于平均的加强、低于平均的压制、全组同分的跳过。基线从「学出来的 critic」变成「算出来的平均数」，价值模型与 GAE 就此整个退场。
+</div>
+
+<h2>11.3.3 目标函数逐项拆解：clip、KL 罚项、长度归一</h2>
+
+<p>　　优势有了，剩下的目标是把 PPO 的壳接过来。GRPO 的完整目标函数（DeepSeekMath 论文式 (3)，按本手册符号转写）如下：</p>
+
+<div class="formula-card">
+  \[ \mathcal{J}_{\mathrm{GRPO}}(\theta) = \mathbb{E}\left[ \frac{1}{G}\sum_{i=1}^{G} \frac{1}{|o_i|} \sum_{t=1}^{|o_i|} \left\{ \min\!\left( \rho_{i,t}\, \hat{A}_i,\; \mathrm{clip}\!\left( \rho_{i,t},\, 1-\varepsilon,\, 1+\varepsilon \right) \hat{A}_i \right) - \beta\, \mathbb{D}_{\mathrm{KL}}\!\left[ \pi_\theta \,\|\, \pi_{\mathrm{ref}} \right] \right\} \right] \tag{2} \]
+  \[ \rho_{i,t}(\theta) = \frac{\pi_\theta(o_{i,t} \mid q, o_{i,&lt;t})}{\pi_{\theta_{\mathrm{old}}}(o_{i,t} \mid q, o_{i,&lt;t})} \]
+  <div class="formula-note">公式 (2)：GRPO 的全部目标——对每道题采 \(G\) 条回答，每条内部逐 token 计算「PPO 式裁剪项 − KL 罚项」，先按回答长度平均、再按组平均。符号说明：\(q\) 是题目（prompt），\(o_i\) 是第 \(i\) 条回答，\(|o_i|\) 是它的 token 数；\(\pi_\theta\) 是当前策略，\(\pi_{\theta_{\mathrm{old}}}\) 是采样这批数据时的旧策略；\(\rho_{i,t}\) 是新旧策略在回答 \(o_i\) 第 \(t\) 个 token 上的概率比（与 10.3 节 PPO 的 \(r_t\) 同一个量，这里改名避免与奖励 \(r\) 混淆），\(o_{i,&lt;t}\) 表示该 token 之前的上文；\(\hat{A}_i\) 是公式 (1) 的组相对优势，同一条回答内逐 token 相同；\(\mathrm{clip}\) 与 \(\varepsilon\) 是 PPO 的裁剪机制与裁剪半径（10.3 节已细讲）；\(\mathbb{D}_{\mathrm{KL}}[\pi_\theta \| \pi_{\mathrm{ref}}]\) 是当前策略与冻结参考模型的 KL 散度，\(\beta\) 是它的系数；外层期望对题库里的题目取值。</div>
+</div>
+
+<p>　　逐项读一遍。第一项 min-clip 与 10.3 节的公式 (3) 一字不差：好动作抬概率超过 \(1+\varepsilon\) 不给额外奖励，坏动作压概率跌破 \(1-\varepsilon\) 惩罚封顶，每步更新被限制在旧策略附近的窄带里。minimind 的 \(\varepsilon\) 取 0.2（train_grpo.py:222），与 PPO 默认值一致。第二项 \(\frac{1}{|o_i|}\) 是长度归一：每条回答先按自己的 token 数求平均，长回答和短回答对损失的贡献因此同等权重，不会因为写得长就天然嗓门大。第三项 \(-\beta\,\mathbb{D}_{\mathrm{KL}}\) 是缰绳，但缰绳的位置挪了——这正是 GRPO 与 PPO 最本质的一处差异，值得展开。</p>
+
+<p>　　回想 10.3 节：PPO 把 KL 罚项写进奖励（奖励 = RM 分 − β·KL），逐 token 扣完再交给 GAE 折算优势。GRPO 则把 KL 直接写进损失，奖励保持纯净、只装任务信号。DeepSeekMath 论文给出的理由是：KL 若混进奖励，会顺着优势计算一路搅进 \(\hat{A}_i\) 里，让「这条回答比同组好多少」的判断掺入「离参考模型多远」的无关因素；拆开之后，优势只管组内高低，KL 单独管不许跑偏，两个信号各走各的通道。一句话，PPO 是「先扣分再排名」，GRPO 是「先排名，跑偏另算」。</p>
+
+<p>　　损失里的 KL 怎么算也有讲究。直接算 KL 散度需要遍历整个词表，代价大；DeepSeekMath 沿用 Schulman（2020）的无偏估计，逐 token 用一个只含对数概率差的式子近似：</p>
+
+<div class="formula-card">
+  \[ \mathbb{D}_{\mathrm{KL}}\!\left[ \pi_\theta \,\|\, \pi_{\mathrm{ref}} \right] \approx \frac{\pi_{\mathrm{ref}}(o_{i,t} \mid o_{i,&lt;t})}{\pi_\theta(o_{i,t} \mid o_{i,&lt;t})} - \log \frac{\pi_{\mathrm{ref}}(o_{i,t} \mid o_{i,&lt;t})}{\pi_\theta(o_{i,t} \mid o_{i,&lt;t})} - 1 \tag{3} \]
+  <div class="formula-note">公式 (3)：KL 散度的 k3 估计——用单个采样点就能算，期望上等于真 KL，且每个样本都非负。符号说明：\(\pi_{\mathrm{ref}}(o_{i,t} \mid o_{i,&lt;t})\) 是冻结参考模型对实际生成的这个 token 的概率，\(\pi_\theta\) 是当前策略对同一个 token 的概率。若记两者的对数概率差为 \(\Delta = \log \pi_{\mathrm{ref}} - \log \pi_\theta\)，式子就是 \(e^{\Delta} - \Delta - 1\)：两个分布一致时 \(\Delta = 0\)，式子取 0；不一致时它恒为正，且偏差越大增长越快。10.3 节的 minimind PPO 用的正是同一个估计（train_ppo.py 里 \(\exp(\Delta)-\Delta-1\)），train_grpo.py 第 132–133 行原样沿用。</div>
+</div>
+
+<p>　　把 GRPO 与 PPO 摆在一起对照，三处差异一眼看清（配方数字均为 minimind 默认值）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>维度</th><th>PPO（10.3 节）</th><th>GRPO（本节）</th></tr></thead>
+    <tbody>
+      <tr><td>基线来源</td><td>critic 学出来的价值 V(s)</td><td>同组 G 条回答的平均奖励，直接算</td></tr>
+      <tr><td>价值模型</td><td>要训，与策略同量级，带自己的 lr 与 vf_coef</td><td>不存在（GAE 一并省掉）</td></tr>
+      <tr><td>优势粒度</td><td>GAE 逐 token 分配功劳</td><td>同一条回答的所有 token 共享一个 \(\hat{A}_i\)</td></tr>
+      <tr><td>KL 的位置</td><td>写进奖励：r = RM 分 − β·KL（β = 0.02）</td><td>写进损失：目标里减 β·KL（β = 0.1）</td></tr>
+      <tr><td>采样要求</td><td>每题一条回答即可</td><td>每题必须采一组（minimind 6 条，论文 64 条）</td></tr>
+      <tr><td>minimind 台账</td><td>四模型：actor + ref + RM + critic</td><td>三模型：policy + ref + RM（train_grpo.py:267–272）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box">
+  核心结论：GRPO 没有发明新的刹车或新的缰绳——clip 照抄 PPO，KL 照拴 ref。它只换了一件东西：把「估计平均水平的裁判」从学出来的 critic 换成算出来的组平均。少一个要训的模型，多采几条样本，换来的是推理训练可以跑到更大的规模。
+</div>
+
+<h2>11.3.4 minimind 实现对照：train_grpo.py 逐段读</h2>
+
+<p>　　最后把公式落到代码。minimind 的 train_grpo.py 是 GRPO 的教学版完整实现，一轮训练循环（grpo_train_epoch，71–197 行）里的每一步都能与本节前面的公式一一对上：</p>
+
+<ol>
+  <li><strong>采样（rollout）</strong>：<code>rollout_engine.rollout(num_generations=6, max_new_tokens=1024, temperature=0.8)</code>（80–86 行），同一批 prompt 各采 6 条。引擎做成可插拔：默认 torch 实现，也可切到 sglang 推理服务（233、274–283 行）；prompt 一律左填充并截到最长 768 token（74–78、216 行）。这一步同时记录旧策略的逐 token 对数概率（90 行），供后面算概率比。</li>
+  <li><strong>打分</strong>：<code>calculate_rewards</code>（37–68 行）给每条回答算一个标量：回答长度落在 20 到 800 字符内加 0.5、否则扣 0.5（54 行）；含 <code>&lt;/think&gt;</code> 且思考段在 20 到 300 字符内加 1.0（55–58 行）；3-gram 重复率折算成最多 0.5 的惩罚（31–34、60 行）；最后叠加外部奖励模型 internlm2-1_8b-reward 的分数（62–66 行）。即「规则 + RM」混合裁判，11.2 节已逐条讲过配方，此处只点出落点。</li>
+  <li><strong>组相对优势</strong>：121–124 行，正是公式 (1)：<code>view(-1, num_generations)</code> 分组，<code>mean</code> 与 <code>std(unbiased=False)</code> 求组内均值与总体标准差，<code>(rewards − mean_r) / (std_r + 1e-4)</code> 得优势。</li>
+  <li><strong>KL 与概率比</strong>：132–134 行。<code>kl_div = ref_logps − logps</code>，<code>per_token_kl = exp(kl_div) − kl_div − 1</code> 即公式 (3) 的 k3 估计；<code>ratio = exp(logps − old_logps)</code> 即公式 (2) 里的 \(\rho_{i,t}\)。</li>
+  <li><strong>clip 损失与长度归一</strong>：139–143 行。<code>torch.min(ratio·A, clamp(ratio, 1−ε, 1+ε)·A)</code> 取两项中较小者（与 10.3 节 PPO 的 min 同形），减去 <code>β·per_token_kl</code>（β = 0.1，220 行；ε = 0.2，222 行）；随后乘回答掩码、按每条回答的 token 数求平均再对 batch 平均（143 行）——这正是公式 (2) 里 \(\frac{1}{|o_i|}\) 归一的代码形态。若配置了 MoE，还会并入 MoE 辅助损失（100、144 行，呼应 5.4 节）。</li>
+  <li><strong>更新与回灌</strong>：梯度裁剪到范数 1.0（148–149、210 行）后 AdamW 步进，学习率 3e-7 配 CosineAnnealingLR 余弦退火（205、287、291 行），batch 2、训 1 个 epoch（203–204 行）。新参数随即回灌给 rollout 引擎，下一轮采样用新策略（193、309 行）。</li>
+</ol>
+
+<p>　　模型台账也与公式 (2) 严丝合缝：全程只有三个模型——策略模型 policy（训练中，267 行）、参考模型 ref（full_sft 再加载一份，<code>eval()</code> 加 <code>requires_grad_(False)</code> 彻底冻结，269–270 行）、外部奖励模型 RM（272 行）。没有 critic，没有 GAE，没有价值损失系数——10.3 节表格里 critic 那一行带的所有旋钮，在这里整行消失。数据侧还有一个值得知道的开关：<code>thinking_ratio = 0.9</code>（232、285 行），RLAIFDataset 按 90% 概率给 prompt 套上带思考段的模板，让模型在 RL 阶段就习惯「先想后答」的格式——这为 11.4 节的长思维链埋下伏笔。</p>
+
+<div class="highlight-box info">
+  注释：minimind 的奖励是「规则 + RM」混合，并非纯规则裁判——作为教学实现，它把奖励模型请回来兜底。严格的 RLVR（如 R1-Zero）可以只靠规则：数学题对答案、代码过测试、格式查标签。另外 train_grpo.py 里还有一个 cispo 变体分支（135–137、221、223 行）：只裁剪概率比的上界（ε_high = 5.0）且截断处不回传梯度，是经典 clip 之外的一种简化选项，默认分支讲解仍以 139–142 行的经典 GRPO clip 为准。
+</div>
+
+<p>　　至此，RLVR 回路（11.2 节）与配套算法 GRPO（本节）都已就位：同一题采一组、规则打分、组内定基线、clip 更新。这套装置在 DeepSeek-R1-Zero 身上跑出了意想不到的东西——模型自己长出了自我检查与反思，思考越写越长。长思维链是怎么被「养」出来的，是 11.4 节的故事。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">GRPO 为什么能扔掉价值模型？</div>
+    <div class="sc-key">价值模型在 PPO 里的唯一职责是提供「平均水平」这个基线，供优势计算用。GRPO 把基线换成同题一组回答的平均奖励：\(\hat{A}_i = (r_i - \mu)/\sigma\)，高于组平均为正、低于为负、全组同分则无梯度。基线从「学出来」变成「算出来」，critic 与 GAE 一并省掉；代价是每题要多采几条（minimind 6 条，DeepSeekMath 论文 64 条）。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">GRPO 目标函数里，clip、长度归一、KL 各管什么？</div>
+    <div class="sc-key">min-clip（ε = 0.2）照抄 PPO，把每步更新限制在旧策略附近的窄带内；\(\frac{1}{|o_i|}\) 长度归一让长短回答对损失同等权重；KL 项（β = 0.1，k3 估计 \(\exp(\Delta)-\Delta-1\)）从奖励里挪进损失，优势只管组内排名、KL 单独管不许跑偏，两个信号各走各的通道。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">对照 minimind 代码，GRPO 与 PPO 的台账差在哪？</div>
+    <div class="sc-key">PPO 是四模型同台（actor + ref + RM + critic），GRPO 只剩三个（policy + ref + RM，train_grpo.py:267–272），critic 那行连同它的学习率、vf_coef、GAE 全部消失。训练循环五步可对：rollout 采 6 条（80–86 行）→ calculate_rewards 打分（37–68 行）→ 组内标准化得优势（121–124 行）→ k3 KL 与概率比（132–134 行）→ min-clip 损失按长度归一后更新（139–143 行）。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Shao et al., 2024. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models（GRPO 原始论文，arXiv:2402.03300）：GRPO 的提出、「去掉 critic、以组分数为基线」的动机（价值函数与策略同量级、末位单点奖励使逐 token 价值难训）、目标函数（本页公式 (2)，论文式 (3)）、结果监督下 \(\hat{A}_i\) 的组内标准化定义（本页公式 (1)）、KL 直接进损失而非奖励、Schulman(2020) 无偏 KL 估计（本页公式 (3)）；实验设置 lr 1e-6、KL 系数 0.04、每题采 64 条；GRPO 使 DeepSeekMath-Instruct 在 GSM8K 上 82.9%→88.2%、MATH 上 46.8%→51.7%。已核对 arXiv 摘要页与 HTML 全文 §4。</li>
+  <li>DeepSeek-AI, 2025. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning（arXiv:2501.12948）：为节省 RL 成本采用 GRPO（「foregoes the critic model ... estimates the baseline from group scores」，§2.2.1），配规则奖励（准确率奖励 + 格式奖励）；R1-Zero 纯 RL 无 SFT 涌现推理行为。已核对 arXiv 摘要页与 HTML 全文 §1、§2.2。</li>
+  <li>Schulman et al., 2017. Proximal Policy Optimization Algorithms（PPO 原始论文，arXiv:1707.06347）：min-clip 裁剪目标的来源，见 10.3 节公式 (3)。</li>
+  <li>Schulman, 2020. Approximating KL Divergence（技术博客）：k3 无偏非负 KL 估计的出处，DeepSeekMath 论文明确引用。</li>
+  <li>minimind（Apache 2.0），trainer/train_grpo.py：奖励配方 calculate_rewards（31–68 行：长度 ±0.5 见 54 行、think 段奖励见 55–58 行、rep_penalty 见 31–34 行、RM 分叠加见 62–66 行）、rollout 采样（80–86 行，temperature 0.8、num_generations 6、max_gen_len 1024；prompt ≤ 768 见 74–78、216 行）、组相对优势（121–124 行，unbiased=False、+1e-4）、k3 KL 与 ratio（132–134 行）、min-clip 损失与长度归一（139–143 行）、cispo 变体（135–137、221、223 行）、三模型初始化（267–272 行，ref 冻结自 full_sft 见 269–270 行）、默认超参（203–205 行 epoch 1 / batch 2 / lr 3e-7、210 行梯度裁剪 1.0、219–222 行 G=6 / β=0.1 / ε=0.2、232 行 thinking_ratio 0.9、287–291 行 AdamW + CosineAnnealingLR）。</li>
+</ul>
+
+</article>

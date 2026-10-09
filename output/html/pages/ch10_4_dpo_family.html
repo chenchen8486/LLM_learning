@@ -1,0 +1,322 @@
+<article class="content">
+<h1>10.4 DPO 家族：绕过奖励模型的直接偏好优化</h1>
+<p class="subtitle">本页范围：第 10 章第 4 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>10.3 节的 RLHF 能对齐，但四个模型同台、训练中反复采样、超参敏感，又贵又脆。能不能不训奖励模型、不跑强化学习循环，直接拿偏好对把模型调好？</td></tr>
+      <tr><td>本节主张</td><td>可以。KL 约束下的最优策略有闭式解，把奖励反解成「策略与参考模型的对数比」之后，奖励模型这个中间环节被数学消掉，整条 RL 流水线退化为一个普通的分类损失。这就是 DPO。后续 IPO、KTO、SimPO 各自再解决它留下的一个痛点。</td></tr>
+      <tr><td>一句话结论</td><td>DPO = 把 RLHF 的数学目标换个参数化：损失形如 −log σ(β·抬升量之差)，训练只剩两次前向加一个交叉熵式损失，代价是效果上限由偏好数据质量封顶。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>DPO</span><span>闭式解</span><span>隐式奖励</span><span>参考模型</span><span>β</span><span>IPO</span><span>KTO</span><span>SimPO</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　10.3 节走完了经典路线：训奖励模型打分，再用 PPO 在 KL 罚项的约束下追着高分跑。效果是扎实的，代价也同样扎实——策略、参考、奖励、价值四个模型同时占显存，训练循环里要反复采样，超参稍不合适曲线就抖。2023 年，Rafailov 等人提出 DPO（Direct Preference Optimization，直接偏好优化），指出这套 RL 目标在数学上可以一步到位：不需要显式的奖励模型，也不需要训练中的采样与策略梯度，一个分类损失就能把偏好学进去。本节就把这条捷径讲清楚。</p>
+
+<p>　　本节沿四步展开，路线图如下：</p>
+
+<ol>
+  <li><strong>从 RLHF 到 DPO：一条数学捷径</strong>（10.4.1）：KL 约束下最优策略的闭式解，如何把「奖励」反解成「对数比」，奖励模型由此被消掉。</li>
+  <li><strong>DPO 损失逐项拆解：含 minimind 实现对照</strong>（10.4.2）：损失公式的符号级讲解，与 minimind 代码逐行对上。</li>
+  <li><strong>β 与参考模型：DPO 的两个旋钮</strong>（10.4.3）：β 管「走多远」，参考模型当「锚点」，各自拧错会怎样。</li>
+  <li><strong>家族图谱：IPO / KTO / SimPO</strong>（10.4.4）：三个后继方法各解决 DPO 留下的哪个痛点。</li>
+</ol>
+
+<p>　　读完本节，应该能说清两件事：DPO 为什么不需要奖励模型，以及它省掉的环节在什么场合会以别的形式要回来。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及偏好对齐这一站放大之后、DPO 路线的内部结构。心里有这张地图，后面每一步都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS104dpofamily" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG104dpofamily" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS104dpofamily)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS104dpofamily)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS104dpofamily)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS104dpofamily)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG104dpofamily)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG104dpofamily)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG104dpofamily)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图示：本节内容在 LLM 生命周期中的位置。SFT（第 9 章）交出会对话的模型后，偏好对齐（本章）负责教它分辨回答的好坏。这一站内部有两条路线——10.3 节的 RLHF 与本节的 DPO 家族。本节管的是后者：不训奖励模型、不跑强化学习循环，直接拿偏好对调整 SFT 模型，产物随后进入推理训练（第 11 章）与推理部署（第 12–13 章）。</div>
+</div>
+
+<p>　　偏好对齐这个紫框放大之后，DPO 的一次训练前向长什么样？输入和输出各是什么？把它单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 500" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS104d2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG104d2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/>
+      </marker>
+      <marker id="arrR104d2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <text x="20" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：DPO 一次训练前向——同一条偏好对先后过两个模型，四个序列对数概率汇成一个损失</text>
+    <!-- 输入：偏好对 -->
+    <rect x="330" y="48" width="300" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="480" y="74" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">输入：一条偏好对 (x, y_w, y_l)</text>
+    <text x="480" y="96" text-anchor="middle" font-size="11" fill="#555555">同一 prompt x + 优选回答 y_w + 劣选回答 y_l</text>
+    <!-- 策略模型 -->
+    <rect x="120" y="170" width="300" height="104" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="270" y="196" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">策略模型 π_θ（训练中）</text>
+    <text x="270" y="217" text-anchor="middle" font-size="11" fill="#ede9fe">对 y_w、y_l 各算一遍序列对数概率</text>
+    <text x="270" y="237" text-anchor="middle" font-size="11" fill="#ede9fe">回答区逐 token 求和（掩码只罩回答段）</text>
+    <text x="270" y="257" text-anchor="middle" font-size="11" fill="#ede9fe">从 full_sft 出发 · 梯度更新</text>
+    <!-- 参考模型 -->
+    <rect x="540" y="170" width="300" height="104" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="690" y="196" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">参考模型 π_ref（冻结）</text>
+    <text x="690" y="217" text-anchor="middle" font-size="11" fill="#6b7280">同样对 y_w、y_l 各算一遍</text>
+    <text x="690" y="237" text-anchor="middle" font-size="11" fill="#6b7280">前向包在 torch.no_grad() 里</text>
+    <text x="690" y="257" text-anchor="middle" font-size="11" fill="#6b7280">full_sft 复制一份 · 不更新</text>
+    <!-- 输入到两个模型的箭头 -->
+    <line x1="430" y1="112" x2="300" y2="164" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS104d2)"/>
+    <line x1="530" y1="112" x2="660" y2="164" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS104d2)"/>
+    <!-- 四个标量 -->
+    <rect x="120" y="310" width="140" height="56" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="190" y="333" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#15803d">a = log π_θ(y_w|x)</text>
+    <text x="190" y="352" text-anchor="middle" font-size="10.5" fill="#555555">标量 · 策略给优选打分</text>
+    <rect x="280" y="310" width="140" height="56" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="350" y="333" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#b91c1c">b = log π_θ(y_l|x)</text>
+    <text x="350" y="352" text-anchor="middle" font-size="10.5" fill="#555555">标量 · 策略给劣选打分</text>
+    <rect x="540" y="310" width="140" height="56" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="610" y="333" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#15803d">c = log π_ref(y_w|x)</text>
+    <text x="610" y="352" text-anchor="middle" font-size="10.5" fill="#555555">标量 · 参考给优选打分</text>
+    <rect x="700" y="310" width="140" height="56" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="770" y="333" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#b91c1c">d = log π_ref(y_l|x)</text>
+    <text x="770" y="352" text-anchor="middle" font-size="10.5" fill="#555555">标量 · 参考给劣选打分</text>
+    <!-- 模型到标量的箭头 -->
+    <line x1="190" y1="274" x2="190" y2="304" stroke="#16a34a" stroke-width="2" marker-end="url(#arrG104d2)"/>
+    <line x1="350" y1="274" x2="350" y2="304" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR104d2)"/>
+    <line x1="610" y1="274" x2="610" y2="304" stroke="#16a34a" stroke-width="2" marker-end="url(#arrG104d2)"/>
+    <line x1="770" y1="274" x2="770" y2="304" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR104d2)"/>
+    <!-- 损失条 -->
+    <rect x="180" y="412" width="600" height="48" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="480" y="442" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">DPO 损失：L = −log σ( β·[(a − c) − (b − d)] )　→　输出：1 个标量</text>
+    <!-- 标量到损失的箭头 -->
+    <line x1="190" y1="366" x2="320" y2="408" stroke="#16a34a" stroke-width="2" marker-end="url(#arrG104d2)"/>
+    <line x1="350" y1="366" x2="420" y2="408" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR104d2)"/>
+    <line x1="610" y1="366" x2="560" y2="408" stroke="#16a34a" stroke-width="2" marker-end="url(#arrG104d2)"/>
+    <line x1="770" y1="366" x2="660" y2="408" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR104d2)"/>
+    <!-- β 注释 -->
+    <text x="890" y="442" text-anchor="middle" font-size="11" fill="#92400e">β = 0.15</text>
+    <text x="890" y="460" text-anchor="middle" font-size="10" fill="#92400e">（minimind 默认）</text>
+    <!-- 底部注 -->
+    <text x="480" y="490" text-anchor="middle" font-size="11" fill="#64748b">配方（minimind 实测）：β=0.15 · 学习率 4e-8 · batch 4（2 对偏好）· max_seq_len 1024。梯度只回流到策略模型，参考模型全程冻结</text>
+  </svg>
+  <div class="diagram-caption">图示：偏好对齐站内，DPO 路线的局部放大。输入是一条偏好对（同一 prompt x，配优选回答 y_w 与劣选回答 y_l）。策略模型 π_θ 与冻结的参考模型 π_ref 各自对两条回答算一遍序列对数概率（回答区逐 token 求和），得到四个标量 a、b、c、d。损失只要求一件事——优选的「相对抬升」(a − c) 大于劣选的「相对抬升」(b − d)。反向传播只更新 π_θ，π_ref 全程冻结。配方数字均为 minimind 实测。</div>
+</div>
+
+<h2>10.4.1 从 RLHF 到 DPO：一条数学捷径</h2>
+
+<p>　　先把 10.3 节的 RLHF 目标摆在桌上。给定 prompt \(x\)，模型生成回答 \(y\)，奖励模型给出分数。优化的目标是让期望奖励尽量高，同时不许策略跑偏太远——用 KL 散度（衡量两个概率分布差异的指标，10.3 节已用它做罚项）拴住参考模型：</p>
+
+<div class="formula-card">
+  \[ \max_{\pi_\theta}\ \mathbb{E}_{y \sim \pi_\theta(\cdot \mid x)}\left[r(x, y)\right] - \beta\,\mathrm{KL}\left(\pi_\theta(y \mid x) \,\|\, \pi_{\mathrm{ref}}(y \mid x)\right) \tag{1} \]
+  <div class="formula-note">公式 (1)：RLHF 的总目标——期望奖励减去 KL 罚项。符号说明：\(\pi_\theta\) 是正在训练的策略模型。\(r(x, y)\) 是奖励函数（RLHF 里由奖励模型扮演）。\(\pi_{\mathrm{ref}}\) 是冻结的参考模型，通常就是 SFT 模型。\(\beta\) 是 KL 罚项的强度系数，\(\beta\) 越大，策略被拴得越紧。</div>
+</div>
+
+<p>　　DPO 的出发点是一个干净利落的数学事实：对任意固定的奖励函数 \(r\)，公式 (1) 这个带 KL 约束的优化问题有<strong>闭式最优解</strong>，不用迭代采样就能直接写出来：</p>
+
+<div class="formula-card">
+  \[ \pi^{*}(y \mid x) = \frac{1}{Z(x)}\,\pi_{\mathrm{ref}}(y \mid x)\exp\left(\frac{1}{\beta}\,r(x, y)\right) \tag{2} \]
+  \[ r(x, y) = \beta \log \frac{\pi^{*}(y \mid x)}{\pi_{\mathrm{ref}}(y \mid x)} + \beta \log Z(x) \tag{3} \]
+  <div class="formula-note">公式 (2)：最优策略就是参考策略按奖励做指数加权再归一化——奖励高的回答概率被放大，放大力度由 \(\beta\) 控制。公式 (3)：把公式 (2) 两边取对数再移项，把奖励反解出来。符号说明：\(\pi^{*}\) 是公式 (1) 的最优策略。\(Z(x)=\sum_y \pi_{\mathrm{ref}}(y \mid x)\exp(r(x,y)/\beta)\) 是配分函数（归一化常数），只跟 \(x\) 有关、跟具体回答 \(y\) 无关。\(\exp\) 是指数函数，\(\log\) 是自然对数。推导细节见 DPO 原论文附录 A.1，本手册只取结论。</div>
+</div>
+
+<p>　　公式 (3) 是整条捷径的枢纽。它说：奖励可以被改写成「最优策略与参考模型的对数比」，外加一个只跟 \(x\) 有关的 \(\beta\log Z(x)\)。再回想 10.2 节的 Bradley-Terry 模型——偏好概率只取决于两个回答的<strong>奖励之差</strong>。把公式 (3) 代进奖励差里，\(\beta\log Z(x)\) 在一减之间恰好抵消，剩下的只有策略与参考模型的对数比。奖励模型这个中间环节，就这样被数学消掉了：不需要先训一个打分器再让模型追分，直接让策略在偏好对上学「谁的分差该更大」即可。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">隐式奖励 Implicit Reward</span>
+    <span class="term-en">implicit = 不明说、藏在形式里的奖励</span>
+  </div>
+  <div class="term-body">
+    <p>指 DPO 里不再显式训练奖励模型，而是用 \(\beta\log\frac{\pi_\theta(y\mid x)}{\pi_{\mathrm{ref}}(y\mid x)}\) 这个「策略相对参考的对数比」充当奖励。它没有单独的网络、没有额外的参数，是从正在训练的策略自己身上读出来的量。策略往「更爱说好回答」的方向每走一步，这个隐式奖励的分差就自动拉开一点。</p>
+    <div class="term-analogy">像不请裁判、直接看选手自己的起跑反应变化来评估训练效果：反应比去年快了就是进步，省掉一套独立的计时班子。</div>
+  </div>
+</div>
+
+<p>　　落到实践上，这条捷径的收益是实打实的。DPO 论文的实验显示：训练过程不需要从模型采样、不需要大规模调参，就稳定达到甚至超过 PPO 版 RLHF 的水平——在情感控制任务上超过 PPO，在 Reddit TL;DR 摘要与 Anthropic HH 单轮对话上持平或更好，而实现复杂度大幅下降。RLHF 那条「四模型同台、边采样边更新」的重装流水线，被压缩成「两次前向 + 一个分类损失」。</p>
+
+<div class="highlight-box">
+  核心结论：DPO 没有换目标，只是换了参数化。KL 约束下的最优策略有闭式解，把奖励反解成策略与参考模型的对数比之后，Bradley-Terry 偏好建模里的配分函数自动抵消，奖励模型与强化学习循环一起被消掉，训练退化为一个分类损失。
+</div>
+
+<h2>10.4.2 DPO 损失逐项拆解：含 minimind 实现对照</h2>
+
+<p>　　把公式 (3) 代进 Bradley-Terry 的偏好损失（10.2 节），就得到 DPO 的训练目标。对每条偏好对 \((x, y_w, y_l)\)——\(y_w\) 是标注员选出的优选回答（chosen），\(y_l\) 是落选的那个（rejected）——损失写成：</p>
+
+<div class="formula-card">
+  \[ \mathcal{L}_{\mathrm{DPO}} = -\log \sigma\Big( \beta \log \frac{\pi_\theta(y_w \mid x)}{\pi_{\mathrm{ref}}(y_w \mid x)} - \beta \log \frac{\pi_\theta(y_l \mid x)}{\pi_{\mathrm{ref}}(y_l \mid x)} \Big) \tag{4} \]
+  <div class="formula-note">公式 (4)：DPO 的全部损失，一个套着 sigmoid 的交叉熵式目标。符号说明：\(\sigma(z)=1/(1+e^{-z})\) 是 sigmoid 函数，把任意实数压到 0 与 1 之间。\(\pi_\theta(y \mid x)\) 是策略模型给出整条回答的概率（等于回答区各 token 概率连乘，取对数后就是逐 token 对数概率求和）。\(\pi_{\mathrm{ref}}(y \mid x)\) 是冻结参考模型对同一条回答的概率。\(\beta\) 是偏离约束的强度，与公式 (1) 中同一个。\(\log\frac{\pi_\theta}{\pi_{\mathrm{ref}}}\) 是策略相对参考的「抬升量」——策略比参考更愿意说这句话，这一项就为正。完整目标还要对数据集里所有偏好对取期望，这里省略了期望号。</div>
+</div>
+
+<p>　　逐项读一遍这个损失。中括号里是两个抬升量之差：第一项是策略对优选回答的抬升，第二项是对劣选回答的抬升。损失要的不是「优选概率绝对高」，而是「优选的抬升比劣选的大」——哪怕两条回答的概率都还没多高，只要策略相对参考更偏爱优选，损失就往下走。外层 sigmoid 把这个分差压成 0 到 1 之间的「偏好概率」，配上负对数，形状与 10.2 节奖励模型的训练损失完全一致，只是分差的主角从奖励模型的两个分数换成了两对策略与参考的对数比。</p>
+
+<p>　　代两组数字找找手感。训练刚起步时策略就是参考的复制，所有对数比都是 0，损失为 \(-\log\sigma(0)=\ln 2\approx 0.693\)，这是 DPO 损失的天然起点。训练见效之后，比如优选的抬升量到了 \(+2\)、劣选被压到 \(-2\)，取 minimind 的默认 \(\beta=0.15\)，分差乘系数得 \(0.15\times(2-(-2))=0.6\)，损失降到 \(-\log\sigma(0.6)\approx 0.437\)。损失恒大于零、随分差单调下降，但永远不会到零——这与交叉熵的性质一致。</p>
+
+<p>　　再对照 minimind 的真实实现逐行过一遍（minimind（Apache 2.0），trainer/train_dpo.py），看公式 (4) 是怎么落地的：</p>
+
+<ol>
+  <li><strong>取整条回答的对数概率</strong>：<code>logits_to_log_probs</code>（第 25–31 行）先对 logits 做 <code>F.log_softmax</code>，再用 <code>torch.gather</code> 按 label 把每个目标 token 的对数概率挑出来，得到形状为 (batch, seq_len) 的逐 token 对数概率。</li>
+  <li><strong>掩码求和，只算回答区</strong>：<code>dpo_loss</code> 开头把对数概率乘上 mask 再按序列维求和（第 36–37 行），每条序列压成一个标量。mask 只罩 assistant 回答区间，由 DPODataset 生成（dataset/lm_dataset.py 第 125–178 行与第 180 行起的 <code>generate_loss_mask</code>），思路与 9.3 节 SFT 的损失掩码相同——提问段不进账。</li>
+  <li><strong>chosen 与 rejected 对半切分</strong>：训练循环里把 chosen 与 rejected 两个 batch 在序列维拼成一个大 batch（第 63–65 行），一次前向算完。<code>dpo_loss</code> 里再按「前半 chosen、后半 rejected」切开（第 41–44 行）。</li>
+  <li><strong>算分差、过 logsigmoid</strong>：第 46–48 行，<code>pi_logratios − ref_logratios</code> 正是公式 (4) 中括号里的抬升量之差。第 49 行 <code>-F.logsigmoid(beta * logits)</code> 一步到位完成 \(-\log\sigma(\beta\cdot\Delta)\)。第 50 行对 batch 取平均。</li>
+  <li><strong>参考模型不参与梯度</strong>：参考模型的前向包在 <code>torch.no_grad()</code> 里（第 72–74 行），它只出分数、不收梯度。</li>
+</ol>
+
+<p>　　对照下来可以看到，实现里没有任何强化学习部件：没有采样、没有价值网络、没有优势估计，只有两次前向（策略一次、参考一次）加一个损失。这正是 DPO「 computationally lightweight（计算轻量）」这一主张在代码层面的样子。</p>
+
+<div class="highlight-box">
+  DPO 损失与 10.2 节奖励模型的 Bradley-Terry 损失同形，都是 \(-\log\sigma(\text{分差})\)。区别在于分差的来源：奖励模型用单独网络给两个分数相减，DPO 直接用「策略相对参考的抬升量之差」。训练 DPO 时盯着损失从 \(\ln 2\approx 0.693\) 往下走，就是在看模型学会分辨好坏的进度条。
+</div>
+
+<h2>10.4.3 β 与参考模型：DPO 的两个旋钮</h2>
+
+<p>　　DPO 把 RLHF 的四模型装置拆到只剩两个模型，可调的东西也跟着收敛到两处：一个系数 \(\beta\)，一个参考模型 \(\pi_{\mathrm{ref}}\)。两个旋钮都管同一件事——允许策略离出发点多远，但拧法不同。</p>
+
+<p>　　先看 \(\beta\)。回到公式 (2)：最优策略等于参考策略乘上 \(\exp(r/\beta)\)，\(\beta\) 坐在指数的分母上。\(\beta\) 大，指数函数被压平，再大的奖励差也只能换来温和的概率偏移，策略贴着参考模型走，保守。\(\beta\) 小，指数函数陡峭，一点奖励差就放大成剧烈的概率重排，策略敢跑远，对齐信号吃得透，但也更容易跑飞退化。把 \(\beta\) 想成缰绳长度：缰绳短（\(\beta\) 大）马跑不远，缰绳长（\(\beta\) 小）跑得快但可能脱缰。各家的取值可以互相参照：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>来源</th><th>β 取值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>DPO 原论文默认</td><td>0.1</td><td>情感控制与单轮对话实验的默认值</td></tr>
+      <tr><td>DPO 原论文摘要任务</td><td>0.5</td><td>Reddit TL;DR 摘要上改用更大的 β，拴得更紧</td></tr>
+      <tr><td>minimind 默认</td><td>0.15</td><td>trainer/train_dpo.py 第 143 行，小模型对齐</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　再看参考模型。它几乎总是同一个答案：<strong>把 SFT 模型冻结一份</strong>。minimind 的做法是把 <code>full_sft</code> 权重再加载一份，调 <code>eval()</code> 并 <code>requires_grad_(False)</code> 彻底冻结（trainer/train_dpo.py 第 176–180 行）。参考模型的作用是当锚点：没有它，损失只关心抬升量之差，模型完全可以靠把两条回答的概率一起压垮来拉开差距，说着说着就退化出语言空间。有了锚点，「离 SFT 出发点多远」始终可度量，KL 约束才真正存在。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">参考模型 Reference Model</span>
+    <span class="term-en">reference = 参照物。对齐训练中的冻结锚点</span>
+  </div>
+  <div class="term-body">
+    <p>对齐训练时额外加载的一份冻结模型，通常就是 SFT 模型的原样复制。它全程不更新，只负责提供「出发时的行为基准」：KL 罚项（RLHF）或抬升量（DPO）都以它为参照计算。显存上它要多占一份模型大小的空间，这是 DPO 比纯 SFT 贵的主要部分。SimPO 等后续工作正是冲着省掉它去的（10.4.4）。</p>
+    <div class="term-analogy">像装修时留在原地的那根水平基准线：家具怎么摆都行，但每挪一步都拿它量一量，才知道有没有歪。</div>
+  </div>
+</div>
+
+<p>　　两个旋钮之外还有一个隐形搭档：学习率。minimind 的 DPO 默认学习率是 4e-8，代码注释直言「建议 ≤5e-8 避免遗忘」（trainer/train_dpo.py 第 128 行）。对照 9.3 节 SFT 的 1e-5，又小了两个多量级。原因一脉相承：DPO 阶段的模型已经会对话，参数里压着预训练与 SFT 两站攒下的全部成果，大步更新最容易把它们冲刷掉——这正是 9.3.3 灾难性遗忘的对策在对齐阶段的延续。</p>
+
+<div class="highlight-box warn">
+  β 与学习率都影响「走多远」，但作用层次不同：β 写在目标函数里，决定「离参考多远开始受罚」。学习率写在优化器里，决定「每步实际迈多大」。两者同向收紧是保守配方，同时放开则是双重激进，最容易把模型训退化。调参时先固定学习率在一个小量级，再按验证集表现调 β。
+</div>
+
+<h2>10.4.4 家族图谱：IPO / KTO / SimPO</h2>
+
+<p>　　DPO 开出了「直接偏好优化」这条路线，后续工作各自盯住它留下的一个痛点打补丁。三个最有代表性的成员如下。</p>
+
+<h4>IPO：治 DPO 的过拟合</h4>
+
+<p>　　Azar 等人（Google DeepMind）把 RLHF 与 DPO 统一进一个叫 \(\Psi\)PO 的通用框架，借此看清了 DPO 的软肋：它依赖 Bradley-Terry 假设，认定成对偏好可以折算成分数之差。当偏好数据里某条回答几乎稳赢（偏好确定或接近确定）时，DPO 会把这类样本的分差越推越大，过拟合偏好数据，KL 约束形同虚设。IPO（Identity Preference Optimization）把框架里的映射 \(\Psi\) 直接取为恒等函数，绕开 Bradley-Terry 假设，让 KL 正则重新生效，理论上能防住这类过拟合。</p>
+
+<h4>KTO：治成对数据难收集</h4>
+
+<p>　　DPO 与 IPO 都要成对的偏好数据：同一个问题两个回答、标注员二选一。现实中更便宜的是单条的「好/坏」信号——点赞点踩、采纳没采纳。Ethayarajh 等人借 Kahneman 与 Tversky 的前景理论（描述人类对收益与损失不对称感知的决策理论，损失带来的痛感强于等额收益的快慰）设计了 KTO：只需要每条回答带一个二元「可不可取」标签，不需要配对。实验上，1B 到 30B 规模下 KTO 达到甚至超过成对偏好方法，数据收集的门槛由此大幅降低。</p>
+
+<h4>SimPO：治参考模型的开销</h4>
+
+<p>　　DPO 与 KTO 都还要加载并维护一份冻结参考模型，显存与算力都多一份。Meng 等人的 SimPO 干脆连参考模型也去掉：隐式奖励改用序列的<strong>平均对数概率</strong>（除以回答长度，天然做了长度归一化，避免长回答因连乘更多项而吃亏），并在 Bradley-Terry 目标里加一个目标分差 margin，要求优劣势之间的差距至少拉开到指定值。结果是更省资源还更准：AlpacaEval 2 上最多比 DPO 高 6.4 分，Arena-Hard 上最多高 7.5 分。</p>
+
+<p>　　把四个成员摆在一起对照，选型时看数据形态与资源预算就有章可循：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>方法</th><th>要解决的痛点</th><th>数据形态</th><th>需要参考模型</th><th>代表论文</th></tr></thead>
+    <tbody>
+      <tr><td>DPO</td><td>RLHF 又贵又脆，奖励模型与 RL 循环被数学消掉</td><td>成对偏好（chosen / rejected）</td><td>需要</td><td>arXiv:2305.18290</td></tr>
+      <tr><td>IPO</td><td>DPO 在偏好（近）确定时过拟合、KL 约束失效</td><td>成对偏好</td><td>需要</td><td>arXiv:2310.12036</td></tr>
+      <tr><td>KTO</td><td>成对数据难收集，只要单条好/坏标签</td><td>单条二元标签（可取 / 不可取）</td><td>需要</td><td>arXiv:2402.01306</td></tr>
+      <tr><td>SimPO</td><td>参考模型的显存与算力开销，长度偏差</td><td>成对偏好</td><td>不需要</td><td>arXiv:2405.14734</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　四选一没有绝对答案：有成对标注、求稳就上 DPO 或其 IPO 变体。只有点赞点踩式的单条信号就用 KTO。显存紧张或要批量训练就用 SimPO。但它们共享同一个天花板——效果上限由偏好数据的质量封顶，垃圾偏好喂不出好对齐。这个天花板与 RLHF 那条路线的权衡，留到 10.5 节收束全章时一起谈。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">DPO 为什么不需要奖励模型？</div>
+    <div class="sc-key">KL 约束下 RLHF 的最优策略有闭式解：参考策略按奖励指数加权再归一化。把奖励反解成「策略与参考模型的对数比」后代进 Bradley-Terry 偏好模型，配分函数在奖励差中抵消，奖励模型这个中间环节被数学消掉，训练退化为偏好对上的一个分类损失。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">DPO 损失里的四个对数概率各是什么，minimind 怎么算？</div>
+    <div class="sc-key">策略模型与冻结参考模型分别对优选、劣选两条回答算序列对数概率（回答区逐 token 求和）。损失要求优选的相对抬升大于劣选的：\(-\log\sigma(\beta\cdot\Delta)\)。minimind 的实现是：log_softmax 加 gather 取目标 token 概率、mask 只罩回答区、chosen 与 rejected 拼 batch 后对半切、最后 −logsigmoid(β·Δ)，损失从 ln 2 ≈ 0.693 起步往下走。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">β 与参考模型各管什么？家族成员各自补什么短板？</div>
+    <div class="sc-key">β 是缰绳：大则贴住参考模型偏保守（论文默认 0.1、摘要任务 0.5、minimind 0.15），小则敢跑远但易退化。参考模型是锚点，通常就是 SFT 模型冻结一份，配 4e-8 量级的小学习率防遗忘。IPO 治过拟合（绕开 Bradley-Terry 假设），KTO 治数据形态（单条二元标签即可），SimPO 治开销（去掉参考模型、长度归一化加 margin）。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Rafailov et al., 2023. Direct Preference Optimization: Your Language Model is Secretly a Reward Model（DPO 原始论文，arXiv:2305.18290）：KL 约束下最优策略的闭式解、隐式奖励重参数化与 DPO 损失。实验部分默认 β=0.1、TL;DR 摘要任务 β=0.5，情感控制上超过 PPO 版 RLHF，摘要与单轮对话持平或更好。</li>
+  <li>Azar et al., 2023. A General Theoretical Paradigm to Understand Learning from Human Preferences（IPO，arXiv:2310.12036）：ΨPO 统一框架。指出 DPO 依赖 Bradley-Terry 假设，在偏好确定或接近确定时易过拟合、KL 约束失效。IPO 取 Ψ 为恒等映射绕开该假设。</li>
+  <li>Ethayarajh et al., 2024. KTO: Model Alignment as Prospect Theoretic Optimization（arXiv:2402.01306）：基于 Kahneman-Tversky 前景理论提出 human-aware loss（HALO）视角。KTO 只需单条二元好/坏标签，1B 到 30B 规模上达到或超过成对偏好方法。</li>
+  <li>Meng et al., 2024. SimPO: Simple Preference Optimization with a Reference-Free Reward（arXiv:2405.14734）：以序列平均对数概率作隐式奖励、无需参考模型，加目标分差 margin。AlpacaEval 2 最多比 DPO 高 6.4 分，Arena-Hard 最多高 7.5 分。</li>
+  <li>minimind（Apache 2.0），trainer/train_dpo.py：第 25–31 行（log_softmax 加 gather 取逐 token 对数概率）、第 34–50 行（dpo_loss：掩码求和、前后半切分、−logsigmoid(β·Δ)）、第 63–65 行（chosen 与 rejected 拼接）、第 72–74 行（参考模型 no_grad 前向）、第 126–143 行（默认配方 epoch 1、batch 4、学习率 4e-8 注释「建议 ≤5e-8 避免遗忘」、max_seq_len 1024、β 0.15）、第 176–180 行（参考模型取 full_sft 复制并冻结）。</li>
+  <li>minimind（Apache 2.0），dataset/lm_dataset.py：第 125–178 行（DPODataset，chosen/rejected 各为对话列表）与第 180 行起的 generate_loss_mask（损失掩码只罩 assistant 回答区间）。</li>
+</ul>
+
+</article>

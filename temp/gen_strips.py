@@ -213,6 +213,21 @@ PAGES = {
     "ch9_3_sft_mechanics": ("life", "P5"),
     "ch9_4_lora": ("life", "P5"),
     "ch9_5_peft_family": ("life", "P5"),
+    "ch10_1_alignment_gap": ("life", "P6"),
+    "ch10_2_reward_model": ("life", "P6"),
+    "ch10_3_ppo_rlhf": ("life", "P6"),
+    "ch10_4_dpo_family": ("life", "P6"),
+    "ch10_5_safety_alignment": ("life", "P6"),
+    "ch11_1_why_rlvr": ("life", "P7"),
+    "ch11_2_rlvr_loop": ("life", "P7"),
+    "ch11_3_grpo": ("life", "P7"),
+    "ch11_4_long_cot": ("life", "P7"),
+    "ch11_5_reasoning_pitfalls": ("life", "P7"),
+    "ch12_1_decoding_loop": ("life", "P8"),
+    "ch12_2_sampling": ("life", "P8"),
+    "ch12_3_stopping": ("life", "P8"),
+    "ch12_4_structured_output": ("life", "P8"),
+    "ch12_5_decoding_practice": ("life", "P8"),
 }
 
 
