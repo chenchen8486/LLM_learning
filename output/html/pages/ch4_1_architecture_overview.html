@@ -209,7 +209,7 @@
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 780 540" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+  <svg viewBox="0 0 780 590" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
     <defs>
       <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
@@ -232,27 +232,41 @@
     <text x="180" y="88" text-anchor="middle" font-size="11" fill="#666">每个 token 一个 512 维向量</text>
     <line x1="180" y1="130" x2="180" y2="101" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
 
-    <!-- 编码器层堆叠 -->
-    <rect x="55" y="130" width="250" height="190" rx="12" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
-    <text x="180" y="152" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">编码器层 ×6（每层两个子层）</text>
-    <rect x="75" y="162" width="210" height="38" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
-    <text x="180" y="186" text-anchor="middle" font-size="13" fill="#333">子层 1：多头自注意力</text>
-    <rect x="75" y="210" width="210" height="50" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
-    <text x="180" y="230" text-anchor="middle" font-size="13" fill="#333">子层 2：前馈网络 FFN</text>
-    <text x="180" y="248" text-anchor="middle" font-size="11" fill="#666">512 → 2048 → 512</text>
-    <text x="180" y="288" text-anchor="middle" font-size="12" fill="#666">每个子层外裹：残差连接 + 层归一化</text>
-    <line x1="180" y1="350" x2="180" y2="323" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <!-- 编码器层堆叠：数据自下而上，每个白框是一个完整子层（先变换、后残差归一化） -->
+    <rect x="55" y="130" width="250" height="220" rx="12" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="180" y="150" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">编码器层 ×6（两个子层，自下而上）</text>
+
+    <!-- 编码器 子层 2 组 -->
+    <rect x="70" y="158" width="220" height="94" rx="8" fill="#ffffff" stroke="#a78bfa" stroke-width="1.2"/>
+    <rect x="80" y="166" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="180" y="181" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
+    <line x1="180" y1="198" x2="180" y2="191" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr)"/>
+    <rect x="80" y="198" width="200" height="50" rx="6" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="180" y="219" text-anchor="middle" font-size="13" fill="#333">子层 2：前馈网络 FFN</text>
+    <text x="180" y="237" text-anchor="middle" font-size="11" fill="#666">512 → 2048 → 512</text>
+
+    <line x1="180" y1="262" x2="180" y2="255" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- 编码器 子层 1 组 -->
+    <rect x="70" y="262" width="220" height="82" rx="8" fill="#ffffff" stroke="#a78bfa" stroke-width="1.2"/>
+    <rect x="80" y="270" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="180" y="285" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
+    <line x1="180" y1="302" x2="180" y2="295" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr)"/>
+    <rect x="80" y="302" width="200" height="38" rx="6" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="180" y="326" text-anchor="middle" font-size="13" fill="#333">子层 1：多头自注意力</text>
+
+    <line x1="180" y1="358" x2="180" y2="347" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
 
     <!-- 编码器：Embedding -->
-    <rect x="60" y="350" width="240" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="180" y="372" text-anchor="middle" font-size="13" fill="#333">Embedding × √512</text>
-    <text x="180" y="390" text-anchor="middle" font-size="11" fill="#666">再加位置编码（第 3 章）</text>
-    <line x1="180" y1="432" x2="180" y2="405" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="60" y="358" width="240" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="180" y="380" text-anchor="middle" font-size="13" fill="#333">Embedding × √512</text>
+    <text x="180" y="398" text-anchor="middle" font-size="11" fill="#666">再加位置编码（第 3 章）</text>
+    <line x1="180" y1="440" x2="180" y2="413" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
 
     <!-- 编码器：输入 -->
-    <rect x="60" y="432" width="240" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="180" y="452" text-anchor="middle" font-size="13" fill="#333">源句 token 序列</text>
-    <text x="180" y="469" text-anchor="middle" font-size="11" fill="#666">例：I love you（4 个 token）</text>
+    <rect x="60" y="440" width="240" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="180" y="460" text-anchor="middle" font-size="13" fill="#333">源句 token 序列</text>
+    <text x="180" y="477" text-anchor="middle" font-size="11" fill="#666">例：I love you（4 个 token）</text>
 
     <!-- 解码器：顶部输出 -->
     <rect x="420" y="46" width="240" height="52" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
@@ -260,38 +274,60 @@
     <text x="540" y="88" text-anchor="middle" font-size="11" fill="#666">输出下一个词的概率</text>
     <line x1="540" y1="130" x2="540" y2="101" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
 
-    <!-- 解码器层堆叠 -->
-    <rect x="415" y="130" width="250" height="220" rx="12" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
-    <text x="540" y="152" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">解码器层 ×6（每层三个子层）</text>
-    <rect x="435" y="162" width="210" height="38" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
-    <text x="540" y="186" text-anchor="middle" font-size="13" fill="#333">子层 1：掩码多头自注意力</text>
-    <rect x="435" y="210" width="210" height="38" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-    <text x="540" y="234" text-anchor="middle" font-size="13" fill="#333">子层 2：编码器-解码器注意力</text>
-    <rect x="435" y="258" width="210" height="38" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
-    <text x="540" y="282" text-anchor="middle" font-size="13" fill="#333">子层 3：前馈网络 FFN</text>
-    <text x="540" y="322" text-anchor="middle" font-size="12" fill="#666">每个子层外裹：残差连接 + 层归一化</text>
-    <line x1="540" y1="380" x2="540" y2="353" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <!-- 解码器层堆叠：数据自下而上，每个白框是一个完整子层（先变换、后残差归一化） -->
+    <rect x="415" y="130" width="250" height="300" rx="12" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="540" y="150" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">解码器层 ×6（三个子层，自下而上）</text>
+
+    <!-- 解码器 子层 3 组 -->
+    <rect x="430" y="158" width="220" height="82" rx="8" fill="#ffffff" stroke="#a78bfa" stroke-width="1.2"/>
+    <rect x="440" y="166" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="540" y="181" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
+    <line x1="540" y1="198" x2="540" y2="191" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr)"/>
+    <rect x="440" y="198" width="200" height="38" rx="6" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="540" y="222" text-anchor="middle" font-size="13" fill="#333">子层 3：前馈网络 FFN</text>
+
+    <line x1="540" y1="250" x2="540" y2="243" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- 解码器 子层 2 组 -->
+    <rect x="430" y="250" width="220" height="82" rx="8" fill="#ffffff" stroke="#a78bfa" stroke-width="1.2"/>
+    <rect x="440" y="258" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="540" y="273" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
+    <line x1="540" y1="290" x2="540" y2="283" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr)"/>
+    <rect x="440" y="290" width="200" height="38" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="540" y="314" text-anchor="middle" font-size="13" fill="#333">子层 2：编码器-解码器注意力</text>
+
+    <line x1="540" y1="342" x2="540" y2="335" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- 解码器 子层 1 组 -->
+    <rect x="430" y="342" width="220" height="82" rx="8" fill="#ffffff" stroke="#a78bfa" stroke-width="1.2"/>
+    <rect x="440" y="350" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="540" y="365" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
+    <line x1="540" y1="382" x2="540" y2="375" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr)"/>
+    <rect x="440" y="382" width="200" height="38" rx="6" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="540" y="406" text-anchor="middle" font-size="13" fill="#333">子层 1：掩码多头自注意力</text>
+
+    <line x1="540" y1="438" x2="540" y2="427" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
 
     <!-- 解码器：Embedding -->
-    <rect x="420" y="380" width="240" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="540" y="402" text-anchor="middle" font-size="13" fill="#333">Embedding × √512</text>
-    <text x="540" y="420" text-anchor="middle" font-size="11" fill="#666">再加位置编码（第 3 章）</text>
-    <line x1="540" y1="462" x2="540" y2="435" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="420" y="438" width="240" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="540" y="460" text-anchor="middle" font-size="13" fill="#333">Embedding × √512</text>
+    <text x="540" y="478" text-anchor="middle" font-size="11" fill="#666">再加位置编码（第 3 章）</text>
+    <line x1="540" y1="520" x2="540" y2="493" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
 
     <!-- 解码器：输入 -->
-    <rect x="420" y="462" width="240" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="540" y="482" text-anchor="middle" font-size="13" fill="#333">已生成前缀（右移一位）</text>
-    <text x="540" y="499" text-anchor="middle" font-size="11" fill="#666">起始符 + 已写出的译文词</text>
+    <rect x="420" y="520" width="240" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="540" y="540" text-anchor="middle" font-size="13" fill="#333">已生成前缀（右移一位）</text>
+    <text x="540" y="557" text-anchor="middle" font-size="11" fill="#666">起始符 + 已写出的译文词</text>
 
     <!-- 跨塔箭头：编码器输出喂给解码器子层 2 -->
-    <path d="M 300 72 C 380 72 360 229 430 229" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
+    <path d="M 300 72 C 380 72 360 309 435 309" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
     <text x="368" y="58" text-anchor="middle" font-size="12" fill="#0891b2">K、V 来自编码器</text>
 
     <!-- 自回归循环 -->
-    <path d="M 660 72 L 740 72 L 740 484 L 664 484" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR)"/>
-    <text x="752" y="278" text-anchor="middle" font-size="12" fill="#dc2626" transform="rotate(90 752 278)">输出接回输入，逐词循环</text>
+    <path d="M 660 72 L 740 72 L 740 542 L 664 542" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR)"/>
+    <text x="752" y="307" text-anchor="middle" font-size="12" fill="#dc2626" transform="rotate(90 752 307)">输出接回输入，逐词循环</text>
   </svg>
-  <div class="diagram-caption">图示：Transformer 两塔流水线。编码器把源句读成上下文表示 \(z\)；解码器以已生成前缀为输入，经掩码自注意力、编码器-解码器注意力（K、V 来自编码器）与前馈网络，预测下一个词；红色回路就是自回归：新词接回输入，循环直到结束符。</div>
+  <div class="diagram-caption">图示：Transformer 两塔流水线。数据一律自下而上流动：编码器把源句读成上下文表示 \(z\)；解码器以已生成前缀为输入，经掩码自注意力、编码器-解码器注意力（K、V 来自编码器）与前馈网络，预测下一个词。每个子层后面紧跟的绿色小块是残差连接与层归一化。红色回路就是自回归：新词接回输入，循环直到结束符。</div>
 </div>
 
 <p>　　<strong>所以这步在干嘛：</strong>把「两种语言互译」这件大事拆成两道工序——编码器负责一次性读懂整句原文，解码器负责看着这份理解逐词写出译文，两塔之间只传递一组向量。</p>
@@ -353,7 +389,7 @@
 <p>　　最后走一遍完整流程。仍以 <code>I love you</code> 译成中文「我爱你」为例（论文原文是英德、英法任务，这里用英译中举例，机制完全一样）：</p>
 
 <ol>
-  <li>源句切成 4 个 token，各自查 Embedding 得 512 维向量，乘 \(\sqrt{512}\) 再加位置编码，拼成 \(4 \times 512\) 的矩阵送入编码器；</li>
+  <li>源句切成 4 个 token，各自查 Embedding 得 512 维向量，乘 \(\sqrt{512}\) 把词义信号放大（避免被随后相加的位置编码淹没，位置编码值域固定为 \([-1,1]\)，不放大词向量就会喧宾夺主；这一缩放只在输入端做一次，网络内部各层不再重复），再加位置编码，拼成 \(4 \times 512\) 的矩阵送入编码器；</li>
   <li>6 层编码器加工完毕，输出上下文表示 \(z\)：还是 \(4 \times 512\)，但每个向量已融入全句信息；</li>
   <li>解码器第 1 步：输入只有起始符（\(1 \times 512\)），过 6 层解码器（其中编码器-解码器注意力一直在读 \(z\)），顶部 Linear + Softmax 输出词表大小的概率分布（论文英德任务的共享词表约 37000 个词元），取最大概率的词——「我」；</li>
   <li>第 2 步：输入变成「起始符 + 我」，同样流程，输出「爱」；</li>
