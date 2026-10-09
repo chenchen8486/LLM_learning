@@ -100,26 +100,30 @@
     </defs>
     <text x="40" y="34" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：注意力机制——输入 3 × 768，输出 3 × 96（单个注意力头）</text>
     <text x="40" y="60" font-size="11" fill="#64748b">第 1 步：同一个输入 X 乘三个投影矩阵，分出 Q、K、V（投影矩阵是训练学出来的参数）</text>
-    <rect x="40" y="74" width="110" height="120" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <line x1="40" y1="114" x2="150" y2="114" stroke="#ddd6fe" stroke-width="1"/>
-    <line x1="40" y1="154" x2="150" y2="154" stroke="#ddd6fe" stroke-width="1"/>
-    <line x1="77" y1="74" x2="77" y2="194" stroke="#ddd6fe" stroke-width="1"/>
-    <line x1="113" y1="74" x2="113" y2="194" stroke="#ddd6fe" stroke-width="1"/>
-    <text x="131" y="140" text-anchor="middle" font-size="12" fill="#94a3b8">⋯</text>
-    <text x="95" y="208" text-anchor="middle" font-size="11" fill="#6d28d9">X：3 × 768（3 个 token）</text>
-    <line x1="150" y1="134" x2="226" y2="91" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
-    <line x1="150" y1="134" x2="226" y2="139" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
-    <line x1="150" y1="134" x2="226" y2="187" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
-    <rect x="230" y="74" width="100" height="34" rx="5" fill="#ffffff" stroke="#6d28d9"/>
-    <text x="280" y="95" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">W_Q</text>
-    <rect x="230" y="122" width="100" height="34" rx="5" fill="#ffffff" stroke="#6d28d9"/>
-    <text x="280" y="143" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">W_K</text>
-    <rect x="230" y="170" width="100" height="34" rx="5" fill="#ffffff" stroke="#6d28d9"/>
-    <text x="280" y="191" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">W_V</text>
+    <rect x="40" y="99" width="150" height="70" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="40" y1="122" x2="190" y2="122" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="40" y1="146" x2="190" y2="146" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="70" y1="99" x2="70" y2="169" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="100" y1="99" x2="100" y2="169" stroke="#ddd6fe" stroke-width="1"/>
+    <line x1="130" y1="99" x2="130" y2="169" stroke="#ddd6fe" stroke-width="1"/>
+    <text x="175" y="139" text-anchor="middle" font-size="12" fill="#94a3b8">…</text>
+    <text x="115" y="185" text-anchor="middle" font-size="11" fill="#6d28d9">X：3 × 768（3 个 token）</text>
+    <line x1="190" y1="134" x2="226" y2="91" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <line x1="190" y1="134" x2="226" y2="139" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <line x1="190" y1="134" x2="226" y2="187" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <rect x="235" y="71" width="26" height="40" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="248" y="95" text-anchor="middle" font-size="10" fill="#94a3b8">⋮</text>
+    <text x="270" y="95" font-size="12" font-weight="bold" fill="#4c1d95">W_Q</text>
+    <rect x="235" y="119" width="26" height="40" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="248" y="143" text-anchor="middle" font-size="10" fill="#94a3b8">⋮</text>
+    <text x="270" y="143" font-size="12" font-weight="bold" fill="#4c1d95">W_K</text>
+    <rect x="235" y="167" width="26" height="40" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="248" y="191" text-anchor="middle" font-size="10" fill="#94a3b8">⋮</text>
+    <text x="270" y="191" font-size="12" font-weight="bold" fill="#4c1d95">W_V</text>
     <text x="230" y="222" font-size="10" fill="#64748b">投影矩阵：768 × 96</text>
-    <line x1="330" y1="91" x2="406" y2="91" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
-    <line x1="330" y1="139" x2="406" y2="139" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
-    <line x1="330" y1="187" x2="406" y2="187" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <line x1="300" y1="91" x2="406" y2="91" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <line x1="300" y1="139" x2="406" y2="139" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
+    <line x1="300" y1="187" x2="406" y2="187" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
     <rect x="410" y="74" width="110" height="34" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
     <text x="465" y="95" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">Q：3 × 96</text>
     <rect x="410" y="122" width="110" height="34" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
@@ -176,9 +180,12 @@
     <circle cx="622" cy="336" r="13" fill="#6d28d9"/>
     <text x="622" y="341" text-anchor="middle" font-size="14" fill="#ffffff">×</text>
     <line x1="635" y1="336" x2="646" y2="336" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#att42P)"/>
-    <rect x="648" y="282" width="60" height="108" fill="#6d28d9" opacity="0.85"/>
-    <line x1="648" y1="318" x2="708" y2="318" stroke="#a78bfa" stroke-width="1"/>
-    <line x1="648" y1="354" x2="708" y2="354" stroke="#a78bfa" stroke-width="1"/>
+    <rect x="648" y="318" width="60" height="36" fill="#6d28d9" opacity="0.85"/>
+    <line x1="648" y1="330" x2="708" y2="330" stroke="#a78bfa" stroke-width="1"/>
+    <line x1="648" y1="342" x2="708" y2="342" stroke="#a78bfa" stroke-width="1"/>
+    <line x1="668" y1="318" x2="668" y2="354" stroke="#a78bfa" stroke-width="1"/>
+    <line x1="688" y1="318" x2="688" y2="354" stroke="#a78bfa" stroke-width="1"/>
+    <text x="700" y="339" text-anchor="middle" font-size="10" fill="#ddd6fe">⋯</text>
     <text x="678" y="404" text-anchor="middle" font-size="11" fill="#6d28d9">输出 3 × 96</text>
     <text x="40" y="424" font-size="11" font-weight="bold" fill="#4c1d95">打分：这一步就是算相关性——Q·Kᵀ 让每个 query 与每个 key 各点积一次（点积越大越相关，A.2 节），9 个配对得 9 个原始分数</text>
     <text x="40" y="446" font-size="11" fill="#64748b">读法：行 = 谁在看，列 = 看谁；格子 (i, j) = 第 i 个 query 与第 j 个 key 的点积（相关分）；原始分数未缩放、未归一化，÷√96 稳住尺度</text>

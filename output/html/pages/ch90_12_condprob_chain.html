@@ -1,0 +1,160 @@
+<article class="content">
+<h1>A.12 条件概率与链式分解：语言模型的数学形态</h1>
+<p class="subtitle">本页范围：附录 A 第 12 节　|　整理时间：2026-10-09</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>0.1 节说“LLM 的底层任务是根据上文猜下一个词”，6.1 节和 12.1 节都写着一条连乘公式。这条公式背后是同一件概率论工具：条件概率与链式法则。</td></tr>
+      <tr><td>本节主张</td><td>条件概率是“已知一部分事实后重新谈可能性”，链式法则是一条恒等式：整段文本的联合概率恰好等于逐步“猜下一个词”的条件概率连乘。语言模型就是对这条链的建模。</td></tr>
+      <tr><td>一句话结论</td><td>训练是最大化每条链的对数概率（交叉熵），推理是沿链一步步采样——读懂这条链，预训练目标与解码循环就成了同一件事的两个视角。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>条件概率</span><span>链式法则</span><span>联合概率</span><span>自回归分解</span><span>语言模型</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　手册里有三处地方用到同一条公式。0.1 节用它说明“语言模型在做什么”，6.1 节用它推出预训练的损失函数，12.1 节用它描述解码循环。三处写法略有不同，内核都是概率论里的链式法则：一句话出现的概率，可以精确地拆成“已知上文、猜下一个词”的条件概率逐项连乘。</p>
+
+<p>　　本节把这件工具单独讲透，沿“条件概率 → 链式法则 → 自回归分解 → 训练与推理”四步展开：</p>
+
+<ol>
+  <li><strong>条件概率：在已知条件下谈可能性</strong>（A.12.1）：竖线左边是要猜的对象，右边是已知的一切；</li>
+  <li><strong>链式法则：整句概率 = 条件概率连乘</strong>（A.12.2）：一条不做任何近似的恒等式，附“我 爱 猫”三步数值小例；</li>
+  <li><strong>自回归分解：“语言模型”四个字的数学形态</strong>（A.12.3）：把 \(p(y \mid x)\) 的连乘式逐项读懂；</li>
+  <li><strong>训练与推理：一条链的两端</strong>（A.12.4）：训练沿链并行算损失，推理沿链串行做采样。</li>
+</ol>
+
+<p>　　读完应能把任何一句“模型生成了一段话”翻译成一条概率连乘链，并说出训练与推理各自在这条链上的位置。</p>
+
+<h2>A.12.1 条件概率：在已知条件下谈可能性</h2>
+
+<p>　　先玩一个猜词游戏。给出上文“我 爱”，猜下一个字。不看上文时，“猫”只是一个普通汉字，出现在任意位置的可能性不高；看到“我 爱”之后，“猫”“你”“北京”这类宾语位置的字眼可能性陡增。同一个事件，已知的事实不同，概率就不同——这就是条件概率要表达的事。</p>
+
+<div class="formula-card">
+  \[ P(A \mid B) = \frac{P(A, B)}{P(B)} \tag{1} \]
+  <div class="formula-note">公式 (1)：条件概率的定义。符号说明：\(A\)、\(B\) 是两个事件；\(P(A, B)\) 是两者同时发生的联合概率；\(P(B)\) 是 \(B\) 单独发生的概率；竖线 \(\mid\) 读作“在……条件下”。式子读作：已知 \(B\) 发生后，世界被收窄到 \(B\) 发生的那部分里，\(A\) 在其中占的份额。</div>
+</div>
+
+<p>　　套到猜词游戏里：\(P(\text{猫})\) 是无条件概率，衡量“猫”字在全部文本里有多常见；\(P(\text{猫} \mid \text{我 爱})\) 是条件概率，衡量上文是“我 爱”时下一个字是“猫”的可能性。后者把候选范围从“所有文本”收窄到“以我 爱开头的文本”，猜中的把握自然大得多。语言模型的全部工作，就是把这个条件概率算准：上文逐字变长，条件里的内容也随之变长。</p>
+
+<div class="highlight-box info">
+  条件概率里竖线右边的内容不是附件，而是定义的一部分。\(P(\text{猫} \mid \text{我 爱})\) 与 \(P(\text{猫} \mid \text{我 恨})\) 是两个不同的数，模型每次预测都必须带着完整上文，丢掉条件就等于换了一个问题。
+</div>
+
+<h2>A.12.2 链式法则：整句概率 = 条件概率连乘</h2>
+
+<p>　　把公式 (1) 两边同乘 \(P(B)\)，得到 \(P(A, B) = P(A) \cdot P(B \mid A)\)：两个事件同时发生的概率，等于“先发生一个、再在它的条件下发生另一个”的两步概率相乘。这个两步拆解可以一直做下去。对一句由 \(T\) 个 token 组成的话，先把第 1 个 token 拆出来，再把第 2 个拆出来，依此类推，就得到链式法则：</p>
+
+<div class="formula-card">
+  \[ P(x_1, x_2, \dots, x_T) = \prod_{t=1}^{T} P\big(x_t \mid x_{&lt;t}\big) \tag{2} \]
+  <div class="formula-note">公式 (2)：概率的链式法则，一条恒等式，不含任何近似。符号说明：\(x_1, x_2, \dots, x_T\) 是一段文本分词后的 token 序列，共 \(T\) 个；\(P(x_1, \dots, x_T)\) 是整段文本出现的联合概率；\(x_{&lt;t}\) 是“第 \(t\) 个之前所有 token”的简写，即 \(x_1, \dots, x_{t-1}\)；\(\prod\) 表示逐项连乘。第 \(t = 1\) 项的条件为空，\(P(x_1 \mid x_{&lt;1})\) 就是无条件概率 \(P(x_1)\)，实际实现中以上文起始符（如 <code>&lt;BOS&gt;</code>）作为条件。</div>
+</div>
+
+<p>　　拿“我 爱 猫”三个 token 算一遍（数字是为演示编造的小例）。假设模型给出：句首出现“我”的概率是 0.04；已见“我”时下一个是“爱”的概率是 0.15；已见“我 爱”时下一个是“猫”的概率是 0.30。三步连乘：</p>
+
+<p>　　\(0.04 \times 0.15 \times 0.30 = 0.0018\)，这就是整句“我 爱 猫”的联合概率。图 1 把这条链画了出来：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="cpArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="14" y="112" font-size="13" fill="#333">整句概率</text>
+    <text x="14" y="136" font-size="13" fill="#333">P(我 爱 猫)</text>
+    <text x="14" y="158" font-size="13" fill="#6d28d9">= 0.0018</text>
+    <text x="118" y="145" font-size="20" fill="#333">=</text>
+    <!-- 第 1 步 -->
+    <rect x="150" y="60" width="160" height="30" fill="#6d28d9"/>
+    <text x="230" y="80" font-size="13" fill="#fff" text-anchor="middle">第 1 步</text>
+    <rect x="150" y="90" width="160" height="120" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.4"/>
+    <text x="230" y="116" font-size="12" fill="#0891b2" text-anchor="middle">已见：〈BOS〉</text>
+    <line x1="230" y1="122" x2="230" y2="138" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#cpArr)"/>
+    <text x="230" y="158" font-size="13" fill="#333" text-anchor="middle">猜下一个：我</text>
+    <text x="230" y="188" font-size="12" fill="#6d28d9" text-anchor="middle">p(我 | 〈BOS〉) = 0.04</text>
+    <text x="325" y="145" font-size="20" fill="#333" text-anchor="middle">×</text>
+    <!-- 第 2 步 -->
+    <rect x="340" y="60" width="160" height="30" fill="#6d28d9"/>
+    <text x="420" y="80" font-size="13" fill="#fff" text-anchor="middle">第 2 步</text>
+    <rect x="340" y="90" width="160" height="120" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.4"/>
+    <text x="420" y="116" font-size="12" fill="#0891b2" text-anchor="middle">已见：我</text>
+    <line x1="420" y1="122" x2="420" y2="138" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#cpArr)"/>
+    <text x="420" y="158" font-size="13" fill="#333" text-anchor="middle">猜下一个：爱</text>
+    <text x="420" y="188" font-size="12" fill="#6d28d9" text-anchor="middle">p(爱 | 我) = 0.15</text>
+    <text x="515" y="145" font-size="20" fill="#333" text-anchor="middle">×</text>
+    <!-- 第 3 步 -->
+    <rect x="530" y="60" width="160" height="30" fill="#6d28d9"/>
+    <text x="610" y="80" font-size="13" fill="#fff" text-anchor="middle">第 3 步</text>
+    <rect x="530" y="90" width="160" height="120" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.4"/>
+    <text x="610" y="116" font-size="12" fill="#0891b2" text-anchor="middle">已见：我 爱</text>
+    <line x1="610" y1="122" x2="610" y2="138" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#cpArr)"/>
+    <text x="610" y="158" font-size="13" fill="#333" text-anchor="middle">猜下一个：猫</text>
+    <text x="610" y="188" font-size="12" fill="#6d28d9" text-anchor="middle">p(猫 | 我 爱) = 0.30</text>
+    <text x="30" y="248" font-size="12" fill="#666">连乘：0.04 × 0.15 × 0.30 = 0.0018，整句概率是各步条件概率的乘积，数字为演示小例</text>
+    <text x="30" y="274" font-size="12" fill="#666">每步的条件都包含此前全部内容；把猜出的词接回“已见”再来一步，就是 12.1 节的自回归循环</text>
+  </svg>
+  <div class="diagram-caption">图 1：“我 爱 猫”的链式分解三步图。每一步只做一件事：在已见内容的条件下，给下一个 token 一个概率；三步概率连乘就是整句的联合概率。</div>
+</div>
+
+<p>　　注意连乘的一个直接后果：每个因子都不超过 1，句子越长乘积越小。一段 100 个 token 的话，哪怕每步平均概率高达 0.5，整句概率也只有 \(0.5^{100}\)，约等于 \(10^{-30}\)。这么小的数没法直接累加比较，工程上的对策是取对数把连乘变连加，这正是 A.4 节交叉熵损失里那个 \(\log\) 的来源之一。</p>
+
+<h2>A.12.3 自回归分解：“语言模型”四个字的数学形态</h2>
+
+<p>　　公式 (2) 处理的是“一段文本凭空出现的概率”。对话场景里模型面对的不是凭空文本，而是“给定提示词 \(x\)，回答 \(y\) 的概率”，把条件里再塞进一个固定的 \(x\) 即可：</p>
+
+<div class="formula-card">
+  \[ p(y \mid x) = \prod_{t=1}^{T} p\big(y_t \mid y_{&lt;t}, x\big) \tag{3} \]
+  <div class="formula-note">公式 (3)：自回归分解，12.1 节的公式 (2) 就是它。符号说明：\(x\) 是提示词（prompt）的 token 序列，始终待在条件里；\(y = (y_1, \dots, y_T)\) 是模型生成的回答，\(T\) 是生成长度；\(y_{&lt;t}\) 是第 \(t\) 步之前已生成的全部 token；每个因子 \(p(y_t \mid y_{&lt;t}, x)\) 是“看过提示词和已生成部分后，第 \(t\) 个 token 恰好是 \(y_t\)”的概率，它取自模型对词表 6400 个候选做 softmax 得到的分布（A.3 节）中被选中那一项。</div>
+</div>
+
+<p>　　逐项读一遍这条式子。左边 \(p(y \mid x)\) 是“这段回答整体出现的概率”，一个没办法直接算的数。右边把它拆成 \(T\) 个能算的因子：每一步模型只对词表做一次 softmax，得到一个 6400 维的分布，取出实际那个 token 分到的概率即可。链式法则保证两边严格相等，所以“会算每一步的条件概率”就等于“会给任意回答打概率”。</p>
+
+<div class="highlight-box">
+  这就是“语言模型”四个字的数学形态：一个能为任意文本打出概率的模型，且概率按链式法则组织成逐步的条件概率。训练它，是让这些条件概率贴近真实文本；用它生成，是沿着这条链一步步把 token 兑现出来。
+</div>
+
+<h2>A.12.4 训练与推理：一条链的两端</h2>
+
+<p>　　同一条链，训练和推理各占一头，方向相反。</p>
+
+<p>　　<strong>训练这一端：</strong>手上已有真实文本，链上的每个 \(y_t\) 都是现成的标准答案。对公式 (3) 取对数，连乘变连加，再加负号求平均，就是 6.1 节的预训练损失——逐位置的交叉熵（A.4 节）：</p>
+
+<div class="formula-card">
+  \[ \mathcal{L} = -\frac{1}{T} \sum_{t=1}^{T} \log p_\theta\big(y_t \mid y_{&lt;t}, x\big) \tag{4} \]
+  <div class="formula-note">公式 (4)：预训练目标，与 6.1 节公式 (2) 相同。符号说明：\(\mathcal{L}\) 是损失，越小越好；\(p_\theta\) 表示概率由参数为 \(\theta\) 的模型给出；对数把连乘展开成连加，于是损失等于链上每一步“给标准答案打的对数概率”的平均值取负。最大化对数概率与最小化这个损失是同一件事。</div>
+</div>
+
+<p>　　训练时整条链可以并行：借助因果掩码（4.2、4.5 节），一句话的 \(T\) 个位置在一次前向里同时算出各自的条件概率，\(T\) 道“猜下一个词”的考题一起批改。</p>
+
+<p>　　<strong>推理这一端：</strong>标准答案不存在，链上的每个 \(y_t\) 要模型自己长出来。做法是从空开始，算出第 1 步的分布、从中选一个 token 接回上文，再算第 2 步，如此循环直到结束标记——只能串行，快不了。这个循环就是 12.1 节的解码循环，怎么从分布里“选一个”（贪心、温度、top-k / top-p）是 12.2 节的内容。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>训练（6.1 节）</th><th>推理（12.1 节）</th></tr></thead>
+    <tbody>
+      <tr><td>链上的 token 从哪来</td><td>真实文本自带，标准答案免费</td><td>模型逐步采样，选出来再接回上文</td></tr>
+      <tr><td>对每个条件概率做什么</td><td>取对数、求和、算损失、反向传播</td><td>从分布中选一个 token（贪心或抽样）</td></tr>
+      <tr><td>计算方式</td><td>整句各位置并行（因果掩码）</td><td>逐 token 串行，一步也省不掉</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>出现在哪</th><th>用它做什么</th></tr></thead>
+    <tbody>
+      <tr><td>0.1 什么是大语言模型</td><td>自回归直觉的数学形态：“根据上文猜下一个词”就是条件概率，整段文本的概率按链式法则分解</td></tr>
+      <tr><td>6.1 预训练目标</td><td>公式 (1)(2) 的出处：链式分解加对数化得到逐位置交叉熵损失，本节公式 (2)(4) 即其原型</td></tr>
+      <tr><td>12.1 解码循环</td><td>公式 (2) 的自回归分解 \(p(y \mid x) = \prod p(y_t \mid y_{&lt;t}, x)\)：解码就是沿这条链一步步兑现</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</article>

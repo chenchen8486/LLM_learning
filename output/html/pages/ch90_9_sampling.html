@@ -1,0 +1,185 @@
+<article class="content">
+<h1>A.9 概率分布与依概率抽样：轮盘怎么转</h1>
+<p class="subtitle">本页范围：附录 A 第 9 节　|　整理时间：2026-10-09</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>模型每步给出词表上每个 token 的概率之后，“按概率随机选一个”在数学上到底是怎么发生的？为什么概率大的候选被抽中的机会天然就大？</td></tr>
+      <tr><td>本节主张</td><td>离散概率分布就是一份份额清单：每个候选一个非负份额，全部加起来等于 1。依概率抽样的标准做法是轮盘赌——把 0 到 1 的区间按份额切成首尾相接的小段，抽一个 0 到 1 之间的均匀随机数，落在谁的小段就选谁。小段宽度等于份额，命中概率因此自动正确，不需要任何额外加权。</td></tr>
+      <tr><td>一句话结论</td><td>12.1 节的 multinomial 选词、12.2 节的采样三件套、11.3 节 GRPO 的同题 6 采，转的都是本节这只轮盘；三件套改变的只是轮盘上各格的宽度，抽法本身不变。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>离散概率分布</span><span>依概率抽样</span><span>轮盘赌</span><span>累积区间</span><span>均匀分布</span><span>multinomial</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　A.3 节解决了“分数怎么变成概率”：softmax 把模型输出的 logit 折算成词表上的一组非负份额。但份额清单本身不会开口说话，从清单到一个具体的 token 还差最后一步——选。选法只有两类：每次锁定份额最大的那个（贪心，argmax），或者按份额抽签（依概率抽样）。12.1 节已经比较过两条路线的文本效果，本节只讲后者在数学上如何实现：一个随机数、一排区间，就把抽签做完了。</p>
+
+<ol>
+  <li><strong>离散概率分布：每个候选一份份额，总和为 1</strong>（A.9.1）：词表 6400 维的份额清单长什么样；</li>
+  <li><strong>依概率抽样怎么发生：轮盘赌与累积区间</strong>（A.9.2）：抽一个均匀随机数，看它落在谁的小段；四个 token 的数值小例；</li>
+  <li><strong>轮盘手感由分布形状决定</strong>（A.9.3）：温度与截断改变的都是同一只轮盘，本节只指路不展开；</li>
+  <li><strong>minimind 实证：一行 multinomial</strong>（A.9.4）：generate 函数第 283 行的选词动作对照。</li>
+</ol>
+
+<p>　　读完应能手算一个小例子：给定四个 token 的概率和一个 0 到 1 之间的随机数，说出这一步选中谁、为什么。</p>
+
+<h2>A.9.1 离散概率分布：每个候选一份份额，总和为 1</h2>
+
+<p>　　词表上有 \(V\) 个候选 token（minimind 的词表 \(V = 6400\)），模型每前进一步，输出层就对这 \(V\) 个候选各给一个 logit，经 softmax 折算成 \(V\) 个概率。这一组数就是离散概率分布，它只有两条硬规矩：</p>
+
+<div class="formula-card">
+  \[ p_i \ge 0 \quad (i = 1, \dots, V), \qquad \sum_{i=1}^{V} p_i = 1 \tag{1} \]
+  <div class="formula-note">公式 (1)：离散概率分布的两条规矩。符号说明：\(p_i\) 是第 \(i\) 个候选 token 被赋予的概率；\(V\) 是词表大小。第一条要求每份份额非负，第二条要求全部份额加起来正好等于 1——总和为 1 表示“下一步必然从这 \(V\) 个候选里出一个”，没有候选被漏掉，也没有份额凭空多出来。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">离散概率分布（Discrete Probability Distribution）</span>
+    <span class="term-en">distribution = 把总量为 1 的份额分配给有限个候选</span>
+  </div>
+  <div class="term-body">
+    <p>“离散”指候选是有限个、可以逐个编号的（这里是 6400 个 token），“分布”指份额在候选之间的分配方案。它回答的问题是“每个候选各占多大分量”，而不是“这一步该选谁”——后者是抽样的任务。实际的分布很不均匀：排名靠前的少数 token 往往占去大半份额，尾巴上几千个 token 分到的都接近 0。</p>
+    <div class="term-analogy">就像分一张固定大小的饼：6400 个候选每人切到一块，块有大有小，但拼起来必须正好是整个饼，不多也不少。</div>
+  </div>
+</div>
+
+<p>　　有了分布之后，两条选词路线的分歧就很好描述了。贪心（argmax）永远挑份额最大的那一块饼，结果确定但文本容易干瘪重复；依概率抽样则承认份额的本来含义——份额大就该经常中、份额小也该偶尔中——用随机性把这句话兑现。12.1 节讲的是两条路线的文本效果对比，本节只管抽样的机关。</p>
+
+<h2>A.9.2 依概率抽样怎么发生：轮盘赌与累积区间</h2>
+
+<p>　　依概率抽样的经典实现叫轮盘赌（roulette wheel selection），做法分两步。第一步，把 0 到 1 的区间按份额切成首尾相接的小段：第 1 个候选占 \([0, p_1)\)，第 2 个候选占 \([p_1, p_1 + p_2)\)，依此类推，最后一段的右端点正好是 1。每段的右端点叫累积概率：</p>
+
+<div class="formula-card">
+  \[ c_k = \sum_{i=1}^{k} p_i \quad (k = 1, \dots, V) \tag{2} \]
+  \[ \text{抽 } u \sim U(0, 1)\text{，选中满足 } c_{k-1} \le u &lt; c_k \text{ 的第 } k \text{ 个候选} \tag{3} \]
+  \[ P(\text{选中第 } k \text{ 个}) = c_k - c_{k-1} = p_k \tag{4} \]
+  <div class="formula-note">公式 (2)：累积概率，即前 \(k\) 个候选的份额之和，它是第 \(k\) 个小段的右端点；约定 \(c_0 = 0\)。公式 (3)：抽样规则——\(u \sim U(0, 1)\) 表示在 0 到 1 之间均匀随机取一个实数（落在任何等宽小区间内的机会相同），看它落进哪一段就选哪个候选。公式 (4)：这套机关为什么正确——第 \(k\) 段的宽度是 \(c_k - c_{k-1}\)，正好等于 \(p_k\)，均匀随机数落进某段的概率就是该段宽度，所以每个候选的中签率天然等于它的份额，不需要额外加权。</div>
+</div>
+
+<p>　　拿四个 token 的小例子过一遍。设某一步值得关注的候选是「的」「是」「在」「了」，概率依次为 0.5、0.25、0.15、0.1（其余候选份额近似 0，忽略）。累积区间如下：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>候选 token</th><th>概率 \(p_i\)</th><th>累积概率 \(c_k\)</th><th>占据的小段</th></tr></thead>
+    <tbody>
+      <tr><td>的</td><td>0.50</td><td>0.50</td><td>\([0, \; 0.5)\)</td></tr>
+      <tr><td>是</td><td>0.25</td><td>0.75</td><td>\([0.5, \; 0.75)\)</td></tr>
+      <tr><td>在</td><td>0.15</td><td>0.90</td><td>\([0.75, \; 0.9)\)</td></tr>
+      <tr><td>了</td><td>0.10</td><td>1.00</td><td>\([0.9, \; 1.0)\)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　现在抽一个均匀随机数。若抽到 \(u = 0.7\)，它落在 \([0.5, 0.75)\) 里，这一步就选中「是」——尽管「的」的份额最大。这正是抽样与贪心的分野：贪心这一步必然选「的」，而抽样有整整四分之一的机会选「是」，还有约 25% 的机会翻到后两名。图 1 把这个过程画出来：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 390" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="rlArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+      <marker id="rlArrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <text x="40" y="26" font-size="13" fill="#333">① 概率分布：四个候选各占一份份额</text>
+    <line x1="100" y1="216" x2="100" y2="60" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#rlArrG)"/>
+    <line x1="100" y1="216" x2="510" y2="216" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#rlArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="96" y1="140" x2="104" y2="140"/>
+      <line x1="96" y1="64" x2="104" y2="64"/>
+    </g>
+    <text x="92" y="144" font-size="11" fill="#64748b" text-anchor="end">0.25</text>
+    <text x="92" y="68" font-size="11" fill="#64748b" text-anchor="end">0.50</text>
+    <rect x="130" y="64" width="64" height="152" fill="#6d28d9"/>
+    <rect x="230" y="140" width="64" height="76" fill="#2563eb"/>
+    <rect x="330" y="170.4" width="64" height="45.6" fill="#0891b2"/>
+    <rect x="430" y="185.6" width="64" height="30.4" fill="#94a3b8"/>
+    <text x="162" y="56" font-size="12" fill="#6d28d9" text-anchor="middle">0.50</text>
+    <text x="262" y="132" font-size="12" fill="#2563eb" text-anchor="middle">0.25</text>
+    <text x="362" y="162" font-size="12" fill="#0891b2" text-anchor="middle">0.15</text>
+    <text x="462" y="177" font-size="12" fill="#64748b" text-anchor="middle">0.10</text>
+    <text x="162" y="234" font-size="12" fill="#64748b" text-anchor="middle">「的」</text>
+    <text x="262" y="234" font-size="12" fill="#64748b" text-anchor="middle">「是」</text>
+    <text x="362" y="234" font-size="12" fill="#64748b" text-anchor="middle">「在」</text>
+    <text x="462" y="234" font-size="12" fill="#64748b" text-anchor="middle">「了」</text>
+    <text x="40" y="272" font-size="13" fill="#333">② 轮盘：把 0 到 1 按份额切成四段，抽一个均匀随机数 u</text>
+    <text x="510" y="286" font-size="12.5" font-weight="bold" fill="#dc2626" text-anchor="middle">u = 0.7</text>
+    <line x1="510" y1="290" x2="510" y2="298" stroke="#dc2626" stroke-width="2" marker-end="url(#rlArrR)"/>
+    <g stroke="#ffffff" stroke-width="1.5">
+      <rect x="90" y="300" width="300" height="36" fill="#6d28d9"/>
+      <rect x="390" y="300" width="150" height="36" fill="#2563eb"/>
+      <rect x="540" y="300" width="90" height="36" fill="#0891b2"/>
+      <rect x="630" y="300" width="60" height="36" fill="#94a3b8"/>
+    </g>
+    <text x="240" y="322" font-size="12.5" fill="#ffffff" text-anchor="middle">的 · 0.50</text>
+    <text x="465" y="322" font-size="12.5" fill="#ffffff" text-anchor="middle">是 · 0.25</text>
+    <text x="585" y="322" font-size="12" fill="#ffffff" text-anchor="middle">在 0.15</text>
+    <text x="660" y="322" font-size="12" fill="#1e293b" text-anchor="middle">了</text>
+    <g stroke="#64748b" stroke-width="1.2">
+      <line x1="90" y1="336" x2="90" y2="342"/>
+      <line x1="390" y1="336" x2="390" y2="342"/>
+      <line x1="540" y1="336" x2="540" y2="342"/>
+      <line x1="630" y1="336" x2="630" y2="342"/>
+      <line x1="690" y1="336" x2="690" y2="342"/>
+    </g>
+    <text x="90" y="356" font-size="11.5" fill="#64748b" text-anchor="middle">0</text>
+    <text x="390" y="356" font-size="11.5" fill="#64748b" text-anchor="middle">0.5</text>
+    <text x="540" y="356" font-size="11.5" fill="#64748b" text-anchor="middle">0.75</text>
+    <text x="630" y="356" font-size="11.5" fill="#64748b" text-anchor="middle">0.9</text>
+    <text x="690" y="356" font-size="11.5" fill="#64748b" text-anchor="middle">1.0</text>
+    <text x="90" y="380" font-size="12" fill="#666">小段宽度 = 概率：u = 0.7 落在 [0.5, 0.75)，这一步选中「是」</text>
+  </svg>
+  <div class="diagram-caption">图 1：依概率抽样的两步。上图：四个候选 token 的概率分布，份额依次为 0.5、0.25、0.15、0.1，总和为 1。下图：把 \([0, 1]\) 区间按份额切成四段首尾相接的小段，抽一个 0 到 1 之间的均匀随机数 u，落在哪一段就选哪个 token——u = 0.7 落在「是」的小段里。每段宽度恰好等于对应概率，所以长期抽下去，各 token 的出场频率自动等于它的份额。</div>
+</div>
+
+<div class="highlight-box">
+  这套机关的要点只有一个：<strong>小段宽度等于份额</strong>。均匀随机数对任何等宽区间一视同仁，所以宽度直接兑换成中签率——份额 0.5 的候选占走半根尺子，自然有一半的机会中签。实现上甚至不用真的把区间摆出来：从左往右累加概率，第一个让累计和超过 u 的候选就是答案。
+</div>
+
+<h2>A.9.3 轮盘手感由分布形状决定</h2>
+
+<p>　　同一个抽样机关，手感完全取决于轮盘上各格的宽度与格数，而这两样都可以在上游被动手脚。手册里有三处旋钮，各自已在对应章节展开，此处只点名不重复：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>旋钮</th><th>对轮盘做了什么</th><th>在哪细讲</th></tr></thead>
+    <tbody>
+      <tr><td>温度 T</td><td>在 softmax 之前缩放 logit，整体改宽或改窄头部候选的小段：T 小则头部更宽、尾巴更窄，T 大则各段趋向均宽</td><td>A.3 节、12.2 节</td></tr>
+      <tr><td>top-k</td><td>只保留份额最大的 k 格，其余小段从轮盘上删掉，留下的重新归一化</td><td>12.2 节</td></tr>
+      <tr><td>top-p</td><td>按份额从大到小累加，覆盖到 p 为止，尾巴整段切掉</td><td>12.2 节</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　无论怎么调，改的都是分布本身；改完之后，抽签动作仍是“抽 u、找区间”这一步不变。把“分布怎么变形”与“抽样怎么发生”分开看，12.2 节的三个旋钮就互不纠缠了。</p>
+
+<h2>A.9.4 minimind 实证：一行 multinomial</h2>
+
+<p>　　minimind（Apache 2.0 开源项目）的 generate 函数把本节内容浓缩成一行。model/model_minimind.py 第 283 行：</p>
+
+<pre><code>next_token = torch.multinomial(torch.softmax(logits, dim=-1), num_samples=1) if do_sample else torch.argmax(logits, dim=-1, keepdim=True)</code></pre>
+
+<p>　　拆开读：<code>torch.softmax(logits, dim=-1)</code> 把修正链（温度、top-k、top-p）处理后的 logit 折算成 6400 维的概率分布，即 A.9.1 的份额清单；<code>torch.multinomial(分布, num_samples=1)</code> 就是 A.9.2 的轮盘赌——框架内部按累积区间抽一个均匀随机数，返回中签 token 的编号。<code>do_sample=False</code> 时走另一条路线：<code>torch.argmax</code> 不看份额直接锁定最大值，即贪心解码。两条路线在一行里并列，切换只需一个开关。</p>
+
+<p>　　这行代码前面还有温度除法（第 272 行）、top-k 截断（第 276–277 行）、top-p 截断（第 278–282 行），它们正是 A.9.3 说的“先改轮盘再抽签”——修正链只动 logits 与分布，最后的 multinomial 原样照转。</p>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>出现在哪</th><th>用它做什么</th></tr></thead>
+    <tbody>
+      <tr><td>12.1 解码主循环</td><td>do_sample=True 时由 multinomial 按概率抽签选出下一个 token，选词环节就是本节这只轮盘</td></tr>
+      <tr><td>12.2 采样三件套</td><td>温度、top-k、top-p 改变的都是轮盘上各格的宽度与候选范围，抽法本身不变</td></tr>
+      <tr><td>11.3 GRPO</td><td>同一道题连采 6 条回答（G = 6）构造组内基线，就是对同一分布重复转 6 次轮盘</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</article>

@@ -25,7 +25,8 @@
   <li><strong>矩阵：对箭头做的一次动作</strong>（A.1.2）：矩阵不是数字表格，而是“拉伸、压缩、旋转、投影”这些动作的说明书；</li>
   <li><strong>旋转：只改方向，不改长度</strong>（A.1.3）：为什么 90 度旋转后长度依然是 3.61，为什么这件事对注意力很关键；</li>
   <li><strong>cos 和 sin 从哪来：极坐标与和角公式</strong>（A.1.4）：把旋转矩阵一步步推出来，看清公式里的三角函数是怎么冒出来的；</li>
-  <li><strong>旋转的两条性质，和 RoPE 有什么关系</strong>（A.1.5）：长度不变与角度可加，如何让绝对位置从点积里消失。</li>
+  <li><strong>旋转的两条性质，和 RoPE 有什么关系</strong>（A.1.5）：长度不变与角度可加，如何让绝对位置从点积里消失；</li>
+  <li><strong>矩阵乘法的三种读法</strong>（A.1.6）：格点、变换、复合，同一个乘号的三副眼镜；QKV 投影只是“每行各过一次变换”的打包。</li>
 </ol>
 
 <p>　　读完全节，应能拿一张纸，自己把 3.4 节的公式 (1) 推一遍。</p>
@@ -503,6 +504,120 @@
   配哪两个数也有两种等价约定：原始论文的公式按相邻两维配对，Llama、Hugging Face 与 minimind 的代码按前后半配对（第 \(i\) 个数与第 \(i + d/2\) 个数一组，函数名叫 <code>rotate_half</code>）。两者只是维度顺序不同，旋转效果一样。这正是 3.4 节里那段说明的来源。
 </div>
 
+<h2>A.1.6 矩阵乘法的三种读法</h2>
+
+<p>　　到目前为止，矩阵乘的都是向量：一个矩阵对一支箭头做一次动作。手册里更常见的却是矩阵乘矩阵——4.2 节的 \(XW^Q\)、\(QK^{\top}\)，4.3 节拼接结果乘 \(W^O\)，都是两块数字表格相乘。同一个乘号其实有三种读法，分别适合不同场合，本节把它们一次说清。</p>
+
+<p>　　<strong>读法一：格点视角，每个格子是一个点积。</strong>矩阵乘法的定义本身就长这样：</p>
+
+<div class="formula-card">
+  \[ c_{ij} = a_{i1}b_{1j} + a_{i2}b_{2j} + \cdots + a_{in}b_{nj} = \sum_{k=1}^{n} a_{ik}\, b_{kj} \tag{7} \]
+  <div class="formula-note">公式 (7)：输出矩阵第 \(i\) 行第 \(j\) 列的格子，等于左矩阵第 \(i\) 行与右矩阵第 \(j\) 列的点积。符号说明：\(A\)（\(m\times n\)）与 \(B\)（\(n\times p\)）相乘得 \(C\)（\(m\times p\)）；\(a_{ik}\) 是 \(A\) 第 \(i\) 行第 \(k\) 列的元素，\(b_{kj}\) 是 \(B\) 第 \(k\) 行第 \(j\) 列的元素；\(n\) 是左矩阵的列数，也是右矩阵的行数，两者必须相等才乘得起来。一个 \(m\times p\) 的输出矩阵，背后就是 \(m\times p\) 次“对应相乘再求和”的打包。</div>
+</div>
+
+<p>　　4.2 节算注意力分数用的正是这个视角：分数矩阵 \(QK^{\top}\) 的第 \(i\) 行第 \(j\) 列，就是第 \(i\) 个 query 与第 \(j\) 个 key 的点积（点积为什么能衡量匹配，A.2 节专门讲）。读分数矩阵、手算具体数字时，格点视角最顺手。</p>
+
+<p>　　<strong>读法二：变换视角，每一行各做一次同一个变换。</strong>把左矩阵按行拆开：\(XW\) 的第 \(i\) 行，就是 \(X\) 的第 \(i\) 行（一个行向量）乘 \(W\) 的结果，每行都经过同一个 \(W\)，行与行之间互不相干。而向量乘矩阵又能拆回点积：新向量的第 \(j\) 个分量，是这个向量与 \(W\) 第 \(j\) 列的点积，也就是“它在 \(W\) 第 \(j\) 列方向上的得分”。</p>
+
+<p>　　拿 4.2 节的注意力投影对号入座：输入 \(X\) 是 \(3\times768\)（「我」「爱」「猫」三个 token，各一行 768 维向量），投影矩阵 \(W^Q\) 是 \(768\times96\)，乘出来 \(Q\) 是 \(3\times96\)。它做的事无非是：三个 token 各自拿自己的 768 维向量，与 \(W^Q\) 的 96 列各做一次点积，各得一个 96 维的 \(q\)。三个 token 各算各的、互不混合——输出的任何一行里都没有掺进别的 token 的数字。矩阵形式只是把三次“向量乘矩阵”打包成一次，让 GPU 一趟算完，并没有引入新内容。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="mmArrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="mmArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="50" y="26" font-size="13" fill="#333">4.2 节的单头投影：X × W^Q = Q（尺寸取 minimind 真实值）</text>
+    <!-- 左矩阵 X：3 × 768 -->
+    <rect x="50" y="90" width="150" height="120" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="50" y="130" width="150" height="40" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <line x1="50" y1="130" x2="200" y2="130" stroke="#6d28d9" stroke-width="1"/>
+    <line x1="50" y1="170" x2="200" y2="170" stroke="#6d28d9" stroke-width="1"/>
+    <line x1="120" y1="90" x2="120" y2="210" stroke="#c4b5fd" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="146" y="116" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="125" y="78" font-size="12" fill="#6d28d9" text-anchor="middle">X：3 × 768</text>
+    <text x="36" y="114" font-size="12" fill="#64748b" text-anchor="middle">我</text>
+    <text x="36" y="154" font-size="12" fill="#64748b" text-anchor="middle">爱</text>
+    <text x="36" y="194" font-size="12" fill="#64748b" text-anchor="middle">猫</text>
+    <text x="220" y="132" font-size="16" fill="#333" text-anchor="middle">×</text>
+    <!-- 右矩阵 W^Q：768 × 96 -->
+    <rect x="240" y="50" width="70" height="240" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="269" y="50" width="12" height="240" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <line x1="240" y1="110" x2="310" y2="110" stroke="#ede9fe" stroke-width="1"/>
+    <line x1="240" y1="170" x2="310" y2="170" stroke="#ede9fe" stroke-width="1"/>
+    <line x1="240" y1="230" x2="310" y2="230" stroke="#ede9fe" stroke-width="1"/>
+    <text x="275" y="176" font-size="12" fill="#94a3b8" text-anchor="middle">⋮</text>
+    <text x="275" y="308" font-size="11" fill="#6d28d9" text-anchor="middle">W^Q：768 × 96</text>
+    <text x="330" y="132" font-size="16" fill="#333" text-anchor="middle">=</text>
+    <!-- 输出 Q：3 × 96 -->
+    <rect x="350" y="90" width="150" height="120" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="350" y="130" width="150" height="40" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <line x1="350" y1="130" x2="500" y2="130" stroke="#6d28d9" stroke-width="1"/>
+    <line x1="350" y1="170" x2="500" y2="170" stroke="#6d28d9" stroke-width="1"/>
+    <line x1="420" y1="90" x2="420" y2="210" stroke="#c4b5fd" stroke-width="1" stroke-dasharray="4 3"/>
+    <rect x="413" y="130" width="24" height="40" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="446" y="116" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="425" y="78" font-size="12" fill="#6d28d9" text-anchor="middle">Q：3 × 96</text>
+    <text x="512" y="114" font-size="12" fill="#64748b">q1</text>
+    <text x="512" y="154" font-size="12" fill="#64748b">q2</text>
+    <text x="512" y="194" font-size="12" fill="#64748b">q3</text>
+    <!-- 行 → 行的对应箭头 -->
+    <line x1="200" y1="110" x2="238" y2="110" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#mmArrG)"/>
+    <line x1="312" y1="110" x2="348" y2="110" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#mmArrG)"/>
+    <line x1="200" y1="150" x2="238" y2="150" stroke="#6d28d9" stroke-width="2" marker-end="url(#mmArrP)"/>
+    <line x1="312" y1="150" x2="348" y2="150" stroke="#6d28d9" stroke-width="2" marker-end="url(#mmArrP)"/>
+    <line x1="200" y1="190" x2="238" y2="190" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#mmArrG)"/>
+    <line x1="312" y1="190" x2="348" y2="190" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#mmArrG)"/>
+    <!-- 右侧注释 -->
+    <line x1="437" y1="150" x2="530" y2="122" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3 3"/>
+    <text x="534" y="110" font-size="11.5" fill="#333">紫格 = X 第 2 行与</text>
+    <text x="534" y="128" font-size="11.5" fill="#333">W^Q 第 j 列的点积</text>
+    <text x="534" y="164" font-size="11.5" fill="#d97706">琥珀行：第 2 个 token「爱」</text>
+    <text x="534" y="182" font-size="11.5" fill="#64748b">三行各算各的，互不混合</text>
+    <!-- 底部说明 -->
+    <text x="50" y="248" font-size="12" fill="#666">输出行 i = X 第 i 行 × W^Q：琥珀色是「爱」的路径，灰虚线是另外两个 token 的同款路径</text>
+    <text x="50" y="272" font-size="12" fill="#666">输出的每个格子（紫格）= X 的一行与 W^Q 的一列做点积——格点视角</text>
+  </svg>
+  <div class="diagram-caption">图 9：矩阵乘法的两种读法同框。变换视角：X 的第 i 行穿过 W^Q 落到 Q 的第 i 行（琥珀色为「爱」的路径，灰虚线是另外两个 token），三行互不混合；格点视角：输出里的每个格子（紫格）是 X 的一行与 W^Q 的一列做点积。尺寸为 minimind 真实值：3 个 token、嵌入 768 维、单个注意力头 96 维。</div>
+</div>
+
+<div class="highlight-box info">
+  一个形状约定需要说清：本节与第 4 章都把向量写成行、从左边乘上去，此时矩阵写成“行数 = 输入维度、列数 = 输出维度”，\(W^Q\) 才是 \(768\times96\)。A.1.2 的矩阵乘列向量写法里，同一个动作要写成它的转置。代码里 <code>nn.Linear(768, 96)</code> 存的权重是 \(96\times768\)，相乘时框架会自动转置——三种摆放方式说的是同一个动作。
+</div>
+
+<p>　　<strong>读法三：复合视角，两次动作合成一次。</strong>矩阵乘矩阵还有一层含义：两个变换的复合。按 A.1.2 的列向量写法，向量先经手 \(A\) 再经手 \(B\)，结果是 \(B(Ax)\)；矩阵乘法满足结合律，\(B(Ax) = (BA)x\)，所以“先做 \(A\)、再做 \(B\)”与“一次做 \(BA\)”完全等价——两个矩阵可以先乘起来合成一个新矩阵，一次把两步动作做完（换成行向量写法，同一个复合是 \(xAB\)，从左往右读）。</p>
+
+<p>　　本页前面的旋转就是最好的例子：先转 \(\theta_1\) 再转 \(\theta_2\)，复合之后等于一次转 \(\theta_1+\theta_2\)，写成矩阵是：</p>
+
+<div class="formula-card">
+  \[ R(\theta_2)\,R(\theta_1) = R(\theta_1 + \theta_2) \tag{8} \]
+  <div class="formula-note">公式 (8)：旋转的复合。符号说明：\(R(\theta)\) 是公式 (4) 的旋转矩阵；先转 \(\theta_1\) 再转 \(\theta_2\)，与一次转 \(\theta_1+\theta_2\) 是同一个矩阵。这就是 A.1.5“旋转可以叠加”的矩阵写法，和角公式就藏在两个矩阵相乘的展开里。</div>
+</div>
+
+<p>　　要提醒的是顺序：一般的矩阵乘法不能交换，\(BA\) 与 \(AB\) 通常是两个不同的动作，复合的书写顺序（从右往左读）不能随意调换；同一平面内的旋转是个温柔的例外，两次旋转交换顺序结果相同。</p>
+
+<p>　　三种读法说的都是同一个乘法，区别只在观察角度。读手册时可以按需切换：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>读法</th><th>把乘法看成</th><th>适合的场合</th></tr></thead>
+    <tbody>
+      <tr><td>格点视角</td><td>输出每个格子 = 左矩阵一行与右矩阵一列的点积</td><td>手算具体数字、读注意力分数矩阵 \(QK^{\top}\)（4.2 节）</td></tr>
+      <tr><td>变换视角</td><td>左矩阵每一行各做一次同一个线性变换，各行独立</td><td>理解投影层：QKV 投影（4.2 节）、输出投影 \(W^O\)（4.3 节）</td></tr>
+      <tr><td>复合视角</td><td>两个变换合成一个，先乘起来再一次做完</td><td>理解连续变换，如旋转的叠加（A.1.5）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box">
+  带走一句：矩阵乘法只有一个，三种读法只是三副眼镜。遇到 \(XW^Q\) 这类投影时用变换视角（每行独立过同一个 \(W\)）；遇到 \(QK^{\top}\) 这类打分矩阵时用格点视角（每格一个点积）；遇到连续两次变换时用复合视角（先乘起来，一次做完）。
+</div>
+
 <h3>本书用在哪</h3>
 
 <div class="table-wrap">
@@ -514,6 +629,8 @@
       <tr><td>3.5 长度外推</td><td>位置超出训练范围意味着转角超出训练分布，注意力分数因而失真</td></tr>
       <tr><td>8.2 位置编码缩放</td><td>PI、NTK、YaRN 这些方法，改的都是转角 \(\theta\) 或它的基数，动作本身仍是旋转</td></tr>
       <tr><td>4.2 注意力机制</td><td>点积衡量匹配（下一节 A.2 专门讲点积与相似度）</td></tr>
+      <tr><td>4.2 注意力机制</td><td>QKV 投影 \(XW^Q\) 等：用变换视角读，每个 token 的行独立过同一个投影矩阵，互不混合（A.1.6）</td></tr>
+      <tr><td>4.3 多头注意力</td><td>输出投影 \(W^O\)：拼接行乘矩阵，把 8 个头的信息融合回 768 维，同为变换视角（A.1.6）</td></tr>
     </tbody>
   </table>
 </div>

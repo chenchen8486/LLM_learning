@@ -100,45 +100,45 @@
     <text x="40" y="52" font-size="11" fill="#64748b">每个头框 = 把 4.2 节图 2 的流程完整跑一遍，它的最终输出（3 × 96）就是头框的内容；本图只看 8 个头怎么组织、怎么汇总</text>
     <text x="196" y="90" font-size="11" fill="#64748b">X 复制 8 份，每个头拿一份完整副本，各配一套投影矩阵</text>
 
-    <!-- 输入 X：3 行 token × 768 列，只画 4 列加省略号 -->
-    <rect x="40" y="184" width="106" height="110" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <line x1="40" y1="220" x2="146" y2="220" stroke="#ddd6fe"/>
-    <line x1="40" y1="257" x2="146" y2="257" stroke="#ddd6fe"/>
-    <line x1="58" y1="184" x2="58" y2="294" stroke="#ddd6fe"/>
-    <line x1="76" y1="184" x2="76" y2="294" stroke="#ddd6fe"/>
-    <line x1="94" y1="184" x2="94" y2="294" stroke="#ddd6fe"/>
-    <text x="128" y="244" text-anchor="middle" font-size="14" fill="#94a3b8">…</text>
-    <text x="93" y="314" text-anchor="middle" font-size="11" fill="#6d28d9">X：3 × 768</text>
-    <line x1="148" y1="239" x2="166" y2="239" stroke="#6d28d9" stroke-width="2" marker-end="url(#mh43P)"/>
+    <!-- 输入 X：3 行 token × 768 列，扁长条画法与 8 份副本一致 -->
+    <rect x="20" y="204" width="140" height="70" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="20" y1="227" x2="160" y2="227" stroke="#ddd6fe"/>
+    <line x1="20" y1="251" x2="160" y2="251" stroke="#ddd6fe"/>
+    <line x1="48" y1="204" x2="48" y2="274" stroke="#ddd6fe"/>
+    <line x1="76" y1="204" x2="76" y2="274" stroke="#ddd6fe"/>
+    <line x1="104" y1="204" x2="104" y2="274" stroke="#ddd6fe"/>
+    <text x="146" y="243" text-anchor="middle" font-size="14" fill="#94a3b8">…</text>
+    <text x="90" y="292" text-anchor="middle" font-size="11" fill="#6d28d9">X：3 × 768</text>
+    <line x1="160" y1="239" x2="168" y2="239" stroke="#6d28d9" stroke-width="2" marker-end="url(#mh43P)"/>
 
     <!-- 分发总线 -->
     <line x1="170" y1="113" x2="170" y2="365" stroke="#6d28d9" stroke-width="2"/>
 
-    <!-- 8 份 X 副本（迷你矩阵） -->
+    <!-- 8 份 X 副本（迷你矩阵，与母版同为 3 行 4 列画法） -->
     <rect x="196" y="100" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
     <line x1="212" y1="100" x2="212" y2="126" stroke="#c4b5fd"/><line x1="228" y1="100" x2="228" y2="126" stroke="#c4b5fd"/><line x1="244" y1="100" x2="244" y2="126" stroke="#c4b5fd"/>
-    <line x1="196" y1="113" x2="260" y2="113" stroke="#c4b5fd"/>
+    <line x1="196" y1="109" x2="260" y2="109" stroke="#c4b5fd"/><line x1="196" y1="117" x2="260" y2="117" stroke="#c4b5fd"/>
     <rect x="196" y="136" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
     <line x1="212" y1="136" x2="212" y2="162" stroke="#c4b5fd"/><line x1="228" y1="136" x2="228" y2="162" stroke="#c4b5fd"/><line x1="244" y1="136" x2="244" y2="162" stroke="#c4b5fd"/>
-    <line x1="196" y1="149" x2="260" y2="149" stroke="#c4b5fd"/>
+    <line x1="196" y1="145" x2="260" y2="145" stroke="#c4b5fd"/><line x1="196" y1="153" x2="260" y2="153" stroke="#c4b5fd"/>
     <rect x="196" y="172" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
     <line x1="212" y1="172" x2="212" y2="198" stroke="#c4b5fd"/><line x1="228" y1="172" x2="228" y2="198" stroke="#c4b5fd"/><line x1="244" y1="172" x2="244" y2="198" stroke="#c4b5fd"/>
-    <line x1="196" y1="185" x2="260" y2="185" stroke="#c4b5fd"/>
+    <line x1="196" y1="181" x2="260" y2="181" stroke="#c4b5fd"/><line x1="196" y1="189" x2="260" y2="189" stroke="#c4b5fd"/>
     <rect x="196" y="208" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
     <line x1="212" y1="208" x2="212" y2="234" stroke="#c4b5fd"/><line x1="228" y1="208" x2="228" y2="234" stroke="#c4b5fd"/><line x1="244" y1="208" x2="244" y2="234" stroke="#c4b5fd"/>
-    <line x1="196" y1="221" x2="260" y2="221" stroke="#c4b5fd"/>
+    <line x1="196" y1="217" x2="260" y2="217" stroke="#c4b5fd"/><line x1="196" y1="225" x2="260" y2="225" stroke="#c4b5fd"/>
     <rect x="196" y="244" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
     <line x1="212" y1="244" x2="212" y2="270" stroke="#c4b5fd"/><line x1="228" y1="244" x2="228" y2="270" stroke="#c4b5fd"/><line x1="244" y1="244" x2="244" y2="270" stroke="#c4b5fd"/>
-    <line x1="196" y1="257" x2="260" y2="257" stroke="#c4b5fd"/>
+    <line x1="196" y1="253" x2="260" y2="253" stroke="#c4b5fd"/><line x1="196" y1="261" x2="260" y2="261" stroke="#c4b5fd"/>
     <rect x="196" y="280" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
     <line x1="212" y1="280" x2="212" y2="306" stroke="#c4b5fd"/><line x1="228" y1="280" x2="228" y2="306" stroke="#c4b5fd"/><line x1="244" y1="280" x2="244" y2="306" stroke="#c4b5fd"/>
-    <line x1="196" y1="293" x2="260" y2="293" stroke="#c4b5fd"/>
+    <line x1="196" y1="289" x2="260" y2="289" stroke="#c4b5fd"/><line x1="196" y1="297" x2="260" y2="297" stroke="#c4b5fd"/>
     <rect x="196" y="316" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
     <line x1="212" y1="316" x2="212" y2="342" stroke="#c4b5fd"/><line x1="228" y1="316" x2="228" y2="342" stroke="#c4b5fd"/><line x1="244" y1="316" x2="244" y2="342" stroke="#c4b5fd"/>
-    <line x1="196" y1="329" x2="260" y2="329" stroke="#c4b5fd"/>
+    <line x1="196" y1="325" x2="260" y2="325" stroke="#c4b5fd"/><line x1="196" y1="333" x2="260" y2="333" stroke="#c4b5fd"/>
     <rect x="196" y="352" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
     <line x1="212" y1="352" x2="212" y2="378" stroke="#c4b5fd"/><line x1="228" y1="352" x2="228" y2="378" stroke="#c4b5fd"/><line x1="244" y1="352" x2="244" y2="378" stroke="#c4b5fd"/>
-    <line x1="196" y1="365" x2="260" y2="365" stroke="#c4b5fd"/>
+    <line x1="196" y1="361" x2="260" y2="361" stroke="#c4b5fd"/><line x1="196" y1="369" x2="260" y2="369" stroke="#c4b5fd"/>
 
     <!-- 分发支路 -->
     <line x1="170" y1="113" x2="192" y2="113" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>

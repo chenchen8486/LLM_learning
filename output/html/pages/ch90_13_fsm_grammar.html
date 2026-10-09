@@ -1,0 +1,191 @@
+<article class="content">
+<h1>A.13 有限状态机与文法：约束解码的数学底座</h1>
+<p class="subtitle">本页范围：附录 A 第 13 节　|　整理时间：2026-10-09</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>12.4 节说「把格式编译成状态机，解码每步查表，非法 token 置 −∞」。状态机到底是什么？它凭什么能逐步回答「下一个 token 合不合法」，什么时候又不够用？</td></tr>
+      <tr><td>本节主张</td><td>有限状态机只有三样东西：有限个状态、一张转移表、几个接受态。它把「整段文本合不合法」拆成「每步有没有路可走」的局部查询，与逐 token 生成天然咬合。正则表达式总能编译成状态机；任意深的嵌套它数不了，加一条栈就是上下文无关文法。</td></tr>
+      <tr><td>一句话结论</td><td>看懂状态机，就看懂了 12.4 节约束解码那台「判卷机」是怎么干活的。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>有限状态机</span><span>转移表</span><span>接受态</span><span>正则表达式</span><span>上下文无关文法</span><span>约束解码</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　12.4 节讲约束解码时反复使用一句话：把目标格式编译成状态机，解码每一步向它查询合法 token，其余置 −∞。这句话里被当作黑盒的正是状态机本身。它是什么、为什么能逐步判定合法性、能力边界画在哪里，就是本附录要补齐的背景。</p>
+
+<p>　　本节按「机器本身 → 描述格式的语言 → 接回解码」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>状态机：只有三样东西的小机器</strong>（A.13.1）：状态、转移、接受态，用一台识别 JSON 字符串的最小机器走一遍完整判定；</li>
+  <li><strong>正则与文法：多一条栈的差别</strong>（A.13.2）：正则表达式为什么总能编译成状态机，括号嵌套为什么编译不了；</li>
+  <li><strong>接回解码：每步查表，非法置 −∞</strong>（A.13.3）：无记忆、只查表的性质为什么恰好咬合逐 token 生成。</li>
+</ol>
+
+<p>　　读完全节，应能手画一台识别简单格式的状态机，也能讲清 12.4 节那台「判卷机」凭什么每步都答得上话。</p>
+
+<h2>A.13.1 状态机：只有三样东西的小机器</h2>
+
+<p>　　这台机器的全名是有限状态机（finite-state machine，FSM）：「有限」说的是状态总数有限，「状态机」说的是它任何时刻只停在一个状态上，靠读入符号在状态之间跳转。拆开看，整台机器只有三样东西：</p>
+
+<ol>
+  <li><strong>状态（state）</strong>：机器内部的有限几种处境，任何时刻只处于其中一个；</li>
+  <li><strong>转移（transition）</strong>：一张查算表，每行的形状是「当前状态 + 读入的符号 → 下一个状态」，查不到的组合一律不允许；</li>
+  <li><strong>接受态（accepting state）</strong>：事先指定的若干状态，输入全部读完时机器停在其中，这段输入才算合法。</li>
+</ol>
+
+<p>　　用一个最小例子把三要素看全。要识别的目标是 JSON 字符串（JSON 是程序之间交换数据的文本格式，12.4 节的主角）。规则取简化版：以英文双引号开头，中间是任意多个非引号字符，以双引号收尾（真实规则还允许 \" 转义，此处略去，不影响要领）。按这三条造机器，只需三个状态：</p>
+
+<ul>
+  <li><strong>开始</strong>：等待开引号，只认 <code>"</code>；</li>
+  <li><strong>串内</strong>：读到普通字符原地不动，读到 <code>"</code> 跳出；</li>
+  <li><strong>结束</strong>：唯一的接受态，停在这里意味着字符串合法。</li>
+</ul>
+
+<p>　　拿 <code>"小明"</code> 走一遍，引号本身也是输入字符。第一步机器在「开始」，读到 <code>"</code>，查表「开始 + " → 串内」，跳过去；第二步读「小」，查表「串内 + 普通字符 → 串内」，原地不动，「明」同理；第四步读收尾的 <code>"</code>，进入「结束」。输入读完，机器停在双圈上，判定合法。两个反例对照着看更清楚：<code>"小明</code> 缺收尾引号，读完停在「串内」，不是接受态，不合法；<code>小明</code> 压根没有引号，第一步「开始 + 小」在表里查无此行，直接卡死，同样不合法。整台机器与这次走查画在图 1 里。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrFsm13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="26" font-size="13" font-weight="bold" fill="#4c1d95">识别合法 JSON 字符串的最小状态机（三要素：状态、转移、接受态；规则已简化）</text>
+    <!-- 起点箭头 -->
+    <line x1="36" y1="130" x2="84" y2="130" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrFsm13)"/>
+    <text x="60" y="116" text-anchor="middle" font-size="10.5" fill="#64748b">起点</text>
+    <!-- S0 开始 -->
+    <circle cx="126" cy="130" r="32" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="126" y="135" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">开始</text>
+    <text x="126" y="182" text-anchor="middle" font-size="10.5" fill="#555">只认开引号</text>
+    <!-- S0 → S1 -->
+    <line x1="158" y1="130" x2="322" y2="130" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrFsm13)"/>
+    <text x="240" y="116" text-anchor="middle" font-size="12" fill="#0891b2">"（开引号）</text>
+    <!-- S1 串内 -->
+    <circle cx="356" cy="130" r="32" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="356" y="135" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">串内</text>
+    <text x="356" y="182" text-anchor="middle" font-size="10.5" fill="#555">普通字符原地消化</text>
+    <!-- S1 自环 -->
+    <path d="M 338 101 C 318 52 394 52 374 101" fill="none" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrFsm13)"/>
+    <text x="356" y="44" text-anchor="middle" font-size="11" fill="#0891b2">普通字符（除引号外）</text>
+    <!-- S1 → S2 -->
+    <line x1="388" y1="130" x2="552" y2="130" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrFsm13)"/>
+    <text x="470" y="116" text-anchor="middle" font-size="12" fill="#0891b2">"（收尾引号）</text>
+    <!-- S2 结束（双圈接受态） -->
+    <circle cx="586" cy="130" r="32" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.8"/>
+    <circle cx="586" cy="130" r="25.5" fill="none" stroke="#16a34a" stroke-width="1.4"/>
+    <text x="586" y="135" text-anchor="middle" font-size="12" font-weight="bold" fill="#15803d">结束</text>
+    <text x="586" y="182" text-anchor="middle" font-size="10.5" fill="#555">双圈 = 接受态</text>
+    <line x1="40" y1="206" x2="680" y2="206" stroke="#e2e8f0" stroke-width="1.2"/>
+    <!-- 走法示例 -->
+    <text x="40" y="230" font-size="12" fill="#333">走一遍 "小明"（引号也是输入字符），每读一个字符查一行转移表：</text>
+    <rect x="40" y="246" width="54" height="32" rx="14" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.4"/>
+    <text x="67" y="267" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">开始</text>
+    <line x1="94" y1="262" x2="138" y2="262" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrFsm13)"/>
+    <text x="116" y="252" text-anchor="middle" font-size="11" fill="#0891b2">"</text>
+    <rect x="140" y="246" width="54" height="32" rx="14" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.4"/>
+    <text x="167" y="267" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">串内</text>
+    <line x1="194" y1="262" x2="238" y2="262" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrFsm13)"/>
+    <text x="216" y="252" text-anchor="middle" font-size="11" fill="#0891b2">小</text>
+    <rect x="240" y="246" width="54" height="32" rx="14" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.4"/>
+    <text x="267" y="267" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">串内</text>
+    <line x1="294" y1="262" x2="338" y2="262" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrFsm13)"/>
+    <text x="316" y="252" text-anchor="middle" font-size="11" fill="#0891b2">明</text>
+    <rect x="340" y="246" width="54" height="32" rx="14" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.4"/>
+    <text x="367" y="267" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">串内</text>
+    <line x1="394" y1="262" x2="438" y2="262" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrFsm13)"/>
+    <text x="416" y="252" text-anchor="middle" font-size="11" fill="#0891b2">"</text>
+    <rect x="440" y="246" width="54" height="32" rx="14" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.6"/>
+    <rect x="444" y="250" width="46" height="24" rx="11" fill="none" stroke="#16a34a" stroke-width="1.2"/>
+    <text x="467" y="267" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#15803d">结束</text>
+    <text x="506" y="267" font-size="12" fill="#15803d">✓ 读完停在双圈：合法</text>
+    <!-- 反例 -->
+    <text x="40" y="306" font-size="11.5" fill="#dc2626">✗ 反例一："小明（缺收尾引号）读完停在「串内」，不是接受态 → 不合法</text>
+    <text x="40" y="328" font-size="11.5" fill="#dc2626">✗ 反例二：小明（没有引号）第一步在「开始」查不到转移，直接卡死 → 不合法</text>
+  </svg>
+  <div class="diagram-caption">图 1：识别合法 JSON 字符串的最小状态机（原创示意，未考虑 \" 转义）。上方是机器本身：从「开始」读入开引号进「串内」，普通字符靠自环原地消化，收尾引号把它送进双圈接受态。下方走一遍 "小明"：四步各查一行转移表，停在双圈，合法；两个反例分别演示「停错状态」与「查无此路」两种失败。12.4 节图 3 那台完整 JSON 对象状态机，就是同一思路放大到更多状态。</div>
+</div>
+
+<p>　　这台小机器有一个看似短板、实则关键的性质：<strong>它没有记忆</strong>。它不记得读过哪几个字符，只记得现在停在哪个状态。「整段文本合不合法」这个全局问题，被拆成「当前状态下，这个符号有没有路可走」的一连串局部查询，每次判定只查一行表。正是这个性质让它在解码环节派上用场，A.13.3 会接回这一点。</p>
+
+<h2>A.13.2 正则与文法：多一条栈的差别</h2>
+
+<p>　　工程里描述格式，很少直接画状态机，更常用的是正则表达式（regular expression）：一种用字符加少量运算符描述文本模式的记法。比如 <code>"[^"]*"</code> 读作「一个引号、任意多个非引号字符、再一个引号」，正好是 A.13.1 那台机器识别的语言。这不是巧合。形式语言理论的一个经典结论是：<strong>每个正则表达式都能编译成一台等价的有限状态机</strong>。对应关系在直觉层面很直接：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>正则写法</th><th>含义</th><th>对应的状态机元件</th></tr></thead>
+    <tbody>
+      <tr><td><code>a</code></td><td>一个字符 a</td><td>一条标着 a 的转移</td></tr>
+      <tr><td><code>ab</code></td><td>先 a 后 b</td><td>两个状态前后相接</td></tr>
+      <tr><td><code>a*</code></td><td>a 重复任意次（含零次）</td><td>一个自环</td></tr>
+      <tr><td><code>a|b</code></td><td>a 或 b 任选其一</td><td>同一状态出发的两条平行转移</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　于是「正则 → 状态机」是一条双向通道：写格式用正则，对人友好；跑判定用状态机，对机器友好；中间由编译器翻译。12.4 节的 Outlines 走的正是这条路：开发者交出 JSON Schema 或正则，库负责把它编译成状态机。</p>
+
+<p>　　但有一类格式，状态机在原理上就做不了：<strong>任意深的嵌套</strong>。括号配对是代表：<code>()</code> 合法、<code>(())</code> 合法、<code>((()))</code> 也合法，规律是「每开一个就必须关一个」。状态机数不了这笔账：开着的个数可以是任意大的整数，而状态总数有限，没法用「停在第几号状态」记住「已经开了几层」。要处理嵌套，得给机器添一条记忆。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">上下文无关文法 CFG</span>
+    <span class="term-en">context-free grammar；规则允许「自己套自己」，如 A → ( A )</span>
+  </div>
+  <div class="term-body">
+    <p>比状态机多一条<strong>栈</strong>（stack，后进先出的一摞格子）的文法体系。识别它的机器叫下推自动机（pushdown automaton），可以理解成「FSM + 一条栈」：每遇开括号压入一格，每遇闭括号弹出一格，输入读完时栈恰好为空才算配对成功。栈提供了无界的记忆，嵌套多深都应付得来。JSON 的完整语法（对象套数组、数组再套对象）就落在这一层，12.4 节的 GBNF 方案做的正是 CFG 级约束。</p>
+    <div class="term-analogy">像收银台摞盘子：每开一个括号放一只盘子，每关一个取走一只，账算完时台面也该空了。状态机没有这摞盘子，三层之后就数不清。</div>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>有限状态机 FSM</th><th>CFG + 下推自动机</th></tr></thead>
+    <tbody>
+      <tr><td>记忆</td><td>只有当前状态，总数有限</td><td>当前状态加一条无界的栈</td></tr>
+      <tr><td>搞得定的格式</td><td>正则级：固定字段、枚举值、字符串模式</td><td>嵌套级：括号配对、对象套数组</td></tr>
+      <tr><td>在 12.4 节的代表</td><td>Outlines</td><td>llama.cpp GBNF</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>A.13.3 接回解码：每步查表，非法置 −∞</h2>
+
+<p>　　把这台机器接回解码。12.4.2 节里约束解码的一步，用本节语言写出来是三句查询：</p>
+
+<ol>
+  <li>状态机吃掉已生成的前缀，停在某个状态上，比如「等待键名字符串」；</li>
+  <li>查这个状态的转移表：词表 6400 个 token（minimind 配置）里，哪些能被状态机吸收且不走进死路，构成合法集合；</li>
+  <li>合法集合之外的 token，logit（模型对每个候选 token 的打分，A.3 节）一律置 \(-\infty\)，softmax 之后概率归零，合法集合内部重新归一化，温度与采样照常叠加。</li>
+</ol>
+
+<p>　　第 3 步的「置 \(-\infty\)」就是 A.11 节讲的 softmax 掩码，那里讲透了 \(-\infty\) 怎么让概率精确归零；本节回答的是另一半问题：\(-\infty\) 的名单从哪来。答案就是第 2 步的那张转移表。</p>
+
+<p>　　回看 A.13.1 的「无记忆」性质，它在解码环节恰好是优点：状态机不需要预见未来，只按当前状态回答下一步的合法集合，这与逐 token 生成的节奏天然咬合——每生成一个 token，状态机推进一步，新的合法集合立等可取。Outlines 干脆把「状态 × 词表」的合法集合离线全部算好，运行时每步只查一次表，额外开销很小。</p>
+
+<p>　　难点只剩一个：<strong>token 对齐</strong>。语法按字符书写，模型按 token 生成，两者粒度错位——一个 token 可能横跨多个语法符号（<code>"age":</code> 恰好切成一个 token 时，一口气穿过「串内、收尾、冒号之后」三个状态），一个语法符号也可能要几个 token 才拼得出来。判定「这个 token 合法吗」，必须模拟它整段喂进状态机后停在哪里、会不会走进死路，这是各家约束解码实现的主要复杂度（12.4.3 节有展开）。</p>
+
+<div class="highlight-box">
+  三节串成一句话：格式先编译成状态机（或带栈的文法），解码每步由它划出合法集合，集合外置 −∞。模型决定「合法者之中谁更受青睐」，状态机决定「谁能出场」，两者各管一段，互不越界。
+</div>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>出现在哪</th><th>用它做什么</th></tr></thead>
+    <tbody>
+      <tr><td>12.4.2 约束解码原理</td><td>每步的合法 token 集合由状态机（或文法）按当前状态查出，集合外置 −∞；那台「判卷机」就是本节的机器</td></tr>
+      <tr><td>12.4.3 Outlines / GBNF / Structured Outputs</td><td>三套工程方案的底座分别是 FSM 与 CFG，差别只在格式怎么写、在哪一侧编译，逐步判定的逻辑都是本节这套</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</article>

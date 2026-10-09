@@ -1,0 +1,211 @@
+<article class="content">
+<h1>A.10 累积概率与分位数：top-p 的数学底座</h1>
+<p class="subtitle">本页范围：附录 A 第 10 节　|　整理时间：2026-10-09</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>12.2 节的 top-p 采样只有一句话的操作说明：候选按概率从高到低排队，从头累加，累计概率首次达到阈值 p 就停，身后的全部砍掉。「排队、累加、首次达到」对应数学里的什么对象？为什么动一个 p 就能让候选集合自动伸缩？</td></tr>
+      <tr><td>本节主张</td><td>从高到低排队再从头累加，得到的是累积分布函数（CDF）：一条从 0 爬到 1 的阶梯。「累计首次达到 p 的位置」就是 p-分位数，top-p 的核正是降序口径下的 p-分位数前缀；阈值 p 不是「砍多少」的直接开关，而是「至少覆盖多少概率」的保证书。</td></tr>
+      <tr><td>一句话结论</td><td>会排队、会累加、会找首次越线的名次，就看懂了 top-p 的全部数学；minimind 用四行代码（排序、累加、掩码右移、置 −∞）把它完整实现。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>累积分布函数 CDF</span><span>分位数</span><span>top-p</span><span>核</span><span>cumsum</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　A.3 节把模型输出的分数变成了概率，A.9 节讲了怎么按概率从分布里抽出一个 token。12.2 节的 top-p 采样在抽样之前还要先砍一刀：把候选按概率从高到低排队，从第一名开始累加，累计概率首次达到阈值 p 就停，排在后面的全部出局。这一刀砍掉了不靠谱的尾巴，也让候选席的大小跟着分布形状自动伸缩。</p>
+
+<p>　　「排队、累加、首次达到」这三件事背后是两个标准的数学对象：累积分布函数与分位数。本节把它们讲到够用为止，再用 minimind 的四行真实代码收尾对照。</p>
+
+<ol>
+  <li><strong>排队加累加：累积分布函数</strong>（A.10.1）：一条从 0 爬到 1 的阶梯，每个台阶是一名候选贡献的概率；</li>
+  <li><strong>分位数：首次达到阈值的位置</strong>（A.10.2）：为什么定义必须写「首次达到」，写「最接近」会出什么错；</li>
+  <li><strong>top-p 就是一个分位数</strong>（A.10.3）：核 = 覆盖 p 的最小前缀集合，min-p 一句话变体，minimind 四行代码逐行对照。</li>
+</ol>
+
+<p>　　读完应能手算一道小题：给一组概率和一个阈值 p，说出核里有几个候选、谁被关在门外，并指出 minimind 的哪一行代码对应哪一步。</p>
+
+<h2>A.10.1 排队加累加：累积分布函数</h2>
+
+<p>　　任意一组概率都可以按一个选定的顺序排成一排。softmax（A.3 节）之后，词表上 6400 个候选各拿一个概率，总和为 1。top-p 关心的排法是按概率从高到低：概率最高的候选排第 1 名，依次往后，最低的垫底。排好之后从第 1 名开始逐个累加：前 1 名合计多少、前 2 名合计多少……每加一个名次，合计值就抬升一格。这个「累计到第 \(k\) 名为止的总概率」有正式的数学名字：</p>
+
+<div class="formula-card">
+  \[ F(k) = \sum_{i=1}^{k} p_{(i)} \tag{1} \]
+  <div class="formula-note">公式 (1)：离散分布在降序口径下的累积分布函数（Cumulative Distribution Function，CDF）。符号说明：\(p_{(i)}\) 是概率排名第 \(i\) 的候选的概率（下标加括号表示名次，\(p_{(1)}\) 最大）；\(k\) 是名次；\(F(k)\) 是前 \(k\) 名合计的概率。\(F\) 有两个显然但关键的性质：单调不减，每加一个名次只会变大或持平；加完全体候选正好等于 1。</div>
+</div>
+
+<p>　　拿一组具体数字走一遍。假设某一步排序后的概率是 \([0.40, 0.25, 0.15, 0.12, 0.08]\)（只用 5 个候选，便于口算），逐个累加：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>名次 \(k\)</th><th>概率 \(p_{(k)}\)</th><th>累计 \(F(k)\)</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>0.40</td><td>0.40</td></tr>
+      <tr><td>2</td><td>0.25</td><td>0.65</td></tr>
+      <tr><td>3</td><td>0.15</td><td>0.80</td></tr>
+      <tr><td>4</td><td>0.12</td><td>0.92</td></tr>
+      <tr><td>5</td><td>0.08</td><td>1.00</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　一个前提必须记住：CDF 的长相取决于排序口径。同一组概率，按词表原顺序累加也能画出一条阶梯，但那条阶梯与「谁靠谱」无关，对截断没有意义。本节与 12.2 节说的 CDF 一律指按概率降序的那一条——这也正是 top-p 的实现里第一步永远是排序的原因。</p>
+
+<h2>A.10.2 分位数：首次达到阈值的位置</h2>
+
+<p>　　有了 \(F(k)\)，「累计概率首次达到阈值 \(p\) 的那个名次」就可以一句话定义出来。这个位置就是 \(p\)-分位数对应的位置：</p>
+
+<div class="formula-card">
+  \[ k^* = \min\left\{ k:\ F(k) \geq p \right\} \tag{2} \]
+  <div class="formula-note">公式 (2)：p-分位数位置的定义。符号说明：\(p\) 是 0 到 1 之间的阈值（top-p 场景常用 0.85、0.9、0.95）；\(F(k)\) 是公式 (1) 的累计概率；\(k^*\) 是满足 \(F(k) \geq p\) 的最小名次，即累计阶梯第一次够到或越过 \(p\) 的位置。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">分位数 Quantile</span>
+    <span class="term-en">quantile = 把分布按累计比例切分的位置</span>
+  </div>
+  <div class="term-body">
+    <p>日常里最熟悉的分位数是考试成绩的百分位：「超过 85% 的考生」意思就是落在 85 分位。换成概率分布的语言，p-分位数回答同一个问题：累计概率达到 p 时，走到哪一名了。top-p 里的 p 与这个 p 是同一个东西。</p>
+    <div class="term-analogy">像按名次依次把每个候选的概率倒进同一个量杯，问「水面首次碰到 0.85 刻度线时，倒到第几个人了」——那个人所在的名次就是 0.85-分位数的位置。</div>
+  </div>
+</div>
+
+<p>　　为什么定义写「首次达到」而不是「最接近」？拿上表对 \(p = 0.85\) 找一遍位置就清楚了：第 3 名的累计是 0.80，离 0.85 只差 0.05；第 4 名的累计是 0.92，超出 0.07。若按「最接近」取舍，第 3 名当选——但 0.80 并没有完成「至少覆盖 0.85」的任务，候选集合里缺了一块概率质量。阈值 \(p\) 的本意是覆盖率的下限，不是近似目标，所以必须走到首次不低于 \(p\) 的第 4 名：宁可多收一个候选，不让覆盖率跌破 \(p\)。这个「宁多勿缺」的取向，下一小节会在代码里再遇见一次。</p>
+
+<p>　　把这张表画成图，阶梯与阈值的交点一目了然（图 1）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="cdfArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="56" y="30" font-size="13" fill="#333">① 按概率从高到低排队（5 个候选）</text>
+    <text x="404" y="30" font-size="13" fill="#333">② 从头累加：累积分布 F(k) 的阶梯</text>
+    <line x1="374" y1="44" x2="374" y2="304" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <!-- 面板 ①：降序概率柱 -->
+    <line x1="56" y1="250" x2="56" y2="76" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cdfArrG)"/>
+    <line x1="56" y1="250" x2="344" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cdfArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="52" y1="170" x2="60" y2="170"/>
+      <line x1="52" y1="90" x2="60" y2="90"/>
+    </g>
+    <text x="48" y="174" font-size="11" fill="#64748b" text-anchor="end">0.2</text>
+    <text x="48" y="94" font-size="11" fill="#64748b" text-anchor="end">0.4</text>
+    <text x="64" y="68" font-size="11" fill="#64748b">概率</text>
+    <rect x="78" y="90" width="36" height="160" fill="#6d28d9"/>
+    <rect x="132" y="150" width="36" height="100" fill="#6d28d9"/>
+    <rect x="186" y="190" width="36" height="60" fill="#6d28d9"/>
+    <rect x="240" y="202" width="36" height="48" fill="#6d28d9"/>
+    <rect x="294" y="218" width="36" height="32" fill="#d1d5db" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="96" y="82" font-size="11.5" fill="#6d28d9" text-anchor="middle">0.40</text>
+    <text x="150" y="142" font-size="11.5" fill="#6d28d9" text-anchor="middle">0.25</text>
+    <text x="204" y="182" font-size="11.5" fill="#6d28d9" text-anchor="middle">0.15</text>
+    <text x="258" y="194" font-size="11.5" fill="#6d28d9" text-anchor="middle">0.12</text>
+    <text x="312" y="210" font-size="11.5" fill="#9ca3af" text-anchor="middle">0.08</text>
+    <text x="96" y="266" font-size="11" fill="#64748b" text-anchor="middle">第 1 名</text>
+    <text x="150" y="266" font-size="11" fill="#64748b" text-anchor="middle">第 2 名</text>
+    <text x="204" y="266" font-size="11" fill="#64748b" text-anchor="middle">第 3 名</text>
+    <text x="258" y="266" font-size="11" fill="#64748b" text-anchor="middle">第 4 名</text>
+    <text x="312" y="266" font-size="11" fill="#9ca3af" text-anchor="middle">第 5 名</text>
+    <line x1="78" y1="280" x2="276" y2="280" stroke="#6d28d9" stroke-width="1.6"/>
+    <line x1="78" y1="276" x2="78" y2="284" stroke="#6d28d9" stroke-width="1.6"/>
+    <line x1="276" y1="276" x2="276" y2="284" stroke="#6d28d9" stroke-width="1.6"/>
+    <text x="177" y="296" font-size="11.5" fill="#6d28d9" text-anchor="middle">核：前 4 名留下</text>
+    <text x="312" y="296" font-size="11.5" fill="#dc2626" text-anchor="middle">砍掉</text>
+    <!-- 面板 ②：CDF 阶梯 -->
+    <line x1="404" y1="250" x2="404" y2="70" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cdfArrG)"/>
+    <line x1="404" y1="250" x2="692" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cdfArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="400" y1="160" x2="408" y2="160"/>
+      <line x1="400" y1="70" x2="408" y2="70"/>
+    </g>
+    <text x="396" y="254" font-size="11" fill="#64748b" text-anchor="end">0</text>
+    <text x="396" y="164" font-size="11" fill="#64748b" text-anchor="end">0.5</text>
+    <text x="396" y="74" font-size="11" fill="#64748b" text-anchor="end">1.0</text>
+    <text x="412" y="62" font-size="11" fill="#64748b">F(k)</text>
+    <line x1="404" y1="97" x2="692" y2="97" stroke="#dc2626" stroke-width="1.4" stroke-dasharray="6 4"/>
+    <text x="412" y="91" font-size="11.5" fill="#dc2626">阈值 p = 0.85</text>
+    <line x1="576" y1="250" x2="576" y2="106" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="3 3"/>
+    <path d="M 420 250 L 420 178 L 472 178 L 472 133 L 524 133 L 524 106 L 576 106 L 576 84.4 L 628 84.4 L 628 70 L 680 70" fill="none" stroke="#6d28d9" stroke-width="2.4"/>
+    <g fill="#6d28d9">
+      <circle cx="420" cy="178" r="3"/>
+      <circle cx="472" cy="133" r="3"/>
+      <circle cx="524" cy="106" r="3"/>
+      <circle cx="576" cy="84.4" r="3"/>
+      <circle cx="628" cy="70" r="3"/>
+    </g>
+    <circle cx="576" cy="84.4" r="6" fill="none" stroke="#dc2626" stroke-width="1.6"/>
+    <text x="446" y="172" font-size="10.5" fill="#6d28d9" text-anchor="middle">0.40</text>
+    <text x="498" y="146" font-size="10.5" fill="#6d28d9" text-anchor="middle">0.65</text>
+    <text x="550" y="122" font-size="10.5" fill="#6d28d9" text-anchor="middle">0.80</text>
+    <text x="606" y="74" font-size="10.5" fill="#6d28d9" text-anchor="middle">0.92</text>
+    <text x="654" y="62" font-size="10.5" fill="#6d28d9" text-anchor="middle">1.00</text>
+    <text x="590" y="116" font-size="12" font-weight="bold" fill="#6d28d9">k* = 4</text>
+    <text x="590" y="132" font-size="10.5" fill="#666">首次越过阈值的位置</text>
+    <text x="446" y="266" font-size="11" fill="#64748b" text-anchor="middle">1</text>
+    <text x="498" y="266" font-size="11" fill="#64748b" text-anchor="middle">2</text>
+    <text x="550" y="266" font-size="11" fill="#64748b" text-anchor="middle">3</text>
+    <text x="602" y="266" font-size="11" fill="#64748b" text-anchor="middle">4</text>
+    <text x="654" y="266" font-size="11" fill="#64748b" text-anchor="middle">5</text>
+    <text x="692" y="266" font-size="10.5" fill="#94a3b8" text-anchor="end">名次</text>
+    <line x1="420" y1="280" x2="628" y2="280" stroke="#6d28d9" stroke-width="1.6"/>
+    <line x1="420" y1="276" x2="420" y2="284" stroke="#6d28d9" stroke-width="1.6"/>
+    <line x1="628" y1="276" x2="628" y2="284" stroke="#6d28d9" stroke-width="1.6"/>
+    <text x="524" y="296" font-size="11.5" fill="#6d28d9" text-anchor="middle">核 = 前 4 名：累计 0.92，首次 ≥ 0.85</text>
+    <text x="654" y="296" font-size="11.5" fill="#dc2626" text-anchor="middle">砍掉</text>
+    <text x="374" y="320" font-size="11.5" fill="#666" text-anchor="middle">读法：阶梯在名次 4 处首次越过 p = 0.85，前 4 名构成核，第 5 名出局</text>
+  </svg>
+  <div class="diagram-caption">图 1：累积分布与分位数的位置。左图把 5 个候选按概率从高到低排好；右图从第 1 名开始逐个累加，紫色阶梯就是公式 (1) 的 \(F(k)\)，每个台阶的抬升幅度是该名候选的概率。红色虚线是阈值 \(p = 0.85\)：累计到第 3 名只有 0.80、尚不达标，第 4 名把累计推到 0.92、阶梯首次越过阈值，于是 \(k^* = 4\)，前 4 名构成核（紫色括线），第 5 名被砍掉。这就是 12.2 节 top-p 在每一步解码中做的事。</div>
+</div>
+
+<h2>A.10.3 top-p 就是一个分位数</h2>
+
+<p>　　把前两节拼起来，top-p 采样（12.2 节细讲）的定义只剩一句话：按概率降序排，取覆盖阈值 \(p\) 的最小前缀集合——也就是图 1 里被紫色括线留下的前 4 名。这个集合有专门的名字，叫核（nucleus）：</p>
+
+<div class="formula-card">
+  \[ \mathcal{N} = \{ (1), (2), \dots, (k^*) \} \tag{3} \]
+  <div class="formula-note">公式 (3)：top-p 的核。符号说明：\(\mathcal{N}\) 是保留下来的候选集合；\(k^*\) 由公式 (2) 给出；名次 \(k^* + 1\) 起的候选全部出局——实现上把它们的 logit 置为 \(-\infty\)，softmax 后概率严格为 0，核内按原比例重新归一化（12.2 节公式 (2)）。因为 \(k^*\) 随分布形状变化，分布尖锐时核可能只有 1 个候选，分布平坦时可能几十上百个，这是 top-p 相对固定名额的 top-k（只留概率前 \(k\) 名）的核心优势。</div>
+</div>
+
+<p>　　同一家族还有一个一句话变体 min-p：不拿累计概率划线，改拿「第一名概率乘系数 \(\alpha\)」当及格线，留下的候选集合同样随分布形状伸缩。它的公式与出处见 12.2.4 节，本节只需认出它也是「先定一个位置，再砍掉身后」的家族成员。</p>
+
+<p>　　落到代码上，minimind（Apache 2.0）的 generate 函数用四行把本节从头到尾实现了一遍（model/model_minimind.py:278–282，其中第 278 行是入口判断 <code>if top_p &lt; 1.0</code>，取 1.0 即不截断）：</p>
+
+<pre><code>sorted_logits, sorted_indices = torch.sort(logits, descending=True)          # 279 行：按概率降序排队
+mask = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1) &gt; top_p    # 280 行：算 F(k) 并与阈值比较
+mask[..., 1:], mask[..., 0] = mask[..., :-1].clone(), 0                      # 281 行：掩码右移一格，首位豁免
+logits[mask.scatter(1, sorted_indices, mask)] = -float('inf')                # 282 行：核外置 −∞</code></pre>
+
+<p>　　拿本节的数值小例逐行对照（top_p = 0.85）：</p>
+
+<ol>
+  <li><strong>279 行，排序</strong>：就是 A.10.1 的「排队」；同时返回的 <code>sorted_indices</code> 记下每个名次在词表里的原始位置，后面散回去要用；</li>
+  <li><strong>280 行，累加并比较</strong>：<code>torch.softmax</code> 把排好序的 logit 变回概率（A.3 节），<code>torch.cumsum</code> 做的就是公式 (1) 的累加，整条语句得到「\(F(k)\) 严格大于 \(p\)」的布尔掩码。上例的累计是 [0.40, 0.65, 0.80, 0.92, 1.00]，与 0.85 比较得 [假, 假, 假, 真, 真]；</li>
+  <li><strong>281 行，掩码右移一格</strong>：右移后首位强制置 0，掩码变成 [假, 假, 假, 假, 真]。这一格移动正是「保住阈值线上第一个跨界者」：第 4 名的 0.92 本来被标成越界，右移后它本人豁免、身后的第 5 名顶替出局。这就是 A.10.2 的「宁多勿缺」——少了第 4 名，累计只剩 0.80，不够 p；</li>
+  <li><strong>282 行，散回原顺序</strong>：掩码此刻按名次排列，<code>scatter</code> 按 <code>sorted_indices</code> 把每一格散回词表原顺序，核外位置的 logit 置 −∞；之后 softmax 时 \(e^{-\infty} = 0\)（A.3 节），这些候选的概率严格归零。置 −∞ 这手屏蔽技巧在手册里反复登场（注意力因果掩码、约束解码），附录 A.11 统一讲它。</li>
+</ol>
+
+<div class="highlight-box">
+  top-p 的全部数学就是三件事：排队（sort）、累加（cumsum）、找首次越线的名次（分位数）。阈值 p 是「至少留住多少概率」的保证书：p 越高核越大、尾巴越长；p 取 1.0 时一个都不砍（代码里 top_p 小于 1.0 才启用），p 越小核收得越紧。
+</div>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>出现在哪</th><th>用它做什么</th></tr></thead>
+    <tbody>
+      <tr><td>12.2 采样三件套（top-p）</td><td>top-p 截断就是求降序 CDF 的 p-分位数：核内保留、核外置 −∞ 再重新归一化（公式 (3)；实现见 model_minimind.py:278–282）</td></tr>
+      <tr><td>12.2 采样三件套（min-p）</td><td>min-p 是同一思路的相对阈值变体：及格线从「累计概率 p」换成「第一名概率 × α」，候选集合同样随分布形状伸缩</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</article>

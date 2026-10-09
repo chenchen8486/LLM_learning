@@ -1,0 +1,189 @@
+<article class="content">
+<h1>A.11 softmax 掩码：用 −∞ 屏蔽非法位置</h1>
+<p class="subtitle">本页范围：附录 A 第 11 节　|　整理时间：2026-10-09</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>softmax 把所有候选都变成正概率，谁也出不了局。可手册里处处需要“某些候选彻底消失”：解码器不许看未来的位置、top-k / top-p 要砍掉长尾、约束解码只放行语法合法的 token。怎么让一个位置的概率不多不少正好等于 0？</td></tr>
+      <tr><td>本节主张</td><td>把该位置的 logit 置 −∞（等价地，加一个同形状的 0/−∞ 掩码向量），再照常 softmax。e 的 −∞ 次方等于 0，该位置的分子与分母贡献同时消失，概率精确归零；其余位置按同一倍数放大，重新凑够 1，两两比值不变。</td></tr>
+      <tr><td>一句话结论</td><td>softmax 掩码 = 置 −∞ 再加 softmax，一个动作在手册里四次登场：因果掩码、top-k、top-p、语法掩码，区别只在掩码从哪来。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>softmax 掩码</span><span>−∞</span><span>因果掩码</span><span>top-k / top-p</span><span>语法掩码</span><span>归一化</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　A.3 节把 softmax 拆成了取指数、求和、归一三步，末尾留了个话头：top-k、top-p 调的是候选的范围。范围具体怎么调？答案只有一个动作——把不要的那一格的 logit 改成 −∞。这个动作在手册里至少登场四次：4.2 节手算例里的因果掩码是它，12.2 节的采样截断是它，12.4 节的约束解码还是它。每次出现时正文都只捎带一句，本节把它单独立项讲透，以后正文再遇到就只用“softmax 掩码”这个名字一句带过。</p>
+
+<ol>
+  <li><strong>原理：把 logit 置 −∞，概率精确归零</strong>（A.11.1）：一个极限事实如何让“删除候选”变得干净利落；</li>
+  <li><strong>手算一遍：四个 logit 的屏蔽实验</strong>（A.11.2）：屏蔽前后各位置份额怎么变，两两比值为什么不变；</li>
+  <li><strong>同一招，四次登场</strong>（A.11.3）：因果掩码、top-k、top-p、语法掩码摆在一起对照；</li>
+  <li><strong>minimind 实证：两行置 −∞</strong>（A.11.4）：生成函数里的真实代码长什么样。</li>
+</ol>
+
+<p>　　读完应能回答三件事：为什么置 −∞ 之后概率是精确的 0 而不是很小的数，被没收的份额去了哪里，以及为什么掩码不改变幸存者之间的相对偏好。</p>
+
+<h2>A.11.1 原理：把 logit 置 −∞，概率精确归零</h2>
+
+<p>　　先回顾 A.3 的公式 (1)：softmax 把每个候选的 logit 取指数，再除以全部指数之和。这个变换对所有候选一视同仁，负数 logit 也只是分到较小的正份额，谁也拿不走谁的全部。但手册里反复出现另一种需求：让某些候选<strong>彻底出局</strong>，概率不是“很小”，而是精确等于 0。</p>
+
+<p>　　做法出奇地简单：把要出局那一格的 logit 改成 \(-\infty\)。依据是一条极限事实：\(e^{-\infty} = 0\)（严格说是 \(x\) 趋于负无穷时 \(e^x\) 趋于 0，浮点运算里直接就是 0）。于是这一格的分子是 0，分母里也贡献 0，softmax 之后概率不多不少正好是 0。其余格子原样通过，只是因为分母少了一项，每个幸存者的概率乘上同一个倍数，重新凑够 1。这套操作没有统一的官方名字，本手册叫它 <strong>softmax 掩码</strong>。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">掩码 Mask</span>
+    <span class="term-en">mask = 蒙版：盖住哪格，哪格出局</span>
+  </div>
+  <div class="term-body">
+    <p>掩码是一张与目标向量同形状的“放行清单”，每个位置只有两种取值：<strong>0 表示放行</strong>（加了等于没加），<strong>\(-\infty\) 表示封杀</strong>（取指数后归零）。把它逐位加到 logit 上，就完成了对候选集合的删减，而且不伤幸存者之间的相对关系。也有等价写法：直接把要删的格子的 logit 改写为 \(-\infty\)，不另存一张掩码。</p>
+    <div class="term-analogy">像比赛抽签前划掉弃权者：弃权者的签被抽走（份额归零），剩下的人中签率等比例上升，彼此之间的相对机会不变。</div>
+  </div>
+</div>
+
+<div class="formula-card">
+  \[ \tilde{p}_i = \frac{e^{z_i + m_i}}{\sum_{j=1}^{n} e^{z_j + m_j}}, \qquad m_i = \begin{cases} 0, &amp; i \text{ 放行} \\ -\infty, &amp; i \text{ 屏蔽} \end{cases} \tag{1} \]
+  <div class="formula-note">公式 (1)：softmax 掩码。白话：给 logit 逐位加上掩码再照常 softmax，被屏蔽的位置概率精确为 0，被放行的位置重新归一化。符号说明：\(z_i\) 是第 \(i\) 个候选的 logit（模型直接输出的打分，见 A.3）；\(m_i\) 是掩码向量的第 \(i\) 位，只取 0 与 \(-\infty\) 两个值；\(\tilde{p}_i\) 是掩码后的概率；分母里凡 \(m_j = -\infty\) 的项都是 \(e^{-\infty} = 0\)，所以求和实际只在放行集合上进行，总和自动回到 1。</div>
+</div>
+
+<p>　　两个补充。第一，公式 (1) 是“在 logit 域动手”的写法；同一件事也可以“在概率域动手”——把屏蔽位置的概率乘 0 再重新归一化，12.2 节 top-k 的公式 (2) 用的就是这种写法。两者数学上等价，工程上都选 logit 域，因为模型直接产出的就是 logit，省得先算一遍完整 softmax。第二，有的实现用 \(-10^9\) 这类大负数代替真 \(-\infty\)：数学上 \(e^{-10^9}\) 不是 0，但它在浮点数里下溢成 0，效果相同；minimind 用的是真 \(-\infty\)（A.11.4）。</p>
+
+<h2>A.11.2 手算一遍：四个 logit 的屏蔽实验</h2>
+
+<p>　　拿四个候选算一遍完整账。假设某一步模型给出 logit：A 得 2.0、B 得 1.0、C 得 0.5、D 得 −0.5（词表其余位置略去）。现在决定屏蔽 C——至于为什么屏蔽，四个登场场景各有理由（A.11.3），这里只看机制本身。屏蔽前的分布按 A.3 的三步算，屏蔽后把 C 的 logit 换成 \(-\infty\) 再算一遍：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>候选</th><th>logit \(z_i\)</th><th>屏蔽前 \(e^{z_i}\)</th><th>屏蔽前概率</th><th>屏蔽后 \(e^{z_i + m_i}\)</th><th>屏蔽后概率</th></tr></thead>
+    <tbody>
+      <tr><td>A</td><td>2.0</td><td>7.389</td><td>0.598</td><td>7.389</td><td>0.690</td></tr>
+      <tr><td>B</td><td>1.0</td><td>2.718</td><td>0.220</td><td>2.718</td><td>0.254</td></tr>
+      <tr><td>C</td><td>0.5 → −∞</td><td>1.649</td><td>0.133</td><td>0</td><td>0</td></tr>
+      <tr><td>D</td><td>−0.5</td><td>0.607</td><td>0.049</td><td>0.607</td><td>0.057</td></tr>
+      <tr><td>合计</td><td>—</td><td>12.363</td><td>1.000</td><td>10.714</td><td>1.000</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　对照两列概率，能看到三件事。第一，C 的概率从 0.133 直接变成 0——不是四舍五入后的 0，是分子分母同时抹掉后的精确 0。第二，幸存者的份额都涨了：总和少掉的 0.133 按原比例分给 A、B、D，每个都乘上同一个倍数 \(1/(1-0.133) \approx 1.154\)。第三，两两比值不变：屏蔽前 A 是 B 的 2.72 倍，屏蔽后还是 2.72 倍。图 1 把这组对照画成条形图。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="mkArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="60" y="24" font-size="13" fill="#333">① 屏蔽前：softmax([2.0, 1.0, 0.5, −0.5])</text>
+    <text x="440" y="24" font-size="13" fill="#333">② 屏蔽后：C 归零，其余按原比例放大</text>
+    <line x1="90" y1="250" x2="90" y2="60" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mkArrG)"/>
+    <line x1="90" y1="250" x2="330" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mkArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="86" y1="155" x2="94" y2="155"/>
+      <line x1="86" y1="60" x2="94" y2="60"/>
+    </g>
+    <text x="82" y="254" font-size="11" fill="#64748b" text-anchor="end">0</text>
+    <text x="82" y="159" font-size="11" fill="#64748b" text-anchor="end">0.5</text>
+    <text x="82" y="64" font-size="11" fill="#64748b" text-anchor="end">1.0</text>
+    <rect x="113" y="136" width="34" height="114" fill="#6d28d9"/>
+    <rect x="163" y="208" width="34" height="42" fill="#2563eb"/>
+    <rect x="213" y="225" width="34" height="25" fill="#c2410c"/>
+    <rect x="263" y="241" width="34" height="9" fill="#0891b2"/>
+    <text x="130" y="130" font-size="11" fill="#6d28d9" text-anchor="middle">0.598</text>
+    <text x="180" y="202" font-size="11" fill="#2563eb" text-anchor="middle">0.220</text>
+    <text x="230" y="219" font-size="11" fill="#c2410c" text-anchor="middle">0.133</text>
+    <text x="280" y="235" font-size="11" fill="#0891b2" text-anchor="middle">0.049</text>
+    <text x="130" y="266" font-size="12" fill="#64748b" text-anchor="middle">A</text>
+    <text x="180" y="266" font-size="12" fill="#64748b" text-anchor="middle">B</text>
+    <text x="230" y="266" font-size="12" fill="#64748b" text-anchor="middle">C</text>
+    <text x="280" y="266" font-size="12" fill="#64748b" text-anchor="middle">D</text>
+    <line x1="348" y1="155" x2="404" y2="155" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#mkArrG)"/>
+    <text x="352" y="140" font-size="12" fill="#64748b">C 置 −∞</text>
+    <text x="352" y="180" font-size="12" fill="#64748b">再 softmax</text>
+    <line x1="440" y1="250" x2="440" y2="60" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mkArrG)"/>
+    <line x1="440" y1="250" x2="690" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mkArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="436" y1="155" x2="444" y2="155"/>
+      <line x1="436" y1="60" x2="444" y2="60"/>
+    </g>
+    <text x="432" y="254" font-size="11" fill="#64748b" text-anchor="end">0</text>
+    <text x="432" y="159" font-size="11" fill="#64748b" text-anchor="end">0.5</text>
+    <text x="432" y="64" font-size="11" fill="#64748b" text-anchor="end">1.0</text>
+    <rect x="463" y="119" width="34" height="131" fill="#6d28d9"/>
+    <rect x="513" y="202" width="34" height="48" fill="#2563eb"/>
+    <rect x="563" y="225" width="34" height="25" fill="none" stroke="#dc2626" stroke-width="1.4" stroke-dasharray="4 3"/>
+    <line x1="569" y1="231" x2="591" y2="244" stroke="#dc2626" stroke-width="1.4"/>
+    <line x1="591" y1="231" x2="569" y2="244" stroke="#dc2626" stroke-width="1.4"/>
+    <rect x="613" y="239" width="34" height="11" fill="#0891b2"/>
+    <text x="480" y="113" font-size="11" fill="#6d28d9" text-anchor="middle">0.690</text>
+    <text x="530" y="196" font-size="11" fill="#2563eb" text-anchor="middle">0.254</text>
+    <text x="580" y="219" font-size="11" fill="#dc2626" text-anchor="middle">0</text>
+    <text x="630" y="233" font-size="11" fill="#0891b2" text-anchor="middle">0.057</text>
+    <text x="480" y="266" font-size="12" fill="#64748b" text-anchor="middle">A</text>
+    <text x="530" y="266" font-size="12" fill="#64748b" text-anchor="middle">B</text>
+    <text x="580" y="266" font-size="12" fill="#64748b" text-anchor="middle">C</text>
+    <text x="630" y="266" font-size="12" fill="#64748b" text-anchor="middle">D</text>
+    <text x="60" y="290" font-size="12" fill="#666">C 被没收的 0.133 份额按原比例分给 A、B、D：三者各乘约 1.154，总和重新为 1，两两比值不变</text>
+  </svg>
+  <div class="diagram-caption">图 1：softmax 掩码前后同一组 logit 的分布对照。左图是四个候选的原始概率（logit 为 2.0、1.0、0.5、−0.5）；右图把 C 的 logit 置 −∞ 再 softmax，C 的柱子归零（红色虚线框标出它原来的份额 0.133），A、B、D 按同一倍数放大，两两比值不变。</div>
+</div>
+
+<p>　　第三条值得单独写成公式，因为后面还会用到。只要 \(i\) 与 \(j\) 都没被屏蔽，掩码前后它们的概率比值原样保留：</p>
+
+<div class="formula-card">
+  \[ \frac{\tilde{p}_i}{\tilde{p}_j} = \frac{e^{z_i}}{e^{z_j}} = \frac{p_i}{p_j} \qquad (i, j \text{ 均被放行}) \tag{2} \]
+  <div class="formula-note">公式 (2)：比值不变性。白话：掩码只决定谁能出场，不干预出场者之间谁更受欢迎。符号说明：\(p_i, p_j\) 是掩码前的概率，\(\tilde{p}_i, \tilde{p}_j\) 是掩码后的概率；归一化相当于给每个幸存者乘同一个倍数，比值里这个倍数被约掉，剩下的就是原来的指数比。12.4 节讨论“约束会不会让模型变笨”时，靠的就是这条性质。</div>
+</div>
+
+<div class="highlight-box">
+  softmax 掩码的全部效果就两条：被屏蔽者概率精确归零；幸存者按同一倍数放大，相对偏好不变。删掉的是选项，不是口味。
+</div>
+
+<h2>A.11.3 同一招，四次登场</h2>
+
+<p>　　同一个“置 −∞ 再 softmax”的动作，在手册里出现了四次，每次屏蔽的理由不同：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>登场位置</th><th>谁被置 −∞</th><th>掩码从哪来</th></tr></thead>
+    <tbody>
+      <tr><td>4.2 节手算例、4.5 节因果掩码</td><td>注意力分数矩阵的上三角（未来位置）</td><td>时间线：自回归生成不许偷看还没写出的词</td></tr>
+      <tr><td>12.2 节 top-k</td><td>排名在第 k 名之后的全部 token</td><td>概率排名：名额固定，砍掉长尾</td></tr>
+      <tr><td>12.2 节 top-p</td><td>累计概率首次达到 p 之后的全部 token</td><td>累计概率：名额随分布形状伸缩（机制见 A.10）</td></tr>
+      <tr><td>12.4 节语法掩码</td><td>当前状态下语法不合法的 token</td><td>外部语法：状态机或文法算出合法集合</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　四次登场共享同一个收尾：置 −∞ 之后照常 softmax、照常采样，被屏蔽的位置从此抽不中、分不到权重。差别只在掩码的来源——时间线、概率排名、语法合法性。掩码还可以叠加：minimind 的一步解码里 top-k 与 top-p 先后施加，相当于取两个放行集合的交集；约束解码的语法掩码再叠上去，任何一道掩码封杀的位置都出局。注意力侧则有两种等价写法：4.2 节手算例直接把上三角格子改成 \(-\infty\)，4.3 节公式 (3) 写成加一个 0/−∞ 的掩码矩阵 \(M\)，正是公式 (1) 的样子。</p>
+
+<h2>A.11.4 minimind 实证：两行置 −∞</h2>
+
+<p>　　这套手法在 minimind 的生成函数里就是两行代码（minimind，Apache 2.0，model/model_minimind.py）：</p>
+
+<pre><code># 第 277 行：top-k——低于第 k 名的 logit 全部置 −∞
+logits[logits &lt; torch.topk(logits, top_k)[0][..., -1, None]] = -float('inf')
+# 第 282 行：top-p——累计概率越线者置 −∞（掩码的构造见 279–281 行，A.10 节拆解）
+logits[mask.scatter(1, sorted_indices, mask)] = -float('inf')</code></pre>
+
+<p>　　紧接着的第 283 行，<code>torch.softmax</code> 把这些 \(-\infty\) 变成概率 0，<code>torch.multinomial</code> 按概率抽样时永远抽不到它们（依概率抽样本身见 A.9）。注意这里置的是真 \(-\infty\)（Python 的 <code>-float('inf')</code>），不是什么很大的负数——取指数后在浮点下精确归零，与 A.11.1 的公式 (1) 严丝合缝。</p>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>出现在哪</th><th>用它做什么</th></tr></thead>
+    <tbody>
+      <tr><td>4.2 注意力机制</td><td>手算例第 3 步：上三角分数置 −∞，softmax 后未来位置的注意力权重归零</td></tr>
+      <tr><td>4.5 Decoder-only</td><td>因果掩码可见性矩阵：把“只看左侧”的时间约束焊进结构</td></tr>
+      <tr><td>12.2 采样策略</td><td>top-k / top-p 截断：核外候选置 −∞，归一化后再抽样</td></tr>
+      <tr><td>12.4 结构化输出</td><td>语法掩码：非法 token 置 −∞，格式从“请求模型遵守”变成“模型无法违反”</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</article>

@@ -1,0 +1,61 @@
+# LLM 机制学习手册
+
+　　一套可离线浏览的中文学习手册，目标是系统讲清大语言模型（LLM）从数据到部署的完整机制：训练数据、分词、词向量与位置编码、Transformer 架构、预训练、中间训练、后训练（SFT / 偏好对齐 / 推理能力训练）、推理与后处理、推理系统与部署、应用范式、评测。
+
+　　讲解对标高校公开课水平：先直觉类比再上公式，关键术语逐个讲透，抽象机制配原创示意图（页面内 SVG），全部公式用 KaTeX 渲染。
+
+## 构建与浏览
+
+```bash
+python output/html/build.py
+```
+
+　　构建产物输出到 `output/html/`（不进入版本库），浏览器打开 `output/html/index.html` 即可离线阅读。
+
+## 目录结构
+
+```
+LLM_learning/
+├── AGENTS.md               # 工程协作基准
+├── docs/                   # 开发方案与 HTML 编写规范
+├── ref_paper/              # 参考论文（只读素材）
+├── minimind-master/        # 可读代码参考（Apache 2.0，上游 jingyaogong/minimind）
+├── temp/                   # 归档与临时文件
+└── output/html/
+    ├── build.py            # 构建脚本
+    ├── template.html       # 页面骨架
+    ├── static/global.css   # 全局样式
+    └── pages/              # 页面片段（手册正文源文件）
+```
+
+## 内容骨架
+
+```
+第 0 章  全景导论：LLM 流水线总览
+第 1 章  训练数据：收集、清洗、去重、配比与合成数据
+第 2 章  分词：文本如何变成 Token
+第 3 章  词向量与位置编码（含长度外推）
+第 4 章  Transformer 架构精讲
+第 5 章  现代架构变体与效率改进（RMSNorm / SwiGLU / GQA / MLA / MoE 等）
+第 6 章  预训练：目标、优化与 Scaling Law
+第 7 章  预训练工程：分布式并行、混合精度、稳定性与算力估算
+第 8 章  中间训练（Mid-training）：长上下文扩展与领域适配
+第 9 章  后训练 I：监督微调与参数高效微调（SFT / LoRA）
+第 10 章 后训练 II：偏好对齐（RLHF / PPO / DPO 家族 / 安全对齐）
+第 11 章 后训练 III：推理能力训练（RLVR / GRPO / 长思维链）
+第 12 章 推理机制与后处理：解码策略、停止条件、结构化输出
+第 13 章 推理系统与部署（KV Cache、量化、蒸馏、投机采样，规划中）
+第 14 章 应用范式（Prompt / CoT / RAG / Function Calling / Agent，规划中）
+第 15 章 评测与局限（规划中）
+附录     数学与深度学习基础速览（A.1–A.13）
+```
+
+## 素材与出处
+
+- 第 4 章以 `ref_paper/2016_attention_is_all_you_need/` 的论文译文为唯一依据。
+- 正文中的代码对照引用自 minimind（Apache 2.0），引用处均注明文件与行号。
+- 其余章节内容以原始论文（arXiv）与官方技术报告为依据，每页末尾附参考来源。
+
+## 许可证
+
+　　手册正文为个人学习笔记。`minimind-master/` 目录遵循其原有 Apache 2.0 许可证。
