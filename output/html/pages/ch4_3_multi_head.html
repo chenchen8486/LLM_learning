@@ -83,92 +83,181 @@
     <rect x="510" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
     <text x="536" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
   </svg>
-  <div class="diagram-caption">图示：多头注意力在前向链路中的位置。它与 4.2 节共享同一个紫框——多头不是新部件，而是把注意力机制原样复制多份、并行执行的组织方式。</div>
+  <div class="diagram-caption">图 1：多头注意力在前向链路中的位置。它与 4.2 节共享同一个紫框——多头不是新部件，而是把注意力机制原样复制多份、并行执行的组织方式。</div>
 </div>
 
-<p>　　所谓机群，就是把 4.2 节那台注意力机器原样复制 8 份并行。用 minimind 的真实尺寸（8 个头、每头 96 维）把这台机群画出来：</p>
+<p>　　所谓机群，就是把 4.2 节那台注意力机器原样复制 8 份并行：4.2 节图 2 的最终输出（3 × 96），就是下面图 2 里每个头框装的内容。用 minimind 的真实尺寸（8 个头、每头 96 维）把这台机群画出来：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 720 480" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+  <svg viewBox="0 0 960 650" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
     <defs>
       <marker id="mh43P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
       </marker>
     </defs>
-    <text x="40" y="34" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：多头注意力——8 个头并行，拼接后投回 768 维</text>
-    <text x="40" y="62" font-size="11" fill="#64748b">第 1 步：X 复制 8 份，8 个头各自独立算一遍注意力（每个头就是 4.2 节那台机器，Q、K、V 各 3 × 96）</text>
-    <rect x="40" y="74" width="110" height="120" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <line x1="40" y1="114" x2="150" y2="114" stroke="#ddd6fe" stroke-width="1"/>
-    <line x1="40" y1="154" x2="150" y2="154" stroke="#ddd6fe" stroke-width="1"/>
-    <line x1="77" y1="74" x2="77" y2="194" stroke="#ddd6fe" stroke-width="1"/>
-    <line x1="113" y1="74" x2="113" y2="194" stroke="#ddd6fe" stroke-width="1"/>
-    <text x="131" y="140" text-anchor="middle" font-size="12" fill="#94a3b8">⋯</text>
-    <text x="95" y="208" text-anchor="middle" font-size="11" fill="#6d28d9">X：3 × 768</text>
-    <line x1="150" y1="134" x2="226" y2="89" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
-    <line x1="150" y1="134" x2="226" y2="125" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
-    <line x1="150" y1="134" x2="226" y2="161" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
-    <line x1="150" y1="134" x2="226" y2="197" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
-    <line x1="150" y1="134" x2="386" y2="89" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
-    <line x1="150" y1="134" x2="386" y2="125" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
-    <line x1="150" y1="134" x2="386" y2="161" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
-    <line x1="150" y1="134" x2="386" y2="197" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
-    <rect x="230" y="74" width="130" height="30" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
-    <text x="295" y="93" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">头 1｜3 × 96</text>
-    <rect x="230" y="110" width="130" height="30" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
-    <text x="295" y="129" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">头 2｜3 × 96</text>
-    <rect x="230" y="146" width="130" height="30" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
-    <text x="295" y="165" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">头 3｜3 × 96</text>
-    <rect x="230" y="182" width="130" height="30" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
-    <text x="295" y="201" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">头 4｜3 × 96</text>
-    <rect x="390" y="74" width="130" height="30" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
-    <text x="455" y="93" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">头 5｜3 × 96</text>
-    <rect x="390" y="110" width="130" height="30" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
-    <text x="455" y="129" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">头 6｜3 × 96</text>
-    <rect x="390" y="146" width="130" height="30" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
-    <text x="455" y="165" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">头 7｜3 × 96</text>
-    <rect x="390" y="182" width="130" height="30" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
-    <text x="455" y="201" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">头 8｜3 × 96</text>
-    <text x="230" y="236" font-size="10" fill="#64748b">8 套投影矩阵各自独立，各学一种“看法”（有的盯语法，有的盯指代）</text>
-    <line x1="360" y1="89" x2="566" y2="83.5" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#mh43P)"/>
-    <line x1="360" y1="125" x2="566" y2="100.5" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#mh43P)"/>
-    <line x1="360" y1="161" x2="566" y2="117.5" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#mh43P)"/>
-    <line x1="360" y1="197" x2="566" y2="134.5" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#mh43P)"/>
-    <line x1="520" y1="89" x2="566" y2="151.5" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#mh43P)"/>
-    <line x1="520" y1="125" x2="566" y2="168.5" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#mh43P)"/>
-    <line x1="520" y1="161" x2="566" y2="185.5" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#mh43P)"/>
-    <line x1="520" y1="197" x2="566" y2="202.5" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#mh43P)"/>
-    <rect x="570" y="74" width="110" height="138" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
-    <rect x="574" y="76" width="102" height="15" fill="#f5f3fe" stroke="#ddd6fe"/>
-    <rect x="574" y="93" width="102" height="15" fill="#f5f3fe" stroke="#ddd6fe"/>
-    <rect x="574" y="110" width="102" height="15" fill="#f5f3fe" stroke="#ddd6fe"/>
-    <rect x="574" y="127" width="102" height="15" fill="#f5f3fe" stroke="#ddd6fe"/>
-    <rect x="574" y="144" width="102" height="15" fill="#f5f3fe" stroke="#ddd6fe"/>
-    <rect x="574" y="161" width="102" height="15" fill="#f5f3fe" stroke="#ddd6fe"/>
-    <rect x="574" y="178" width="102" height="15" fill="#f5f3fe" stroke="#ddd6fe"/>
-    <rect x="574" y="195" width="102" height="15" fill="#f5f3fe" stroke="#ddd6fe"/>
-    <text x="580" y="87" font-size="8" fill="#4c1d95">头 1</text>
-    <text x="580" y="104" font-size="8" fill="#4c1d95">头 2</text>
-    <text x="580" y="121" font-size="8" fill="#4c1d95">头 3</text>
-    <text x="580" y="138" font-size="8" fill="#4c1d95">头 4</text>
-    <text x="580" y="155" font-size="8" fill="#4c1d95">头 5</text>
-    <text x="580" y="172" font-size="8" fill="#4c1d95">头 6</text>
-    <text x="580" y="189" font-size="8" fill="#4c1d95">头 7</text>
-    <text x="580" y="206" font-size="8" fill="#4c1d95">头 8</text>
-    <text x="618" y="228" text-anchor="end" font-size="11" fill="#6d28d9">拼接：8 段 × 96 → 3 × 768</text>
-    <line x1="625" y1="212" x2="625" y2="246" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#mh43P)"/>
-    <rect x="570" y="250" width="110" height="42" rx="5" fill="#ffffff" stroke="#6d28d9"/>
-    <text x="625" y="266" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">W_O</text>
-    <text x="625" y="283" text-anchor="middle" font-size="10" fill="#6d28d9">768 × 768</text>
-    <line x1="625" y1="292" x2="625" y2="318" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#mh43P)"/>
-    <rect x="570" y="322" width="110" height="60" fill="#6d28d9" opacity="0.85"/>
-    <text x="625" y="346" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">输出</text>
-    <text x="625" y="366" text-anchor="middle" font-size="11" fill="#ede9fe">3 × 768</text>
-    <text x="40" y="250" font-size="11" fill="#64748b">8 头为什么不花 8 倍算力：每头只占 96 维，合计仍是 768</text>
-    <text x="40" y="274" font-size="11" fill="#64748b">拼接后过一次 W_O，让 8 个头的信息互相混合</text>
-    <text x="40" y="430" font-size="11" fill="#64748b">任意一个头的内部，就是 4.2 节那张放大图</text>
+    <text x="40" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：多头注意力——X 复制 8 份、8 头并行、按列拼接、W_O 混合</text>
+    <text x="40" y="52" font-size="11" fill="#64748b">每个头框 = 把 4.2 节图 2 的流程完整跑一遍，它的最终输出（3 × 96）就是头框的内容；本图只看 8 个头怎么组织、怎么汇总</text>
+    <text x="196" y="90" font-size="11" fill="#64748b">X 复制 8 份，每个头拿一份完整副本，各配一套投影矩阵</text>
+
+    <!-- 输入 X：3 行 token × 768 列，只画 4 列加省略号 -->
+    <rect x="40" y="184" width="106" height="110" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="40" y1="220" x2="146" y2="220" stroke="#ddd6fe"/>
+    <line x1="40" y1="257" x2="146" y2="257" stroke="#ddd6fe"/>
+    <line x1="58" y1="184" x2="58" y2="294" stroke="#ddd6fe"/>
+    <line x1="76" y1="184" x2="76" y2="294" stroke="#ddd6fe"/>
+    <line x1="94" y1="184" x2="94" y2="294" stroke="#ddd6fe"/>
+    <text x="128" y="244" text-anchor="middle" font-size="14" fill="#94a3b8">…</text>
+    <text x="93" y="314" text-anchor="middle" font-size="11" fill="#6d28d9">X：3 × 768</text>
+    <line x1="148" y1="239" x2="166" y2="239" stroke="#6d28d9" stroke-width="2" marker-end="url(#mh43P)"/>
+
+    <!-- 分发总线 -->
+    <line x1="170" y1="113" x2="170" y2="365" stroke="#6d28d9" stroke-width="2"/>
+
+    <!-- 8 份 X 副本（迷你矩阵） -->
+    <rect x="196" y="100" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="100" x2="212" y2="126" stroke="#c4b5fd"/><line x1="228" y1="100" x2="228" y2="126" stroke="#c4b5fd"/><line x1="244" y1="100" x2="244" y2="126" stroke="#c4b5fd"/>
+    <line x1="196" y1="113" x2="260" y2="113" stroke="#c4b5fd"/>
+    <rect x="196" y="136" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="136" x2="212" y2="162" stroke="#c4b5fd"/><line x1="228" y1="136" x2="228" y2="162" stroke="#c4b5fd"/><line x1="244" y1="136" x2="244" y2="162" stroke="#c4b5fd"/>
+    <line x1="196" y1="149" x2="260" y2="149" stroke="#c4b5fd"/>
+    <rect x="196" y="172" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="172" x2="212" y2="198" stroke="#c4b5fd"/><line x1="228" y1="172" x2="228" y2="198" stroke="#c4b5fd"/><line x1="244" y1="172" x2="244" y2="198" stroke="#c4b5fd"/>
+    <line x1="196" y1="185" x2="260" y2="185" stroke="#c4b5fd"/>
+    <rect x="196" y="208" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="208" x2="212" y2="234" stroke="#c4b5fd"/><line x1="228" y1="208" x2="228" y2="234" stroke="#c4b5fd"/><line x1="244" y1="208" x2="244" y2="234" stroke="#c4b5fd"/>
+    <line x1="196" y1="221" x2="260" y2="221" stroke="#c4b5fd"/>
+    <rect x="196" y="244" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="244" x2="212" y2="270" stroke="#c4b5fd"/><line x1="228" y1="244" x2="228" y2="270" stroke="#c4b5fd"/><line x1="244" y1="244" x2="244" y2="270" stroke="#c4b5fd"/>
+    <line x1="196" y1="257" x2="260" y2="257" stroke="#c4b5fd"/>
+    <rect x="196" y="280" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="280" x2="212" y2="306" stroke="#c4b5fd"/><line x1="228" y1="280" x2="228" y2="306" stroke="#c4b5fd"/><line x1="244" y1="280" x2="244" y2="306" stroke="#c4b5fd"/>
+    <line x1="196" y1="293" x2="260" y2="293" stroke="#c4b5fd"/>
+    <rect x="196" y="316" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="316" x2="212" y2="342" stroke="#c4b5fd"/><line x1="228" y1="316" x2="228" y2="342" stroke="#c4b5fd"/><line x1="244" y1="316" x2="244" y2="342" stroke="#c4b5fd"/>
+    <line x1="196" y1="329" x2="260" y2="329" stroke="#c4b5fd"/>
+    <rect x="196" y="352" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="352" x2="212" y2="378" stroke="#c4b5fd"/><line x1="228" y1="352" x2="228" y2="378" stroke="#c4b5fd"/><line x1="244" y1="352" x2="244" y2="378" stroke="#c4b5fd"/>
+    <line x1="196" y1="365" x2="260" y2="365" stroke="#c4b5fd"/>
+
+    <!-- 分发支路 -->
+    <line x1="170" y1="113" x2="192" y2="113" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="149" x2="192" y2="149" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="185" x2="192" y2="185" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="221" x2="192" y2="221" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="257" x2="192" y2="257" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="293" x2="192" y2="293" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="329" x2="192" y2="329" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="365" x2="192" y2="365" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+
+    <!-- 副本 → 头 -->
+    <line x1="262" y1="113" x2="278" y2="113" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="149" x2="278" y2="149" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="185" x2="278" y2="185" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="221" x2="278" y2="221" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="257" x2="278" y2="257" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="293" x2="278" y2="293" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="329" x2="278" y2="329" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="365" x2="278" y2="365" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+
+    <!-- 8 个头框 -->
+    <rect x="280" y="100" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="117" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 1：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="136" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="153" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 2：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="172" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="189" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 3：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="208" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="225" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 4：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="244" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="261" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 5：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="280" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="297" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 6：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="316" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="333" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 7：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="352" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="369" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 8：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+
+    <!-- 汇集支路与总线 -->
+    <line x1="560" y1="113" x2="586" y2="113" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="149" x2="586" y2="149" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="185" x2="586" y2="185" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="221" x2="586" y2="221" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="257" x2="586" y2="257" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="293" x2="586" y2="293" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="329" x2="586" y2="329" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="365" x2="586" y2="365" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="590" y1="113" x2="590" y2="365" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="594" y1="239" x2="618" y2="239" stroke="#6d28d9" stroke-width="2" marker-end="url(#mh43P)"/>
+
+    <!-- 按列拼接 -->
+    <text x="704" y="190" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">按列拼接 Concat</text>
+    <rect x="620" y="199" width="168" height="80" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="641" y1="199" x2="641" y2="279" stroke="#ddd6fe"/>
+    <line x1="662" y1="199" x2="662" y2="279" stroke="#ddd6fe"/>
+    <line x1="683" y1="199" x2="683" y2="279" stroke="#ddd6fe"/>
+    <line x1="704" y1="199" x2="704" y2="279" stroke="#ddd6fe"/>
+    <line x1="725" y1="199" x2="725" y2="279" stroke="#ddd6fe"/>
+    <line x1="746" y1="199" x2="746" y2="279" stroke="#ddd6fe"/>
+    <line x1="767" y1="199" x2="767" y2="279" stroke="#ddd6fe"/>
+    <text x="630" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头1</text>
+    <text x="651" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头2</text>
+    <text x="672" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头3</text>
+    <text x="693" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头4</text>
+    <text x="714" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头5</text>
+    <text x="735" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头6</text>
+    <text x="756" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头7</text>
+    <text x="777" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头8</text>
+    <text x="798" y="245" font-size="10" fill="#6d28d9">8 段 × 96 = 768 列（3 × 768）</text>
+
+    <!-- W_O -->
+    <line x1="704" y1="281" x2="704" y2="312" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#mh43P)"/>
+    <rect x="620" y="314" width="168" height="64" rx="6" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="704" y="336" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">输出投影 W_O</text>
+    <text x="704" y="356" text-anchor="middle" font-size="10.5" fill="#6d28d9">768 × 768 全连接（下方栏详解）</text>
+
+    <!-- 输出 -->
+    <line x1="704" y1="378" x2="704" y2="404" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#mh43P)"/>
+    <rect x="620" y="406" width="168" height="56" fill="#6d28d9" opacity="0.85"/>
+    <text x="704" y="430" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">输出</text>
+    <text x="704" y="450" text-anchor="middle" font-size="11" fill="#ede9fe">3 × 768（与输入同形）</text>
+
+    <!-- 左下注释 -->
+    <text x="40" y="412" font-size="11" fill="#64748b">8 头为什么不花 8 倍算力：每头只占 96 维，合计仍是 768</text>
+    <text x="40" y="432" font-size="11" fill="#64748b">每个头框装的 = 4.2 节图 2 的最终输出（3 × 96）</text>
+
+    <!-- 底部横栏：W_O 详解 -->
+    <rect x="40" y="490" width="880" height="150" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="60" y="514" font-size="12.5" font-weight="bold" fill="#4c1d95">W_O 在干嘛：混合 + 调配 + 对口</text>
+    <text x="60" y="540" font-size="11.5" font-weight="bold" fill="#333">① 拼接只是摞起来</text>
+    <text x="60" y="560" font-size="11" fill="#475569">拼完后第 0–95 列是头 1 的、第 96–191 列是</text>
+    <text x="60" y="578" font-size="11" fill="#475569">头 2 的……各头的发现还分着家</text>
+    <text x="350" y="540" font-size="11.5" font-weight="bold" fill="#333">② W_O 是可学习的调配配方</text>
+    <text x="350" y="560" font-size="11" fill="#475569">输出的每一维 = 拼接向量 768 个分量的加权和，</text>
+    <text x="350" y="578" font-size="11" fill="#475569">权重训练得来，模型自己学会往哪写、写多少</text>
+    <text x="690" y="540" font-size="11.5" font-weight="bold" fill="#333">③ 输入输出都是 768 维</text>
+    <text x="690" y="560" font-size="11" fill="#475569">形状与输入 X 严丝合缝，才能过残差</text>
+    <text x="690" y="578" font-size="11" fill="#475569">连接、进下一层（4.4 节）</text>
+    <!-- 迷你示意：拼接行 × W_O = 输出行 -->
+    <rect x="60" y="606" width="120" height="16" fill="#c4b5fd" stroke="#6d28d9"/>
+    <line x1="75" y1="606" x2="75" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="90" y1="606" x2="90" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="105" y1="606" x2="105" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="120" y1="606" x2="120" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="135" y1="606" x2="135" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="150" y1="606" x2="150" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="165" y1="606" x2="165" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <text x="190" y="619" font-size="14" fill="#333">×</text>
+    <rect x="205" y="600" width="32" height="32" fill="#ffffff" stroke="#6d28d9"/>
+    <line x1="221" y1="600" x2="221" y2="632" stroke="#ddd6fe"/>
+    <line x1="205" y1="616" x2="237" y2="616" stroke="#ddd6fe"/>
+    <text x="247" y="619" font-size="14" fill="#333">=</text>
+    <rect x="260" y="606" width="60" height="16" fill="#6d28d9"/>
+    <text x="335" y="614" font-size="10.5" fill="#475569">一个 token 的拼接行（1 × 768）× W_O（768 × 768）= 输出行（1 × 768），</text>
+    <text x="335" y="630" font-size="10.5" fill="#475569">每维都是全部 8 个头的加权和；3 个 token 各行算各的</text>
+    <text x="735" y="622" font-size="10.5" fill="#64748b">口诀：Concat 放在一起，W_O 融为一体</text>
   </svg>
-  <div class="diagram-caption">图示：多头注意力的并行结构。输入 X（3 × 768）复制 8 份，8 个头各用自己的投影矩阵算出 3 × 96 的输出；8 段按顺序拼接回 3 × 768，再乘输出投影 W_O（768 × 768）把各头的信息混合成最终输出。每个头内部的打分、缩放、掩码、softmax 流程与 4.2 节完全相同；8 头合计维度仍为 768，所以算力开销与单头相当。</div>
+  <div class="diagram-caption">图 2：多头注意力的并行结构与汇总。输入 X（3 × 768）复制 8 份，每个头拿一份完整副本、用自己的投影矩阵把 4.2 节图 2 的流程完整跑一遍，得到 3 × 96 的输出；8 段按列拼回 3 × 768，再乘输出投影 W_O（768 × 768）把各头的信息融合成最终输出，底部横栏详解 W_O 的三件事。8 头合计维度仍为 768，所以算力开销与单头相当。</div>
 </div>
 
 <h2>4.3.1 一个头为什么不够：平均会糊掉多种关系</h2>
@@ -194,11 +283,11 @@
 <div class="img-row">
   <div class="img-block">
     <img src="images/ch4/57e3ad00e7c57fe0dc66b468b013f2fcf447ef78a7d2ee01be8b434fe6ef0669.jpg" alt="原论文图3：多个注意力头关注长距离依赖">
-    <div class="img-caption">原论文图 3：编码器第 5 层中，多个注意力头（不同颜色）共同关注动词 making 的远距离搭配，完成 "making...more difficult" 这一短语（来源：Attention Is All You Need）。</div>
+    <div class="img-caption">图 3：编码器第 5 层中，多个注意力头（不同颜色）共同关注动词 making 的远距离搭配，完成 "making...more difficult" 这一短语（来源：Attention Is All You Need 原论文图 3）。</div>
   </div>
   <div class="img-block">
     <img src="images/ch4/b616696f63c30ad27de5f095b0cac5975742209d1231c70057510010187c1512.jpg" alt="原论文图5：不同注意力头表现出不同行为">
-    <div class="img-caption">原论文图 5：同一层的两个注意力头表现出与句子结构相关的不同行为，论文评价它们"显然学会了执行不同的任务"（来源：Attention Is All You Need）。</div>
+    <div class="img-caption">图 4：同一层的两个注意力头表现出与句子结构相关的不同行为，论文评价它们"显然学会了执行不同的任务"（来源：Attention Is All You Need 原论文图 5）。</div>
   </div>
 </div>
 
@@ -271,7 +360,7 @@
     <!-- 底部说明 -->
     <text x="360" y="235" text-anchor="middle" font-size="13" fill="#555">8 个头各自在 64 维子空间里工作，拼回 512 维后由 W^O 汇总，维度与输入一致。</text>
   </svg>
-  <div class="diagram-caption">图示：多头注意力的数据流，投影、分头、并行注意力、拼接、再投影五步，括号外维度始终对齐 \(d_{\mathrm{model}}\)。</div>
+  <div class="diagram-caption">图 5：多头注意力的数据流，投影、分头、并行注意力、拼接、再投影五步，括号外维度始终对齐 \(d_{\mathrm{model}}\)。</div>
 </div>
 
 <p>　　8 个头会不会把算力翻 8 倍？不会，账很好算。以 Q 投影为例：单头全维方案需要一套 \(512\times 512\) 的投影矩阵；多头方案是 8 套 \(512\times 64\)，总参数量 \(8\times 512\times 64=512\times 512\)，一模一样。注意力打分的计算量同理。原论文因此写明："由于每个头的维度降低，总计算成本与使用全维度的单头注意力相似。"</p>
@@ -374,7 +463,7 @@
     <!-- 底部说明 -->
     <text x="360" y="352" text-anchor="middle" font-size="13" fill="#555">行 i 是当前生成位置，列 j 是想回看的位置：生成第 i 个词时只允许看 j ≤ i 的格子。</text>
   </svg>
-  <div class="diagram-caption">图示：因果掩码是一个下三角开关矩阵，紫格可见、灰格被封，被封的格子的注意力权重精确为 0。</div>
+  <div class="diagram-caption">图 6：因果掩码是一个下三角开关矩阵，紫格可见、灰格被封，被封的格子的注意力权重精确为 0。</div>
 </div>
 
 <div class="highlight-box danger">
