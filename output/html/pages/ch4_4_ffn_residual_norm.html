@@ -27,7 +27,7 @@
 
 <p>　　读完本节，「一层 Transformer」在你眼里应该是一个完整配方，而不再只是注意力。</p>
 
-<p>　　逐件拆解之前，先看一眼本节在整条链路中的位置：链路中段的 Transformer 层就是本章的主角，而本节拆的是「一层」的内部构造。心里有这张地图，FFN、残差、归一化登场时都知道自己负责哪一环：</p>
+<p>　　逐件拆解之前，先看一眼本节在整条链路中的位置：链路中段的 Transformer 层就是本章的主角，而本节拆的是「一层」的内部构造。心里有图 1 这张地图，FFN、残差、归一化登场时都知道自己负责哪一环：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -81,7 +81,7 @@
     <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
     <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
   </svg>
-  <div class="diagram-caption">图示：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层逐层加工，再经输出投影算分（本章后半）、采样出下一个 token 接回输入（第 12 章）。本节只看这一站内部：注意力之外，一层还需要 FFN、残差连接与层归一化三位搭档才完整。</div>
+  <div class="diagram-caption">图 1：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层逐层加工，再经输出投影算分（本章后半）、采样出下一个 token 接回输入（第 12 章）。本节只看这一站内部：注意力之外，一层还需要 FFN、残差连接与层归一化三位搭档才完整。</div>
 </div>
 
 <p>　　这个紫框放大之后长什么样？一层 block 的输入和输出各是什么形状，三件套按什么顺序包裹子层？把现代模型的一层单独拆开看：</p>
@@ -134,7 +134,7 @@
     <text x="182" y="265" font-size="11.5" fill="#0891b2">残差旁路</text>
     <text x="380" y="562" text-anchor="middle" font-size="12.5" fill="#666">每个子层都是「先 RMSNorm、再计算、最后残差相加」；形状全程 3 × 768，×8 层堆叠（minimind）</text>
   </svg>
-  <div class="diagram-caption">图示：现代 LLM 一层 Block 的内部数据流（Pre-Norm 顺序，数字取自 minimind：768 维主干、FFN 中间层 2432、GQA 8 头 Q / 4 组 KV）。两个子层各自先过 RMSNorm 再计算，输入沿残差旁路原样直达加法点；张量形状从头到尾是 3 × 768，所以 8 层可以逐层接续。与 4.4.4 的原论文 Post-LN 图对照看：顺序从「相加后归一化」变成「归一化后计算再相加」，LN 换成 RMSNorm，原因在第 5 章。</div>
+  <div class="diagram-caption">图 2：现代 LLM 一层 Block 的内部数据流（Pre-Norm 顺序，数字取自 minimind：768 维主干、FFN 中间层 2432、GQA 8 头 Q / 4 组 KV）。两个子层各自先过 RMSNorm 再计算，输入沿残差旁路原样直达加法点；张量形状从头到尾是 3 × 768，所以 8 层可以逐层接续。与图 3（4.4.4 节原论文 Post-LN 数据流）对照看：顺序从「相加后归一化」变成「归一化后计算再相加」，LN 换成 RMSNorm，原因在第 5 章。</div>
 </div>
 
 <h2>4.4.1 FFN：每个位置的独立思考</h2>
@@ -321,10 +321,10 @@
     <!-- 底部说明 -->
     <text x="380" y="600" text-anchor="middle" font-size="13" fill="#666">每个子层都被同一套流程包裹：dropout → 残差相加 → 层归一化</text>
   </svg>
-  <div class="diagram-caption">图示：原论文 Post-LN 顺序下，一层编码器的完整数据流。两个子层各自被三件套包裹，张量形状全程 (n, 512) 不变。</div>
+  <div class="diagram-caption">图 3：原论文 Post-LN 顺序下，一层编码器的完整数据流。两个子层各自被三件套包裹，张量形状全程 (n, 512) 不变。</div>
 </div>
 
-<p>　　注意图里一个贯穿始终的事实：从输入到输出，张量形状始终是 \((n,512)\)。残差相加能成立靠它（形状一致才能相加），层与层之间能无限堆叠也靠它——这一层的输出形状和输入一样，下一层原样接上即可。</p>
+<p>　　注意图 3 里一个贯穿始终的事实：从输入到输出，张量形状始终是 \((n,512)\)。残差相加能成立靠它（形状一致才能相加），层与层之间能无限堆叠也靠它——这一层的输出形状和输入一样，下一层原样接上即可。</p>
 
 <div class="highlight-box info">
   演进预告：原论文这种「先相加、后归一化」的顺序叫 Post-LN。后来的研究发现，把归一化挪到子层输入侧（Pre-LN，即 \(x+\mathrm{Sublayer}(\mathrm{LN}(x))\)）在深层模型中训练更稳定，甚至不必依赖学习率预热（Xiong et al., 2020）；LN 本身被简化成 RMSNorm，FFN 的 ReLU 也被 SwiGLU 取代。这些现代变体是第 5 章的主题，5.1 节细讲。

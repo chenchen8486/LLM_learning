@@ -29,7 +29,7 @@
 
 <p>　　读完本节，你应该能看懂任何一份大模型训练方案里「ZeRO-2 + 梯度累积」这类配置的含义，并估算出每张卡的显存大头花在了哪。</p>
 
-<p>　　三根支柱展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及这个位置放大之后的内部结构。心里有这张地图，后面每一节都知道自己站在哪：</p>
+<p>　　三根支柱展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及这个位置放大之后的内部结构。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -86,10 +86,10 @@
     <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
     <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
   </svg>
-  <div class="diagram-caption">图示：训练工程在 LLM 生命周期中的位置。数据（第 1 章）与预训练目标（第 6 章）就位后，这一站要把训练分摊到成百上千张卡上真正跑起来，随后才轮到中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章）。本节是这一站的第一块拼图：只管多卡之间「数据怎么分、模型状态怎么装」。</div>
+  <div class="diagram-caption">图 1：训练工程在 LLM 生命周期中的位置。数据（第 1 章）与预训练目标（第 6 章）就位后，这一站要把训练分摊到成百上千张卡上真正跑起来，随后才轮到中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章）。本节是这一站的第一块拼图：只管多卡之间「数据怎么分、模型状态怎么装」。</div>
 </div>
 
-<p>　　这个紫框放大之后长什么样？同一个模型、同一批卡，「复制」与「分管」两种装法各是什么形状？把 DDP 与 ZeRO 并排拆开看：</p>
+<p>　　图 1 里这个紫框放大之后长什么样？同一个模型、同一批卡，「复制」与「分管」两种装法各是什么形状？把 DDP 与 ZeRO 并排拆开看：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -100,7 +100,7 @@
       </marker>
     </defs>
     <text x="24" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：DDP 复制 vs ZeRO-3 分片（4 卡示意）</text>
-    <text x="24" y="50" font-size="10.5" fill="#64748b">输入：模型状态 16Ψ（三件套）→ 输出：每卡显存占用；配色与 7.2.3 对比图一致</text>
+    <text x="24" y="50" font-size="10.5" fill="#64748b">输入：模型状态 16Ψ（三件套）→ 输出：每卡显存占用；配色与本页图 4 一致</text>
     <!-- 上半：DDP -->
     <text x="24" y="80" font-size="12.5" font-weight="bold" fill="#6d28d9">DDP：4 卡各存一份完整模型状态</text>
     <g>
@@ -195,7 +195,7 @@
     <rect x="480" y="530" width="12" height="12" fill="#f59e0b" opacity="0.92"/>
     <text x="498" y="540" font-size="10.5" fill="#555">参数（fp16，2Ψ）</text>
   </svg>
-  <div class="diagram-caption">图示：同一个 16Ψ 的模型状态，两种装法。上：DDP 让 4 张卡各存一份完整副本，集群合计 64Ψ，其中 48Ψ 是复制税；下：ZeRO-3 把优化器状态、梯度、参数各切 4 片，每卡只保管 1/4（合计仍 16Ψ，零冗余），代价是需要整份时靠通信临时拼回。代入正文 7.2.3 的账：70B 模型 64 卡，DDP 每卡 1120 GB，ZeRO-3 每卡 17.5 GB。</div>
+  <div class="diagram-caption">图 2：同一个 16Ψ 的模型状态，两种装法。上：DDP 让 4 张卡各存一份完整副本，集群合计 64Ψ，其中 48Ψ 是复制税；下：ZeRO-3 把优化器状态、梯度、参数各切 4 片，每卡只保管 1/4（合计仍 16Ψ，零冗余），代价是需要整份时靠通信临时拼回。代入正文 7.2.3 的账：70B 模型 64 卡，DDP 每卡 1120 GB，ZeRO-3 每卡 17.5 GB。</div>
 </div>
 
 <h2>7.2.1 从 DP 到 DDP：各算各的 batch，梯度跨卡求平均</h2>
@@ -329,7 +329,7 @@
     <text x="595" y="366" text-anchor="middle" font-size="11" fill="#666">θ ← θ − η·ḡ</text>
     <text x="360" y="394" text-anchor="middle" font-size="12" fill="#666">一步只同步一次梯度；初始一致 + 梯度一致 ⇒ 各卡参数始终一致，等效全局 batch = 单卡 batch × 4</text>
   </svg>
-  <div class="diagram-caption">图示：DDP 一个训练步的完整流程。数据被切成互不重叠的分片，各卡持完整模型副本独立前向反向，梯度经 all-reduce 求平均后各自更新，参数保持一致。</div>
+  <div class="diagram-caption">图 3：DDP 一个训练步的完整流程。数据被切成互不重叠的分片，各卡持完整模型副本独立前向反向，梯度经 all-reduce 求平均后各自更新，参数保持一致。</div>
 </div>
 
 <div class="highlight-box">
@@ -452,7 +452,7 @@
     <line x1="50" y1="330" x2="690" y2="330" stroke="#333" stroke-width="1.2"/>
     <text x="360" y="374" text-anchor="middle" font-size="11" fill="#666">被切分的段每卡只留 1/64：柱高按真实比例绘制，Stage 3 仅剩一条细线——这就是「随卡数线性下降」的形状</text>
   </svg>
-  <div class="diagram-caption">图示：DDP 与 ZeRO 三级的每卡模型状态显存对比（70B · 64 卡）。紫色优化器状态先被切掉，青色梯度随后，最后琥珀色参数也被切开，柱高从 1120 GB 压到 17.5 GB。</div>
+  <div class="diagram-caption">图 4：DDP 与 ZeRO 三级的每卡模型状态显存对比（70B · 64 卡）。紫色优化器状态先被切掉，青色梯度随后，最后琥珀色参数也被切开，柱高从 1120 GB 压到 17.5 GB。</div>
 </div>
 
 <p>　　显存省得漂亮，通信代价呢？这正是 ZeRO 设计最巧妙的地方。回忆 ring all-reduce 的两个阶段：reduce-scatter 加 all-gather。DDP 的梯度 all-reduce 本来就是这两步的组合，通信量 \(2\Psi\)。Stage 1 和 Stage 2 只是把这两步拆开重新点名——梯度用 reduce-scatter 各取所属切片（\(\Psi\)），参数更新后用 all-gather 拼回全员（\(\Psi\)），总量仍是 \(2\Psi\)，<strong>与 DDP 一字不差</strong>。Stage 3 因为参数不在手边，前向、反向各要多做一次参数 all-gather，总量升到 \(3\Psi\)，即多花 50% 通信。</p>

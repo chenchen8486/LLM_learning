@@ -21,14 +21,14 @@
 <p>　　本节沿三个问题展开，路线图如下：</p>
 
 <ol>
-  <li><strong>浮点格式对比：FP32 / TF32 / FP16 / BF16 / FP8</strong>（7.4.1）：指数位管范围、尾数位管精度，五种格式各自怎么分配手里的比特，配原创位宽布局示意图；</li>
+  <li><strong>浮点格式对比：FP32 / TF32 / FP16 / BF16 / FP8</strong>（7.4.1）：指数位管范围、尾数位管精度，五种格式各自怎么分配手里的比特，配原创位宽布局示意图（图 3）；</li>
   <li><strong>混合精度三件套：主权重、损失缩放、黑白名单</strong>（7.4.2）：全 FP16 训练的三个坑，以及 2017 年那篇经典论文给出的三个补丁；</li>
   <li><strong>训练稳定性实战：loss spike 与急救手册</strong>（7.4.3）：PaLM 约 20 次 spike 的回滚跳批策略、OPT-175B 的 35 次手动重启，外加初始化、warmup、梯度裁剪三道事前保险。</li>
 </ol>
 
 <p>　　读完本节，你应该能解释：为什么 minimind 默认用 bfloat16，而 GradScaler 对它完全关闭。</p>
 
-<p>　　三个问题展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及这个位置放大之后的内部结构。心里有这张地图，后面每一节都知道自己站在哪：</p>
+<p>　　三个问题展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及这个位置放大之后的内部结构。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -85,10 +85,10 @@
     <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
     <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
   </svg>
-  <div class="diagram-caption">图示：训练工程在 LLM 生命周期中的位置。数据（第 1 章）与预训练目标（第 6 章）就位后，这一站把训练摊到集群上跑起来，随后交给中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章）。本节管这一站的「数值纪律」：16 位浮点怎么用得又快又不炸，loss spike 来了怎么救。</div>
+  <div class="diagram-caption">图 1：训练工程在 LLM 生命周期中的位置。数据（第 1 章）与预训练目标（第 6 章）就位后，这一站把训练摊到集群上跑起来，随后交给中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章）。本节管这一站的「数值纪律」：16 位浮点怎么用得又快又不炸，loss spike 来了怎么救。</div>
 </div>
 
-<p>　　这个紫框放大之后长什么样？一步训练里，数据在 32 位与 16 位之间怎么流动？把 minimind 训练循环里的一步单独拆开看：</p>
+<p>　　图 1 里这个紫框放大之后长什么样？一步训练里，数据在 32 位与 16 位之间怎么流动？把 minimind 训练循环里的一步单独拆开看：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -152,7 +152,7 @@
     <text x="380" y="470" text-anchor="middle" font-size="11.5" fill="#dc2626">FP16 必须 ×S 防梯度下溢（S 初始 65536，溢出就减半并跳过本步）</text>
     <text x="380" y="488" text-anchor="middle" font-size="11.5" fill="#dc2626">BF16 范围与 FP32 相同 → minimind 默认 dtype=bfloat16，GradScaler 直接关闭（enabled=False）</text>
   </svg>
-  <div class="diagram-caption">图示：一步训练在两种精度之间的往返（对应 minimind trainer/train_pretrain.py 第 33–47 行）。FP32 主权重是唯一真身；autocast 区域内权重与激活临时转 BF16 做矩阵乘求快，softmax、RMSNorm、cross_entropy 由框架按黑白名单留在 FP32 求稳；loss 乘 S 再反向，梯度 ÷S 还原并转回 FP32，裁剪后 step 更新主副本。注意 minimind 默认 bf16，GradScaler 关闭，图中 ×S、÷S 对它是恒等操作，FP16 模式下才真正生效。</div>
+  <div class="diagram-caption">图 2：一步训练在两种精度之间的往返（对应 minimind trainer/train_pretrain.py 第 33–47 行）。FP32 主权重是唯一真身；autocast 区域内权重与激活临时转 BF16 做矩阵乘求快，softmax、RMSNorm、cross_entropy 由框架按黑白名单留在 FP32 求稳；loss 乘 S 再反向，梯度 ÷S 还原并转回 FP32，裁剪后 step 更新主副本。注意 minimind 默认 bf16，GradScaler 关闭，图中 ×S、÷S 对它是恒等操作，FP16 模式下才真正生效。</div>
 </div>
 
 <h2>7.4.1 浮点格式对比：FP32 / TF32 / FP16 / BF16 / FP8</h2>
@@ -246,7 +246,7 @@
     <rect x="404" y="306" width="12" height="12" fill="#0891b2"/>
     <text x="422" y="316" font-size="10" fill="#555">尾数位：决定精度</text>
   </svg>
-  <div class="diagram-caption">图示：六种浮点格式的位宽分配。从 FP32 到 FP8，省位主要砍在尾数上；BF16 与 E5M2 保住了指数位（范围），FP16 与 E4M3 则偏向尾数位（精度）。</div>
+  <div class="diagram-caption">图 3：六种浮点格式的位宽分配。从 FP32 到 FP8，省位主要砍在尾数上；BF16 与 E5M2 保住了指数位（范围），FP16 与 E4M3 则偏向尾数位（精度）。</div>
 </div>
 
 <p>　　把五种格式摆进同一张表，各自的角色就清楚了：</p>
@@ -376,7 +376,7 @@
     <path d="M 470,240 C 535,244 600,251 666,258" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
     <text x="440" y="286" font-size="11" fill="#333">④ 换一段数据续训，回到下降轨道</text>
   </svg>
-  <div class="diagram-caption">图示：PaLM 式 spike 处置流程——发现 loss 突刺后，回到 spike 前约 100 步的健康 checkpoint，跳过覆盖事故现场的 200–500 个 batch，换一段数据继续训练。</div>
+  <div class="diagram-caption">图 4：PaLM 式 spike 处置流程——发现 loss 突刺后，回到 spike 前约 100 步的健康 checkpoint，跳过覆盖事故现场的 200–500 个 batch，换一段数据继续训练。</div>
 </div>
 
 <p>　　如果说 PaLM 的记录是「成功处置案例」，Meta 的 OPT-175B 就是一份「事故现场全记录」。论文连同 100 余页训练日志（logbook）一起公开：992 块 A100 上约两个月的训练里，硬件故障贡献了至少 35 次手动重启、轮换超过 100 台主机；loss spike、梯度爆炸、中途调整优化方案，全都记在日志里。这份日志至今是理解大规模训练工程现实的最佳一手材料：大模型训练不是按下回车等结果，而是一场需要全天候值班的持久战。</p>

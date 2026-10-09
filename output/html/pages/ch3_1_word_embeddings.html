@@ -1,4 +1,4 @@
-﻿<article class="content">
+<article class="content">
 <h1>3.1 词向量：把 token 放进语义坐标系</h1>
 <p class="subtitle">本页范围：第 3 章第 1 节　|　整理时间：2026-09-28</p>
 
@@ -27,7 +27,7 @@
 
 <p>　　读完全节，你应该能说清一件事：为什么主流模型选择把词向量「长」在网络里，而不是用一张现成的表。</p>
 
-<p>　　逐代展开之前，先看一眼 Embedding 在整个 LLM 链路中的位置，以及这个位置放大之后的内部结构。心里有这张地图，后面每一节都知道自己站在哪：</p>
+<p>　　逐代展开之前，先看一眼 Embedding 在整个 LLM 链路中的位置，以及这个位置放大之后的内部结构。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -97,10 +97,10 @@
     <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
     <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节展开</text>
   </svg>
-  <div class="diagram-caption">图示：Embedding 层在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（本节），随后注入位置信息（3.2–3.5 节），进入 Transformer 层（第 4 章），最后算出各 token 的概率并采样出下一个（第 12 章），新 token 接回输入循环往复。虚线部分在对应章节展开，本节只需记住：Embedding 是这条链路的第一站，只负责「这个词是谁」。</div>
+  <div class="diagram-caption">图 1：Embedding 层在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（本节），随后注入位置信息（3.2–3.5 节），进入 Transformer 层（第 4 章），最后算出各 token 的概率并采样出下一个（第 12 章），新 token 接回输入循环往复。虚线部分在对应章节展开，本节只需记住：Embedding 是这条链路的第一站，只负责「这个词是谁」。</div>
 </div>
 
-<p>　　这个紫框放大之后长什么样？它的输入和输出各是什么形状？把 Embedding 单独拆开看：</p>
+<p>　　图 1 中这个紫框放大之后长什么样？它的输入和输出各是什么形状？把 Embedding 单独拆开看：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -213,7 +213,7 @@
     <line x1="575" y1="500" x2="575" y2="532" stroke="#6d28d9" stroke-width="2" marker-end="url(#embP)"/>
     <text x="575" y="548" text-anchor="middle" font-size="11" fill="#64748b">送往 Transformer 第 1 层（第 4 章）</text>
   </svg>
-  <div class="diagram-caption">图示：Embedding 层的输入与输出。输入是 minimind 分词器实测的 3 个 token ID（「中国」常见，切成一个整块）；每个 ID 按行号查 Embedding 矩阵（6400 × 768），取出的 3 行按句子顺序堆成 3 × 768 的词向量矩阵，再与同样形状的位置矩阵逐元素相加，得到 3 × 768 的最终嵌入矩阵，送往 Transformer。注意矩阵里行号顺序与句子顺序无关，堆叠时才恢复句子顺序；位置矩阵在 3.2–3.5 节展开。</div>
+  <div class="diagram-caption">图 2：Embedding 层的输入与输出。输入是 minimind 分词器实测的 3 个 token ID（「中国」常见，切成一个整块）；每个 ID 按行号查 Embedding 矩阵（6400 × 768），取出的 3 行按句子顺序堆成 3 × 768 的词向量矩阵，再与同样形状的位置矩阵逐元素相加，得到 3 × 768 的最终嵌入矩阵，送往 Transformer。注意矩阵里行号顺序与句子顺序无关，堆叠时才恢复句子顺序；位置矩阵在 3.2–3.5 节展开。</div>
 </div>
 
 <h2>3.1.1 从身份证到坐标：one-hot 的缺陷</h2>
@@ -292,7 +292,7 @@
     <!-- 底部说明 -->
     <text x="330" y="292" text-anchor="middle" font-size="12" fill="#666">簇内近 = 语义近，簇间远 = 语义远（示意：真实词向量有数百维）</text>
   </svg>
-  <div class="diagram-caption">图示：词向量空间中，语义相近的词聚成一簇。动物的三个词彼此靠近，交通工具另成一簇，两簇之间距离明显更远。</div>
+  <div class="diagram-caption">图 3：词向量空间中，语义相近的词聚成一簇。动物的三个词彼此靠近，交通工具另成一簇，两簇之间距离明显更远。</div>
 </div>
 
 <div class="highlight-box danger">

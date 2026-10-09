@@ -22,14 +22,14 @@
 
 <ol>
   <li><strong>从 SGD 到 AdamW：优化器的三次进化</strong>（6.2.1）：动量治震荡、自适应治一刀切、解耦衰减治 L2 失真，三步拼出现代 LLM 的标配优化器；</li>
-  <li><strong>学习率的一生：warmup 与 cosine 衰减</strong>（6.2.2）：开局慢给油、中期全速赶路、末期平滑减速，配一张原创的学习率曲线图；</li>
+  <li><strong>学习率的一生：warmup 与 cosine 衰减</strong>（6.2.2）：开局慢给油、中期全速赶路、末期平滑减速，配一张原创的学习率曲线图（图 3）；</li>
   <li><strong>超参总账：GPT-3 与 minimind 对照</strong>（6.2.3）：把 GPT-3 175B 和本工程 minimind 的全套超参摆进同一张表，看骨架的一致与量级的差异；</li>
   <li><strong>超参与模型规模的联动直觉</strong>（6.2.4）：为什么模型越大学习率越小、batch 越大，架构侧的 Pre-LN 与优化侧的稳定手段如何互相成就。</li>
 </ol>
 
 <p>　　读完本节，你应该能看懂任何一个开源 LLM 训练脚本里的 optimizer 配置块，并说出每个数字为什么是这个量级。</p>
 
-<p>　　展开三个问题之前，先看一眼预训练在 LLM 整条生命周期中的位置，以及这一站最要紧的两只旋钮。心里有这张地图，后面每一节都知道自己站在哪：</p>
+<p>　　展开三个问题之前，先看一眼预训练在 LLM 整条生命周期中的位置，以及这一站最要紧的两只旋钮。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -86,10 +86,10 @@
     <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
     <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
   </svg>
-  <div class="diagram-caption">图示：预训练在 LLM 生命周期中的位置。训练数据（第 1 章）备好后进入预训练（本章，紫框）：在海量语料上做自监督学习，把文本规律压进参数；配套的并行、精度与稳定性工程在第 7 章，之后的中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）、推理与部署（第 12–13 章）在对应章节展开。本节只需记住：目标定了之后，这一站还要回答每个参数每一步怎么走——AdamW 优化器管方向，warmup 加 cosine 的学习率调度管步长。</div>
+  <div class="diagram-caption">图 1：预训练在 LLM 生命周期中的位置。训练数据（第 1 章）备好后进入预训练（本章，紫框）：在海量语料上做自监督学习，把文本规律压进参数；配套的并行、精度与稳定性工程在第 7 章，之后的中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）、推理与部署（第 12–13 章）在对应章节展开。本节只需记住：目标定了之后，这一站还要回答每个参数每一步怎么走——AdamW 优化器管方向，warmup 加 cosine 的学习率调度管步长。</div>
 </div>
 
-<p>　　这个紫框放大之后，里面最关键的一只旋钮长什么样？把学习率在一次训练中的完整一生单独拆开看：</p>
+<p>　　图 1 里这个紫框放大之后，里面最关键的一只旋钮长什么样？把学习率在一次训练中的完整一生单独拆开看：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -127,7 +127,7 @@
     <text x="360" y="340" text-anchor="middle" font-size="11" fill="#64748b">GPT-3：warmup 3.75 亿 token → cosine 2600 亿 token 降到 10%，随后保持 10% 训完</text>
     <text x="360" y="362" text-anchor="middle" font-size="11" fill="#64748b">minimind：无 warmup，从峰值 5×10⁻⁴ 直接 cosine 降到 10%（6.2.3 对照表）</text>
   </svg>
-  <div class="diagram-caption">图示：学习率在一次预训练中的完整一生。开局一小段线性 warmup（几百到几千步，GPT-3 覆盖前 3.75 亿 token）把学习率推到峰值，随后长段 cosine 衰减（GPT-3 横跨 2600 亿 token）平滑降到峰值的 10%；minimind 更粗放，无 warmup、从 5×10⁻⁴ 直接 cosine 衰减（6.2.3）。峰值绝对值随模型规模变化，这条「短冲长收」的曲线形状是跨规模通用的。</div>
+  <div class="diagram-caption">图 2：学习率在一次预训练中的完整一生。开局一小段线性 warmup（几百到几千步，GPT-3 覆盖前 3.75 亿 token）把学习率推到峰值，随后长段 cosine 衰减（GPT-3 横跨 2600 亿 token）平滑降到峰值的 10%；minimind 更粗放，无 warmup、从 5×10⁻⁴ 直接 cosine 衰减（6.2.3）。峰值绝对值随模型规模变化，这条「短冲长收」的曲线形状是跨规模通用的。</div>
 </div>
 
 <h2>6.2.1 从 SGD 到 AdamW：优化器的三次进化</h2>
@@ -248,7 +248,7 @@
     <text x="655" y="228" text-anchor="middle" font-size="12" fill="#b45309">③ 保持 10%</text>
     <text x="655" y="244" text-anchor="middle" font-size="12" fill="#b45309">继续训练</text>
   </svg>
-  <div class="diagram-caption">图示：学习率在一次预训练中的完整一生——先线性 warmup 爬到峰值，再沿 cosine 曲线平滑衰减到峰值的 10%，之后保持低水位继续训练。以 GPT-3 为例：warmup 覆盖前 3.75 亿 token，衰减段横跨 2600 亿 token。</div>
+  <div class="diagram-caption">图 3：学习率在一次预训练中的完整一生——先线性 warmup 爬到峰值，再沿 cosine 曲线平滑衰减到峰值的 10%，之后保持低水位继续训练。以 GPT-3 为例：warmup 覆盖前 3.75 亿 token，衰减段横跨 2600 亿 token。</div>
 </div>
 
 <div class="highlight-box warn">

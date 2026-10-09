@@ -84,7 +84,7 @@
     <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
     <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
   </svg>
-  <div class="diagram-caption">图示：分词器在 LLM 前向链路中的位置。它是整条链路的第一站：原始文本在这里被切成 token ID（本章），再经 Embedding 查表（3.1 节）、注入位置信息（3.2–3.5 节）进入 Transformer 层（第 4 章），最后算出概率、采样出下一个 token（第 12 章）并接回输入循环。本节不动算法本身，讲的是这一站的工程框架：SentencePiece 把 BPE 和 Unigram 装进同一套无预分词的流水线。</div>
+  <div class="diagram-caption">图 1：分词器在 LLM 前向链路中的位置。它是整条链路的第一站：原始文本在这里被切成 token ID（本章），再经 Embedding 查表（3.1 节）、注入位置信息（3.2–3.5 节）进入 Transformer 层（第 4 章），最后算出概率、采样出下一个 token（第 12 章）并接回输入循环。本节不动算法本身，讲的是这一站的工程框架：SentencePiece 把 BPE 和 Unigram 装进同一套无预分词的流水线。</div>
 </div>
 
 <p>　　这个紫框放大之后，分词器是怎么被训练出来的？把 SentencePiece 的训练流程单独拆开看：</p>
@@ -117,7 +117,7 @@
     <text x="84" y="390" font-size="11.5" font-weight="bold" fill="#4c1d95">输出：词表（示意条目：▁He、llo、▁world、我、爱、中国 …）</text>
     <text x="84" y="410" font-size="11" fill="#555">Unigram 后端共用同一套字符流框架，改走大词表向下剪枝（2.3 节）；LLaMA 用 BPE 后端，词表 32000</text>
   </svg>
-  <div class="diagram-caption">图示：SentencePiece 训练分词器的完整流程（BPE 后端为例）。语料不做任何预分词，空格统一转义成 ▁ 后与所有字符平等地参与迭代合并，直到词表达到 vocab_size；Unigram 后端共享同一套字符流框架，只是构造方向换成从大候选词表向下剪枝（2.3 节）。整条流程没有任何语言相关规则，任意语言的原始文本走同一条流水线。</div>
+  <div class="diagram-caption">图 2：SentencePiece 训练分词器的完整流程（BPE 后端为例）。语料不做任何预分词，空格统一转义成 ▁ 后与所有字符平等地参与迭代合并，直到词表达到 vocab_size；Unigram 后端共享同一套字符流框架，只是构造方向换成从大候选词表向下剪枝（2.3 节）。整条流程没有任何语言相关规则，任意语言的原始文本走同一条流水线。</div>
 </div>
 
 <h2>2.4.1 预分词：一个被默认的隐藏假设</h2>
@@ -217,7 +217,7 @@
 
 <h2>2.4.6 图示：两条处理路线对比</h2>
 
-<p>　　下图把传统预分词路线和 SentencePiece 路线并排画出，注意左侧多出来的“按空格切词”环节，以及右侧空格转义后与其他字符平等参与切分的方式：</p>
+<p>　　图 3 把传统预分词路线和 SentencePiece 路线并排画出，注意左侧多出来的“按空格切词”环节，以及右侧空格转义后与其他字符平等参与切分的方式：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -260,7 +260,7 @@
     <text x="540" y="283" text-anchor="middle" font-size="13" fill="#333">空白完整保留在 token 中</text>
     <text x="540" y="300" text-anchor="middle" font-size="12" fill="#666">detokenize 可逆无损</text>
   </svg>
-  <div class="diagram-caption">图示：传统路线先做语言相关的预分词，空白信息在此丢失；SentencePiece 把空格转义为 ▁ 后直接对字符流切分，全程无预分词且可逆。</div>
+  <div class="diagram-caption">图 3：传统路线先做语言相关的预分词，空白信息在此丢失；SentencePiece 把空格转义为 ▁ 后直接对字符流切分，全程无预分词且可逆。</div>
 </div>
 
 <h2>2.4.7 小结与去向</h2>

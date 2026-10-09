@@ -27,7 +27,7 @@
 
 <p>　　读完本节，你应该能随手画出一条张量从 <code>[1, 10]</code> 走到 <code>[1, 6400]</code> 的形状路线图，也能说清参数和算力分别花在了哪里。</p>
 
-<p>　　上解剖台之前，先看一眼本节在整条链路中的位置：这一节走查的是链路中段到出口——Transformer 层与输出投影两个紫框的完整内部。心里有这张地图，后面二十多步的毫米级走查，每一步都知道自己走到哪一站：</p>
+<p>　　上解剖台之前，先看一眼本节在整条链路中的位置：这一节走查的是链路中段到出口——Transformer 层与输出投影两个紫框的完整内部。心里有图 1 这张地图，后面二十多步的毫米级走查，每一步都知道自己走到哪一站：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -81,7 +81,7 @@
     <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
     <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
   </svg>
-  <div class="diagram-caption">图示：Transformer 层与输出投影在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，塔顶由输出投影给词表 6400 个 token 逐一打分，采样出下一个 token 接回输入（第 12 章）。本节把这两个紫框的内部一次走透：每一步张量的形状、每一笔参数与算力的去向。</div>
+  <div class="diagram-caption">图 1：Transformer 层与输出投影在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，塔顶由输出投影给词表 6400 个 token 逐一打分，采样出下一个 token 接回输入（第 12 章）。本节把这两个紫框的内部一次走透：每一步张量的形状、每一笔参数与算力的去向。</div>
 </div>
 
 <p>　　这两个紫框放大之后长什么样？token ID 进去、概率分布出来，中间每一步张量是什么形状？把这条形状流水线单独画出来看：</p>
@@ -143,9 +143,9 @@
     <text x="900" y="394" text-anchor="end" font-size="11" fill="#6d28d9">[3,768]</text>
     <text x="380" y="428" font-size="11.5" fill="#333">10. RMSNorm → FFN 768→2432→768 → 残差相加</text>
     <text x="900" y="428" text-anchor="end" font-size="11" fill="#6d28d9">[3,768]</text>
-    <text x="480" y="498" text-anchor="middle" font-size="11.5" fill="#666">示例序列长取 3（与图一同一句话），正文账表用 T=10，形状规律相同：主干恒为 [B, T, 768]，仅注意力内部按头重排、FFN 内部升维、出口投影到 6400</text>
+    <text x="480" y="498" text-anchor="middle" font-size="11.5" fill="#666">示例序列长取 3（与图 1 同一句话），正文账表用 T=10，形状规律相同：主干恒为 [B, T, 768]，仅注意力内部按头重排、FFN 内部升维、出口投影到 6400</text>
   </svg>
-  <div class="diagram-caption">图示：一条序列从 token ID 到概率分布的逐步形状流（minimind 默认配置；示例序列长取 3 与图一一致，正文账表用 T=10，规律相同）。主链五步：Embedding 出 [3,768]，8 层块内部十小步只在注意力里按头重排（768 ↔ 8×96）、在 FFN 里升维（768→2432→768），主干始终是 [3,768]；塔顶 lm_head 复用 Embedding 权重表投到 [3,6400]，只取最后位置的 6400 个分数过 softmax，得到下一个 token。</div>
+  <div class="diagram-caption">图 2：一条序列从 token ID 到概率分布的逐步形状流（minimind 默认配置；示例序列长取 3 与图 1 一致，正文账表用 T=10，规律相同）。主链五步：Embedding 出 [3,768]，8 层块内部十小步只在注意力里按头重排（768 ↔ 8×96）、在 FFN 里升维（768→2432→768），主干始终是 [3,768]；塔顶 lm_head 复用 Embedding 权重表投到 [3,6400]，只取最后位置的 6400 个分数过 softmax，得到下一个 token。</div>
 </div>
 
 <h2>4.6.1 设定：拿一台真模型当解剖对象</h2>

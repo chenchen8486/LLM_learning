@@ -30,7 +30,7 @@
 
 <p>　　本节涉及的代码都在 minimind 工程的 <code>trainer/train_pretrain.py</code> 里，读完后建议对照源码把七步循环走一遍。</p>
 
-<p>　　逐行走查之前，先看一眼预训练在 LLM 整条生命周期中的位置，以及这一站落到代码里的样子。心里有这张地图，后面每一节都知道自己站在哪：</p>
+<p>　　逐行走查之前，先看一眼预训练在 LLM 整条生命周期中的位置，以及这一站落到代码里的样子。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -87,10 +87,10 @@
     <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
     <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
   </svg>
-  <div class="diagram-caption">图示：预训练在 LLM 生命周期中的位置。训练数据（第 1 章）备好后进入预训练（本章，紫框）：在海量语料上做自监督学习，把文本规律压进参数；配套的并行、精度与稳定性工程在第 7 章，之后的中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）、推理与部署（第 12–13 章）在对应章节展开。本节只需记住：目标与优化器定了之后，预训练落到代码里就是一段几十行的训练循环，七步一个来回。</div>
+  <div class="diagram-caption">图 1：预训练在 LLM 生命周期中的位置。训练数据（第 1 章）备好后进入预训练（本章，紫框）：在海量语料上做自监督学习，把文本规律压进参数；配套的并行、精度与稳定性工程在第 7 章，之后的中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）、推理与部署（第 12–13 章）在对应章节展开。本节只需记住：目标与优化器定了之后，预训练落到代码里就是一段几十行的训练循环，七步一个来回。</div>
 </div>
 
-<p>　　这个紫框放大之后长什么样？一个 batch 从进来到参数更新，中间要走哪几步？把训练循环单独拆开看：</p>
+<p>　　图 1 里这个紫框放大之后长什么样？一个 batch 从进来到参数更新，中间要走哪几步？把训练循环单独拆开看：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -139,7 +139,7 @@
     <!-- 底部说明 -->
     <text x="360" y="450" text-anchor="middle" font-size="11" fill="#64748b">一圈又一圈直到数据跑完；⑦ 的 checkpoint 是训练中断后唯一能接着跑的存档点</text>
   </svg>
-  <div class="diagram-caption">图示：一个 batch 在训练循环里的七步环形路径。输入一批 32 × 340 的 token ID，前向得到 32 × 340 × 6400 的 logits，与右移一位的 labels 算交叉熵得到标量 loss，反向传播后裁剪梯度范数到 1.0，再由 AdamW 更新参数并清零梯度；日志与 checkpoint 周期性执行。梯度累积让 ⑤⑥ 每攒满 8 个小 batch 才做一次，有效批量 256 条。</div>
+  <div class="diagram-caption">图 2：一个 batch 在训练循环里的七步环形路径。输入一批 32 × 340 的 token ID，前向得到 32 × 340 × 6400 的 logits，与右移一位的 labels 算交叉熵得到标量 loss，反向传播后裁剪梯度范数到 1.0，再由 AdamW 更新参数并清零梯度；日志与 checkpoint 周期性执行。梯度累积让 ⑤⑥ 每攒满 8 个小 batch 才做一次，有效批量 256 条。</div>
 </div>
 
 <h2>6.3.1 训练循环七步：从取数据到存盘</h2>
@@ -291,7 +291,7 @@ loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)</c
     <text x="300" y="176" font-size="11" fill="#dc2626">突刺：回滚到上个 checkpoint</text>
     <line x1="380" y1="196" x2="390" y2="204" stroke="#dc2626" stroke-width="1" marker-end="url(#arr6r)"/>
   </svg>
-  <div class="diagram-caption">图示：预训练 loss 曲线的典型形态——从随机基线起步，开局陡降后进入长尾缓降，中途可能出现突刺（loss spike）。曲线形状为示意，非实测数据。</div>
+  <div class="diagram-caption">图 3：预训练 loss 曲线的典型形态——从随机基线起步，开局陡降后进入长尾缓降，中途可能出现突刺（loss spike）。曲线形状为示意，非实测数据。</div>
 </div>
 
 <p>　　曲线的主体分两段，各讲一个故事：</p>

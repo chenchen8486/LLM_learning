@@ -80,7 +80,7 @@
     <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
     <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
   </svg>
-  <div class="diagram-caption">图示：分词器在 LLM 前向链路中的位置。它是整条链路的第一站：原始文本在这里被切成 token ID（本章），再经 Embedding 查表（3.1 节）、注入位置信息（3.2–3.5 节）进入 Transformer 层（第 4 章），最后算出概率、采样出下一个 token（第 12 章）并接回输入循环。本节讲的是这一站内部「词表怎么构造」的另外两条路线：WordPiece 与 Unigram，和 2.2 节的 BPE 同一岗位、不同算法。</div>
+  <div class="diagram-caption">图 1：分词器在 LLM 前向链路中的位置。它是整条链路的第一站：原始文本在这里被切成 token ID（本章），再经 Embedding 查表（3.1 节）、注入位置信息（3.2–3.5 节）进入 Transformer 层（第 4 章），最后算出概率、采样出下一个 token（第 12 章）并接回输入循环。本节讲的是这一站内部「词表怎么构造」的另外两条路线：WordPiece 与 Unigram，和 2.2 节的 BPE 同一岗位、不同算法。</div>
 </div>
 
 <p>　　这个紫框内部，两种算法的差别具体落在哪？拿同一个英文词，分别走一遍 WordPiece 和 Unigram 的切分流程：</p>
@@ -131,7 +131,7 @@
     <text x="360" y="408" text-anchor="middle" font-size="11" fill="#64748b">算法行为示意：具体片段与概率高低取决于实际训练出的词表，此处只演示两种算法的决策方式</text>
     <text x="360" y="428" text-anchor="middle" font-size="11" fill="#64748b">本工程 minimind 用的是 BPE（2.2 节）；BERT 用 WordPiece，XLNet / ALBERT / T5 用 Unigram</text>
   </svg>
-  <div class="diagram-caption">图示：同一个词 unbelievable 在两种算法下的切分决策。左：WordPiece 编码时贪心最长匹配，从词首反复找最长命中片段，路径唯一，任何一步失配整词判 [UNK]。右：Unigram 允许同一词有多种合法切分、各带概率，编码用 Viterbi 找连乘最大者；训练时还能按概率采样其他切法（subword regularization）。图为算法行为示意，具体片段边界与概率取决于实际词表；本工程 minimind 用的是 BPE（2.2 节）。</div>
+  <div class="diagram-caption">图 2：同一个词 unbelievable 在两种算法下的切分决策。左：WordPiece 编码时贪心最长匹配，从词首反复找最长命中片段，路径唯一，任何一步失配整词判 [UNK]。右：Unigram 允许同一词有多种合法切分、各带概率，编码用 Viterbi 找连乘最大者；训练时还能按概率采样其他切法（subword regularization）。图为算法行为示意，具体片段边界与概率取决于实际词表；本工程 minimind 用的是 BPE（2.2 节）。</div>
 </div>
 
 <h2>2.3.1 WordPiece：换一把尺子做合并</h2>

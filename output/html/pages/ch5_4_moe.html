@@ -28,7 +28,7 @@
 
 <p>　　读完本节，你应该能说清 MoE 凭什么“拿显存换计算”，以及它与前几节的改进为什么是正交的。它牵出的专家并行、路由通信等工程问题，分别留到第 7 章和第 13 章展开。</p>
 
-<p>　　沿「想法、选择、账本、隐患、谱系」这条线展开之前，先看一眼本节内容在整条链路中的位置。本章是对 Transformer 块内部的改造，本节动的还是块里的前馈子层——不改它的内部结构，改它的组织方式。心里有这张地图，后面每一节都知道自己站在哪：</p>
+<p>　　沿「想法、选择、账本、隐患、谱系」这条线展开之前，先看一眼本节内容在整条链路中的位置。本章是对 Transformer 块内部的改造，本节动的还是块里的前馈子层——不改它的内部结构，改它的组织方式。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -82,7 +82,7 @@
     <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
     <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
   </svg>
-  <div class="diagram-caption">图示：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）切成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，再经输出投影算出各 token 的概率（第 4 章），采样出下一个 token（第 12 章）并接回输入循环。第 5 章是对这个紫框内部的改造：本节把块内前馈子层复制成多个专家、用路由器按需调用，块在链路中的位置与进出数据的形状都不动。</div>
+  <div class="diagram-caption">图 1：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）切成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，再经输出投影算出各 token 的概率（第 4 章），采样出下一个 token（第 12 章）并接回输入循环。第 5 章是对这个紫框内部的改造：本节把块内前馈子层复制成多个专家、用路由器按需调用，块在链路中的位置与进出数据的形状都不动。</div>
 </div>
 
 <p>　　这个紫框里的前馈子层放大之后长什么样？一个 token 进去，几个专家谁上场、怎么算、出来时什么形状？把 minimind 的 MoE 前馈单独拆开看：</p>
@@ -154,7 +154,7 @@
     <text x="210" y="389" text-anchor="middle" font-size="10.5" fill="#6b7280">MoE 的 FFN 参数总量约为 dense 的 4 倍</text>
     <text x="210" y="406" text-anchor="middle" font-size="10.5" fill="#6b7280">而单 token 计算量相同（只过 1 个专家）</text>
   </svg>
-  <div class="diagram-caption">图示：minimind 的 MoE 前馈层（默认配置：4 个专家、top-1 激活）。768 维输入经路由器 Linear(768→4) 加 softmax 打出 4 个分数（分数条为示意），只有最高分专家真正执行 FFN（768→2432→768，与 5.1 节的 SwiGLU 前馈同构），输出按路由权重加权后仍是 768 维；训练时附加系数 5e-4 的负载均衡损失。配置数字均出自 minimind 源码与正文。</div>
+  <div class="diagram-caption">图 2：minimind 的 MoE 前馈层（默认配置：4 个专家、top-1 激活）。768 维输入经路由器 Linear(768→4) 加 softmax 打出 4 个分数（分数条为示意），只有最高分专家真正执行 FFN（768→2432→768，与 5.1 节的 SwiGLU 前馈同构），输出按路由权重加权后仍是 768 维；训练时附加系数 5e-4 的负载均衡损失。配置数字均出自 minimind 源码与正文。</div>
 </div>
 
 <h2>5.4.1 稠密模型的天花板与“稀疏”想法</h2>
@@ -269,7 +269,7 @@
     <!-- bottom note -->
     <text x="380" y="330" text-anchor="middle" font-size="11" fill="#666">未出诊的 6 个专家本次完全不计算——省下的就是这部分算力</text>
   </svg>
-  <div class="diagram-caption">图示：token「咳嗽」经路由器对 8 个专家打分，得分最高的专家 2（0.35）与专家 6（0.28）被点亮并参与计算，输出按归一化后的分数加权求和；其余 6 个专家本轮完全不计算。</div>
+  <div class="diagram-caption">图 3：token「咳嗽」经路由器对 8 个专家打分，得分最高的专家 2（0.35）与专家 6（0.28）被点亮并参与计算，输出按归一化后的分数加权求和；其余 6 个专家本轮完全不计算。</div>
 </div>
 
 <div class="highlight-box info">
