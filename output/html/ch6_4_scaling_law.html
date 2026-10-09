@@ -1,0 +1,748 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>6.4 Scaling Law：规模是可以计算的命运 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link active" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 6 章 预训练</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>6.4 Scaling Law：规模是可以计算的命运</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>6.4 Scaling Law：规模是可以计算的命运</h1>
+<p class="subtitle">本页范围：第 6 章第 4 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>训练一个大模型动辄耗资百万美元，没人承受得起「先训出来看看效果」。能不能在点火之前就预言：给定参数量、数据量和算力，损失会降到多少？三者又该怎么分配？</td></tr>
+      <tr><td>本节主张</td><td>测试损失对规模呈幂律下降，在 log-log 图上是一条直线，因此损失可被外推预言。但「算力该怎么花」这个问题有过一次著名翻盘：Kaplan 主张优先堆参数，Chinchilla 用实验纠正为参数与数据等比扩展，业界随后又为省推理成本走向「小模型喂更多数据」。</td></tr>
+      <tr><td>一句话结论</td><td>Scaling Law 把大模型训练从玄学变成工程学：损失可预测、配比可计算；Chinchilla 的算力最优约为每参数 20 个 token，而部署成本会把实际选择推向训练远超此量的小模型。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>幂律</span><span>log-log 图</span><span>Kaplan</span><span>Chinchilla</span><span>isoFLOPs</span><span>训练最优 vs 部署最优</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　上一节讲了预训练的目标函数与优化器怎么选，解决的是「给定一个模型，怎么把它训好」。本节把视角再抬高一格，回答一个更要命的问题：<strong>在按下训练按钮之前，怎么知道这个配置值不值得训</strong>。千亿参数模型的单次训练以月计、以百万美元计，试错成本高到不允许任何「先试试」。2020 年 Kaplan 等人的发现改变了这件事：语言模型的损失随规模的变化不是混沌的，而是一条干净得反常的数学曲线，可以用小模型的实验外推出大模型的结局。</p>
+
+<p>　　本节沿「发现 → 预言 → 翻盘 → 修正」的叙事线展开，这也是过去五年业界真实走过的弯路：</p>
+
+<ol>
+  <li><strong>幂律：log-log 图上的直线</strong>（6.4.1）：Scaling Law 的数学本体，看懂幂律为什么意味着损失可以被预言；</li>
+  <li><strong>Kaplan 的预言与局限</strong>（6.4.2）：第一个 Scaling Law 给出「优先堆参数」的处方，直接催生了 GPT-3 时代，但这个处方后来被证明有系统性偏差；</li>
+  <li><strong>Chinchilla 翻盘：20 token/参数</strong>（6.4.3）：DeepMind 用 400 多个模型的扫描实验修正配比，结论是让参数和数据等比增长；</li>
+  <li><strong>训练最优 vs 部署最优：Llama 的另一本账</strong>（6.4.4）：Chinchilla 最优只算了训练的钱，Llama 系列把推理成本摆上台面，走向「小模型、超长训练」；</li>
+  <li><strong>对工程决策的意义</strong>（6.4.5）：把三条定律收拢成训练前就能做的三件事。</li>
+</ol>
+
+<p>　　读完本节，你应当能回答：为什么今天主流模型的「参数 × 数据」配比长成现在这个样子，以及如果你手握一笔算力预算，该怎么把它切成参数和数据两份。</p>
+
+<p>　　展开这条「发现 → 预言 → 翻盘 → 修正」的叙事线之前，先看一眼预训练在 LLM 整条生命周期中的位置，以及这一站为什么可以「未卜先知」。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS64scalinglaw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG64scalinglaw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS64scalinglaw)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG64scalinglaw)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：预训练在 LLM 生命周期中的位置。训练数据（第 1 章）备好后进入预训练（本章，紫框）：在海量语料上做自监督学习，把文本规律压进参数；配套的并行、精度与稳定性工程在第 7 章，之后的中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）、推理与部署（第 12–13 章）在对应章节展开。本节只需记住：预训练的结果不必训完才知道——损失随规模按幂律下降，点火之前就能外推预言。</div>
+</div>
+
+<p>　　图 1 里这个紫框放大之后，为什么点火前就能预言训练结果？把幂律这条直线单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr64z" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="30" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：幂律——log-log 坐标下，损失随规模直线下降</text>
+    <text x="30" y="50" font-size="11" fill="#64748b">横轴 log 规模（参数量 N / 数据量 D / 算力 C 皆成立），纵轴 log 测试损失；是直线就意味着可外推</text>
+    <!-- 坐标轴 -->
+    <line x1="90" y1="290" x2="90" y2="56" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64z)"/>
+    <line x1="80" y1="290" x2="668" y2="290" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64z)"/>
+    <text x="62" y="50" text-anchor="middle" font-size="11" fill="#666">log L</text>
+    <text x="370" y="312" text-anchor="middle" font-size="11" fill="#666">log 规模（向右 = 规模更大）</text>
+    <!-- 幂律直线 -->
+    <line x1="140" y1="100" x2="600" y2="240" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- 实验点 -->
+    <circle cx="180" cy="112.2" r="5" fill="#0891b2"/>
+    <circle cx="260" cy="136.5" r="5" fill="#0891b2"/>
+    <circle cx="340" cy="160.9" r="5" fill="#0891b2"/>
+    <circle cx="420" cy="185.2" r="5" fill="#0891b2"/>
+    <circle cx="500" cy="209.6" r="5" fill="#0891b2"/>
+    <text x="200" y="88" text-anchor="middle" font-size="10.5" fill="#0891b2">小规模实验点（便宜，多跑几组）</text>
+    <text x="300" y="205" text-anchor="middle" font-size="11" fill="#6d28d9">斜率 = −α（Kaplan 拟合 α_N ≈ 0.076）</text>
+    <line x1="330" y1="197" x2="352" y2="172" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+    <!-- 外推 -->
+    <line x1="600" y1="240" x2="660" y2="258.3" stroke="#dc2626" stroke-width="2" stroke-dasharray="5 4"/>
+    <circle cx="660" cy="258" r="5" fill="#dc2626"/>
+    <text x="520" y="270" text-anchor="middle" font-size="10.5" fill="#dc2626">外推：预言没训过的大规模</text>
+    <!-- 底部说明 -->
+    <text x="370" y="336" text-anchor="middle" font-size="11" fill="#64748b">Kaplan 处方：算力涨时优先扩参数（N* ∝ C^0.73，D* ∝ C^0.27）</text>
+    <text x="370" y="358" text-anchor="middle" font-size="11" fill="#64748b">Chinchilla 修正：参数与数据等比扩展，约每参数配 20 个 token（70B 配 1.4T）</text>
+  </svg>
+  <div class="diagram-caption">图 2：幂律的读法。小规模实验点（青）在 log-log 图上落在一条直线附近，斜率由幂指数 α 决定（对参数量，Kaplan 拟合 α_N ≈ 0.076）；沿直线外推（红虚线）即可预言贵得训不起的大规模模型的损失。直线本身两篇论文没有分歧，争的是配比：Kaplan 主张优先扩参数，Chinchilla 用训到收敛的 isoFLOPs 实验修正为参数与数据等比扩展（约 20 token/参数）。</div>
+</div>
+
+<h2>6.4.1 幂律：log-log 图上的直线</h2>
+
+<p>　　先建立一个直觉。物理学里，行星轨道、落体时间之所以能被预言，是因为背后有简洁的规律可循。Kaplan 等人 2020 年的工作相当于在语言模型身上发现了同类规律：把测试损失和模型规模都取对数画在图上，数据点竟然落在一条直线附近——规模翻多少倍，损失降多少，是可以提前算出来的。这种关系叫<strong>幂律</strong>（power law）。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Scaling Law 缩放定律</span>
+    <span class="term-en">scaling = 随规模变化；law = 可重复的定量规律</span>
+  </div>
+  <div class="term-body">
+    <p>Scaling Law 是实验拟合出的经验规律：语言模型的测试损失随参数量 \(N\)、数据量 \(D\)、算力 \(C\) 各自呈幂律变化。它不是定理，而是从大量真实训练结果中总结出的统计规律，价值在于<strong>外推</strong>——用小规模的实验结果，预言贵得做不起的大规模训练。</p>
+    <div class="term-analogy">就像裁缝做西装前先用小纸样推算剪裁尺寸：不用真把整匹布剪开，按比例缩小的纸样就能预言成衣的合身度。Scaling Law 就是大模型训练的「纸样」。</div>
+  </div>
+</div>
+
+<p>　　以参数量为例，Kaplan 论文给出的幂律形如：</p>
+
+<div class="formula-card">
+  \[ L(N) = \left(\frac{N_c}{N}\right)^{\alpha_N} \tag{1} \]
+  <div class="formula-note">公式 (1)：模型越大，测试损失越低，且下降的速率由一个幂指数精确控制。符号说明：\(L(N)\) 是使用 \(N\) 个参数训练收敛后的测试交叉熵损失；\(N\) 是模型的非嵌入参数量（Kaplan 论文的惯例，统计参数时不含 Embedding 层）；\(N_c\) 是拟合出的尺度常数，数量级约 \(10^{13}\)，可以理解为「损失降到 1 附近所需的参数规模」；\(\alpha_N\) 是幂指数，论文拟合值约 0.076，它决定直线在 log-log 图上的斜率。同样的形式对数据量 \(D\) 与算力 \(C\) 也成立，只是换成各自的常数与指数。</div>
+</div>
+
+<p>　　幂律为什么意味着「直线」？对等式两边取对数就能看出来：</p>
+
+<div class="formula-card">
+  \[ \log L(N) = \alpha_N \log N_c \;-\; \alpha_N \log N \tag{2} \]
+  <div class="formula-note">公式 (2)：对公式 (1) 两边取对数后的结果，\(\log L\) 是 \(\log N\) 的一次函数。符号说明：\(\log N_c\) 是常数项（决定直线在图上的高度），\(-\alpha_N\) 是斜率。横轴取 \(\log N\)、纵轴取 \(\log L\) 画图，幂律就现形成一条直线——这就是「log-log 图」这个名字的由来，也是判断一组实验数据是否服从幂律的直观检验。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 310" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr64a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 坐标轴 -->
+    <line x1="90" y1="250" x2="90" y2="30" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64a)"/>
+    <line x1="80" y1="250" x2="680" y2="250" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64a)"/>
+    <text x="390" y="278" text-anchor="middle" font-size="13" fill="#666">log 规模（参数量 N / 数据量 D / 算力 C）</text>
+    <text x="56" y="24" text-anchor="middle" font-size="13" fill="#666">log L</text>
+    <!-- 幂律直线 -->
+    <line x1="120" y1="72" x2="640" y2="222" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- 实验点 -->
+    <circle cx="160" cy="82" r="5" fill="#0891b2"/>
+    <circle cx="240" cy="100" r="5" fill="#0891b2"/>
+    <circle cx="330" cy="122" r="5" fill="#0891b2"/>
+    <circle cx="415" cy="146" r="5" fill="#0891b2"/>
+    <circle cx="500" cy="170" r="5" fill="#0891b2"/>
+    <circle cx="575" cy="196" r="5" fill="#0891b2"/>
+    <text x="250" y="70" text-anchor="middle" font-size="12" fill="#0891b2">真实训练的实验点</text>
+    <text x="520" y="140" text-anchor="middle" font-size="12" fill="#6d28d9">幂律拟合直线，斜率 = −α</text>
+    <!-- 外推标注 -->
+    <line x1="640" y1="222" x2="700" y2="240" stroke="#dc2626" stroke-width="2" stroke-dasharray="5 4"/>
+    <circle cx="700" cy="240" r="5" fill="#dc2626"/>
+    <text x="560" y="222" text-anchor="middle" font-size="12" fill="#dc2626">外推：尚未训练的规模</text>
+    <!-- 底部说明 -->
+    <text x="390" y="300" text-anchor="middle" font-size="12" fill="#666">损失随规模增大而稳定下降，没有拐点和平台期</text>
+  </svg>
+  <div class="diagram-caption">图 3：log-log 坐标下，测试损失随规模呈直线下降。小规模的实验点（青）拟合出直线后，可以外推（红虚线）预言尚未训练的大规模模型的损失。</div>
+</div>
+
+<p>　　图 3 这条直线有两层含义。第一是<strong>可预测性</strong>：用几亿参数的模型做一批实验，拟合出斜率，就能外推出千亿参数的损失会落在哪。第二是<strong>无平台期</strong>：在 Kaplan 观测的范围内直线没有弯曲，意味着堆规模这条路当时看不到尽头——「大力出奇迹」有了数学担保。白话总结一句：幂律把「规模越大越好」这句口号，变成了「规模每扩大十倍，损失按固定比率下降」这道算术题。</p>
+
+<div class="highlight-box info">
+  幂律描述的是平滑的统计趋势，不预言具体能力。某些能力（如多步推理）在规模跨过某个阈值后会突然显现，称为「涌现」（emergence），幂律的平滑曲线上看不到这些台阶。损失可预测，不代表一切行为可预测。
+</div>
+
+<h2>6.4.2 Kaplan 的预言与局限</h2>
+
+<p>　　有了三条幂律（对 \(N\)、对 \(D\)、对 \(C\)），下一个问题自然是：算力预算涨十倍，参数和数据各该涨多少？回答这个问题还差一块拼图——算力与参数、数据之间的换算关系。Kaplan 论文给出的估算式简洁到可以口算：</p>
+
+<div class="formula-card">
+  \[ C \approx 6\,N\,D \tag{3} \]
+  <div class="formula-note">公式 (3)：训练总算力的「账本公式」。符号说明：\(C\) 是训练消耗的总浮点运算次数（FLOPs）；\(N\) 是参数量；\(D\) 是训练 token 数；系数 6 来自一次前向加反向传播的逐参数开销估算（前向约 \(2N\)、反向约 \(4N\) FLOPs，按每 token 计）。它是近似式，忽略了注意力等随序列长度增长的项，但作为数量级账本被全业界沿用至今。</div>
+</div>
+
+<p>　　把三条幂律和这个账本联立求解，Kaplan 得到结论：算力增长时，<strong>参数量应当吃掉大头</strong>，最优配比约为 \(N^* \propto C^{0.73}\)、\(D^* \propto C^{0.27}\)——预算翻 8 倍，参数约扩 4.6 倍，数据只扩 1.8 倍。论文还观察到「大模型样本效率更高」：达到同等损失，大模型需要看过的数据量更少。两条合在一起，处方非常明确：<strong>优先把模型做大</strong>。</p>
+
+<p>　　这张处方直接塑造了 2020 到 2022 年的业界路线：GPT-3 把参数堆到 175B 但只训了约 300B token，Gopher 更进一步堆到 280B，数据量却原地不动。按后来 Chinchilla 的标准回看，这批模型清一色「参数过大、数据不足」。</p>
+
+<div class="highlight-box warn">
+  Kaplan 处方的偏差出在一个隐蔽的方法细节上：拟合时大量模型没有针对各自的规模充分调优学习率衰减与训练时长，相当于很多点没训到位。这系统性高估了「加大参数」的回报——模型没训到位时，继续加数据、训更久能换来的损失下降显现不出来，对比之下扩参数显得更划算。这个偏差要等 Chinchilla 把每个模型都训到位之后才被纠正。
+</div>
+
+<h2>6.4.3 Chinchilla 翻盘：20 token/参数</h2>
+
+<p>　　2022 年 DeepMind 的 Hoffmann 等人重做了一次更彻底的大扫除：训练了 400 多个语言模型，参数量从 70M 到 16B，数据量从 5B 到 500B token，每个模型都按自己的规模调好训练计划、训到收敛。这批实验用的方法叫 <strong>isoFLOPs</strong>——固定算力预算，只改变参数与数据的分配，看哪种分配损失最低。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">isoFLOPs 等算力曲线</span>
+    <span class="term-en">iso = 相等；FLOPs = 浮点运算次数，算力的度量单位</span>
+  </div>
+  <div class="term-body">
+    <p>在同一个算力预算 \(C\) 下，由 \(C \approx 6ND\) 可知参数和数据此消彼长：参数多一点，能训的数据就少一点。isoFLOPs 方法把预算内所有 \((N, D)\) 组合各训一遍，损失对 \(N\) 画出来是一条 U 形曲线，谷底就是该预算的最优配比。换几个预算各做一遍，把谷底连成线，就得到「算力怎么分」的完整答案。</p>
+    <div class="term-analogy">就像固定一笔装修预算在「面积」和「用料档次」之间分配：全堆面积则用料寒酸，全堆用料则住不开，总有一个配比让居住体验最好。isoFLOPs 就是在找这个配比。</div>
+  </div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr64b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 坐标轴 -->
+    <line x1="80" y1="270" x2="80" y2="30" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64b)"/>
+    <line x1="70" y1="270" x2="690" y2="270" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr64b)"/>
+    <text x="390" y="298" text-anchor="middle" font-size="13" fill="#666">log 参数量 N（固定预算下，数据量 D ≈ C/6N 反向变化）</text>
+    <text x="46" y="24" text-anchor="middle" font-size="13" fill="#666">损失 L</text>
+    <!-- 三条 isoFLOPs U 形曲线 -->
+    <path d="M 105 60 Q 180 250 255 60" fill="none" stroke="#0891b2" stroke-width="2.5"/>
+    <path d="M 230 90 Q 330 314 430 90" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <path d="M 380 120 Q 490 358 600 120" fill="none" stroke="#d97706" stroke-width="2.5"/>
+    <text x="140" y="48" text-anchor="middle" font-size="12" fill="#0891b2">预算 C₁</text>
+    <text x="400" y="78" text-anchor="middle" font-size="12" fill="#6d28d9">预算 C₂</text>
+    <text x="570" y="108" text-anchor="middle" font-size="12" fill="#d97706">预算 C₃</text>
+    <!-- 谷底点 -->
+    <circle cx="180" cy="155" r="5.5" fill="#dc2626"/>
+    <circle cx="330" cy="202" r="5.5" fill="#dc2626"/>
+    <circle cx="490" cy="239" r="5.5" fill="#dc2626"/>
+    <!-- 谷底连线 -->
+    <line x1="180" y1="155" x2="620" y2="262" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arr64b)"/>
+    <text x="450" y="182" text-anchor="middle" font-size="12.5" fill="#dc2626">谷底连线：各预算的最优配比</text>
+    <text x="200" y="140" text-anchor="middle" font-size="11.5" fill="#dc2626">该预算的最优 N</text>
+    <!-- 底部说明 -->
+    <text x="390" y="315" text-anchor="middle" font-size="12" fill="#666">C₁ &lt; C₂ &lt; C₃：预算越大，谷底越深（损失越低）、越靠右（最优参数量越大）</text>
+  </svg>
+  <div class="diagram-caption">图 4：isoFLOPs 方法。每条 U 形曲线是一个固定算力预算下「参数量换数据量」的所有选择，谷底是该预算的最优解；把不同预算的谷底连成线，最优配比随预算增长的方向一目了然。</div>
+</div>
+
+<p>　　除了直接扫描，论文还用一个参数化公式把损失同时写成参数与数据的函数，即著名的 Chinchilla 损失面：</p>
+
+<div class="formula-card">
+  \[ L(N, D) = E \;+\; \frac{A}{N^{\alpha}} \;+\; \frac{B}{D^{\beta}} \tag{4} \]
+  <div class="formula-note">公式 (4)：损失被拆成三块——无论多大的模型都降不下去的「不可约损失」，由参数不足造成的损失，和由数据不足造成的损失。符号说明：\(L(N,D)\) 是参数量 \(N\)、训练数据量 \(D\) 下的收敛损失；\(E\) 是不可约损失（文本本身的熵，论文拟合值约 1.69），\(A/N^{\alpha}\) 是模型容量项（\(A\) 约 406，\(\alpha\) 约 0.34），\(B/D^{\beta}\) 是数据不足项（\(B\) 约 411，\(\beta\) 约 0.28）。注意两个幂指数 0.34 与 0.28 接近——这正是「参数与数据贡献相当、应当等比扩展」的定量证据。</div>
+</div>
+
+<p>　　结论干脆利落：固定算力下，参数与数据应当<strong>等比扩展</strong>（\(N^* \propto C^{0.5}\)、\(D^* \propto C^{0.5}\)），换算下来约为<strong>每个参数配 20 个 token</strong>。为了证明这不是纸上谈兵，他们用与 Gopher 相近的算力训了 Chinchilla：参数从 280B 砍到 70B，数据从 300B token 加到 1.4T token——结果 Chinchilla 在一系列基准上全面反超 Gopher。四两拨千斤，翻盘完成。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型</th><th>参数量</th><th>训练 token 数</th><th>token/参数</th><th>按 20:1 标准看</th></tr></thead>
+    <tbody>
+      <tr><td>GPT-3</td><td>175B</td><td>约 300B</td><td>约 1.7</td><td>参数过大、数据严重不足</td></tr>
+      <tr><td>Gopher</td><td>280B</td><td>约 300B</td><td>约 1.1</td><td>同上，Chinchilla 论文的靶子</td></tr>
+      <tr><td>Chinchilla</td><td>70B</td><td>1.4T</td><td>20</td><td>算力最优参考点</td></tr>
+      <tr><td>Llama 3 8B</td><td>8B</td><td>约 15T</td><td>约 1875</td><td>远超训练最优，为部署省钱（6.4.4）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box danger">
+  不要把「20 token/参数」当成普适常数到处套。它是 Chinchilla 实验设置下的拟合结果，会随数据质量、Tokenizer 效率、架构改进而漂移；后续不同团队复现出的最优值并不完全一致。记住方法（isoFLOPs 找谷底）比记住数字 20 更重要。
+</div>
+
+<p>　　白话总结：Kaplan 说「预算涨了先买参数」，Chinchilla 说「参数和数据对半分」，后者是用更干净的实验把前者修正了，而不是推翻幂律本身——损失随规模可预测地下降，这一点两篇论文完全一致。</p>
+
+<h2>6.4.4 训练最优 vs 部署最优：Llama 的另一本账</h2>
+
+<p>　　故事到此还没结束。注意 Chinchilla 的最优有一个隐含前提：它只算了<strong>训练</strong>这一次性开销。可模型的生命周期里还有推理——模型训一次，要被调用千万次、服务无数用户，推理成本按次累计，长年累月下来可能比训练费贵得多。小模型的单次推理便宜得多，那么「多花钱把小模型训到饱和」就可能比「少花钱训个大模型」更划算。这是另一本账。</p>
+
+<p>　　Meta 的 Llama 系列把这本账算明了。Llama 1 论文开宗明义：目标是在<strong>给定推理预算</strong>下取得最好效果，而不是训练算力最优——做法是选较小的模型、喂远超 Chinchilla 最优的 token 量。到 Llama 3，这个思路走到极致：8B 模型训了约 15T token，每参数近两千个 token，是 20:1 标准的近百倍，而同一量级的数据量足够让这个小模型在许多任务上叫板比它大数倍的前辈。</p>
+
+<div class="highlight-box">
+  「训练最优」与「部署最优」是两本账：Chinchilla 的 20:1 最小化的是训练这一次的算力；Llama 的「小模型长训」牺牲训练效率换取低得多的推理成本和部署门槛。选哪本账，取决于模型要服务多少次调用——只训给自己做研究，按 Chinchilla；要上线服务亿级用户，按 Llama。
+</div>
+
+<div class="highlight-box info">
+  小模型长训还有一层隐性收益：参数量小意味着显存占用低、可在更便宜的硬件上跑，对个人开发者和边缘设备友好。开源社区主流模型的「甜点尺寸」变迁，很大程度上就是这本部署账在起作用。
+</div>
+
+<h2>6.4.5 对工程决策的意义</h2>
+
+<p>　　把两篇论文加一次业界修正合起来，Scaling Law 留给工程实践的有三样工具：</p>
+
+<ul>
+  <li><strong>点火前的预言机</strong>：用小规模实验拟合幂律，外推目标规模的损失，达不到预期就改配置，不烧冤枉钱。这是 Scaling Law 最原始也最重要的用途。</li>
+  <li><strong>算力账本</strong>：\(C \approx 6ND\) 让「参数量 × 数据量 × GPU 小时」之间可以互相换算，做预算、买显卡、定排期都靠它打底。</li>
+  <li><strong>配比标尺</strong>：预算确定后按 isoFLOPs 谷底分配参数与数据；若模型要大规模部署，主动偏离训练最优、向「小参数多数据」一侧倾斜。</li>
+</ul>
+
+<p>　　还有一条暗线值得记住：Chinchilla 之后，数据从「燃料」升格为与参数并列的<strong>一等资源</strong>。既然 20 个 token 才配得上 1 个参数，那么高质量 token 的储量直接限制了模型能合法长到多大——这呼应了第 1 章数据工程的份量，也预告了第 8 章中间训练里「数据不够怎么办」的问题。</p>
+
+<div class="highlight-box">
+  本节核心：损失随规模呈幂律下降，所以预训练的结果在点火前可预测；算力在参数与数据间的最优配比约等比扩展（Chinchilla 口径约 20 token/参数）；若计入推理成本，实际最优会向「小模型、更多数据」偏移。规模不是玄学，是可以计算的命运。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么说幂律让大模型训练「可预测」？</div>
+    <div class="sc-key">幂律在 log-log 图上是一条直线：用小规模实验点拟合出斜率（幂指数），就能沿直线外推，预言尚未训练的大规模模型的收敛损失，不用真烧钱试错。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Chinchilla 对 Kaplan 的修正具体是什么？</div>
+    <div class="sc-key">不是推翻幂律，而是修正配比：Kaplan 主张算力增长时优先扩参数（\(N^* \propto C^{0.73}\)），Chinchilla 用训到收敛的 isoFLOPs 实验证明参数与数据应等比扩展（各按 \(C^{0.5}\)），即约 20 token/参数；GPT-3、Gopher 那代模型属于参数过大、数据不足。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">既然 20:1 是训练最优，Llama 为什么要把 8B 模型训到 15T token？</div>
+    <div class="sc-key">因为部署是另一本账：模型训一次却要被调用无数次，小模型推理便宜、显存友好。为降低全生命周期成本，宁愿牺牲训练效率，把小模型喂到远超训练最优的数据量。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Kaplan, McCandlish, Henighan et al., 2020. Scaling Laws for Neural Language Models（幂律与「优先扩参数」处方的原始论文，arXiv:2001.08361）。</li>
+  <li>Hoffmann, Borgeaud, Mensch et al., 2022. Training Compute-Optimal Large Language Models（Chinchilla 论文，isoFLOPs 方法、20 token/参数与公式 (4) 的出处，arXiv:2203.15556）。</li>
+  <li>Touvron, Lavril, Izacard et al., 2023. LLaMA: Open and Efficient Foundation Language Models（「按推理预算选模型、小模型长训」动机的明确表述，arXiv:2302.13971）。</li>
+  <li>Dubey, Jauhri, Pandey et al., 2024. The Llama 3 Herd of Models（Llama 3 8B 训练约 15T token 的出处，arXiv:2407.21783）。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch6_3_training_loop.html" title="6.3 一次预训练长什么样：训练循环逐步走查">← 上一节：6.3 一次预训练长什么样：训练循环逐步走查</a><a class="next" href="ch6_5_emergence.html" title="6.5 涌现能力：规模到了，能力「突然」出现？">下一节：6.5 涌现能力：规模到了，能力「突然」出现？ →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

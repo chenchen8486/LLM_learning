@@ -1,0 +1,686 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2.5 词表与特殊 Token — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link active" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 2 章 分词</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>2.5 词表与特殊 Token</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>2.5 词表与特殊 Token</h1>
+<p class="subtitle">本页范围：第 2 章第 5 节　|　整理时间：2026-09-22</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>词表应该建多大？词表里除了普通 token，为什么还有一批不对应任何文字的“特殊 token”？</td></tr>
+      <tr><td>本节主张</td><td>词表大小是一场参数量与序列长度的交换；特殊 token 是词表里的“控制字符”，负责标记句首句尾、补齐对齐、承载对话结构，是分词器与模型协作的暗号。</td></tr>
+      <tr><td>一句话结论</td><td>词表越大序列越短但 Embedding 越重，主流 LLM 词表在 3 万到 25 万之间；用错特殊 token 或对话模板，是微调与推理中最常见的低级 bug。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>词表大小</span><span>Embedding</span><span>BOS / EOS / PAD</span><span>Chat Template</span><span>ChatML</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　前四节解决了怎么切、词表怎么学，本节回答两个更实际的问题。一是词表到底收多少个 token 合适，这背后是参数量与序列长度的一笔账；二是打开任何一个词表都会看到一批不对应任何文字的条目，比如 <code>&lt;|begin_of_text|&gt;</code>、<code>[PAD]</code>，它们不承载内容，却是训练与推理正常运转的暗号。三个小节依次展开：</p>
+
+<ol>
+  <li><strong>词表大小的权衡</strong>（2.5.1）：词表像字典，收词越多序列越短，但 Embedding 层越重，主流模型的取值摆在一起看；</li>
+  <li><strong>特殊 Token：词表里的控制字符</strong>（2.5.2）：BOS、EOS、PAD、UNK、MASK 各司其职，其中 EOS 是生成过程的刹车；</li>
+  <li><strong>Chat Template：把对话拼成一段文本</strong>（2.5.3）：多轮对话靠特殊 token 拼成单串，模板用错是最常见的低级 bug。</li>
+</ol>
+
+<p>　　读完本节，词表对你不再是一本黑箱字典：大小的账算得清，特殊 token 的暗号认得全，对话模板的格式红线也心里有数。</p>
+
+<p>　　两个实际问题的答案展开之前，先看一眼词表在整条链路中的位置，以及它内部的结构解剖。心里有这张地图，后面的权衡与暗号都有了落点：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS25vocabspecialtokens" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG25vocabspecialtokens" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（3.2–3.5 节）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS25vocabspecialtokens)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG25vocabspecialtokens)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG25vocabspecialtokens)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG25vocabspecialtokens)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG25vocabspecialtokens)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG25vocabspecialtokens)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG25vocabspecialtokens)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：输入起点</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：分词器在 LLM 前向链路中的位置。它是整条链路的第一站：原始文本在这里被切成 token ID（本章），Embedding 按 ID 查表（3.1 节）、注入位置信息（3.2–3.5 节），进入 Transformer 层（第 4 章），最后算出概率并采样出下一个 token（第 12 章），新 token 接回输入循环。本节拆开这一站的核心资产——词表：它该收多少条、特殊 token 这些控制字符各司什么职。</div>
+</div>
+
+<p>　　这个紫框的核心资产是词表，它放大之后长什么样？6400 条内容是怎么分布的？把 minimind 的词表单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 436" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <text x="40" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：minimind 词表解剖——6400 条，分普通区与特殊区</text>
+    <text x="40" y="50" font-size="11" fill="#64748b">分词器按这张表做「token ↔ ID」互查；每个 ID 同时是 Embedding 矩阵的行号</text>
+    <rect x="60" y="64" width="380" height="270" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="76" y="86" font-size="11.5" font-weight="bold" fill="#4c1d95">普通 token 区：ID 36–6399（6364 条）</text>
+    <rect x="76" y="94" width="348" height="22" fill="#ffffff" stroke="#ddd6fe"/>
+    <text x="88" y="110" font-size="10.5" fill="#333">36　&quot;!&quot;（标点）</text>
+    <rect x="76" y="118" width="348" height="22" fill="#ffffff" stroke="#ddd6fe"/>
+    <text x="88" y="134" font-size="10.5" fill="#333">100　&quot;a&quot;（单字符兜底）</text>
+    <rect x="76" y="142" width="348" height="22" fill="#ffffff" stroke="#ddd6fe"/>
+    <text x="88" y="158" font-size="10.5" fill="#333">463　我（汉字）</text>
+    <rect x="76" y="166" width="348" height="22" fill="#ffffff" stroke="#ddd6fe"/>
+    <text x="88" y="182" font-size="10.5" fill="#333">1405　中国（常用词组整块）</text>
+    <rect x="76" y="190" width="348" height="22" fill="#ffffff" stroke="#ddd6fe"/>
+    <text x="88" y="206" font-size="10.5" fill="#333">6170　hello（英文整词）</text>
+    <text x="250" y="234" text-anchor="middle" font-size="13" fill="#94a3b8">⋮</text>
+    <text x="88" y="258" font-size="10.5" fill="#64748b">汉字、英文整词与碎片、标点、数字、</text>
+    <text x="88" y="278" font-size="10.5" fill="#64748b">带空格的组合（如 Ġworld = 1707）……</text>
+    <text x="88" y="298" font-size="10.5" fill="#64748b">子词算法在语料上学出来的产出物</text>
+    <text x="88" y="318" font-size="10.5" fill="#64748b">（2.2–2.4 节）</text>
+    <rect x="60" y="334" width="380" height="92" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="76" y="358" font-size="11.5" font-weight="bold" fill="#92400e">特殊 token 区：ID 0–35（36 条）</text>
+    <text x="76" y="380" font-size="10.5" fill="#333">0 → &lt;|endoftext|&gt;（EOS：生成刹车）</text>
+    <text x="76" y="400" font-size="10.5" fill="#333">1 → &lt;|im_start|&gt;　2 → &lt;|im_end|&gt;（ChatML 角色标记）</text>
+    <text x="76" y="418" font-size="10.5" fill="#333">3–35 → 视觉 / 音频 / 工具调用 / 思考等保留位</text>
+    <line x1="440" y1="180" x2="470" y2="130" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="3 3"/>
+    <rect x="470" y="64" width="230" height="96" rx="6" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="482" y="86" font-size="11" font-weight="bold" fill="#4c1d95">每个 ID = Embedding 的一行</text>
+    <text x="482" y="106" font-size="10.5" fill="#555">矩阵 6400 × 768</text>
+    <text x="482" y="124" font-size="10.5" fill="#555">≈ 491 万参数</text>
+    <text x="482" y="142" font-size="10.5" fill="#555">词表膨胀的代价（2.5.1）</text>
+    <line x1="440" y1="380" x2="470" y2="228" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="3 3"/>
+    <rect x="470" y="180" width="230" height="96" rx="6" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
+    <text x="482" y="202" font-size="11" font-weight="bold" fill="#92400e">特殊 token = 控制信号</text>
+    <text x="482" y="222" font-size="10.5" fill="#555">不对应任何真实文字</text>
+    <text x="482" y="240" font-size="10.5" fill="#555">BOS 句首 / EOS 停止 / PAD 补齐</text>
+    <text x="482" y="258" font-size="10.5" fill="#555">EOS 是生成过程的刹车（2.5.2）</text>
+    <line x1="440" y1="390" x2="470" y2="344" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="3 3"/>
+    <rect x="470" y="296" width="230" height="96" rx="6" fill="#ffffff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="482" y="318" font-size="11" font-weight="bold" fill="#155e75">ChatML 对话标记</text>
+    <text x="482" y="338" font-size="10.5" fill="#555">&lt;|im_start|&gt; + 角色名开场</text>
+    <text x="482" y="356" font-size="10.5" fill="#555">&lt;|im_end|&gt; 一轮收尾</text>
+    <text x="482" y="374" font-size="10.5" fill="#555">拼多轮对话（2.5.3）</text>
+  </svg>
+  <div class="diagram-caption">图 2：minimind 词表（6400 条，ID 0–6399）的解剖。普通 token 区占 6364 条，是子词算法在语料上学出的汉字、词组、英文整词与碎片、标点等；特殊 token 区占头部 36 条，不对应真实文字，是训练与推理的控制信号：0 号 &lt;|endoftext|&gt; 充当 EOS，1、2 号 &lt;|im_start|&gt;、&lt;|im_end|&gt; 是 ChatML 对话标记（2.5.3 节），其余为视觉、音频、工具调用等保留位。每个 ID 同时是 Embedding 矩阵的行号，6400 行 × 768 列，约 491 万参数（2.5.1 节）。</div>
+</div>
+
+<h2>2.5.1 词表大小的权衡</h2>
+
+<p>　　前面几节讲了怎么切分，这一节回答一个更实际的问题：词表里到底收多少个 token 才算合适？先给直觉：词表像一本字典。字典收词越多，查任何一句话用的词条越少，每个词条的含义也越完整；但字典本身更厚，印字典、搬字典的成本更高。词表的权衡完全同理。</p>
+
+<h3>大词表的好处</h3>
+
+<ul>
+  <li><strong>序列更短</strong>：同一个词更可能整体命中一个词表条目，不必拆成碎片，同样一段文本切出来的 token 数更少，训练和推理都更省；</li>
+  <li><strong>语义单元更完整</strong>：常见词、常用汉字词组整体成为一个 token，模型不必从碎片里拼词义，学习负担更小；</li>
+  <li><strong>多语言覆盖更好</strong>：词表大了，才有余量给中文、日文、阿拉伯文等语言的常见片段分配独立条目，避免非英语文本被切得过碎。</li>
+</ul>
+
+<h3>大词表的代价：Embedding 层膨胀</h3>
+
+<p>　　词表里的每个 token 都要在 Embedding 层占一行向量（第 3 章详述）。词表有 \(V\) 个条目、模型维度为 \(d_{\text{model}}\) 时，仅 Embedding 层就要占用：</p>
+
+<div class="highlight-box info">
+  先把两个概念说清楚。词表就是一张“token 到编号”的对照表，形如 <code>'import' -> 2851</code>、<code>'Ġreleased' -> 4113</code>，minimind 的词表共 6400 条。Embedding 层是一张大矩阵，行数等于词表条数，列数等于模型维度，每一行是若干浮点数，这一行就是那个 token 的向量表示。查表动作很直白：拿编号当行号取那一行，输入 2851 就取第 2851 行的 768 个数。所以“每个 token 占一行”是字面意思，词表 6400 条，矩阵就是 6400 行。同一维度下（以 768 列计）对照：
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>词表</th><th>矩阵规模</th><th>Embedding 参数</th></tr></thead>
+      <tbody>
+        <tr><td>minimind 6400</td><td>6400 × 768</td><td>约 491 万</td></tr>
+        <tr><td>GPT-2 50257</td><td>50257 × 768</td><td>约 3859 万</td></tr>
+        <tr><td>o200k 200019</td><td>200019 × 768</td><td>约 1.54 亿</td></tr>
+      </tbody>
+    </table>
+  </div>
+  同一套模型结构，只把词表从 6400 换成 20 万，Embedding 参数就从 491 万涨到 1.54 亿，这就是“词表膨胀”的代价。
+</div>
+
+<div class="formula-card">
+  \[ N_{\text{embed}} = V \times d_{\text{model}} \tag{1} \]
+  <div class="formula-note">公式 (1)：Embedding 层参数量 = 词表大小 × 模型维度。词表每翻一倍，这层参数就翻一倍。</div>
+</div>
+
+<p>　　代入一组真实数字感受一下：取 \(V = 32000\)（LLaMA 的词表规模）、\(d_{\text{model}} = 4096\)，则</p>
+
+<div class="formula-card">
+  \[ N_{\text{embed}} = 32000 \times 4096 = 131\,072\,000 \approx 1.31 \text{ 亿} \tag{2} \]
+  <div class="formula-note">公式 (2)：仅 Embedding 一层就是 1.31 亿参数。对 7B 级模型来说，词表相关参数已是不可忽略的一块。</div>
+</div>
+
+<p>　　这还没完。模型每生成一个 token，输出层都要对整个词表算一次 softmax（把一组打分归一化成概率分布），从 \(V\) 个候选里挑一个。这一步的计算量随词表大小<strong>线性增长</strong>，词表翻倍，每步解码的开销也跟着涨。小词表则恰好反过来：Embedding 轻、输出便宜，但序列被拉长，语义被打碎。</p>
+
+<h3>主流模型的词表规模</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型 / 分词器</th><th>词表大小</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>GPT-2</td><td>50257</td><td>byte-level BPE，2019 年的代表性规模</td></tr>
+      <tr><td>LLaMA</td><td>32000</td><td>SentencePiece（BPE），词表偏小，多语言文本切得偏碎</td></tr>
+      <tr><td>OpenAI cl100k_base</td><td>100277</td><td>GPT-3.5 / GPT-4 使用的分词器</td></tr>
+      <tr><td>OpenAI o200k_base</td><td>200019</td><td>GPT-4o 使用的分词器，非英语语言明显受益</td></tr>
+      <tr><td>Qwen2.5</td><td>约 15 万</td><td>面向多语言的大词表，中文覆盖充分</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box">
+  从 GPT-2 的 5 万到 o200k_base 的 20 万，主流词表的整体趋势是越来越大。背后的驱动力有两个：一是模型本身变大，Embedding 多占的参数相对不再显眼；二是多语言与代码场景要求更完整的语义单元。词表大小没有标准答案，它是模型设计者在序列长度与参数量之间做的一次显式交换。
+</div>
+
+<h2>2.5.2 特殊 Token：词表里的控制字符</h2>
+
+<p>　　打开任何一个主流分词器的词表，都会发现里面有一批条目不对应任何真实文字：<code>&lt;|begin_of_text|&gt;</code>、<code>&lt;|end_of_text|&gt;</code>、<code>[PAD]</code> 之类。它们是<strong>特殊 token</strong>（special token），作用类似电报里的控制信号：不承载内容，负责告诉模型“这段话从哪开始、到哪结束、哪里是占位”。</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>BOS（Begin of Sequence）</h4><p>句首标记。放在每条训练样本的最前面，告诉模型“一段新文本从这里开始”。</p></div>
+  <div class="concept-card"><h4>EOS（End of Sequence）</h4><p>句尾标记。训练时标在样本末尾，推理时模型一旦生成它，解码器就停止。</p></div>
+  <div class="concept-card"><h4>PAD（Padding）</h4><p>补齐占位。一个 batch 里的句子长短不一，短的用 PAD 补到同样长度，便于并行计算。</p></div>
+  <div class="concept-card"><h4>UNK（Unknown）</h4><p>未登录词占位。遇到词表外的内容时兜底；byte-level 分词器已能做到任何文本都有表示，不再需要它。</p></div>
+  <div class="concept-card"><h4>MASK</h4><p>掩码占位。BERT 类模型的掩码训练专用：盖住原词，让模型根据上下文猜回来。GPT 类生成模型一般不用。</p></div>
+</div>
+
+<h3>训练与推理中的角色</h3>
+
+<p>　　这批控制信号在训练和推理两个阶段各司其职。训练时，BOS 划清样本边界，EOS 教会模型“话说到这里就该收尾”，PAD 让长短不一的句子能装进同一个 batch 并行计算，算 loss 时再把 PAD 位置忽略掉。推理时，EOS 的角色最关键：它是<strong>停止信号</strong>。模型是自回归的，理论上可以无限往下生成，只有看到 EOS（或达到长度上限）才知道该停。解码策略与停止条件的完整讨论在第 12 章，这里只需记住：EOS 不是可有可无的装饰，它是生成过程的刹车。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">EOS（句尾标记）</span>
+    <span class="term-en">End of Sequence = 告诉解码器“到这里停止”</span>
+  </div>
+  <div class="term-body">
+    <p>训练语料里每段文本的末尾都会放上 EOS，模型在这个过程中学会“内容讲完就该输出 EOS”。推理时解码器逐个生成 token，一旦模型吐出 EOS，就停止生成、把已有内容返回给用户。如果模型没学会在合适的位置输出 EOS，就会喋喋不休地说下去，直到撞上长度上限被强行截断。</p>
+  </div>
+</div>
+
+<h2>2.5.3 Chat Template：把对话拼成一段文本</h2>
+
+<p>　　语言模型本身只认一串 token，不懂什么叫“多轮对话”。但聊天产品里用户和模型你来我往，还带着 system 提示词，这些信息怎么塞进一串文本？答案是再定义一批特殊 token 充当<strong>角色与轮次的分隔标记</strong>，按固定格式把整段对话拼成一条字符串，这套拼法就叫 Chat Template（对话模板）。</p>
+
+<p>　　以 ChatML 风格为例（OpenAI 提出、Qwen 等系列沿用），一轮对话拼出来长这样：</p>
+
+<pre><code>&lt;|im_start|&gt;system
+你是一个有帮助的助手。&lt;|im_end|&gt;
+&lt;|im_start|&gt;user
+什么是 BPE？&lt;|im_end|&gt;
+&lt;|im_start|&gt;assistant
+</code></pre>
+
+<p>　　<code>&lt;|im_start|&gt;</code> 后面紧跟角色名（system / user / assistant），<code>&lt;|im_end|&gt;</code> 标记这一轮发言结束。推理时拼到最后一行的 <code>&lt;|im_start|&gt;assistant</code> 为止，让模型接着往下写，写到 <code>&lt;|im_end|&gt;</code>（它同时充当 EOS 角色）就停。</p>
+
+<p>　　LLaMA-3 用的是另一套标记，格式不同、思路相同：</p>
+
+<pre><code>&lt;|begin_of_text|&gt;&lt;|start_header_id|&gt;system&lt;|end_header_id|&gt;
+
+你是一个有帮助的助手。&lt;|eot_id|&gt;&lt;|start_header_id|&gt;user&lt;|end_header_id|&gt;
+
+什么是 BPE？&lt;|eot_id|&gt;&lt;|start_header_id|&gt;assistant&lt;|end_header_id|&gt;
+
+</code></pre>
+
+<p>　　<code>&lt;|begin_of_text|&gt;</code> 相当于 BOS，<code>&lt;|start_header_id|&gt;</code> 与 <code>&lt;|end_header_id|&gt;</code> 包住角色名，<code>&lt;|eot_id|&gt;</code> 标记一轮结束。模型在微调时见过成千上万条按这个格式拼好的样本，于是学会了只在 assistant 段落里生成回答、说完就输出结束标记。</p>
+
+<div class="highlight-box warn">
+  微调或推理时用错模板是常见 bug：训练用 ChatML、推理却按 LLaMA-3 格式拼，或者漏了结尾的 assistant 起始标记，模型就会答非所问、把用户的下一句也编出来，或者干脆不会停止。模板必须与模型训练时见过的格式严格一致，一个字符都不能差。稳妥做法是直接使用分词器自带的 apply_chat_template 接口，不要手工拼字符串。
+</div>
+
+<div class="highlight-box">
+  Chat Template 的本质是一次“协议约定”：特殊 token 本身没有魔力，是训练数据里成千上万次按同一格式出现，让模型把这套标记和“角色”“轮次”“该谁说话”绑定在了一起。换一套模型没见过的标记，等于对它说了一门没学过的方言。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">词表做大做小，各自付出的代价是什么？</div>
+    <div class="sc-key">大词表换来序列更短、语义更完整、多语言覆盖更好，代价是 Embedding 层参数 \(V \times d_{\text{model}}\) 膨胀、输出层 softmax 开销随词表线性增长；小词表恰好相反。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">EOS 为什么这么重要？</div>
+    <div class="sc-key">自回归模型本身没有停止机制，EOS 是它在训练中学到的停止信号。推理时模型生成 EOS 才停；没有它，生成会一路跑到长度上限被强行截断。它与第 12 章的解码停止条件直接相关。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Chat Template 的本质是什么？</div>
+    <div class="sc-key">一套把多轮对话拼成单串文本的格式协议：用特殊 token 标记角色与轮次边界。模型通过训练数据学会这套约定，用错模板就等于说错方言，会直接导致答非所问或不会停止。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Radford et al., 2019. Language Models are Unsupervised Multitask Learners（GPT-2 技术报告，50257 词表与 byte-level BPE 的出处）。</li>
+  <li>Touvron et al., 2023. LLaMA: Open and Efficient Foundation Language Models（arXiv:2302.13971），32000 词表规模出自该文。</li>
+  <li>Qwen Team, 2024. Qwen2.5 Technical Report（arXiv:2412.15115），Qwen2.5 词表规模与 ChatML 风格模板的出处。</li>
+  <li>Hugging Face 文档：Chat Templates（<a href="https://huggingface.co/docs/transformers/main/chat_templating">https://huggingface.co/docs/transformers/main/chat_templating</a>），模板拼接机制与 apply_chat_template 用法。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch2_4_sentencepiece.html" title="2.4 SentencePiece：扔掉预分词的分词工具">← 上一节：2.4 SentencePiece：扔掉预分词的分词工具</a><a class="next" href="ch2_6_tokenizer_in_practice.html" title="2.6 分词的实践与坑">下一节：2.6 分词的实践与坑 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

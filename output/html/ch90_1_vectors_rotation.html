@@ -1,0 +1,1038 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A.1 向量、矩阵与旋转：RoPE 的数学底座 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children">
+    <a class="nav-link active" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">附录 数学与深度学习基础速览</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>A.1 向量、矩阵与旋转：RoPE 的数学底座</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>A.1 向量、矩阵与旋转：RoPE 的数学底座</h1>
+<p class="subtitle">本页范围：附录 A 第 1 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>手册里到处是“把向量转一个角度”“矩阵乘向量”这类说法。旋转在向量和矩阵里究竟是个什么动作？</td></tr>
+      <tr><td>本节主张</td><td>向量是带长度和方向的箭头，矩阵是对箭头做的一次动作，旋转矩阵的使命只有一个：改方向、不改长度。公式里的 cos 和 sin 来自“角度相加”的展开，不是硬塞进来的装饰。</td></tr>
+      <tr><td>一句话结论</td><td>看懂旋转，就看懂了 3.4 节 RoPE 为什么能让注意力点积只依赖相对距离。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>向量</span><span>线性变换</span><span>旋转矩阵</span><span>极坐标</span><span>和角公式</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　手册从第 3 章起就频繁使用几何语言：词向量是空间里的点，注意力用点积衡量匹配，RoPE 把向量“转一个角度”。这些说法背后是一套不大的数学工具，本附录把手册用到的那部分单独讲一遍，不追求完整，只求够用。</p>
+
+<p>　　本节解决最基础的一块：向量是什么、矩阵对它做了什么、旋转为什么长成那个样子。它是 3.4 节 RoPE 与 3.5 节长度外推的数学底座，也是读懂代码里 <code>rotate_half</code>、<code>apply_rotary_pos_emb</code> 这些函数的前提。</p>
+
+<ol>
+  <li><strong>向量：一支有长度和方向的箭</strong>（A.1.1）：把一排数字还原成箭头，长度与方向才是它的两个本质属性；</li>
+  <li><strong>矩阵：对箭头做的一次动作</strong>（A.1.2）：矩阵不是数字表格，而是“拉伸、压缩、旋转、投影”这些动作的说明书；</li>
+  <li><strong>旋转：只改方向，不改长度</strong>（A.1.3）：为什么 90 度旋转后长度依然是 3.61，为什么这件事对注意力很关键；</li>
+  <li><strong>cos 和 sin 从哪来：极坐标与和角公式</strong>（A.1.4）：把旋转矩阵一步步推出来，看清公式里的三角函数是怎么冒出来的；</li>
+  <li><strong>旋转的两条性质，和 RoPE 有什么关系</strong>（A.1.5）：长度不变与角度可加，如何让绝对位置从点积里消失；</li>
+  <li><strong>矩阵乘法的三种读法</strong>（A.1.6）：格点、变换、复合，同一个乘号的三副眼镜；QKV 投影只是“每行各过一次变换”的打包。</li>
+</ol>
+
+<p>　　读完全节，应能拿一张纸，自己把 3.4 节的公式 (1) 推一遍。</p>
+
+<h2>A.1.1 向量：一支有长度和方向的箭</h2>
+
+<p>　　二维向量 \((3, 2)\) 有两种同样正确的读法。一种读法是“一排数字”：先写 3，再写 2。另一种读法是“一支箭”：从原点出发，向右走 3、向上走 2，箭尖落在哪个点，向量就在哪里。</p>
+
+<p>　　第二种读法更有用，因为它一眼能看出向量的两个本质属性。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">向量的长度与方向（Length and Direction）</span>
+    <span class="term-en">长度 = 箭有多长，方向 = 箭朝哪边</span>
+  </div>
+  <div class="term-body">
+    <p>长度由勾股定理算：\(r = \sqrt{x^2 + y^2}\)，\((3, 2)\) 的长度是 \(\sqrt{13} \approx 3.61\)。方向用与横轴的夹角表示，\((3, 2)\) 约 33.7 度。反过来，知道长度 \(r\) 和方向角 \(\alpha\)，也能唯一确定这支箭：\(x = r\cos\alpha\)，\(y = r\sin\alpha\)。这两个视角之间的切换，就是本节全部内容的起点。</p>
+  </div>
+</div>
+
+<p>　　向量的两种运算，在箭头视角下都有直白的含义：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>运算</th><th>数字上怎么做</th><th>几何上是什么意思</th></tr></thead>
+    <tbody>
+      <tr><td>加法 \(u + v\)</td><td>对应分量相加</td><td>把第二支箭的尾巴接到第一支箭的箭尖上，从起点到终点的箭就是和</td></tr>
+      <tr><td>数乘 \(c \cdot u\)</td><td>每个分量乘 \(c\)</td><td>长度变成原来的 \(|c|\) 倍；\(c &lt; 0\) 时连方向一起掉头</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="vArrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="vArrO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/>
+      </marker>
+      <marker id="vArrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+      </marker>
+      <marker id="vArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="20" y="24" font-size="13" fill="#333">① 一支箭：分量、长度、方向</text>
+    <text x="252" y="24" font-size="13" fill="#333">② 加法：第二支箭接到第一支箭的箭尖</text>
+    <text x="496" y="24" font-size="13" fill="#333">③ 数乘：拉长与掉头</text>
+    <line x1="244" y1="38" x2="244" y2="284" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <line x1="484" y1="38" x2="484" y2="284" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <!-- 面板 1 -->
+    <line x1="70" y1="230" x2="70" y2="66" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#vArrG)"/>
+    <line x1="70" y1="230" x2="226" y2="230" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#vArrG)"/>
+    <circle cx="70" cy="230" r="2.6" fill="#94a3b8"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="110" y1="226" x2="110" y2="234"/>
+      <line x1="150" y1="226" x2="150" y2="234"/>
+      <line x1="190" y1="226" x2="190" y2="234"/>
+      <line x1="66" y1="190" x2="74" y2="190"/>
+      <line x1="66" y1="150" x2="74" y2="150"/>
+    </g>
+    <line x1="190" y1="150" x2="190" y2="230" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <line x1="190" y1="150" x2="70" y2="150" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="100" y="138" font-size="11" fill="#94a3b8">虚线：分量投影</text>
+    <line x1="70" y1="230" x2="190" y2="150" stroke="#6d28d9" stroke-width="2.2" marker-end="url(#vArrP)"/>
+    <text x="228" y="234" font-size="12" fill="#64748b">x</text>
+    <text x="76" y="60" font-size="12" fill="#64748b">y</text>
+    <text x="152" y="250" font-size="12" fill="#64748b">x = 3</text>
+    <text x="34" y="196" font-size="12" fill="#64748b">y = 2</text>
+    <text x="128" y="204" font-size="12" fill="#6d28d9">r ≈ 3.61</text>
+    <text x="100" y="226" font-size="12" fill="#64748b">α ≈ 33.7°</text>
+    <!-- 面板 2 -->
+    <line x1="270" y1="230" x2="270" y2="66" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#vArrG)"/>
+    <line x1="270" y1="230" x2="462" y2="230" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#vArrG)"/>
+    <circle cx="270" cy="230" r="2.6" fill="#94a3b8"/>
+    <line x1="270" y1="230" x2="310" y2="150" stroke="#93c5fd" stroke-width="1.8" stroke-dasharray="6 4"/>
+    <line x1="310" y1="150" x2="390" y2="110" stroke="#c4b5fd" stroke-width="1.8" stroke-dasharray="6 4"/>
+    <text x="344" y="96" font-size="11" fill="#94a3b8">虚线：u、v 平移到原点</text>
+    <line x1="270" y1="230" x2="350" y2="190" stroke="#6d28d9" stroke-width="2.2" marker-end="url(#vArrP)"/>
+    <line x1="350" y1="190" x2="390" y2="110" stroke="#2563eb" stroke-width="2.2" marker-end="url(#vArrB)"/>
+    <line x1="270" y1="230" x2="390" y2="110" stroke="#c2410c" stroke-width="2.2" marker-end="url(#vArrO)"/>
+    <text x="312" y="224" font-size="13" fill="#6d28d9">u</text>
+    <text x="376" y="148" font-size="13" fill="#2563eb">v</text>
+    <text x="318" y="152" font-size="13" fill="#c2410c">u + v</text>
+    <text x="276" y="252" font-size="12" fill="#64748b">首尾相接，起点到终点即和</text>
+    <!-- 面板 3 -->
+    <line x1="496" y1="190" x2="700" y2="190" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#vArrG)"/>
+    <line x1="540" y1="258" x2="540" y2="120" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#vArrG)"/>
+    <circle cx="540" cy="190" r="2.6" fill="#94a3b8"/>
+    <line x1="540" y1="150" x2="620" y2="150" stroke="#c2410c" stroke-width="2.2" marker-end="url(#vArrO)"/>
+    <line x1="540" y1="190" x2="580" y2="190" stroke="#6d28d9" stroke-width="2.2" marker-end="url(#vArrP)"/>
+    <line x1="540" y1="230" x2="500" y2="230" stroke="#2563eb" stroke-width="2.2" marker-end="url(#vArrB)"/>
+    <text x="626" y="155" font-size="13" fill="#c2410c">2x</text>
+    <text x="586" y="195" font-size="13" fill="#6d28d9">x</text>
+    <text x="506" y="250" font-size="13" fill="#2563eb">−1x</text>
+    <text x="496" y="272" font-size="12" fill="#64748b">x 是原向量，2x 长度翻倍，−1x 反向</text>
+  </svg>
+  <div class="diagram-caption">图 1：向量的三个基本事实。分量只是坐标，本质属性是长度与方向；加法把两支箭首尾相接，起点到终点就是和，图中淡色虚线画出平移后的 u、v，显示同起点的平行四边形对角线与它是同一个结果；数乘只改长度，x 是原向量，2x 拉长一倍，−1x 掉头。第三栏三支箭实际都从原点出发，为看清而错开显示。</div>
+</div>
+
+<p>　　加法还有另一种同样常见的画法，图 1 中用淡色虚线标了出来：把 u、v 都从原点出发，两支箭张成一个平行四边形，从原点引出的那条对角线同样是 u + v。两种画法结果必然相同，因为向量只由长度和方向决定，平移到哪里都不改变它本身（这就是所谓自由向量）。看到 v 的尾巴接在 u 的箭尖上，只是为了让"先走 u、再走 v"这条路径一目了然，并不是 v 不能从原点出发。</p>
+
+<div class="highlight-box info">
+  记住这两条，手册里两处说法就不用再解释了。Embedding 表的一行，就是一支 768 维的箭（3.1 节）；残差连接写的是 \(x + \mathrm{Sublayer}(x)\)，两箭相加要求维度相同，这正是原论文坚持所有子层宽度统一为 512 的原因（4.4 节）。
+</div>
+
+<h2>A.1.2 矩阵：对箭头做的一次动作</h2>
+
+<p>　　矩阵乘向量常被当成一堆乘法加法的排列组合，其实它有更简洁的身份：<strong>一张写给箭头的动作说明书</strong>。给它一支箭，它吐出一支新箭。</p>
+
+<p>　　先看一个具体动作。下面这个矩阵作用在 \((3, 2)\) 上：</p>
+
+<div class="formula-card">
+  \[ \begin{pmatrix} 0 &amp; -1 \\ 1 &amp; 0 \end{pmatrix} \begin{pmatrix} 3 \\ 2 \end{pmatrix} = \begin{pmatrix} 0 \times 3 + (-1) \times 2 \\ 1 \times 3 + 0 \times 2 \end{pmatrix} = \begin{pmatrix} -2 \\ 3 \end{pmatrix} \tag{1} \]
+  <div class="formula-note">公式 (1)：一次矩阵乘向量。符号说明：左边第一个矩阵是动作本身，它只有两个数要算——第一行 \(0, -1\) 与向量逐项相乘求和得第一个分量，第二行 \(1, 0\) 同理得第二个分量，这种“逐项相乘再求和”就是点积（点积也叫内积、数量积，本页统一称点积）；\((3, 2)\) 是动作之前的向量，\((-2, 3)\) 是动作之后的向量。</div>
+</div>
+
+<p>　　有个好消息：结果 \((-2, 3)\) 的长度是 \(\sqrt{13} \approx 3.61\)，与原来的 \((3, 2)\) 一模一样；方向却从 33.7 度变成了 123.7 度，正好多了 90 度。所以这个矩阵的动作名字叫“逆时针转 90 度”。</p>
+
+<p>　　同一个矩阵，换一种读法也成立，这对读代码很有帮助：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>读法</th><th>怎么算</th><th>怎么理解</th></tr></thead>
+    <tbody>
+      <tr><td>行视角</td><td>结果第 \(i\) 个分量 = 矩阵第 \(i\) 行与向量做点积</td><td>每一个输出分量都是“一整套加权意见”</td></tr>
+      <tr><td>列视角</td><td>结果 = 分量 \(x\) 乘第一列 + 分量 \(y\) 乘第二列</td><td>输出是矩阵各列的加权混合，权重就是输入向量的分量</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box info">
+  两种读法结果必然相同，可以自己验一遍：列视角下，\(3 \times (0, 1) + 2 \times (-1, 0) = (0, 3) + (-2, 0) = (-2, 3)\)，与公式 (1) 一致。
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="mArrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/>
+      </marker>
+      <marker id="mArrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+      </marker>
+      <marker id="mArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="100" y="26" font-size="13" fill="#333">① 动作前的两个基向量</text>
+    <text x="440" y="26" font-size="13" fill="#333">② 动作后：它们各自的新位置</text>
+    <line x1="100" y1="230" x2="240" y2="230" stroke="#e2e8f0" stroke-width="1.2"/>
+    <line x1="170" y1="90" x2="170" y2="230" stroke="#e2e8f0" stroke-width="1.2"/>
+    <line x1="100" y1="160" x2="240" y2="160" stroke="#f1f5f9" stroke-width="1.2"/>
+    <line x1="240" y1="90" x2="240" y2="230" stroke="#f1f5f9" stroke-width="1.2"/>
+    <line x1="450" y1="230" x2="590" y2="230" stroke="#e2e8f0" stroke-width="1.2"/>
+    <line x1="520" y1="90" x2="520" y2="230" stroke="#e2e8f0" stroke-width="1.2"/>
+    <line x1="170" y1="230" x2="240" y2="230" stroke="#c2410c" stroke-width="2.4" marker-end="url(#mArrR)"/>
+    <line x1="170" y1="230" x2="170" y2="160" stroke="#2563eb" stroke-width="2.4" marker-end="url(#mArrB)"/>
+    <text x="176" y="250" font-size="12" fill="#c2410c">e1 = (1, 0)</text>
+    <text x="92" y="196" font-size="12" fill="#2563eb">e2 = (0, 1)</text>
+    <text x="292" y="118" font-size="13" fill="#333">乘以矩阵</text>
+    <text x="292" y="174" font-size="13" fill="#333">M =</text>
+    <path d="M 344 146 L 336 146 L 336 202 L 344 202" fill="none" stroke="#6d28d9" stroke-width="1.6"/>
+    <path d="M 416 146 L 424 146 L 424 202 L 416 202" fill="none" stroke="#6d28d9" stroke-width="1.6"/>
+    <text x="352" y="170" font-size="13" fill="#6d28d9">0</text>
+    <text x="382" y="170" font-size="13" fill="#6d28d9">−1</text>
+    <text x="352" y="196" font-size="13" fill="#6d28d9">1</text>
+    <text x="382" y="196" font-size="13" fill="#6d28d9">0</text>
+    <line x1="444" y1="174" x2="478" y2="174" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#mArrG)"/>
+    <line x1="520" y1="230" x2="520" y2="160" stroke="#c2410c" stroke-width="2.4" marker-end="url(#mArrR)"/>
+    <line x1="520" y1="230" x2="450" y2="230" stroke="#2563eb" stroke-width="2.4" marker-end="url(#mArrB)"/>
+    <text x="528" y="196" font-size="12" fill="#c2410c">e1 落到第一列 (0, 1)</text>
+    <text x="400" y="252" font-size="12" fill="#2563eb">e2 落到第二列 (−1, 0)</text>
+    <text x="40" y="288" font-size="12" fill="#666">矩阵的每一列，就是对应基向量被送去的地方：e1 去第一列，e2 去第二列。列视角与行视角说的是同一件事。</text>
+  </svg>
+  <div class="diagram-caption">图 2：把矩阵读成动作的关键一步。看两个基向量被送到哪里，就看清了整个动作——这两处落点正好是矩阵的两列。</div>
+</div>
+
+<p>　　换一个矩阵就是换一个动作。下面是几个最常用的：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>矩阵</th><th>作用在 \((3, 2)\) 上</th><th>动作名称</th></tr></thead>
+    <tbody>
+      <tr><td>\(\begin{pmatrix} 2 &amp; 0 \\ 0 &amp; 2 \end{pmatrix}\)</td><td>\((6, 4)\)</td><td>放大两倍，方向不变、长度翻倍</td></tr>
+      <tr><td>\(\begin{pmatrix} 1 &amp; 0 \\ 0 &amp; 0.5 \end{pmatrix}\)</td><td>\((3, 1)\)</td><td>横向不动、纵向压扁</td></tr>
+      <tr><td>\(\begin{pmatrix} 1 &amp; 0 \\ 0 &amp; -1 \end{pmatrix}\)</td><td>\((3, -2)\)</td><td>沿横轴翻面（镜像）</td></tr>
+      <tr><td>\(\begin{pmatrix} 1 &amp; 0 \\ 0 &amp; 0 \end{pmatrix}\)</td><td>\((3, 0)\)</td><td>投影到横轴上，纵向信息被丢掉</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　最后一件必须记住的约定是形状：<strong>一个 \(m \times n\) 的矩阵，把 \(n\) 维向量变成 \(m\) 维向量</strong>，所以矩阵写成“行数 = 输出维度、列数 = 输入维度”。代码里的 <code>nn.Linear(768, 384)</code>，权重形状正是 \(384 \times 768\)：吃进 768 个数，吐出 384 个数。minimind 的 <code>q_proj</code> 是 \(768 \times 768\)，<code>v_proj</code> 是 \(384 \times 768\)（GQA 只有 4 组 K/V），这些都是同一约定下的自然结果。</p>
+
+<h2>A.1.3 旋转：只改方向，不改长度</h2>
+
+<p>　　旋转是一类特殊的矩阵动作：箭头在原地打转，长度分毫不变。用同一个例子验一遍——\((3, 2)\) 转 90 度得到 \((-2, 3)\)，两支箭的长度都是 3.61。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrRot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrRot2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/>
+      </marker>
+    </defs>
+    <line x1="200" y1="250" x2="200" y2="30" stroke="#cbd5e1" stroke-width="1.2"/>
+    <line x1="60" y1="250" x2="430" y2="250" stroke="#cbd5e1" stroke-width="1.2"/>
+    <text x="206" y="40" font-size="12" fill="#64748b">y</text>
+    <text x="434" y="254" font-size="12" fill="#64748b">x</text>
+    <line x1="200" y1="250" x2="380" y2="130" stroke="#6d28d9" stroke-width="2.2" marker-end="url(#arrRot)"/>
+    <line x1="200" y1="250" x2="80" y2="70" stroke="#c2410c" stroke-width="2.2" marker-end="url(#arrRot2)"/>
+    <path d="M 291.5 189 A 110 110 0 0 0 139 158.5" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="4 3"/>
+    <text x="388" y="142" font-size="13" fill="#6d28d9">原向量 (3, 2)</text>
+    <text x="86" y="56" font-size="13" fill="#c2410c">转 90° 后 (−2, 3)</text>
+    <text x="222" y="118" font-size="12" fill="#64748b">虚线弧：旋转 90°</text>
+    <text x="296" y="218" font-size="12" fill="#6d28d9">长度 3.61</text>
+    <text x="96" y="152" font-size="12" fill="#c2410c" text-anchor="end">长度 3.61</text>
+    <text x="60" y="278" font-size="12" fill="#666">两支箭长度完全一样：旋转只改方向，不改长度</text>
+  </svg>
+  <div class="diagram-caption">图 3：同一支箭转 90 度前后，虚线弧标出旋转的 90 度角。长度不变、方向改变，正是旋转的定义性特征。</div>
+</div>
+
+<div class="highlight-box info">
+  “长度不变”值得单独强调，因为它是旋转区别于其他动作的分界线。同样是矩阵，放大动作让箭变长，投影动作让箭变短，只有旋转（以及镜像）保持长度。
+</div>
+
+<h2>A.1.4 cos 和 sin 从哪来：极坐标与和角公式</h2>
+
+<p>　　旋转矩阵里的 cos、sin 是哪里来的，为什么偏偏是这两个函数？答案很朴素——它们是“角度相加”展开之后的产物。</p>
+
+<p>　　用极坐标写同一支箭：长度 \(r\)、方向角 \(\alpha\)，则 \(x = r\cos\alpha\)，\(y = r\sin\alpha\)。这两个式子把一支箭拆成了"斜边乘投影比例"的形式，几何含义如图 4：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="pArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+      <marker id="pArrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <line x1="150" y1="250" x2="150" y2="46" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#pArrG)"/>
+    <line x1="150" y1="250" x2="646" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#pArrG)"/>
+    <circle cx="150" cy="250" r="2.6" fill="#94a3b8"/>
+    <text x="156" y="56" font-size="12" fill="#64748b">y</text>
+    <text x="652" y="254" font-size="12" fill="#64748b">x</text>
+    <line x1="350" y1="100" x2="350" y2="250" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <line x1="350" y1="100" x2="150" y2="100" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <path d="M 336 250 L 336 236 L 350 236" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>
+    <line x1="150" y1="250" x2="350" y2="100" stroke="#6d28d9" stroke-width="2.4" marker-end="url(#pArrP)"/>
+    <path d="M 220 250 A 70 70 0 0 0 206 209" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+    <text x="204" y="240" font-size="12" fill="#64748b">α</text>
+    <text x="262" y="192" font-size="13" fill="#6d28d9">r</text>
+    <text x="196" y="88" font-size="12" fill="#64748b">x = r · cos α</text>
+    <text x="358" y="180" font-size="12" fill="#64748b">y = r · sin α</text>
+    <text x="150" y="284" font-size="12" fill="#666">同一支箭：cos α 管水平投影，sin α 管垂直投影，r 是斜边</text>
+  </svg>
+  <div class="diagram-caption">图 4：极坐标的几何含义。一支箭的长度 r 是斜边，两个分量分别是 r 乘上 cos α 与 sin α，三角函数在这里的角色就是投影比例。</div>
+</div>
+
+<p>　　所谓“旋转 \(\theta\) 角”，就是长度 \(r\) 一动不动、方向角从 \(\alpha\) 变成 \(\alpha + \theta\)。把新的两个分量写出来并展开和角公式：</p>
+
+<div class="formula-card">
+  \[ x' = r\cos(\alpha + \theta) = r\cos\alpha\cos\theta - r\sin\alpha\sin\theta = x\cos\theta - y\sin\theta \tag{2} \]
+  \[ y' = r\sin(\alpha + \theta) = r\sin\alpha\cos\theta + r\cos\alpha\sin\theta = x\sin\theta + y\cos\theta \tag{3} \]
+  <div class="formula-note">公式 (2) 与 (3)：旋转的全过程。符号说明：\(r\) 是向量长度，\(\alpha\) 是它原来的方向角，\(\theta\) 是要转过的角度；中间一步用了三角函数的和角公式 \(\cos(\alpha+\theta) = \cos\alpha\cos\theta - \sin\alpha\sin\theta\) 与 \(\sin(\alpha+\theta) = \sin\alpha\cos\theta + \cos\alpha\sin\theta\)；最后一步把 \(r\cos\alpha\) 换回 \(x\)、把 \(r\sin\alpha\) 换回 \(y\)，于是长度 \(r\) 被消掉，结果只与原来的分量和转角有关。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="qArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+      <marker id="qArrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="qArrP2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#c4b5fd"/>
+      </marker>
+    </defs>
+    <line x1="180" y1="250" x2="180" y2="46" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#qArrG)"/>
+    <line x1="180" y1="250" x2="640" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#qArrG)"/>
+    <circle cx="180" cy="250" r="2.6" fill="#94a3b8"/>
+    <text x="186" y="56" font-size="12" fill="#64748b">y</text>
+    <text x="646" y="254" font-size="12" fill="#64748b">x</text>
+    <line x1="180" y1="250" x2="353" y2="150" stroke="#c4b5fd" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#qArrP2)"/>
+    <line x1="180" y1="250" x2="232" y2="57" stroke="#6d28d9" stroke-width="2.4" marker-end="url(#qArrP)"/>
+    <path d="M 250 250 A 70 70 0 0 0 240.6 215" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+    <path d="M 275.3 195 A 110 110 0 0 0 208.5 143.8" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+    <text x="206" y="240" font-size="12" fill="#64748b">α</text>
+    <text x="252" y="150" font-size="12" fill="#64748b">θ</text>
+    <text x="358" y="142" font-size="12" fill="#c4b5fd">旋转前 (x, y)</text>
+    <text x="240" y="52" font-size="12" fill="#6d28d9">旋转后 (x′, y′)</text>
+    <text x="180" y="284" font-size="12" fill="#666">旋转 θ = 方向角从 α 加到 α+θ，长度 r 不变</text>
+  </svg>
+  <div class="diagram-caption">图 5：旋转就是给方向角加上 θ，长度一动不动。图中浅色虚线是旋转前的箭，实线是旋转后的箭，两段弧分别标出原来的方向角 α 与转过的 θ。</div>
+</div>
+
+<p>　　把这两个式子整理成矩阵乘向量的形状，就得到了 3.4 节那条公式：</p>
+
+<div class="formula-card">
+  \[ \begin{pmatrix} x' \\ y' \end{pmatrix} = \begin{pmatrix} \cos\theta &amp; -\sin\theta \\ \sin\theta &amp; \cos\theta \end{pmatrix} \begin{pmatrix} x \\ y \end{pmatrix} \tag{4} \]
+  <div class="formula-note">公式 (4)：旋转矩阵的标准形式。符号说明：\(\theta\) 是旋转角度（在 RoPE 里它等于位置编号乘角速度 \(m\theta_i\)）；矩阵第一行 \(\cos\theta, -\sin\theta\) 负责算出 \(x'\)，第二行 \(\sin\theta, \cos\theta\) 负责算出 \(y'\)，与公式 (2)(3) 一一对应；\((x, y)\) 是旋转前的两个分量，\((x', y')\) 是旋转后的两个分量。</div>
+</div>
+
+<div class="highlight-box info">
+  这一步推完，回头看就清楚了：三角函数不是设计者硬塞的装饰，是“把角度加在一起”这件事展开后的必然结果。只要用矩阵表达“角度增加 \(\theta\)”，得到的就只能是这个矩阵。
+</div>
+
+<h2>A.1.5 旋转的两条性质，和 RoPE 有什么关系</h2>
+
+<p>　　旋转矩阵有两条性质，RoPE 整个设计就架在它们上面。</p>
+
+<p>　　<strong>性质一：长度不变。</strong> 这正是 A.1.3 小节验过的事：转多久，箭还是那么长。用矩阵语言说，旋转矩阵乘自己的转置等于单位矩阵，两个向量的点积经过同样的旋转后保持不变。</p>
+
+<p>　　<strong>性质二：旋转可以叠加。</strong> 先转 30 度再转 15 度，等于一次转 45 度。动手算一下就很直观：\((1, 0)\) 连转两次得到 \((0.7071, 0.7071)\)，一次转 45 度得到同样的结果。</p>
+
+<p>　　两条性质都用到点积，先把点积在平面上完整算一遍。取 \(u = (3, 1)\) 与 \(v = (1, 2)\)，两种算法给出同一个数：</p>
+
+<div class="formula-card">
+  \[ u \cdot v = 3 \times 1 + 1 \times 2 = 5 \tag{5} \]
+  \[ u \cdot v = |u|\,|v|\cos\theta = 3.162 \times 2.236 \times \cos 45^\circ = 5 \tag{6} \]
+  <div class="formula-note">公式 (5)：代数算法，对应位置相乘再求和。符号说明：\(u \cdot v\) 表示点积，中间那个圆点是运算符，不是乘号省写；\((3, 1)\) 与 \((1, 2)\) 是两个向量按坐标写开的样子；\(3 \times 1\) 是 \(x\) 分量相乘，\(1 \times 2\) 是 \(y\) 分量相乘。公式 (6)：几何算法，量两支箭的长度与夹角。符号说明：\(|u|\)、\(|v|\) 是两支箭各自的长度，\(|u| = \sqrt{3^2 + 1^2} \approx 3.162\)，\(|v| = \sqrt{1^2 + 2^2} \approx 2.236\)；\(\theta\) 是两箭之间的夹角，这里正好 45 度；\(\cos\theta\) 是夹角余弦。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="dArrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="dArrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+      </marker>
+      <marker id="dArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <line x1="110" y1="290" x2="110" y2="50" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#dArrG)"/>
+    <line x1="110" y1="290" x2="640" y2="290" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#dArrG)"/>
+    <circle cx="110" cy="290" r="2.6" fill="#94a3b8"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="220" y1="286" x2="220" y2="294"/>
+      <line x1="330" y1="286" x2="330" y2="294"/>
+      <line x1="440" y1="286" x2="440" y2="294"/>
+      <line x1="106" y1="180" x2="114" y2="180"/>
+      <line x1="106" y1="70" x2="114" y2="70"/>
+    </g>
+    <text x="646" y="294" font-size="12" fill="#64748b">x</text>
+    <text x="116" y="54" font-size="12" fill="#64748b">y</text>
+    <path d="M 190.6 263.1 A 85 85 0 0 0 148.0 214.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+    <text x="190" y="218" font-size="12" fill="#64748b">45°</text>
+    <line x1="220" y1="70" x2="275" y2="235" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4"/>
+    <path d="M290.2,229.9 L285.1,214.7 L269.9,219.8" fill="none" stroke="#94a3b8" stroke-width="1.2"/>
+    <line x1="110" y1="290" x2="440" y2="180" stroke="#6d28d9" stroke-width="2.2" marker-end="url(#dArrP)"/>
+    <line x1="110" y1="290" x2="220" y2="70" stroke="#2563eb" stroke-width="2.2" marker-end="url(#dArrB)"/>
+    <circle cx="275" cy="235" r="3.4" fill="#c2410c"/>
+    <text x="448" y="185" font-size="13" fill="#6d28d9">u = (3, 1)</text>
+    <text x="228" y="66" font-size="13" fill="#2563eb">v = (1, 2)</text>
+    <text x="285" y="262" font-size="12" fill="#c2410c">垂足：距原点 1.58</text>
+    <text x="300" y="122" font-size="11" fill="#94a3b8">虚线：把 v 的箭尖垂直落到 u 上</text>
+    <text x="300" y="142" font-size="11" fill="#94a3b8">这段影长 1.58 就是 v 在 u 方向上的投影</text>
+  </svg>
+  <div class="diagram-caption">图 6：两个向量的点积。紫色箭头 \(u = (3, 1)\)，蓝色箭头 \(v = (1, 2)\)，两箭夹角 45 度。灰色虚线把 \(v\) 的箭尖垂直落到 \(u\) 上，落点距原点 1.58，这就是 \(v\) 在 \(u\) 方向上的投影；代数算法 \(3 \times 1 + 1 \times 2 = 5\) 与几何算法 \(3.162 \times 2.236 \times \cos 45^\circ = 5\) 得到同一个数。</div>
+</div>
+
+<p>　　两种算法为什么必然相等，看图 6 就清楚：\(\cos\theta\) 量的是 \(v\) 在 \(u\) 方向上投下的影子占 \(v\) 全长的比例，影子长 \(1.58\) 正是 \(|v|\cos\theta = 2.236 \times 0.707\) 算出来的那个数；再乘上 \(u\) 自己的长度，几何算法 \(5 = 3.162 \times 1.58\) 与代数算法 \(5 = 3 + 2\) 说的就是同一件事。点积因此有两个身份：它既是“对应位置相乘求和”这个动作，也是“一支箭在另一支箭方向上投下多长的影子，再乘上对方长度”这个测度。前者方便计算，后者方便理解含义。</p>
+
+<p>　　把这两条性质放到 RoPE 的场景里。位置 \(m\) 的 query 转 \(m\theta\)，位置 \(n\) 的 key 转 \(n\theta\)，两者做点积时看的是它们之间的夹角：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>两者的间距</th><th>夹角</th><th>点积（原始向量都取 \((1, 0)\)）</th></tr></thead>
+    <tbody>
+      <tr><td>间距 0（同一位置）</td><td>0 度</td><td>1</td></tr>
+      <tr><td>间距 1</td><td>45 度</td><td>0.707</td></tr>
+      <tr><td>间距 2</td><td>90 度</td><td>0</td></tr>
+      <tr><td>间距 4</td><td>180 度</td><td>−1</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="cArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <line x1="70" y1="200" x2="668" y2="200" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cArrG)"/>
+    <line x1="90" y1="234" x2="90" y2="60" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cArrG)"/>
+    <text x="672" y="204" font-size="12" fill="#64748b">间距</text>
+    <text x="96" y="70" font-size="12" fill="#64748b">点积</text>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="84" y1="150" x2="96" y2="150"/>
+      <line x1="84" y1="250" x2="96" y2="250"/>
+    </g>
+    <polyline fill="none" stroke="#6d28d9" stroke-width="2.4" points="90.0,150.0 104.0,150.6 118.0,152.4 132.0,155.4 146.0,159.5 160.0,164.6 174.0,170.6 188.0,177.3 202.0,184.5 216.0,192.2 230.0,200.0 244.0,207.8 258.0,215.5 272.0,222.7 286.0,229.4 300.0,235.4 314.0,240.5 328.0,244.6 342.0,247.6 356.0,249.4 370.0,250.0 384.0,249.4 398.0,247.6 412.0,244.6 426.0,240.5 440.0,235.4 454.0,229.4 468.0,222.7 482.0,215.5 496.0,207.8 510.0,200.0 524.0,192.2 538.0,184.5 552.0,177.3 566.0,170.6 580.0,164.6 594.0,159.5 608.0,155.4 622.0,152.4 636.0,150.6 650.0,150.0"/>
+    <g fill="#6d28d9">
+      <circle cx="90" cy="150" r="3.2"/>
+      <circle cx="160" cy="164.6" r="3.2"/>
+      <circle cx="230" cy="200" r="3.2"/>
+      <circle cx="370" cy="250" r="3.2"/>
+    </g>
+    <text x="64" y="140" font-size="12" fill="#6d28d9">1</text>
+    <text x="164" y="154" font-size="12" fill="#6d28d9">0.707</text>
+    <text x="236" y="184" font-size="12" fill="#6d28d9">0</text>
+    <text x="374" y="246" font-size="12" fill="#6d28d9">−1</text>
+    <text x="160" y="218" font-size="12" fill="#64748b" text-anchor="middle">1</text>
+    <text x="230" y="218" font-size="12" fill="#64748b" text-anchor="middle">2</text>
+    <text x="300" y="218" font-size="12" fill="#64748b" text-anchor="middle">3</text>
+    <text x="370" y="218" font-size="12" fill="#64748b" text-anchor="middle">4</text>
+    <text x="440" y="218" font-size="12" fill="#64748b" text-anchor="middle">5</text>
+    <text x="510" y="218" font-size="12" fill="#64748b" text-anchor="middle">6</text>
+    <text x="580" y="218" font-size="12" fill="#64748b" text-anchor="middle">7</text>
+    <text x="650" y="218" font-size="12" fill="#64748b" text-anchor="middle">8</text>
+    <text x="90" y="282" font-size="12" fill="#666">点积 = cos(45° × 间距)：只看间距，与这对向量出现在句子的哪个位置无关</text>
+    <text x="90" y="308" font-size="12" fill="#666">曲线还会随间距上下起伏、周期性回摆，这是每组转速固定的直接结果</text>
+  </svg>
+  <div class="diagram-caption">图 7：把上表画成曲线。横轴是两个 token 的间距，纵轴是它们的点积，四个圆点正好对应表中的四行数字。</div>
+</div>
+
+<p>　　这张表里藏着 RoPE 的全部意义：点积只由间距决定。这对 query 与 key 出现在句子的第 0、1 位，还是第 100、101 位，间距都是 1，点积永远是 0.707——绝对位置在计算中消失了，剩下的只有“隔几站”和“在哪边”。注意这里举的 \(\theta = 45\) 度只是为了口算方便，真实模型的每组转速要小得多。</p>
+
+<p>　　还有一处细节值得补上：真实的 query 向量有 \(d\) 个数（minimind 的头维度是 96），而旋转只在二维平面里有定义，所以做法是把 \(d\) 个数两两配成 \(d/2\) 组，每组是一个小平面，各自以自己的角速度旋转。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <text x="30" y="34" font-size="13" fill="#333">一个头的 q 向量（示意图，实际 d = 96）：96 个数 → 48 组</text>
+    <g stroke-width="1.5">
+      <rect x="30" y="50" width="90" height="40" fill="#ede9fe" stroke="#6d28d9"/>
+      <rect x="140" y="50" width="90" height="40" fill="#ede9fe" stroke="#6d28d9"/>
+      <rect x="250" y="50" width="90" height="40" fill="#ede9fe" stroke="#6d28d9"/>
+      <rect x="360" y="50" width="90" height="40" fill="#f1f5f9" stroke="#94a3b8" stroke-dasharray="4 3"/>
+      <rect x="470" y="50" width="90" height="40" fill="#ede9fe" stroke="#6d28d9"/>
+    </g>
+    <text x="75" y="76" font-size="13" text-anchor="middle" fill="#4c1d95">a0 a1</text>
+    <text x="185" y="76" font-size="13" text-anchor="middle" fill="#4c1d95">a2 a3</text>
+    <text x="295" y="76" font-size="13" text-anchor="middle" fill="#4c1d95">a4 a5</text>
+    <text x="405" y="76" font-size="13" text-anchor="middle" fill="#64748b">……</text>
+    <text x="515" y="76" font-size="13" text-anchor="middle" fill="#4c1d95">a94 a95</text>
+    <text x="75" y="110" font-size="12" text-anchor="middle" fill="#6d28d9">组 0</text>
+    <text x="185" y="110" font-size="12" text-anchor="middle" fill="#6d28d9">组 1</text>
+    <text x="295" y="110" font-size="12" text-anchor="middle" fill="#6d28d9">组 2 … 组 46</text>
+    <text x="515" y="110" font-size="12" text-anchor="middle" fill="#6d28d9">组 47</text>
+    <text x="75" y="140" font-size="12" text-anchor="middle" fill="#c2410c">转 θ0（最快）</text>
+    <text x="185" y="140" font-size="12" text-anchor="middle" fill="#c2410c">转 θ1</text>
+    <text x="295" y="140" font-size="12" text-anchor="middle" fill="#c2410c">转 θ2</text>
+    <text x="515" y="140" font-size="12" text-anchor="middle" fill="#c2410c">转 θ47（几乎不动）</text>
+    <line x1="30" y1="165" x2="690" y2="165" stroke="#e2e8f0" stroke-width="1.4"/>
+    <text x="30" y="196" font-size="13" fill="#333">每组两个数 = 一个二维平面 → 各自旋转自己的角度</text>
+    <text x="30" y="224" font-size="13" fill="#333">组数 = d ÷ 2 = 96 ÷ 2 = 48</text>
+    <text x="30" y="252" font-size="12" fill="#666">转速按几何级数递减：靠前的组转得快，靠后的组几乎不动，合起来构成每个位置独有的旋转模式</text>
+  </svg>
+  <div class="diagram-caption">图 8：d 维向量两两分组后各自旋转。组数与角速度的搭配，就是 3.4 节公式 (2) 的内容。</div>
+</div>
+
+<div class="highlight-box info">
+  配哪两个数也有两种等价约定：原始论文的公式按相邻两维配对，Llama、Hugging Face 与 minimind 的代码按前后半配对（第 \(i\) 个数与第 \(i + d/2\) 个数一组，函数名叫 <code>rotate_half</code>）。两者只是维度顺序不同，旋转效果一样。这正是 3.4 节里那段说明的来源。
+</div>
+
+<h2>A.1.6 矩阵乘法的三种读法</h2>
+
+<p>　　到目前为止，矩阵乘的都是向量：一个矩阵对一支箭头做一次动作。手册里更常见的却是矩阵乘矩阵——4.2 节的 \(XW^Q\)、\(QK^{\top}\)，4.3 节拼接结果乘 \(W^O\)，都是两块数字表格相乘。同一个乘号其实有三种读法，分别适合不同场合，本节把它们一次说清。</p>
+
+<p>　　<strong>读法一：格点视角，每个格子是一个点积。</strong>矩阵乘法的定义本身就长这样：</p>
+
+<div class="formula-card">
+  \[ c_{ij} = a_{i1}b_{1j} + a_{i2}b_{2j} + \cdots + a_{in}b_{nj} = \sum_{k=1}^{n} a_{ik}\, b_{kj} \tag{7} \]
+  <div class="formula-note">公式 (7)：输出矩阵第 \(i\) 行第 \(j\) 列的格子，等于左矩阵第 \(i\) 行与右矩阵第 \(j\) 列的点积。符号说明：\(A\)（\(m\times n\)）与 \(B\)（\(n\times p\)）相乘得 \(C\)（\(m\times p\)）；\(a_{ik}\) 是 \(A\) 第 \(i\) 行第 \(k\) 列的元素，\(b_{kj}\) 是 \(B\) 第 \(k\) 行第 \(j\) 列的元素；\(n\) 是左矩阵的列数，也是右矩阵的行数，两者必须相等才乘得起来。一个 \(m\times p\) 的输出矩阵，背后就是 \(m\times p\) 次“对应相乘再求和”的打包。</div>
+</div>
+
+<p>　　4.2 节算注意力分数用的正是这个视角：分数矩阵 \(QK^{\top}\) 的第 \(i\) 行第 \(j\) 列，就是第 \(i\) 个 query 与第 \(j\) 个 key 的点积（点积为什么能衡量匹配，A.2 节专门讲）。读分数矩阵、手算具体数字时，格点视角最顺手。</p>
+
+<p>　　<strong>读法二：变换视角，每一行各做一次同一个变换。</strong>把左矩阵按行拆开：\(XW\) 的第 \(i\) 行，就是 \(X\) 的第 \(i\) 行（一个行向量）乘 \(W\) 的结果，每行都经过同一个 \(W\)，行与行之间互不相干。而向量乘矩阵又能拆回点积：新向量的第 \(j\) 个分量，是这个向量与 \(W\) 第 \(j\) 列的点积，也就是“它在 \(W\) 第 \(j\) 列方向上的得分”。</p>
+
+<p>　　拿 4.2 节的注意力投影对号入座：输入 \(X\) 是 \(3\times768\)（「我」「爱」「猫」三个 token，各一行 768 维向量），投影矩阵 \(W^Q\) 是 \(768\times96\)，乘出来 \(Q\) 是 \(3\times96\)。它做的事无非是：三个 token 各自拿自己的 768 维向量，与 \(W^Q\) 的 96 列各做一次点积，各得一个 96 维的 \(q\)。三个 token 各算各的、互不混合——输出的任何一行里都没有掺进别的 token 的数字。矩阵形式只是把三次“向量乘矩阵”打包成一次，让 GPU 一趟算完，并没有引入新内容。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="mmArrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="mmArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="50" y="26" font-size="13" fill="#333">4.2 节的单头投影：X × W^Q = Q（尺寸取 minimind 真实值）</text>
+    <!-- 左矩阵 X：3 × 768 -->
+    <rect x="50" y="90" width="150" height="120" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="50" y="130" width="150" height="40" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <line x1="50" y1="130" x2="200" y2="130" stroke="#6d28d9" stroke-width="1"/>
+    <line x1="50" y1="170" x2="200" y2="170" stroke="#6d28d9" stroke-width="1"/>
+    <line x1="120" y1="90" x2="120" y2="210" stroke="#c4b5fd" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="146" y="116" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="125" y="78" font-size="12" fill="#6d28d9" text-anchor="middle">X：3 × 768</text>
+    <text x="36" y="114" font-size="12" fill="#64748b" text-anchor="middle">我</text>
+    <text x="36" y="154" font-size="12" fill="#64748b" text-anchor="middle">爱</text>
+    <text x="36" y="194" font-size="12" fill="#64748b" text-anchor="middle">猫</text>
+    <text x="220" y="132" font-size="16" fill="#333" text-anchor="middle">×</text>
+    <!-- 右矩阵 W^Q：768 × 96 -->
+    <rect x="240" y="50" width="70" height="240" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="269" y="50" width="12" height="240" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <line x1="240" y1="110" x2="310" y2="110" stroke="#ede9fe" stroke-width="1"/>
+    <line x1="240" y1="170" x2="310" y2="170" stroke="#ede9fe" stroke-width="1"/>
+    <line x1="240" y1="230" x2="310" y2="230" stroke="#ede9fe" stroke-width="1"/>
+    <text x="275" y="176" font-size="12" fill="#94a3b8" text-anchor="middle">⋮</text>
+    <text x="275" y="308" font-size="11" fill="#6d28d9" text-anchor="middle">W^Q：768 × 96</text>
+    <text x="330" y="132" font-size="16" fill="#333" text-anchor="middle">=</text>
+    <!-- 输出 Q：3 × 96 -->
+    <rect x="350" y="90" width="150" height="120" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="350" y="130" width="150" height="40" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <line x1="350" y1="130" x2="500" y2="130" stroke="#6d28d9" stroke-width="1"/>
+    <line x1="350" y1="170" x2="500" y2="170" stroke="#6d28d9" stroke-width="1"/>
+    <line x1="420" y1="90" x2="420" y2="210" stroke="#c4b5fd" stroke-width="1" stroke-dasharray="4 3"/>
+    <rect x="413" y="130" width="24" height="40" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="446" y="116" font-size="12" fill="#94a3b8">⋯</text>
+    <text x="425" y="78" font-size="12" fill="#6d28d9" text-anchor="middle">Q：3 × 96</text>
+    <text x="512" y="114" font-size="12" fill="#64748b">q1</text>
+    <text x="512" y="154" font-size="12" fill="#64748b">q2</text>
+    <text x="512" y="194" font-size="12" fill="#64748b">q3</text>
+    <!-- 行 → 行的对应箭头 -->
+    <line x1="200" y1="110" x2="238" y2="110" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#mmArrG)"/>
+    <line x1="312" y1="110" x2="348" y2="110" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#mmArrG)"/>
+    <line x1="200" y1="150" x2="238" y2="150" stroke="#6d28d9" stroke-width="2" marker-end="url(#mmArrP)"/>
+    <line x1="312" y1="150" x2="348" y2="150" stroke="#6d28d9" stroke-width="2" marker-end="url(#mmArrP)"/>
+    <line x1="200" y1="190" x2="238" y2="190" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#mmArrG)"/>
+    <line x1="312" y1="190" x2="348" y2="190" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#mmArrG)"/>
+    <!-- 右侧注释 -->
+    <line x1="437" y1="150" x2="530" y2="122" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3 3"/>
+    <text x="534" y="110" font-size="11.5" fill="#333">紫格 = X 第 2 行与</text>
+    <text x="534" y="128" font-size="11.5" fill="#333">W^Q 第 j 列的点积</text>
+    <text x="534" y="164" font-size="11.5" fill="#d97706">琥珀行：第 2 个 token「爱」</text>
+    <text x="534" y="182" font-size="11.5" fill="#64748b">三行各算各的，互不混合</text>
+    <!-- 底部说明 -->
+    <text x="50" y="248" font-size="12" fill="#666">输出行 i = X 第 i 行 × W^Q：琥珀色是「爱」的路径，灰虚线是另外两个 token 的同款路径</text>
+    <text x="50" y="272" font-size="12" fill="#666">输出的每个格子（紫格）= X 的一行与 W^Q 的一列做点积——格点视角</text>
+  </svg>
+  <div class="diagram-caption">图 9：矩阵乘法的两种读法同框。变换视角：X 的第 i 行穿过 W^Q 落到 Q 的第 i 行（琥珀色为「爱」的路径，灰虚线是另外两个 token），三行互不混合；格点视角：输出里的每个格子（紫格）是 X 的一行与 W^Q 的一列做点积。尺寸为 minimind 真实值：3 个 token、嵌入 768 维、单个注意力头 96 维。</div>
+</div>
+
+<div class="highlight-box info">
+  一个形状约定需要说清：本节与第 4 章都把向量写成行、从左边乘上去，此时矩阵写成“行数 = 输入维度、列数 = 输出维度”，\(W^Q\) 才是 \(768\times96\)。A.1.2 的矩阵乘列向量写法里，同一个动作要写成它的转置。代码里 <code>nn.Linear(768, 96)</code> 存的权重是 \(96\times768\)，相乘时框架会自动转置——三种摆放方式说的是同一个动作。
+</div>
+
+<p>　　<strong>读法三：复合视角，两次动作合成一次。</strong>矩阵乘矩阵还有一层含义：两个变换的复合。按 A.1.2 的列向量写法，向量先经手 \(A\) 再经手 \(B\)，结果是 \(B(Ax)\)；矩阵乘法满足结合律，\(B(Ax) = (BA)x\)，所以“先做 \(A\)、再做 \(B\)”与“一次做 \(BA\)”完全等价——两个矩阵可以先乘起来合成一个新矩阵，一次把两步动作做完（换成行向量写法，同一个复合是 \(xAB\)，从左往右读）。</p>
+
+<p>　　本页前面的旋转就是最好的例子：先转 \(\theta_1\) 再转 \(\theta_2\)，复合之后等于一次转 \(\theta_1+\theta_2\)，写成矩阵是：</p>
+
+<div class="formula-card">
+  \[ R(\theta_2)\,R(\theta_1) = R(\theta_1 + \theta_2) \tag{8} \]
+  <div class="formula-note">公式 (8)：旋转的复合。符号说明：\(R(\theta)\) 是公式 (4) 的旋转矩阵；先转 \(\theta_1\) 再转 \(\theta_2\)，与一次转 \(\theta_1+\theta_2\) 是同一个矩阵。这就是 A.1.5“旋转可以叠加”的矩阵写法，和角公式就藏在两个矩阵相乘的展开里。</div>
+</div>
+
+<p>　　要提醒的是顺序：一般的矩阵乘法不能交换，\(BA\) 与 \(AB\) 通常是两个不同的动作，复合的书写顺序（从右往左读）不能随意调换；同一平面内的旋转是个温柔的例外，两次旋转交换顺序结果相同。</p>
+
+<p>　　三种读法说的都是同一个乘法，区别只在观察角度。读手册时可以按需切换：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>读法</th><th>把乘法看成</th><th>适合的场合</th></tr></thead>
+    <tbody>
+      <tr><td>格点视角</td><td>输出每个格子 = 左矩阵一行与右矩阵一列的点积</td><td>手算具体数字、读注意力分数矩阵 \(QK^{\top}\)（4.2 节）</td></tr>
+      <tr><td>变换视角</td><td>左矩阵每一行各做一次同一个线性变换，各行独立</td><td>理解投影层：QKV 投影（4.2 节）、输出投影 \(W^O\)（4.3 节）</td></tr>
+      <tr><td>复合视角</td><td>两个变换合成一个，先乘起来再一次做完</td><td>理解连续变换，如旋转的叠加（A.1.5）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box">
+  带走一句：矩阵乘法只有一个，三种读法只是三副眼镜。遇到 \(XW^Q\) 这类投影时用变换视角（每行独立过同一个 \(W\)）；遇到 \(QK^{\top}\) 这类打分矩阵时用格点视角（每格一个点积）；遇到连续两次变换时用复合视角（先乘起来，一次做完）。
+</div>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>出现位置</th><th>用到了本节什么</th></tr></thead>
+    <tbody>
+      <tr><td>3.1 词向量</td><td>向量是箭头：语义的相似表现为方向相近，而不是某个维度的数值</td></tr>
+      <tr><td>3.4 相对位置编码</td><td>公式 (1)(2) 的旋转矩阵、两两分组的由来、点积只依赖相对位移的结论</td></tr>
+      <tr><td>3.5 长度外推</td><td>位置超出训练范围意味着转角超出训练分布，注意力分数因而失真</td></tr>
+      <tr><td>8.2 位置编码缩放</td><td>PI、NTK、YaRN 这些方法，改的都是转角 \(\theta\) 或它的基数，动作本身仍是旋转</td></tr>
+      <tr><td>4.2 注意力机制</td><td>点积衡量匹配（下一节 A.2 专门讲点积与相似度）</td></tr>
+      <tr><td>4.2 注意力机制</td><td>QKV 投影 \(XW^Q\) 等：用变换视角读，每个 token 的行独立过同一个投影矩阵，互不混合（A.1.6）</td></tr>
+      <tr><td>4.3 多头注意力</td><td>输出投影 \(W^O\)：拼接行乘矩阵，把 8 个头的信息融合回 768 维，同为变换视角（A.1.6）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch12_5_decoding_practice.html" title="12.5 解码实践与陷阱">← 上一节：12.5 解码实践与陷阱</a><a class="next" href="ch90_2_dot_cosine.html" title="A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”">下一节：A.2 点积、缩放与余弦相似度：注意力怎么算“像不像” →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

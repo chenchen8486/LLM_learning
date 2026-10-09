@@ -1,0 +1,709 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1.3 去重：同一段话训十遍有用吗 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link active" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 1 章 训练数据</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>1.3 去重：同一段话训十遍有用吗</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>1.3 去重：同一段话训十遍有用吗</h1>
+<p class="subtitle">本页范围：第 1 章第 3 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>网络语料里藏着海量重复内容。同一段话让模型学十遍，是加深印象，还是白烧算力、埋下隐患？</td></tr>
+      <tr><td>本节主张</td><td>重复数据放大记忆化、助攻隐私攻击、污染评测结果，去重（Deduplication）是数据工程的标配工序：精确去重抓逐字相同，近似去重抓改头换面，去污染守住评测公平。</td></tr>
+      <tr><td>一句话结论</td><td>同一段话训十遍，模型背下它的概率可能高出上千倍；去掉重复后，模型性能不降反升。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>去重</span><span>记忆化</span><span>后缀数组</span><span>MinHash</span><span>LSH</span><span>去污染</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　1.2 节解决了语料“质”的问题，结尾留了一个“量”的问题：同一篇文章在网上被转载几百次，模型就要被迫把同一段话背上几百遍。本节回答它，分两步走：先把重复的代价算清楚，再按“各抓什么”把去重拆成三道工序，每道配一件经典工具：</p>
+
+<ol>
+  <li><strong>重复的代价：背书、泄密与假高分</strong>（1.3.1）：两个扎眼的数字开路——重复 10 次的序列生成概率高约 1000 倍，超 1% 的无提示输出在逐字照抄训练集；</li>
+  <li><strong>精确去重：让重复者自动排到一起</strong>（1.3.2）：后缀数组的排序直觉，让逐字相同的段落自动相邻，免掉两两比较；</li>
+  <li><strong>近似去重：MinHash 签名与 LSH 分桶</strong>（1.3.3）：抓换标题、套模板的改头换面——Jaccard 定义什么叫“像”，MinHash 把全文压成指纹，LSH 分桶只比同桶候选；</li>
+  <li><strong>去污染：把考题从题库里抽走</strong>（1.3.4）：清的是训练集与测试集之间的重叠，GPT-3 的 13-gram 检测是代表做法。</li>
+</ol>
+
+<p>　　读完本节，你应该能分清三道工序各抓什么、各用什么工具，也能解释“去重后性能不降反升”这条反直觉结论的依据。</p>
+
+<p>　　拆三道工序之前，先看一眼去重在整条 LLM 生命周期中的位置，以及它放大之后的流水线结构。心里有这张地图（图 1、图 2），后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS13dedup" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG13dedup" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#6b7280">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG13dedup)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">紫底框：本节主角</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：训练数据在 LLM 生命周期中的位置。数据备好（本章）之后进入预训练（第 6 章），再经训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章），最后走向推理与部署（第 12–13 章）。虚线部分在对应章节展开，本节只需记住：数据是这条链路的第一站，本节的站位是其中的去重工序，只回答「同一份内容怎么只留一份」。</div>
+</div>
+
+<p>　　图 1 里这个紫框放大之后长什么样？它的输入和输出各是什么？把去重这道工序单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrZ13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：去重工序——同一份内容只留一份</text>
+    <text x="24" y="54" font-size="11" fill="#64748b">输入：过滤后的语料（同一篇文章可能躺着几百份转载副本）</text>
+    <rect x="20" y="80" width="150" height="150" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="102" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">语料段落</text>
+    <rect x="29" y="112" width="36" height="18" rx="3" fill="#6d28d9"/><text x="47" y="125" text-anchor="middle" font-size="11" fill="#fff">A</text>
+    <rect x="67" y="112" width="36" height="18" rx="3" fill="#0891b2"/><text x="85" y="125" text-anchor="middle" font-size="11" fill="#fff">B</text>
+    <rect x="105" y="112" width="36" height="18" rx="3" fill="#6d28d9"/><text x="123" y="125" text-anchor="middle" font-size="11" fill="#fff">A′</text>
+    <rect x="29" y="136" width="36" height="18" rx="3" fill="#9ca3af"/><text x="47" y="149" text-anchor="middle" font-size="11" fill="#fff">C</text>
+    <rect x="67" y="136" width="36" height="18" rx="3" fill="#6d28d9"/><text x="85" y="149" text-anchor="middle" font-size="11" fill="#fff">A″</text>
+    <rect x="105" y="136" width="36" height="18" rx="3" fill="#fef3c7" stroke="#d97706"/><text x="123" y="149" text-anchor="middle" font-size="11" fill="#333">D</text>
+    <text x="95" y="178" text-anchor="middle" font-size="10.5" fill="#666">A、A′、A″ 是同一篇</text>
+    <text x="95" y="196" text-anchor="middle" font-size="10.5" fill="#666">文章的转载副本</text>
+    <rect x="200" y="80" width="150" height="150" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="102" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">MinHash 指纹</text>
+    <text x="275" y="124" text-anchor="middle" font-size="11" fill="#555">全文压成小串数字</text>
+    <rect x="229" y="136" width="18" height="18" rx="3" fill="#6d28d9"/><text x="238" y="149" text-anchor="middle" font-size="11" fill="#fff">3</text>
+    <rect x="251" y="136" width="18" height="18" rx="3" fill="#6d28d9"/><text x="260" y="149" text-anchor="middle" font-size="11" fill="#fff">7</text>
+    <rect x="273" y="136" width="18" height="18" rx="3" fill="#6d28d9"/><text x="282" y="149" text-anchor="middle" font-size="11" fill="#fff">1</text>
+    <rect x="295" y="136" width="18" height="18" rx="3" fill="#6d28d9"/><text x="304" y="149" text-anchor="middle" font-size="11" fill="#fff">9</text>
+    <text x="275" y="176" text-anchor="middle" font-size="10.5" fill="#666">越像的段落</text>
+    <text x="275" y="194" text-anchor="middle" font-size="10.5" fill="#666">签名越一致</text>
+    <text x="275" y="214" text-anchor="middle" font-size="10.5" fill="#666">（1.3.3 节公式）</text>
+    <rect x="380" y="80" width="150" height="150" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="102" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">LSH 聚成重复簇</text>
+    <ellipse cx="455" cy="150" rx="62" ry="30" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <rect x="410" y="140" width="30" height="16" rx="3" fill="#6d28d9"/><text x="425" y="152" text-anchor="middle" font-size="10.5" fill="#fff">A</text>
+    <rect x="446" y="128" width="30" height="16" rx="3" fill="#6d28d9"/><text x="461" y="140" text-anchor="middle" font-size="10.5" fill="#fff">A′</text>
+    <rect x="462" y="152" width="30" height="16" rx="3" fill="#6d28d9"/><text x="477" y="164" text-anchor="middle" font-size="10.5" fill="#fff">A″</text>
+    <text x="455" y="198" text-anchor="middle" font-size="10.5" fill="#666">只比同桶候选对</text>
+    <text x="455" y="216" text-anchor="middle" font-size="10.5" fill="#666">免掉两两全比</text>
+    <rect x="560" y="80" width="140" height="150" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="630" y="102" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">每簇只留一份</text>
+    <rect x="582" y="116" width="36" height="18" rx="3" fill="#6d28d9"/><text x="600" y="129" text-anchor="middle" font-size="11" fill="#fff">A</text>
+    <rect x="630" y="116" width="36" height="18" rx="3" fill="#0891b2"/><text x="648" y="129" text-anchor="middle" font-size="11" fill="#fff">B</text>
+    <rect x="582" y="142" width="36" height="18" rx="3" fill="#9ca3af"/><text x="600" y="155" text-anchor="middle" font-size="11" fill="#fff">C</text>
+    <rect x="630" y="142" width="36" height="18" rx="3" fill="#fef3c7" stroke="#d97706"/><text x="648" y="155" text-anchor="middle" font-size="11" fill="#333">D</text>
+    <text x="630" y="180" text-anchor="middle" font-size="10.5" fill="#666">重复副本删除</text>
+    <text x="630" y="198" text-anchor="middle" font-size="10.5" fill="#666">语料瘦身</text>
+    <line x1="170" y1="155" x2="196" y2="155" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ13)"/>
+    <line x1="350" y1="155" x2="376" y2="155" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ13)"/>
+    <line x1="530" y1="155" x2="556" y2="155" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ13)"/>
+    <text x="360" y="262" text-anchor="middle" font-size="11" fill="#64748b">输出：去重后的语料——逐字复现频率降约 10 倍（Lee et al., 2022）</text>
+    <text x="360" y="290" text-anchor="middle" font-size="10.5" fill="#888">C4 中一句 61 个词的句子重复超 6 万次，正是这样被抓出来</text>
+  </svg>
+  <div class="diagram-caption">图 2：去重流水线。过滤后的语料里，同一文章的转载副本被 MinHash 压成指纹，签名一致者聚成重复簇，每簇只留一份，其余删除。C4 里那句重复超 6 万次的 61 词句子就是这样被抓出来的；去重后模型逐字复现训练数据的频率降约 10 倍。</div>
+</div>
+
+<h2>1.3.1 重复的代价：背书、泄密与假高分</h2>
+
+<p>　　先想一个生活场景：背课文。一段话读一遍，你学到的是里面的知识；读十遍，你开始逐字逐句背诵原文。老师抽查时你能一字不差默写出来，但这不代表你理解了它。语言模型面对重复数据时，处境一模一样。</p>
+
+<p>　　网络爬取的语料重复程度远超直觉。Lee 等人在 2022 年的经典研究中发现，C4 语料里有一句 61 个词的英文句子，竟然重复出现了超过 6 万次；训练数据里还有大量论坛模板、版权声明、转载文章这类成片的近似重复。用这样的数据训出来的模型，<strong>超过 1% 的无提示生成内容是逐字照抄训练集</strong>。</p>
+
+<p>　　更麻烦的是，重复对记忆化的放大是超线性的。Kandpal 等人同年给出的量级结论很扎眼：一条序列在训练集里出现 10 次，模型生成它的概率比只出现 1 次的序列平均<strong>高出约 1000 倍</strong>。重复 10 次换来的不是 10 倍印象，而是 1000 倍的背诵倾向。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">记忆化 Memorization</span>
+    <span class="term-en">memorize = 模型把训练数据原文背进参数里</span>
+  </div>
+  <div class="term-body">
+    <p>记忆化指模型在生成时<strong>逐字复现训练数据</strong>，而不是基于理解重新组织语言。少量记忆化无法避免，但重复数据会让它急剧恶化：模型遇到相似上下文时倾向于整段照抄。如果背下来的是个人隐私、版权文本，麻烦就从学术问题变成法律问题。</p>
+  </div>
+</div>
+
+<p>　　重复数据的账单可以算成三笔：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>记忆化与泄密</h4><p>模型把原文背下来，生成时可能整段照抄。Kandpal 等人进一步发现，针对训练数据的隐私攻击，成功率几乎全部来自重复样本；去重后模型对这类攻击显著更安全。</p></div>
+  <div class="concept-card"><h4>评测失真</h4><p>Lee 等人发现，标准数据集的验证集里有超过 4% 的样本与训练集重叠。模型在“见过的题”上拿高分，基准成绩虚高，对比实验失去意义。</p></div>
+  <div class="concept-card"><h4>算力浪费</h4><p>重复 token 消耗训练算力却不带来新信息。Lee 等人的实验显示，去重后的模型达到同等甚至更好精度所需的训练步数反而更少。</p></div>
+</div>
+
+<div class="highlight-box">
+  Lee 等人 2022 年的核心结论：对训练数据去重后，模型逐字复现训练数据的频率降低约 10 倍，下游性能不降反升。去重是少有的“删数据反而让模型更好”的工序。
+</div>
+
+<h2>1.3.2 精确去重：让重复者自动排到一起</h2>
+
+<p>　　先说最简单的目标：找出整个语料库里<strong>逐字相同</strong>的段落。笨办法是两两比较，但几万亿 token 的语料两两比到天荒地老也比不完。需要一个让重复内容自动现身的结构。</p>
+
+<p>　　答案是一个经典的字符串工具：<strong>后缀数组（Suffix Array）</strong>。思路很妙——把全部语料拼成一个超长字符串，然后给每个位置建立一条“从该位置一直到结尾”的条目（称为后缀），再把这些条目按字典序排序。排序之后，凡是开头相同的条目必然相邻，重复段落会自己排到一起：扫描一遍有序列表就能发现重复，完全不用两两对比。</p>
+
+<p>　　Lee 等人提出的 <strong>ExactSubstr</strong> 就是这条路线的工程实现：拼接语料、建后缀数组，凡是重复出现且长度超过阈值（论文用 50 个 token）的子串都会被标记出来，同一份内容只保留一个副本，其余重复副本全部删除。那句在 C4 里重复 6 万次的 61 词句子，正是被这套工具抓出来的。后缀数组的构造有成熟的高效算法，配套实现也已开源，足以处理工业级语料。这里只需记住排序带来的直觉，算法细节点到为止。</p>
+
+<h2>1.3.3 近似去重：MinHash 签名与 LSH 分桶</h2>
+
+<p>　　精确匹配抓得住逐字照抄，却抓不住改头换面：转载文章换了个标题、网页套用了同一个模板、AI 洗稿改了几个词。这些内容字符不完全相同，但语义上就是同一份。要抓它们，先得定义什么叫“像”。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Jaccard 相似度</span>
+    <span class="term-en">Jaccard similarity = 交集大小 ÷ 并集大小</span>
+  </div>
+  <div class="term-body">
+    <p>把每篇文档拆成一组片段（shingle，例如连续 5 个词算一个片段），文档就变成集合。两个集合的<strong>交集大小除以并集大小</strong>就是 Jaccard 相似度：取值 0 到 1，越接近 1 越像。它天然容忍少量改动——换标题只动几个片段，相似度依然很高。</p>
+  </div>
+</div>
+
+<p>　　定义了相似度，直接算还是要两两比较集合，规模一大就崩。<strong>MinHash</strong> 用一个概率技巧绕开了全文比较：对集合施加一个随机哈希函数，取所有片段中哈希值最小的那个，作为签名的一位。重复几十个不同的随机哈希函数，就得到一小串数字——这篇文档的“指纹”。它的灵魂性质是：</p>
+
+<div class="formula-card">
+  \[ J(A,B)=\frac{|A\cap B|}{|A\cup B|} \tag{1} \]
+  \[ \Pr\!\left[h_{\min}(A)=h_{\min}(B)\right]=J(A,B) \tag{2} \]
+  <div class="formula-note">公式 (1)：Jaccard 相似度定义。公式 (2)：MinHash 的核心性质——两篇文档在同一位签名上相同的概率，恰好等于它们的 Jaccard 相似度。文档越像，指纹越一致。符号说明：\(A\) 与 \(B\) 是两篇文档各自拆出的片段（shingle）集合；\(|A\cap B|\)、\(|A\cup B|\) 分别是两集合交集与并集的大小；\(J(A,B)\) 是两者的 Jaccard 相似度；\(h_{\min}(A)\) 是对集合 \(A\) 施加一个随机哈希函数后，所有片段哈希值中最小的那个，即 MinHash 签名的一位；\(\Pr[\cdot]\) 表示事件发生的概率，随机性来自随机哈希函数的选取。</div>
+</div>
+
+<p>　　签名把“比较两篇全文”压缩成“比较两小串数字”，但还剩最后一个问题：语料有上亿篇文档，两两比签名依然是平方级。这时 <strong>LSH（Locality-Sensitive Hashing，局部敏感哈希）</strong>登场：把签名切成若干段，逐段再哈希进桶。只要两篇文档签名足够像，就大概率在某一段上落进同一个桶。于是只需比较<strong>同桶的候选对</strong>，最后再对候选对做一次精确复核，把误报筛掉。比较总次数从平方级降到近似线性。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="72" y="30" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">文档集合</text>
+    <text x="222" y="30" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">MinHash 签名</text>
+    <text x="392" y="30" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">LSH 分桶</text>
+    <text x="600" y="30" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">候选对复核</text>
+    <rect x="15" y="55" width="115" height="44" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="72" y="74" text-anchor="middle" font-size="13" fill="#333">文档 A</text>
+    <text x="72" y="91" text-anchor="middle" font-size="11" fill="#666">新闻原文</text>
+    <rect x="15" y="112" width="115" height="44" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="72" y="131" text-anchor="middle" font-size="13" fill="#333">文档 B</text>
+    <text x="72" y="148" text-anchor="middle" font-size="11" fill="#666">转载并改标题</text>
+    <rect x="15" y="169" width="115" height="44" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="72" y="188" text-anchor="middle" font-size="13" fill="#333">文档 C</text>
+    <text x="72" y="205" text-anchor="middle" font-size="11" fill="#666">无关内容</text>
+    <line x1="132" y1="77" x2="162" y2="77" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="132" y1="134" x2="162" y2="134" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="132" y1="191" x2="162" y2="191" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="168" y="64" width="27" height="26" rx="3" fill="#6d28d9"/><text x="181" y="82" text-anchor="middle" font-size="12" fill="#fff">3</text>
+    <rect x="197" y="64" width="27" height="26" rx="3" fill="#6d28d9"/><text x="210" y="82" text-anchor="middle" font-size="12" fill="#fff">7</text>
+    <rect x="226" y="64" width="27" height="26" rx="3" fill="#6d28d9"/><text x="239" y="82" text-anchor="middle" font-size="12" fill="#fff">1</text>
+    <rect x="255" y="64" width="27" height="26" rx="3" fill="#6d28d9"/><text x="268" y="82" text-anchor="middle" font-size="12" fill="#fff">9</text>
+    <rect x="168" y="121" width="27" height="26" rx="3" fill="#6d28d9"/><text x="181" y="139" text-anchor="middle" font-size="12" fill="#fff">3</text>
+    <rect x="197" y="121" width="27" height="26" rx="3" fill="#6d28d9"/><text x="210" y="139" text-anchor="middle" font-size="12" fill="#fff">7</text>
+    <rect x="226" y="121" width="27" height="26" rx="3" fill="#6d28d9"/><text x="239" y="139" text-anchor="middle" font-size="12" fill="#fff">1</text>
+    <rect x="255" y="121" width="27" height="26" rx="3" fill="#6d28d9"/><text x="268" y="139" text-anchor="middle" font-size="12" fill="#fff">9</text>
+    <rect x="168" y="178" width="27" height="26" rx="3" fill="#0891b2"/><text x="181" y="196" text-anchor="middle" font-size="12" fill="#fff">8</text>
+    <rect x="197" y="178" width="27" height="26" rx="3" fill="#0891b2"/><text x="210" y="196" text-anchor="middle" font-size="12" fill="#fff">2</text>
+    <rect x="226" y="178" width="27" height="26" rx="3" fill="#0891b2"/><text x="239" y="196" text-anchor="middle" font-size="12" fill="#fff">5</text>
+    <rect x="255" y="178" width="27" height="26" rx="3" fill="#0891b2"/><text x="268" y="196" text-anchor="middle" font-size="12" fill="#fff">4</text>
+    <line x1="286" y1="77" x2="316" y2="77" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="286" y1="134" x2="316" y2="134" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="286" y1="191" x2="316" y2="191" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="322" y="52" width="140" height="104" rx="8" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="392" y="72" text-anchor="middle" font-size="13" fill="#333">桶 ①</text>
+    <rect x="340" y="84" width="46" height="24" rx="12" fill="#6d28d9"/><text x="363" y="101" text-anchor="middle" font-size="12" fill="#fff">A</text>
+    <rect x="398" y="84" width="46" height="24" rx="12" fill="#6d28d9"/><text x="421" y="101" text-anchor="middle" font-size="12" fill="#fff">B</text>
+    <text x="392" y="132" text-anchor="middle" font-size="11" fill="#666">签名一致落同桶</text>
+    <text x="392" y="148" text-anchor="middle" font-size="11" fill="#666">成为候选对</text>
+    <rect x="322" y="168" width="140" height="52" rx="8" fill="#f0fdfa" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="392" y="188" text-anchor="middle" font-size="13" fill="#333">桶 ②</text>
+    <rect x="368" y="194" width="46" height="22" rx="11" fill="#0891b2"/><text x="391" y="209" text-anchor="middle" font-size="12" fill="#fff">C</text>
+    <line x1="464" y1="104" x2="496" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="464" y1="194" x2="496" y2="194" stroke="#0891b2" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="500" y="55" width="205" height="40" rx="6" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="602" y="80" text-anchor="middle" font-size="13" fill="#333">候选对 (A, B) 逐字复核</text>
+    <rect x="500" y="108" width="205" height="40" rx="6" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="602" y="132" text-anchor="middle" font-size="13" fill="#333">判定近重复：删 B 留 A</text>
+    <rect x="500" y="174" width="205" height="40" rx="6" fill="#f0fdfa" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="602" y="191" text-anchor="middle" font-size="13" fill="#333">C 在桶内无伙伴</text>
+    <text x="602" y="207" text-anchor="middle" font-size="11" fill="#666">直接保留，无需比较</text>
+    <text x="360" y="262" text-anchor="middle" font-size="12" fill="#666">签名的每一位来自一个随机哈希：两篇文档越相似，对应位相同的概率越大。</text>
+    <text x="360" y="284" text-anchor="middle" font-size="12" fill="#666">分桶把“两两比较”变成“只比同桶”，比较次数从平方级降到近似线性。</text>
+  </svg>
+  <div class="diagram-caption">图 3：近似去重流水线。文档先浓缩为 MinHash 签名，LSH 按签名分桶，只有同桶文档才进入复核，无需全量两两比较。</div>
+</div>
+
+<p>　　Lee 等人的 <strong>NearDup</strong> 就是 MinHash 路线在整文档级去近重复的落地。MinHash 本身比 LLM 年长得多：它由 Broder 在 1997 年提出，最初用于 AltaVista 搜索引擎的网页近重复检测，如今是数据工程的教科书工具。从原始网页到候选数据，这两节讲的正是大多数语料管线里实际跑着的去重环节。</p>
+
+<h2>1.3.4 去污染：把考题从题库里抽走</h2>
+
+<p>　　去重管的是训练集<strong>内部</strong>，还有一类重叠发生在训练集与测试集<strong>之间</strong>：基准测试的题目混进了训练语料，模型考的是自己背过的题。专门清除这类重叠的工序叫<strong>去污染（Decontamination）</strong>。</p>
+
+<p>　　GPT-3 的做法是代表性案例：对训练语料做 <strong>13-gram 重叠检测</strong>，凡是与评测集出现 13 个连续词重叠的训练文档，一律剔除，防止基准成绩失真。这套思路和去重一脉相承，只是枪口对准的是题库。后续主流模型的技术报告里，去污染已成为数据管线的固定一站；第 15 章讲评测时还会回到污染检测这个话题。</p>
+
+<div class="highlight-box">
+  一句话收束全节：精确去重抓逐字相同，近似去重抓改头换面，去污染守住考试公平。三道工序做完，数据才算备好——下一章就看这些干净的文本如何被切成 token。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">同一段话训十遍为什么反而有害？</div>
+    <div class="sc-key">记忆化被超线性放大：出现 10 次的序列生成概率约高 1000 倍；隐私攻击的成功率几乎全部来自重复样本；训练集与测试集重叠还会让评测成绩虚高，重复 token 同时白烧训练算力。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">精确去重与近似去重各抓什么？</div>
+    <div class="sc-key">ExactSubstr 用后缀数组抓逐字重复的长子串（排序让重复者相邻）；NearDup 用 MinHash 在整文档级抓换标题、套模板这类改头换面的近重复。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">MinHash 加 LSH 凭什么把平方级比较降下来？</div>
+    <div class="sc-key">MinHash 签名的碰撞概率恰好等于 Jaccard 相似度，小串数字代替全文比较；LSH 把签名分段分桶，只需比较同桶候选对，比较次数降到近似线性。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Lee et al., 2022. Deduplicating Training Data Makes Language Models Better（ACL 2022，arXiv:2107.06499）：ExactSubstr 与 NearDup、C4 中 61 词句子重复超 6 万次、超 1% 无提示输出逐字复制、去重后复现频率降约 10 倍、验证集重叠超 4%，均出自该文。</li>
+  <li>Kandpal, Wallace &amp; Raffel, 2022. Deduplicating Training Data Mitigates Privacy Risks in Language Models（ICML 2022，arXiv:2202.06539）：出现 10 次的序列生成概率约高 1000 倍、隐私攻击成功率集中于重复样本。</li>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3 技术报告，arXiv:2005.14165）：13-gram 重叠检测的基准去污染做法。</li>
+  <li>Broder, 1997. On the Resemblance and Containment of Documents（MinHash 原始论文，SEQUENCES 1997）。</li>
+  <li>Rajaraman &amp; Ullman, Mining of Massive Datasets, 第 3 章 Finding Similar Items（Jaccard 相似度、MinHash 与 LSH 的教材级讲解，http://www.mmds.org）。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch1_2_quality_filtering.html" title="1.2 质量过滤：从万亿网页里挑出好文本">← 上一节：1.2 质量过滤：从万亿网页里挑出好文本</a><a class="next" href="ch1_4_data_mixture.html" title="1.4 数据配比：网页、代码、数学各放多少">下一节：1.4 数据配比：网页、代码、数学各放多少 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

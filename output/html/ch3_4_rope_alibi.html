@@ -1,0 +1,735 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3.4 相对位置编码：RoPE 与 ALiBi — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link active" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 3 章 词向量与位置编码</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>3.4 相对位置编码：RoPE 与 ALiBi</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>3.4 相对位置编码：RoPE 与 ALiBi</h1>
+<p class="subtitle">本页范围：第 3 章第 4 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>绝对位置编码给每个 token 发一张“门牌号”，可注意力真正关心的是两个词之间隔多远。怎样让模型直接感知“相对距离”？</td></tr>
+      <tr><td>本节主张</td><td>RoPE 把注意力中用于匹配的 query / key 向量按位置旋转不同角度，让注意力内积自动只依赖相对距离；ALiBi 不碰向量，直接在注意力分数上按距离扣分。前者效果好、生态主流，后者外推朴素直接。</td></tr>
+      <tr><td>一句话结论</td><td>RoPE 是当今 LLM 事实上的标准位置编码（Llama、Qwen、DeepSeek、minimind 全在用），ALiBi 以“训练短、测试长”的免续训外推占有一席之地。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>相对位置编码</span><span>RoPE</span><span>旋转矩阵</span><span>远程衰减</span><span>ALiBi</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　3.3 节结尾留下一个问题：绝对位置编码先发门牌号、再让模型间接推距离，绕了一道弯。本节的主角们选择开门见山，把“隔几站”直接告诉注意力。同样一个目标，出现了两条截然不同的实现路线，本节各用一节讲透：</p>
+
+<ol>
+  <li><strong>从“门牌号”到“隔几站”：一次思路转变</strong>（3.4.1）：为什么注意力真正关心的是距离，而不是序号；</li>
+  <li><strong>RoPE：给 query / key 装上旋转指针</strong>（3.4.2）：位置每前进一格就把向量转一个角度，内积里的绝对位置自动消掉；</li>
+  <li><strong>RoPE 为何成为主流</strong>（3.4.3）：零参数、开销小、效果硬，以及它“拙于外推”的软肋；</li>
+  <li><strong>ALiBi：注意力分数上的线性罚单</strong>（3.4.4）：向量一个都不动，按距离从注意力分数里扣分，换来免续训的外推能力。</li>
+</ol>
+
+<p>　　读完全节，你要能讲清 RoPE 的旋转如何让内积只依赖相对距离、ALiBi 的线性罚单凭什么“训练短、测试长”，以及两者各自的代价。最后留下的外推难题，由 3.5 节接手。</p>
+
+<p>　　RoPE 与 ALiBi 解决的是同一个问题：让注意力知道「隔几站」。它们动手的地方仍在位置编码这一站，只是不再往向量上加门牌号：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="loc34P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="loc34G" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">本节主角：RoPE / ALiBi</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（3.4 节）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc34P)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc34P)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc34P)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc34P)"/>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（4.6 节）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc34G)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc34G)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#loc34G)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="120" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="146" y="302" font-size="10.5" fill="#555">浅色实线框：已讲章节</text>
+    <rect x="330" y="292" width="18" height="11" rx="2" fill="#6d28d9"/>
+    <text x="356" y="302" font-size="10.5" fill="#555">紫底框：本节主角</text>
+    <rect x="510" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="536" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：RoPE / ALiBi 在前向链路中的位置。它们与 3.2 节共享位置编码这一站，但换了做法：不加位置向量，而是让相对距离直接长进注意力的计算里。</div>
+</div>
+
+<p>　　RoPE 的做法是把每个位置的 query 和 key 按位置转一个角度。用三支箭把「各转各的」和「点积只剩间距」画出来（旋转与点积的几何细节都在附录 A.1）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 520" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="ropeP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="ropeB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+      </marker>
+      <marker id="ropeLB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#93c5fd"/>
+      </marker>
+      <marker id="ropeG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="40" y="34" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：RoPE——每个位置把自己的向量转一个角度</text>
+    <text x="40" y="58" font-size="11" fill="#64748b">① 三个位置的 key 向量（二维简化，原始方向一致）：位置 m 转 m·θ，θ 取 45° 仅为好算</text>
+    <text x="140" y="78" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">位置 0：不转</text>
+    <line x1="70" y1="190" x2="210" y2="190" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#ropeG)"/>
+    <line x1="140" y1="190" x2="140" y2="84" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#ropeG)"/>
+    <line x1="140" y1="190" x2="205.8" y2="166.1" stroke="#2563eb" stroke-width="2.2" marker-end="url(#ropeB)"/>
+    <text x="140" y="212" text-anchor="middle" font-size="10" fill="#64748b">转 0°，保持原方向</text>
+    <text x="360" y="78" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">位置 1：转 45°</text>
+    <line x1="290" y1="190" x2="430" y2="190" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#ropeG)"/>
+    <line x1="360" y1="190" x2="360" y2="84" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#ropeG)"/>
+    <line x1="360" y1="190" x2="425.8" y2="166.1" stroke="#93c5fd" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#ropeLB)"/>
+    <line x1="360" y1="190" x2="389.6" y2="126.6" stroke="#6d28d9" stroke-width="2.2" marker-end="url(#ropeP)"/>
+    <path d="M 388.2 179.7 A 30 30 0 0 0 372.7 162.8" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+    <text x="396" y="160" font-size="11" fill="#64748b">45°</text>
+    <text x="360" y="212" text-anchor="middle" font-size="10" fill="#64748b">虚线：旋转前的方向</text>
+    <text x="580" y="78" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">位置 2：转 90°</text>
+    <line x1="510" y1="190" x2="650" y2="190" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#ropeG)"/>
+    <line x1="580" y1="190" x2="580" y2="84" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#ropeG)"/>
+    <line x1="580" y1="190" x2="645.8" y2="166.1" stroke="#93c5fd" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#ropeLB)"/>
+    <line x1="580" y1="190" x2="556.1" y2="124.2" stroke="#6d28d9" stroke-width="2.2" marker-end="url(#ropeP)"/>
+    <path d="M 608.2 179.7 A 30 30 0 0 0 569.7 161.8" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+    <text x="602" y="148" font-size="11" fill="#64748b">90°</text>
+    <text x="580" y="212" text-anchor="middle" font-size="10" fill="#64748b">虚线：旋转前的方向</text>
+    <text x="40" y="248" font-size="11" fill="#64748b">② query 与 key 做点积时转角相减（A.1 性质二：旋转可叠加），夹角只剩 (n−m)·θ，与绝对位置无关</text>
+    <line x1="70" y1="340" x2="210" y2="340" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#ropeG)"/>
+    <line x1="140" y1="340" x2="140" y2="244" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#ropeG)"/>
+    <line x1="140" y1="340" x2="169.6" y2="276.6" stroke="#6d28d9" stroke-width="2.2" marker-end="url(#ropeP)"/>
+    <line x1="140" y1="340" x2="116.1" y2="274.2" stroke="#2563eb" stroke-width="2.2" marker-end="url(#ropeB)"/>
+    <path d="M 154.4 309.2 A 34 34 0 0 0 128.4 308.1" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+    <text x="180" y="266" font-size="11" fill="#6d28d9">q（位置 1，转了 45°）</text>
+    <text x="60" y="266" font-size="11" fill="#2563eb">k（位置 2，转了 90°）</text>
+    <text x="182" y="296" font-size="10" fill="#64748b">夹角 45°</text>
+    <rect x="300" y="260" width="180" height="30" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="390" y="279" text-anchor="middle" font-size="11" fill="#4c1d95">间距 0 → 点积 1.000</text>
+    <rect x="300" y="298" width="180" height="30" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="390" y="317" text-anchor="middle" font-size="11" fill="#4c1d95">间距 1 → 点积 0.707</text>
+    <rect x="300" y="336" width="180" height="30" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="390" y="355" text-anchor="middle" font-size="11" fill="#4c1d95">间距 2 → 点积 0.000</text>
+    <text x="300" y="392" font-size="11" fill="#64748b">点积只看「隔几站」，数值与 A.1.5 的表一致</text>
+    <text x="40" y="440" font-size="11" fill="#64748b">③ 真实维度：96 维拆成 48 组二维小平面，每组各按自己的转速旋转（两两分组图见 A.1.5）</text>
+    <text x="40" y="464" font-size="11" fill="#64748b">ALiBi 不转向量，直接在注意力分数上按距离扣分（3.4.4 节）</text>
+  </svg>
+  <div class="diagram-caption">图 2：RoPE 的旋转机制（二维简化）。每个位置的 query 与 key 按自己的位置转角：位置 m 转 m·θ（θ 取 45° 仅为好算，真实模型每组转速小得多）；两者做点积时转角相减，夹角只剩 (n−m)·θ，点积因此只由间距决定。96 维拆成 48 组二维平面各转各的，几何推导与点积示例均在附录 A.1。</div>
+</div>
+
+<h2>3.4.1 从“门牌号”到“隔几站”：一次思路转变</h2>
+
+<p>　　上一节讲的绝对位置编码，做法是给每个 token 发一张门牌号：位置 0 一个向量、位置 1 一个向量，把位置向量加在词向量上一起送进模型。这个方案能用，但有一个拧巴的地方——注意力真正关心的问题不是“你在哪”，而是“你离我有多远”。</p>
+
+<p>　　举个例子。句子“猫追狗，狗追猫”里，决定“追”和“猫”关系远近的，是“猫在追的左边隔 1 站”还是“右边隔 1 站”，而不是“追”是第 2 个 token 还是第 20 个 token。一种合理的期待是：<strong>同样两个词，只要相隔的站数和方向相同，不管出现在句子哪个位置，它们在注意力里的相互作用就应该相同</strong>。注意这里记的是带方向的位移，不是不带方向的距离：前半句里猫在追的左边隔 1 站，后半句里猫在追的右边隔 1 站，这是两个不同的相对位置，注意力完全区分得开——否则“猫追狗”和“狗追猫”就分不出来了。绝对位置编码把这个信息拐了一道弯（先各自记门牌，再由模型学出门牌差），相对位置编码则开门见山：直接把“隔几站、在哪边”告诉注意力。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">相对位置编码（Relative Position Encoding）</span>
+    <span class="term-en">编码对象是 token 之间的距离，而非 token 的序号</span>
+  </div>
+  <div class="term-body">
+    <p>与绝对位置编码相对的一族方法。它不记录“这个 token 是第几个”，而是让任意两个 token 在计算注意力时直接知道“我们相隔多远”。实现思路主要有两条：改造向量，让内积自带距离信息（RoPE）；或者改造注意力分数，按距离加惩罚（ALiBi）。</p>
+  </div>
+</div>
+
+<p>　　本节讲透这两条路线的代表：2021 年 Su 等人提出的 RoPE，和 2022 年 Press 等人提出的 ALiBi。前者如今几乎是所有主流 LLM 的默认选择，后者凭一手“训练用短序列、测试用长序列”的绝活占住一席之地。</p>
+
+<h2>3.4.2 RoPE：给 query / key 装上旋转指针</h2>
+
+<p>　　RoPE（Rotary Position Embedding，旋转位置编码）的想法一句话说清：<strong>位置每前进一格，就把 query 和 key 向量旋转一个固定角度</strong>。位置 5 的向量比位置 2 的多转 3 格角度，注意力一比对两个向量的朝向差，“隔了几站”自然就出来了。</p>
+
+<div class="highlight-box info">
+  <p><strong>先交代三个词。</strong>注意力机制里，每个 token 的向量会经各自的权重矩阵派生出三种角色：Query 是它拿去提问的向量，Key 是它亮出来供人匹配的索引，Value 是它实际提供的内容。提问与索引做匹配得到分数，分数决定从对方那里取多少内容。三者都是同一个 token 的向量，与词表的行、列无关。第 4 章会把整套机制拆开讲，本页只需要这个最小印象。</p>
+</div>
+
+<p>　　具体怎么转？RoPE 把每个注意力头的 query、key 向量（维度 \(d\)）两两分成 \(d/2\) 组，每组看成一个二维平面里的向量，按各自的位置编号分别旋转：</p>
+
+<div class="formula-card">
+  \[ \begin{pmatrix} x' \\ y' \end{pmatrix} = R(m\theta_i) \begin{pmatrix} x \\ y \end{pmatrix}, \qquad R(m\theta_i) = \begin{pmatrix} \cos m\theta_i &amp; -\sin m\theta_i \\ \sin m\theta_i &amp; \cos m\theta_i \end{pmatrix} \tag{1} \]
+  <div class="formula-note">公式 (1)：位置 \(m\) 的第 \(i\) 组维度被旋转角度 \(m\theta_i\)。位置越靠后，转角越大；旋转矩阵保证只改朝向、不改向量长度。符号说明：\(x, y\) 是同一维度组的两个分量（旋转前，配对约定见下文正文），\(x', y'\) 是旋转后的两个分量；\(m\) 是位置编号；\(\theta_i\) 是第 \(i\) 组的旋转角速度（由公式 (2) 给出）；\(R(m\theta_i)\) 是 2×2 旋转矩阵，作用是把二维向量旋转角度 \(m\theta_i\)。</div>
+  \[ \theta_i = \mathrm{base}^{-\,2i/d}, \qquad i = 0,\,1,\,\dots,\,d/2 - 1 \tag{2} \]
+  <div class="formula-note">公式 (2)：每组维度的“转速” \(\theta_i\) 按几何级数递减，base 通常取 10000：第 0 组 \(\theta_0 = 1\) 转得最快，最后一组降到 \(10^{-4}\) 量级，几乎不动。符号说明：\(\theta_i\) 是第 \(i\) 个维度组的旋转角速度，即位置每前进一格所转的角度；\(\mathrm{base}\) 是基数，论文取 10000；\(d\) 是注意力头的维度；\(i\) 是维度组编号，从 0 到 \(d/2-1\)。</div>
+</div>
+
+<p>　　把公式 (1) 和 (2) 合起来看：\(d\) 维向量被两两配对分成 \(d/2\) 组。以 minimind 的头维度 \(d=96\) 为例，96 个数正好配成 48 组，每组两个数看成一个平面上的坐标 \((x,y)\)，各自按角速度 \(\theta_i\) 随位置匀速旋转——靠前的组转得快，靠后的组转得慢，转速按几何级数逐组递减。为什么必须两两一组？因为“旋转”只在二维平面里有定义：公式 (1) 的旋转矩阵是 2×2 的，一次只作用在两个数上，\(d\) 维向量没法整体转一个角度，只能拆成 48 个小平面各转各的。48 组的转角组合起来，就是每个位置独一无二的旋转模式。</p>
+
+<p>　　这里还要说清“两两配对”到底配哪两个，有两种数学上等价的约定。原始论文的公式按<strong>相邻两维</strong>配对，即第 0、1 个数一组，第 2、3 个数一组，依此类推；而 Llama、Hugging Face 以及 minimind 的实现按<strong>前后半配对</strong>，即第 \(i\) 个数与第 \(i+d/2\) 个数一组（minimind 里那个函数就叫 <code>rotate_half</code>，见 <code>model/model_minimind.py</code> 第 80 至 84 行）。两者只是把维度重新排了个序，旋转效果完全一样，读代码时不必被配对顺序绕住。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="ropeArrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="ropeArrC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+      <marker id="ropeArrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <!-- 左面板：同一词在不同位置 -->
+    <text x="175" y="26" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">同一个词，位置不同，转角不同</text>
+    <circle cx="170" cy="175" r="90" fill="none" stroke="#d4d4d8" stroke-width="1.5"/>
+    <circle cx="170" cy="175" r="3.5" fill="#6d28d9"/>
+    <line x1="170" y1="175" x2="256" y2="175" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#ropeArrP)"/>
+    <line x1="170" y1="175" x2="235" y2="121" stroke="#0891b2" stroke-width="2.5" marker-end="url(#ropeArrC)"/>
+    <line x1="170" y1="175" x2="177" y2="89" stroke="#dc2626" stroke-width="2.5" marker-end="url(#ropeArrR)"/>
+    <path d="M 207 175 A 37 37 0 0 0 198.3 151.2" fill="none" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="3,3"/>
+    <text x="213" y="161" font-size="12" fill="#6d28d9">3θ</text>
+    <path d="M 208.8 142.4 A 51 51 0 0 0 174.4 124.2" fill="none" stroke="#999999" stroke-width="1.2" stroke-dasharray="3,3"/>
+    <text x="195" y="112" font-size="12" fill="#666666">4θ</text>
+    <text x="262" y="179" font-size="12" fill="#6d28d9">位置 0：转角 0</text>
+    <text x="241" y="112" font-size="12" fill="#0891b2">位置 3：转角 3θ</text>
+    <text x="183" y="80" font-size="12" fill="#dc2626">位置 7：转角 7θ</text>
+    <text x="175" y="305" text-anchor="middle" font-size="12" fill="#666666">两个位置隔几格，朝向就差几个 θ：相对距离直接可见</text>
+    <!-- 分隔线 -->
+    <line x1="368" y1="45" x2="368" y2="300" stroke="#d4d4d8" stroke-width="1" stroke-dasharray="4,4"/>
+    <!-- 右面板：不同维度组转速不同 -->
+    <text x="548" y="26" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">不同维度组，转速不同</text>
+    <text x="396" y="58" font-size="12" fill="#333333">第 1 组：θ ≈ 1 rad/格，转得最快</text>
+    <rect x="396" y="64" width="250" height="16" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="654" y="77" font-size="12" fill="#6d28d9">秒针</text>
+    <text x="396" y="128" font-size="12" fill="#333333">中间组：转速居中</text>
+    <rect x="396" y="134" width="120" height="16" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="524" y="147" font-size="12" fill="#0891b2">分针</text>
+    <text x="396" y="198" font-size="12" fill="#333333">最后一组：θ 只有 0.0001 量级，几乎不动</text>
+    <rect x="396" y="204" width="22" height="16" rx="4" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="426" y="217" font-size="12" fill="#dc2626">时针</text>
+    <text x="548" y="262" text-anchor="middle" font-size="12" fill="#666666">位置每走一格，d/2 根“指针”各转各的角度</text>
+    <text x="548" y="284" text-anchor="middle" font-size="12" fill="#666666">朝向组合起来，就是这个位置独有的“钟面读数”</text>
+  </svg>
+  <div class="diagram-caption">图 3：RoPE 的两层设计。左：同一个词出现在不同位置，向量被旋转不同角度，两个位置相差几格、转角就差几个 θ。右：d 维向量两两分组，每组转速不同，合在一起构成完整的位置“钟面读数”。</div>
+</div>
+
+<p>　　这套设计的精妙之处藏在注意力的内积里。位置 \(m\) 的 query 与位置 \(n\) 的 key 做点积时，旋转矩阵的一条基本性质 \(R_{m\theta}^{\top} R_{n\theta} = R_{(n-m)\theta}\) 会让绝对位置恰好消掉：</p>
+
+<div class="formula-card">
+  \[ \big\langle R_{m\theta_i}\, q,\; R_{n\theta_i}\, k \big\rangle \;=\; q^{\top} R_{(n-m)\theta_i}\, k \tag{3} \]
+  <div class="formula-note">公式 (3)：等式右边只含带方向的相对位移 \(n-m\)。不管这两个词在句子开头还是结尾，只要相隔的站数和方向相同，内积就相同；方向对调（\(n-m\) 变号）时 \(\sin\) 项翻号，内积随之改变，所以“前方隔 1 站”和“后方隔 1 站”是可区分的两个信号——相对位置就这样免费进入了注意力。符号说明：\(q\)、\(k\) 分别是 query 与 key 向量在某个维度组上的二维分量；\(m\)、\(n\) 是两个 token 的位置编号；\(R_{m\theta_i}\)、\(R_{n\theta_i}\) 是按位置施加的旋转矩阵（同公式 (1)）；\(\langle\cdot,\cdot\rangle\) 表示向量内积；\(q^{\top}\) 是 \(q\) 的转置。</div>
+</div>
+
+<p>　　还有一个工程上很贴心的细节：RoPE 只旋转 query 和 key，<strong>value 向量完全不碰</strong>。位置信息只参与“找谁”（注意力权重），不污染“拿什么”（value 承载的内容），分工干净。</p>
+
+<div class="highlight-box info">
+  RoPE 论文与苏剑林的博客分析还指出一个附加性质：随着 \(n-m\) 增大，公式 (3) 的内积<strong>总体呈衰减趋势</strong>，距离越远、匹配信号越弱，相当于自带“就近关注”的归纳偏置。注意这只是总体趋势，并非严格单调递减，不能解读成“远处的 token 一律被忽略”。
+</div>
+
+<h2>3.4.3 RoPE 为何成为主流</h2>
+
+<p>　　2021 年提出至今，RoPE 几乎统一了 LLM 的位置编码，原因是它抓了一手好牌：</p>
+
+<ul>
+  <li><strong>零额外参数</strong>：cos / sin 表可以预先算好存着，不需要训练任何位置参数；</li>
+  <li><strong>推理开销小</strong>：每个位置的旋转只依赖自己的编号，可独立计算，与 KV Cache（第 13 章细讲）配合顺畅；</li>
+  <li><strong>与注意力严丝合缝</strong>：相对距离直接写在内积里，不需要模型额外学习；</li>
+  <li><strong>效果过硬</strong>：RoFormer 论文在多个基准上报告了优于正弦绝对位置编码的结果，此后各大模型的实践反复选择了它。</li>
+</ul>
+
+<div class="highlight-box">
+  RoPE 是当今 LLM 事实上的标准位置编码：Llama、Qwen、DeepSeek 系列，以及本工程配套的 minimind 小模型，全部使用 RoPE。学位置编码，RoPE 是绕不开的一课。
+</div>
+
+<div class="highlight-box warn">
+  RoPE 并非全能：它擅长内插、拙于外推。训练时只见过位置 0 到 \(L-1\)，推理时遇到远超 \(L\) 的输入，没见过的超大转角会让注意力分数失真、模型“翻车”。补救办法是 3.5 节长度外推的主题。
+</div>
+
+<p>　　还有一个值得留意的趋势：base 的选择在变大。论文原版 base 为 10000，而现代模型为了支撑更长上下文，普遍把 base 调大——minimind 的默认值就是 \(10^{6}\)，Llama 3.1 更是提到 500000。base 与上下文长度的关系，3.5 节会展开。</p>
+
+<h2>3.4.4 ALiBi：注意力分数上的线性罚单</h2>
+
+<p>　　ALiBi（Attention with Linear Biases，线性偏置注意力）走了一条更“懒”的路：<strong>向量一个都不动，直接改注意力分数</strong>。既然远处的词应该少关注，那就在 softmax 之前，按距离从分数里扣分：</p>
+
+<div class="formula-card">
+  \[ \mathrm{score}(i, j) \;=\; \frac{q_i \cdot k_j}{\sqrt{d_k}} \;-\; m \cdot |i - j| \tag{4} \]
+  <div class="formula-note">公式 (4)：每隔一个位置扣 \(m\) 分。因果语言模型里 \(j \le i\)，\(|i-j|\) 就是 \(i-j\)。扣分是写死的规则，不随训练改变。符号说明：\(\mathrm{score}(i,j)\) 是位置 \(i\) 的 query 对位置 \(j\) 的 key 的注意力分数（进 softmax 之前）；\(q_i \cdot k_j\) 是两者的点积；\(d_k\) 是注意力头维度，\(\sqrt{d_k}\) 是沿用原始 Transformer 的缩放因子；\(|i-j|\) 是两个 token 的距离；\(m\) 是该注意力头的斜率，决定扣分力度。</div>
+</div>
+
+<p>　　斜率 \(m\) 决定扣分力度，每个注意力头各不相同，按几何级数设置。论文给 8 个头的取值是：</p>
+
+<div class="formula-card">
+  \[ m \;\in\; \left\{\, 2^{-1},\; 2^{-2},\; \dots,\; 2^{-8} \,\right\} \tag{5} \]
+  <div class="formula-note">公式 (5)：斜率大的头近处扣分快、只看得近，斜率小的头看得远。不同的头天然分工，覆盖从近邻到长程的不同尺度。符号说明：\(m\) 是公式 (4) 中单个注意力头的斜率；花括号内是 8 个注意力头各自的取值，从 \(2^{-1}\)（1/2）到 \(2^{-8}\)（1/256）按几何级数递减。</div>
+</div>
+
+<p>　　对比一下两种手感：RoPE 是给每个词发一个随位置旋转的指南针，ALiBi 是给评委一把尺子——距离每多一格，印象分固定扣一档，简单、直接、可预测。</p>
+
+<p>　　这套设计的回报是惊人的外推能力。论文报告：一个 1.3B 参数的 ALiBi 模型在 1024 token 的序列上训练，<strong>直接在 2048 token 的序列上测试</strong>，困惑度与专门在 2048 上训练的正弦位置编码模型持平，而训练速度快 11%、显存占用少 11%。训练短、测试长（train short, test long），不需要任何续训或改刻度。BLOOM 与 MPT 两个知名开源模型正是看中这一点而采用 ALiBi。</p>
+
+<p>　　代价同样明显：线性惩罚是一条写死的直线，表达力不如 RoPE 灵活；长距离的信息召回偏弱——扣分扣到最后，远处的 token 几乎永无出头之日。外推朴素直接的另一面，是“远了就真不看了”。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>对比项</th><th>RoPE</th><th>ALiBi</th></tr></thead>
+    <tbody>
+      <tr><td>位置注入在哪里</td><td>旋转 query / key 向量本身</td><td>softmax 前的注意力分数</td></tr>
+      <tr><td>相对距离从哪来</td><td>内积自动只含 \(m-n\)</td><td>显式的 \(-m \cdot |i-j|\) 惩罚</td></tr>
+      <tr><td>长上下文外推</td><td>直接外推会翻车，需 PI / NTK / YaRN 等技巧（3.5 节）</td><td>训练短、测试长，无需续训即可外推</td></tr>
+      <tr><td>表达力</td><td>距离信息融入各维度，灵活、表达力强</td><td>固定线性衰减，表达力略逊、长距离召回弱</td></tr>
+      <tr><td>代表模型</td><td>Llama、Qwen、DeepSeek、minimind</td><td>BLOOM、MPT</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　至此位置编码两节收尾：向量有了，位置也有了，而且是模型真正需要的相对位置。3.5 节接着解决一个更刁钻的问题——训练时只见过几千个位置的模型，怎样读懂几十万 token 的长文。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">绝对位置编码“拧巴”在哪里？</div>
+    <div class="sc-key">注意力关心的是词与词的距离，绝对编码只给门牌号，距离要模型自己学出来。相对位置编码把“隔几站”直接写进计算，少了这道弯。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">RoPE 凭什么让内积只依赖相对距离？</div>
+    <div class="sc-key">位置 \(m\) 的向量按角度 \(m\theta_i\) 旋转。旋转矩阵的性质 \(R_{m\theta}^{\top} R_{n\theta} = R_{(n-m)\theta}\) 让内积里的绝对位置恰好相消，只剩 \(n-m\)。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">RoPE 与 ALiBi 各自的代价是什么？</div>
+    <div class="sc-key">RoPE 效果好、生态主流，但超出训练长度就翻车，外推要靠 3.5 节的技巧；ALiBi 免续训外推，但线性衰减是写死的，表达力与长距离召回偏弱。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864），旋转机制、频率公式 (2) 与相对位置性质公式 (3) 出自该文。</li>
+  <li>Press, Smith &amp; Lewis, 2022. Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation（ALiBi 原始论文，arXiv:2108.12409），线性偏置公式 (4)、斜率几何级数公式 (5) 与 1024 训练 / 2048 测试的外推实验出自该文。</li>
+  <li>苏剑林，2021. Transformer 升级之路：2、博采众长的旋转式位置编码（https://kexue.fm/archives/8265），RoPE 远程衰减性质的通俗分析。</li>
+  <li>minimind 工程 model/model_minimind.py（Apache 2.0），RoPE 工程实现参考。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch3_3_sinusoidal_learned.html" title="3.3 绝对位置编码：正弦与可学习两种方案">← 上一节：3.3 绝对位置编码：正弦与可学习两种方案</a><a class="next" href="ch3_5_length_extrapolation.html" title="3.5 长度外推：从几千 token 到几十万">下一节：3.5 长度外推：从几千 token 到几十万 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

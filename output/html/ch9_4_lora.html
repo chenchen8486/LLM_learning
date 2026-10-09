@@ -1,0 +1,735 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>9.4 LoRA：冻结主干，只训低秩旁路 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link active" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 9 章 后训练 I：监督微调与参数高效微调</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>9.4 LoRA：冻结主干，只训低秩旁路</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>9.4 LoRA：冻结主干，只训低秩旁路</h1>
+<p class="subtitle">本页范围：第 9 章第 4 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>全量 SFT 要更新并保存模型的全部参数：7B 模型仅优化器状态就要几十 GB 显存，每个下游任务还得各存一份完整权重。能不能只训练一小部分参数，就拿到接近全量微调的效果？</td></tr>
+      <tr><td>本节主张</td><td>微调带来的权重变化 ΔW 近似低秩：任务真正需要调整的方向很少。冻结预训练权重 W₀，用两个瘦长小矩阵的乘积 BA 充当 ΔW 的替身，可训练参数从 d² 降到 2dr；训完还能把旁路并回主干，推理零额外开销。</td></tr>
+      <tr><td>一句话结论</td><td>LoRA = 冻结主干 + 低秩旁路 + 可合并：GPT-3 175B 上可训练参数减少约 10000 倍、显存约降 3 倍，minimind 实战只训全部参数的约 0.6%。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>LoRA</span><span>低秩分解</span><span>参数高效微调 PEFT</span><span>冻结主干</span><span>秩 rank</span><span>权重合并</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　9.3 节的全量 SFT 做法直白：从预训练权重出发，全部参数参与更新，用一问一答的指令数据把模型教成会对话的样子。效果直接，代价也明码标价——训练要为每个参数维护优化器状态，几十亿参数的模型光这一项就是几十 GB 显存；训完之后，每接一个下游任务，磁盘上又多一份完整权重。本节回答一个自然的追问：能不能只训练一小部分参数，就达到微调的目的？LoRA（Low-Rank Adaptation，低秩适配）给出的答案是：能，而且省下的不只是显存。</p>
+
+<p>　　LoRA 是<strong>参数高效微调</strong>（PEFT，Parameter-Efficient Fine-Tuning）家族中应用最广的成员。这类方法的共同思路是冻结预训练权重的大头，只训练一小撮新增或精选的参数；LoRA 的选择是新增一对低秩小矩阵作为旁路。本节沿四个问题把它讲透：</p>
+
+<ol>
+  <li><strong>全量微调的代价</strong>（9.4.1）：显存与存储两笔账，全量微调到底贵在哪；</li>
+  <li><strong>低秩分解：ΔW = BA</strong>（9.4.2）：LoRA 的核心假设与公式，旁路为什么要从零起步；</li>
+  <li><strong>minimind 实战：rank 16 挂在哪、省多少</strong>（9.4.3）：旁路挂在哪些矩阵上，参数占比实测是多少；</li>
+  <li><strong>合并与推理：零额外开销</strong>（9.4.4）：训完的旁路怎么并回主干，多任务场景为什么划算。</li>
+</ol>
+
+<p>　　读完本节，读者应能说清三件事：LoRA 为什么敢只训千分之几的参数、这千分之几挂在模型的什么位置、以及它凭什么做到推理零额外延迟。</p>
+
+<p>　　逐节展开之前，先看一眼 LoRA 在 LLM 生命周期中的位置，以及这个紫框放大之后的内部结构。心里有这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS94lora" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG94lora" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS94lora)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS94lora)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS94lora)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS94lora)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG94lora)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG94lora)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG94lora)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）与中间训练（第 8 章）交出 base model；SFT（本章）把它调成会对话的助手，随后接偏好对齐（第 10 章）与推理训练（第 11 章），最终进入推理与部署（第 12–13 章）。本节讲这一站的省力做法：LoRA 冻结主干、只训一条低秩旁路，把微调的显存与存储成本砍下几个量级。</div>
+</div>
+
+<p>　　这个紫框放大之后长什么样？输入进去，主路和旁路各做了什么？把 LoRA 的并联结构单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 680 560" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+      <marker id="arrC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <text x="24" y="34" font-size="13.5" font-weight="bold" fill="#4c1d95">结构对照：冻结的主路 W₀ 与可训练的低秩旁路 BA</text>
+
+    <!-- 输入 x -->
+    <text x="54" y="176" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">x（768 维）</text>
+    <rect x="40" y="190" width="28" height="110" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <g stroke="#ddd6fe" stroke-width="1">
+      <line x1="40" y1="212" x2="68" y2="212"/>
+      <line x1="40" y1="234" x2="68" y2="234"/>
+      <line x1="40" y1="256" x2="68" y2="256"/>
+      <line x1="40" y1="278" x2="68" y2="278"/>
+    </g>
+    <text x="54" y="293" text-anchor="middle" font-size="12" fill="#94a3b8">⋮</text>
+
+    <!-- 主路：W0 冻结方阵 -->
+    <text x="150" y="122" font-size="12.5" font-weight="bold" fill="#6b7280">主路 · 冻结（训练时不更新）</text>
+    <rect x="150" y="140" width="210" height="210" fill="#f9fafb" stroke="#9ca3af" stroke-width="2"/>
+    <g stroke="#e5e7eb" stroke-width="1">
+      <line x1="185" y1="140" x2="185" y2="350"/>
+      <line x1="220" y1="140" x2="220" y2="350"/>
+      <line x1="255" y1="140" x2="255" y2="350"/>
+      <line x1="290" y1="140" x2="290" y2="350"/>
+      <line x1="325" y1="140" x2="325" y2="350"/>
+      <line x1="150" y1="175" x2="360" y2="175"/>
+      <line x1="150" y1="210" x2="360" y2="210"/>
+      <line x1="150" y1="245" x2="360" y2="245"/>
+      <line x1="150" y1="280" x2="360" y2="280"/>
+      <line x1="150" y1="315" x2="360" y2="315"/>
+    </g>
+    <rect x="171" y="208" width="168" height="92" rx="6" fill="#ffffff" opacity="0.92"/>
+    <text x="255" y="238" text-anchor="middle" font-size="20" font-weight="bold" fill="#4b5563">W₀</text>
+    <text x="255" y="261" text-anchor="middle" font-size="13" fill="#4b5563">768 × 768</text>
+    <text x="255" y="283" text-anchor="middle" font-size="13" fill="#4b5563">589,824 个参数</text>
+    <path d="M336 154 v-6 a6 6 0 0 1 12 0 v6" stroke="#9ca3af" stroke-width="2.5" fill="none"/>
+    <rect x="332" y="154" width="20" height="16" rx="3" fill="#9ca3af"/>
+
+    <!-- 主路箭头与汇合点 -->
+    <line x1="68" y1="245" x2="144" y2="245" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <line x1="360" y1="245" x2="452" y2="245" stroke="#9ca3af" stroke-width="2" marker-end="url(#arrG)"/>
+    <circle cx="473" cy="245" r="15" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="466" y1="245" x2="480" y2="245" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="473" y1="238" x2="473" y2="252" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="488" y1="245" x2="543" y2="245" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <text x="558" y="251" font-size="18" font-weight="bold" fill="#6d28d9">h</text>
+
+    <!-- 旁路分叉 -->
+    <path d="M54 300 L54 420 L144 420" stroke="#6d28d9" stroke-width="2" fill="none" marker-end="url(#arrP)"/>
+    <text x="150" y="394" font-size="12.5" font-weight="bold" fill="#6d28d9">旁路 · 可训练</text>
+
+    <!-- A 横条：16 × 768 -->
+    <rect x="150" y="408" width="210" height="42" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <g stroke="#c4b5fd" stroke-width="1">
+      <line x1="185" y1="408" x2="185" y2="450"/>
+      <line x1="220" y1="408" x2="220" y2="450"/>
+      <line x1="255" y1="408" x2="255" y2="450"/>
+      <line x1="290" y1="408" x2="290" y2="450"/>
+      <line x1="325" y1="408" x2="325" y2="450"/>
+      <line x1="150" y1="429" x2="325" y2="429"/>
+    </g>
+    <text x="342" y="434" text-anchor="middle" font-size="14" fill="#94a3b8">⋯</text>
+    <text x="255" y="436" text-anchor="middle" font-size="15" font-weight="bold" fill="#6d28d9">A</text>
+    <text x="150" y="472" font-size="12" fill="#6d28d9">A：16 × 768</text>
+    <text x="150" y="490" font-size="12" fill="#6d28d9">高斯初始化 std=0.02</text>
+
+    <!-- A 到 B：16 维瓶颈 -->
+    <line x1="360" y1="429" x2="444" y2="429" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <text x="402" y="417" text-anchor="middle" font-size="11.5" fill="#0891b2">16 维</text>
+
+    <!-- B 竖条：768 × 16 -->
+    <rect x="452" y="322" width="42" height="168" fill="#ecfeff" stroke="#0891b2" stroke-width="2"/>
+    <g stroke="#a5f3fc" stroke-width="1">
+      <line x1="452" y1="356" x2="494" y2="356"/>
+      <line x1="452" y1="390" x2="494" y2="390"/>
+      <line x1="452" y1="424" x2="494" y2="424"/>
+      <line x1="452" y1="458" x2="494" y2="458"/>
+      <line x1="462" y1="322" x2="462" y2="490"/>
+      <line x1="484" y1="322" x2="484" y2="490"/>
+    </g>
+    <text x="473" y="478" text-anchor="middle" font-size="13" fill="#94a3b8">⋮</text>
+    <text x="473" y="412" text-anchor="middle" font-size="15" font-weight="bold" fill="#0891b2">B</text>
+    <text x="510" y="400" font-size="12" fill="#0891b2">B：768 × 16</text>
+    <text x="510" y="418" font-size="12" fill="#0891b2">全零初始化</text>
+    <line x1="473" y1="322" x2="473" y2="264" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
+
+    <!-- 底部公式与参数量对照 -->
+    <text x="340" y="522" text-anchor="middle" font-size="16" font-weight="bold" fill="#111827">h = W₀x + BAx</text>
+    <text x="340" y="547" text-anchor="end" font-size="12.5" fill="#6b7280" xml:space="preserve">参数量：W₀ 589,824（冻结）→ 旁路 A + B = </text>
+    <text x="340" y="547" text-anchor="start" font-size="12.5" font-weight="bold" fill="#dc2626">24,576（约 4.2%）</text>
+  </svg>
+  <div class="diagram-caption">图 2：LoRA 做法的局部放大——前向结构对照。输入 x 一路走冻结的 W₀（768 × 768，589,824 个参数，灰色锁标记），另一路走旁路：A（16 × 768）先把 768 维压到 16 维，B（768 × 16）再升回 768 维，两路输出相加得 h。旁路合计 24,576 个参数，约为原矩阵的 4.2%；B 全零初始化保证训练起点旁路输出为零。9.4.2 会逐块拆解图 2。</div>
+</div>
+
+<h2>9.4.1 全量微调的代价</h2>
+
+<p>　　先算显存账。训练阶段的显存大头，除了权重本身和梯度，还有优化器状态。第 6 章讲过，Adam 为每个参数维护两个滑动平均量：一阶动量（梯度的指数平均）与二阶动量（梯度平方的指数平均），各存一份 FP32，优化器状态就此达到参数量的 2 倍。一个 7B 模型有 70 亿参数，仅优化器状态就是 140 亿个浮点数，按每个 4 字节算约 56 GB——这还没计入权重、梯度与前向激活。这个量级的显存，单张消费级显卡装不下，全量微调必须动用多卡并行（第 7 章的分布式方案）。</p>
+
+<div class="highlight-box info">
+  这笔账按「参数以 FP32 存储」的口径估算。混合精度训练（第 7 章）会同时保留 FP16 与 FP32 两份权重副本，实际占用只多不少；这里的 56 GB 已经是保守口径。
+</div>
+
+<p>　　再算存储账。全量微调的产物是一整份新权重：每接一个下游任务、每服务一个客户，磁盘上就多一份完整模型。以 BF16 存储，7B 模型一份权重约 14 GB；一百个任务就是一百份，TB 级存储只是起步价。更要紧的是管理成本：这些副本共享 99% 以上的内容，却要各自维护、各自加载。</p>
+
+<p>　　LoRA 论文（Hu et al., 2021）开篇就摆出对照数字：在 GPT-3 175B 上，用 LoRA 微调只需训练约万分之一的参数——可训练参数减少约 10000 倍，GPU 显存需求约降为三分之一。论文同时报告，在 RoBERTa、DeBERTa、GPT-2、GPT-3 等多个模型上，LoRA 微调的效果与全量微调相当甚至更好。付出万分之一的参数，拿回基本持平的效果——这笔账怎么算都划算，剩下的问题只有一个：为什么能成立。</p>
+
+<h2>9.4.2 低秩分解：ΔW = BA</h2>
+
+<p>　　LoRA 的全部底气来自一个经验假设：<strong>微调带来的权重变化是低秩的</strong>。预训练已经把通用的语言表示学好，下游任务需要的调整集中在少数几个方向上。用矩阵语言说：设预训练权重为 \(W_0\)，微调后变成 \(W_0 + \Delta W\)。\(\Delta W\) 是个与 \(W_0\) 同尺寸的矩阵，理论上秩可以到 \(d\)；但 LoRA 论文的观察是，适配下游任务时它的有效秩很低——真正起作用的变化方向只有寥寥几个到几十个。既然如此，不必动用 \(d^2\) 个自由参数去表达它，两个瘦长矩阵的乘积就够：</p>
+
+<div class="formula-card">
+  \[ h = (W_0 + \Delta W)x = W_0x + BAx \tag{1} \]
+  <div class="formula-note">公式 (1)：LoRA 的前向计算——主路与旁路并联，主干的输出与旁路的调整量相加，主干本身一动不动。符号说明：\(W_0 \in \mathbb{R}^{d \times d}\) 是预训练学好的权重矩阵，训练中<strong>冻结</strong>（不参与梯度更新）；\(x\) 是该层的输入向量，\(h\) 是输出；\(\Delta W\) 是全量微调本应产生的权重变化，与 \(W_0\) 同形；\(A \in \mathbb{R}^{r \times d}\)、\(B \in \mathbb{R}^{d \times r}\) 是两个可训练的小矩阵，\(r\) 是人为选定的秩，满足 \(r \ll d\)（远小于 \(d\)），minimind 取 16；乘积 \(BA\) 与 \(W_0\) 同形，充当 \(\Delta W\) 的低秩替身。<strong>低秩</strong>指矩阵的信息能被少数几个方向概括，本小节的术语卡片会展开。</div>
+</div>
+
+<p>　　参数量立刻降维：原矩阵有 \(d^2\) 个参数，旁路只有 \(rd + dr = 2rd\) 个。以 minimind 的 \(d = 768\)、\(r = 16\) 代入，旁路是 24,576 个参数，只有原矩阵 589,824 个的约 4.2%——这是单个矩阵的账，全模型的账留到 9.4.3 节细算。秩 \(r\) 是 LoRA 唯一新增的旋钮：\(r\) 越大旁路表达能力越强、参数越多；论文的消融实验显示，\(r\) 小到 4 或 8 时效果已接近饱和，再加大收益递减。</p>
+
+<p>　　严格按论文，旁路前面还有一个缩放系数：</p>
+
+<div class="formula-card">
+  \[ h = W_0x + \frac{\alpha}{r}BAx \tag{2} \]
+  <div class="formula-note">公式 (2)：LoRA 论文的标准式，在公式 (1) 的旁路上乘了缩放系数 \(\alpha / r\)。符号说明：\(\alpha\) 是一个常数超参数，控制旁路贡献的整体幅度；论文指出调节 \(\alpha\) 的效果大致相当于调节学习率，而有了 \(1/r\) 的归一化，改变 \(r\) 时不必重新调参。其余符号同公式 (1)。</div>
+</div>
+
+<p>　　这里如实交代一处出入：minimind 的教学实现（minimind（Apache 2.0），model/model_lora.py）没有引入缩放系数，直接按公式 (1) 计算，等价于把 \(\alpha\) 固定为 \(r\)。教学代码求简，少了这一项不影响理解机制；使用工业界实现时，\(\alpha\) 是一个可以配置的正式超参。</p>
+
+<p>　　旁路的初始化藏着 LoRA 最关键的一处设计。看 minimind 的实现（minimind（Apache 2.0），model/model_lora.py:13、15）：矩阵 \(A\) 用高斯分布随机初始化（均值 0、标准差 0.02），矩阵 \(B\) 初始化为全零。后果立竿见影：训练开始时 \(\Delta W = BA = 0\)，旁路输出恒为零，模型的行为与基座完全一致。</p>
+
+<p>　　「从零起步」这一手值得停下来讲透。微调的本意是让模型从预训练状态出发，向任务方向挪一小步；起点处的扰动越小，预训练学到的表示保得越完整。若把 \(B\) 也随机初始化，\(\Delta W\) 在起点就是一个非零随机矩阵，等于先给基座权重一拳、再开始学——预训练表示先遭一轮无差别破坏，训练前期还要花时间把破坏补回来。让 \(B\) 从零出发、由梯度决定它长成什么样，微调才真正是在基座之上做加法。</p>
+
+<p>　　那为什么不把 \(A\) 也置零？两个矩阵都是零，旁路确实是零，梯度却也死了：\(B\) 的梯度依赖 \(A\) 的值，\(A\) 为零则 \(B\) 永远收不到梯度，旁路停在原点再也无法更新。一个归零、一个随机，是让「起点为零」与「梯度能流动」同时成立的标准做法：归零的那个负责起点干净，随机的那个负责把梯度引进来。</p>
+
+<p>　　这套结构的整体图示见本节开头的图 2：左侧是冻结的主路，右侧是可训练的旁路，输入 \(x\) 兵分两路，两路输出相加得到 \(h\)。下文逐块拆解时，可以不时翻回去对照。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">秩 Rank</span>
+    <span class="term-en">rank = 矩阵真正包含的独立方向数</span>
+  </div>
+  <div class="term-body">
+    <p>附录 A.1 把矩阵看作对向量的变换：矩阵把输入空间搬进输出空间。<strong>秩</strong>度量这个变换保留下多少维度——秩为 \(r\) 的矩阵，全部输出都落在某个 \(r\) 维子空间里，其余方向被压扁了。一个 \(d \times d\) 矩阵的秩最大为 \(d\)；秩越小，矩阵的信息越「简单」，越能被少数方向概括。低秩分解反过来利用这一点：秩为 \(r\) 的矩阵一定能写成两个小矩阵的乘积，一个 \(d \times r\)、一个 \(r \times d\)，参数量从 \(d^2\) 降到 \(2dr\)。LoRA 赌的正是「微调这件小事，\(r\) 个方向就够表达」。</p>
+    <div class="term-analogy">就像写会议纪要：两小时的会，真正决定行动的就是那么几条。秩低意味着全部信息可以压缩进少数要点——LoRA 假设微调带来的变化也是这样一份要点不多的纪要。</div>
+  </div>
+</div>
+
+<h2>9.4.3 minimind 实战：rank 16 挂在哪、省多少</h2>
+
+<p>　　机制清楚了，落到 minimind 的代码上，看旁路挂在哪。挂载函数 <code>apply_lora</code> 遍历模型的全部线性层，只给满足 <code>in_features == out_features</code> 的<strong>方阵</strong>挂上 LoRA 模块（minimind（Apache 2.0），model/model_lora.py:21–32）；挂上之后，该层的前向被改写为「主路输出 + 旁路输出」，正是公式 (1) 的 \(W_0x + BAx\) 逐行落地。</p>
+
+<p>　　默认配置下（hidden 768、8 个注意力头、4 个 KV 头、head_dim 96，GQA 的设置见第 5 章），一个 Transformer 层里的七个线性投影分成两派（形状定义见 minimind（Apache 2.0），model/model_minimind.py:100–103 与 140–142；FFN 中间维 2432 由 model/model_minimind.py:26 的公式算出）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>投影层</th><th>形状（输入 → 输出）</th><th>是否方阵</th><th>是否挂 LoRA</th></tr></thead>
+    <tbody>
+      <tr><td><code>q_proj</code></td><td>768 → 768</td><td>是</td><td>是</td></tr>
+      <tr><td><code>k_proj</code></td><td>768 → 384（KV 头 4 × head_dim 96）</td><td>否</td><td>否</td></tr>
+      <tr><td><code>v_proj</code></td><td>768 → 384（KV 头 4 × head_dim 96）</td><td>否</td><td>否</td></tr>
+      <tr><td><code>o_proj</code></td><td>768 → 768</td><td>是</td><td>是</td></tr>
+      <tr><td><code>gate_proj</code></td><td>768 → 2432</td><td>否</td><td>否</td></tr>
+      <tr><td><code>up_proj</code></td><td>768 → 2432</td><td>否</td><td>否</td></tr>
+      <tr><td><code>down_proj</code></td><td>2432 → 768</td><td>否</td><td>否</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　<code>q_proj</code> 与 <code>o_proj</code> 是仅有的两个 768 × 768 方阵，全模型的 LoRA 旁路恰好挂在它们身上：每层 2 条，8 层共 16 条。<code>k_proj</code>、<code>v_proj</code> 因 KV 头只有 4 个，输出维度是 \(4 \times 96 = 384\)，与输入 768 不对称，被规则跳过；FFN 三个投影在 768 与 2432 之间变换，同样非方阵。</p>
+
+<div class="highlight-box info">
+  「只挂方阵」是 minimind 教学实现的简化规则，LoRA 论文并不限定方阵：论文的消融实验考察了在 q、k、v、o 投影上挂载旁路的各种组合，挂得越多效果越好、参数也越多。读其他代码时见到 k、v 甚至 FFN 上挂 LoRA，不必意外。
+</div>
+
+<p>　　现在把账算全。单个方阵：\(768 \times 768 = 589,824\) 个参数；它身上的旁路：\(A\) 为 \(16 \times 768 = 12,288\)，\(B\) 为 \(768 \times 16 = 12,288\)，合计 24,576，占原矩阵的约 4.2%。全模型一共 16 条旁路，LoRA 总参数 \(16 \times 24,576 = 393,216\)，约 0.39M。</p>
+
+<p>　　对照全量微调的分母：minimind 总参数约 63.9M，其中 embedding 层 \(6400 \times 768\) 约 4.9M（与输出投影 lm_head 权重共享，3.1 节讲过），8 个 Transformer 层各约 7.37M。两相一比，LoRA 只动全部参数的 \(0.39\text{M} / 63.9\text{M} \approx 0.6\%\)——千分之六。</p>
+
+<p>　　训练侧的冻结也写在明处：脚本遍历所有参数，名字里不带 <code>lora</code> 的一律 <code>requires_grad = False</code>，AdamW 优化器只接收旁路参数（minimind（Apache 2.0），trainer/train_lora.py:130–137、143）。优化器状态因此只有旁路大小：393,216 个参数的两份动量，按 FP32 算约 3 MB，与 9.4.1 节全量微调动辄几十 GB 的状态形成直接对照。</p>
+
+<p>　　超参同样值得对照（minimind（Apache 2.0），trainer/train_lora.py:73–88）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>超参</th><th>取值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>学习率</td><td>1e-4</td><td>是全量 SFT（1e-5，9.3 节）的 10 倍：旁路从零或随机小值起步，本身就是一张白纸，步子小了爬得慢</td></tr>
+      <tr><td>训练轮数 epoch</td><td>10</td><td>默认 10 轮，小体量适配器可以多次过数据</td></tr>
+      <tr><td>最大序列长度</td><td>340</td><td>训练样本的截断长度（token）</td></tr>
+      <tr><td>起始权重 from_weight</td><td>full_sft</td><td>从 9.3 节训出的全量 SFT 权重出发，再挂旁路训练</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　学习率敢开大 10 倍，原因写在初始化里：全量微调从已训好的权重出发，参数离一个好点很近，大步子容易把预训练成果踩碎；LoRA 的旁路从零（\(B\)）或随机小值（\(A\)）起步，离目标本来就远。更关键的是，冻结的主干不接收梯度，大学习率的风险被限制在旁路的几十万个参数里，伤不到基座。</p>
+
+<p>　　保存同样克制：<code>save_lora</code> 只把带 <code>lora</code> 属性的模块参数挑出来，转成半精度落盘（minimind（Apache 2.0），model/model_lora.py:45–53）。393,216 个参数按半精度存储约 0.8 MB——一个任务一个适配器文件，对比全量权重的百 MB 级，磁盘上几乎可以忽略。</p>
+
+<h2>9.4.4 合并与推理：零额外开销</h2>
+
+<p>　　LoRA 训完有两种用法。一种是留着旁路直接用：前向时主路、旁路各算一遍再相加，每次推理多一次小矩阵乘法，开销存在但很小。另一种更彻底——把旁路并回主干。<code>merge_lora</code> 做的事只有一行数学（minimind（Apache 2.0），model/model_lora.py:56–65）：遍历所有挂了 LoRA 的线性层，把 <code>B @ A</code> 的结果直接加回原权重，即 \(W \leftarrow W + BA\)，再按普通模型存盘。</p>
+
+<p>　　合并后的模型与原始架构完全同构：同样的层数、同样的矩阵形状、同样的计算路径，参数量一毫不差，推理延迟与不微调的原模型一致——零额外开销。这一点与 Adapter 类方法形成对照：LoRA 论文的引言专门算了这笔账，Adapter 在 Transformer 层之间插入的额外模块必须顺序计算，推理时模型变深、延迟实打实地增加；LoRA 合并后则没有任何新增计算。</p>
+
+<p>　　可合并加上小体积，让 LoRA 在多任务场景格外顺手：基座权重只存一份，任务适配器可以有很多份。服务十个下游任务，磁盘上是「一份基座 + 十个 MB 级适配器」；部署时要用哪个任务，把对应旁路载入、合并即可。换任务像换卡带——游戏机只有一台，卡带随便插。这也让「一个基座模型加一堆适配器」成为个人与小团队服务多个下游任务的现实方案。</p>
+
+<div class="highlight-box">
+  LoRA 的三件套：冻结主干 + 低秩旁路 + 可合并。冻结主干让优化器状态从全参数缩到旁路的千分之几；低秩旁路把权重变化压缩进 r 个方向，参数省两个数量级以上；可合并让推理架构与基座完全同构，部署时无感知。训练省、存盘省、推理不减速，这就是 LoRA 成为今天最常用参数高效微调方法的原因。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">LoRA 为什么敢只训练千分之几的参数？</div>
+    <div class="sc-key">它赌微调带来的权重变化 \(\Delta W\) 是低秩的：预训练已把通用表示学好，下游任务需要的调整集中在少数方向上。秩为 \(r\) 的 \(d \times d\) 矩阵可分解为 \(d \times r\) 与 \(r \times d\) 两个小矩阵的乘积，参数量从 \(d^2\) 降到 \(2dr\)——minimind 里就是 63.9M 对 0.39M，约 0.6%。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么 A 要随机初始化、B 要全零初始化？</div>
+    <div class="sc-key">B 归零保证训练起点 \(\Delta W = BA = 0\)，模型行为与基座完全一致，微调从零扰动出发，不破坏预训练表示；A 随机负责让梯度流得进旁路——若 A 也是零，B 的梯度恒为零，旁路永远无法更新。一个归零、一个随机，两个条件缺一不可。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">合并之后凭什么说推理零额外开销？</div>
+    <div class="sc-key">merge_lora 执行 \(W \leftarrow W + BA\)，把旁路吸收进原权重矩阵。合并后模型的层数、矩阵形状、计算路径与参数量和原架构完全一致，推理时没有任何新增计算，延迟与不微调的原模型相同——这与在层间插入模块、让模型变深的 Adapter 类方法形成对照。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Hu et al., 2021. LoRA: Low-Rank Adaptation of Large Language Models（arXiv:2106.09685，ICLR 2022）：低秩假设与 \(\Delta W = BA\) 分解、\(\alpha / r\) 缩放系数、GPT-3 175B 上可训练参数减少约 10000 倍与 GPU 显存约降 3 倍的对照数字、引言中关于 Adapter 增加推理延迟的论述。</li>
+  <li>minimind（Apache 2.0）：model/model_lora.py（LoRA 结构、A/B 初始化、apply_lora / save_lora / merge_lora），model/model_minimind.py（注意力与 FFN 各投影的形状定义），trainer/train_lora.py（LoRA 训练超参与参数冻结逻辑）。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch9_3_sft_mechanics.html" title="9.3 SFT 训练机制：损失掩码与超参配方">← 上一节：9.3 SFT 训练机制：损失掩码与超参配方</a><a class="next" href="ch9_5_peft_family.html" title="9.5 参数高效微调家族：QLoRA 与选型策略">下一节：9.5 参数高效微调家族：QLoRA 与选型策略 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

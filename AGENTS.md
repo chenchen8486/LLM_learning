@@ -15,7 +15,7 @@
 
 - 本工程原为视觉 Transformer 论文拆解手册，已完成第 1 章《Attention Is All You Need》的逐节精拆（9 个页面，格式已定稿）。
 - 经用户确认，工程推倒重构为全新工程：以 LLM 生命周期主线为唯一骨架重新组织手册，不再按论文逐篇拆解，也不保留旧章节。
-- 旧页面片段与旧规范文档归档至 `temp/` 目录，仅作为格式与内容参考，不并入新手册。构建产物（成品 HTML、配图副本）已清理，可由 build.py 随时重新生成。
+- 旧页面片段与旧规范文档已删除（2026-10-09，格式基线已定稿，无需保留）。`temp/` 现仅存新章节的执行资产（定位条生成器 gen_strips.py、strips/ 图一片段、双图手册 shuangtu_kit.md、各章分页规格 ch{N}_plan.md）。构建产物可直接浏览，同时纳入版本库。
 - `ref_paper/` 下 5 篇论文（Attention、ViT、DINO、Swin、MAE）降级为 AI 的参考资料，其中 Attention 论文是架构章的骨干素材，4 篇视觉论文按需引用，不再逐节精拆。
 - 构建工具链（build.py、template.html、static/global.css）经改造后继续沿用，视觉主题不变。
 
@@ -63,7 +63,7 @@ LLM_learning/
 ├── CLAUDE.md               # 全局行为规范（兼容保留）
 ├── docs/                   # 设计基准与编写规范（随重构重写）
 ├── ref_paper/              # 论文素材（只读）
-├── temp/                   # 旧产物归档与临时文件（不进入成品）
+├── temp/                   # 新章节执行资产（定位条生成器、分页规格）与临时文件
 └── output/html/
     ├── build.py            # 构建脚本，需更新章节映射以支持新命名
     ├── template.html       # 页面骨架（KaTeX、图片缩放）

@@ -1,0 +1,731 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>5.3 MLA：把 K、V 压成低维「浓缩液」 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link active" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 5 章 现代架构变体与效率改进</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>5.3 MLA：把 K、V 压成低维「浓缩液」</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>5.3 MLA：把 K、V 压成低维「浓缩液」</h1>
+<p class="subtitle">本页范围：第 5 章第 3 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>GQA 靠「多个头共享一份 K、V」省缓存，但共享是有损的。能不能既不共享、又把 KV 缓存大幅压小？</td></tr>
+      <tr><td>本节主张</td><td>MLA（Multi-head Latent Attention，多头隐注意力）换个思路：不存各头的 K、V，只存一个低维隐向量，用时再展开。缓存缩到接近 MQA 的量级，效果却做到不弱于完整 MHA。</td></tr>
+      <tr><td>一句话结论</td><td>把「按头存 K、V」改成「存一份低维浓缩液」，DeepSeek-V2 的 KV 缓存降到约 GQA 2.25 组的水平，性能反而强于 MHA。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>MLA</span><span>低秩压缩</span><span>KV 缓存</span><span>decoupled RoPE</span><span>DeepSeek-V2 / V3</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　上一节的 GQA 靠「共享」省缓存：同组的头拿一模一样的 K、V，省是省了，头的多样性被打了折扣。本节要回答一个更进一步的问题：能不能既不共享，又把缓存大幅压小？DeepSeek-V2 提出的 MLA 换了个思路：不存各头展开好的「成品」，只存一份低维「浓缩液」，用时再按各头自己的配方展开。本节按「为什么压、怎么压、暗礁怎么绕、账怎么算」的顺序展开：</p>
+
+<ol>
+  <li><strong>GQA 之后还能怎么省：从「共享」到「压缩」</strong>（5.3.1）：看清共享的硬伤，引出「不存茶水存茶粉」的低秩压缩思路；</li>
+  <li><strong>MLA 的浓缩–展开机制</strong>（5.3.2）：一次下投影把 5120 维压成 512 维隐向量，各头用各自的上投影临时展开 K、V；</li>
+  <li><strong>位置与内容分家：decoupled RoPE</strong>（5.3.3）：RoPE 不肯被压缩，那就单独给它开一间 64 维的小储藏室；</li>
+  <li><strong>推理加速：把上投影「吸收」掉</strong>（5.3.4）：用矩阵结合律把展开步骤折叠掉，推理时连「冲茶粉」的动作都省了；</li>
+  <li><strong>与 MHA / GQA / MQA 对照</strong>（5.3.5）：576 个数对 32768 个数，缓存逼近 MQA、质量站上 MHA 一侧的账是这么算的。</li>
+</ol>
+
+<p>　　读完本节，你应该能说清 MLA 与 GQA 的本质区别，以及 DeepSeek-V2「缓存减少 93.3%、吞吐提升 5.76 倍」这两个数字从哪来。</p>
+
+<p>　　按「为什么压、怎么压、暗礁怎么绕、账怎么算」展开之前，先看一眼本节内容在整条链路中的位置。第 4 章把 Transformer 块的骨架搭好了，本章是对块内部的改造，本节动的仍是注意力子层：不改算法，改 K、V 的存储形态。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS53mla" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG53mla" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.2–3.5 节）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS53mla)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS53mla)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS53mla)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS53mla)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG53mla)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG53mla)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG53mla)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）切成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，再经输出投影算出各 token 的概率（第 4 章），采样出下一个 token（第 12 章）并接回输入循环。第 5 章是对这个紫框内部的改造：上一节靠「共享」省缓存，本节更进一步，把块内注意力要存的 K、V 压成一份低维隐向量。</div>
+</div>
+
+<p>　　这个紫框里的注意力放大之后，MLA 的压缩与展开怎么走？输入是什么形状、缓存里到底留几个数？把 MLA 的浓缩–展开通道单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 430" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrM53" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrM53g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <text x="20" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：MLA 的浓缩–展开——输入 h_t（5120 维），缓存只留 512＋64＝576 个数（DeepSeek-V2 配置）</text>
+    <!-- 输入 h_t -->
+    <rect x="20" y="88" width="140" height="72" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="90" y="114" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">输入 h_t</text>
+    <text x="90" y="134" text-anchor="middle" font-size="11" fill="#555">5120 维（上一层输出）</text>
+    <!-- 主通道：下投影 -->
+    <line x1="160" y1="112" x2="192" y2="100" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
+    <rect x="196" y="56" width="160" height="66" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="276" y="80" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">下投影 W^DKV</text>
+    <text x="276" y="99" text-anchor="middle" font-size="11" fill="#555">5120 → 512，一次压缩</text>
+    <text x="276" y="115" text-anchor="middle" font-size="10.5" fill="#888">内容段，128 头共用</text>
+    <line x1="356" y1="89" x2="384" y2="89" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
+    <rect x="388" y="52" width="172" height="74" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="2.5"/>
+    <text x="474" y="76" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#155e75">隐向量 c_t^KV</text>
+    <text x="474" y="95" text-anchor="middle" font-size="11" fill="#155e75">512 维「浓缩液」</text>
+    <text x="474" y="113" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">进缓存 ①</text>
+    <!-- 位置支路 -->
+    <path d="M 90 160 L 90 229 L 192 229" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
+    <rect x="196" y="196" width="160" height="66" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="276" y="220" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">W^KR 投影 ＋ RoPE</text>
+    <text x="276" y="239" text-anchor="middle" font-size="11" fill="#555">位置段单独算（5.3.3）</text>
+    <text x="276" y="255" text-anchor="middle" font-size="10.5" fill="#888">不进压缩通道</text>
+    <line x1="356" y1="229" x2="384" y2="229" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
+    <rect x="388" y="196" width="172" height="66" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="2.5"/>
+    <text x="474" y="220" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#155e75">位置 key k_t^R</text>
+    <text x="474" y="239" text-anchor="middle" font-size="11" fill="#155e75">64 维，全头共享</text>
+    <text x="474" y="255" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">进缓存 ②</text>
+    <!-- 用时展开 -->
+    <path d="M 560 70 C 585 62 590 62 600 64" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
+    <rect x="604" y="38" width="146" height="56" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="677" y="60" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">上投影 W_i^UK → K_i</text>
+    <text x="677" y="79" text-anchor="middle" font-size="10.5" fill="#555">128 头各自一份，各 128 维</text>
+    <path d="M 560 112 C 585 128 590 136 600 140" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
+    <rect x="604" y="112" width="146" height="56" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="677" y="134" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">上投影 W_i^UV → V_i</text>
+    <text x="677" y="153" text-anchor="middle" font-size="10.5" fill="#555">128 头各自一份，各 128 维</text>
+    <!-- 缓存合计 -->
+    <line x1="474" y1="126" x2="474" y2="292" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrM53g)"/>
+    <line x1="520" y1="262" x2="520" y2="282" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="5 4"/>
+    <path d="M 520 282 L 520 300 L 478 300" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrM53g)"/>
+    <rect x="330" y="296" width="230" height="64" rx="10" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="445" y="322" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">每层每 token 缓存合计</text>
+    <text x="445" y="344" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">512 ＋ 64 ＝ 576 个数</text>
+    <!-- MHA 对照 -->
+    <rect x="20" y="290" width="250" height="70" rx="10" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <text x="145" y="312" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#6b7280">对照 MHA（同层同 token）</text>
+    <text x="145" y="331" text-anchor="middle" font-size="11" fill="#6b7280">128 头 × 128 维 × K、V 两份</text>
+    <text x="145" y="349" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#6b7280">＝ 32768 个数</text>
+    <!-- 底部说明 -->
+    <text x="380" y="392" text-anchor="middle" font-size="11.5" fill="#666">576 对 32768，缓存缩到约 1/57；用时展开的 K、V 各不相同，头的多样性保住（GQA 共享则逐元素相同）。</text>
+    <text x="380" y="414" text-anchor="middle" font-size="11.5" fill="#666">推理时上投影还可被「吸收」进相邻矩阵，连展开动作都省掉（5.3.4）。</text>
+  </svg>
+  <div class="diagram-caption">图 2：MLA 的浓缩–展开形状流（DeepSeek-V2 配置）。输入是 5120 维的 token 表示 h_t：主通道经下投影压成 512 维隐向量，位置支路单独算出 64 维共享 key，两者合计 576 个数就是每层每 token 要缓存的全部；需要某个头的 K、V 时，用该头自己的上投影从隐向量展开成 128 维向量，128 个头的展开结果互不相同。数字均出自正文：512、64、576、32768 与 1/57 的口径与 5.3.2、5.3.3、5.3.5 节一致。</div>
+</div>
+
+<h2>5.3.1 GQA 之后还能怎么省：从「共享」到「压缩」</h2>
+
+<p>　　上一节讲的 GQA 是节流思路的直接版本：既然 128 个头各自存一份 K、V 太奢侈，那就让 8 个头共用一份。缓存确实降下来了，但代价也摆在明面上：同组的头拿到一模一样的 K、V，表达能力被「拉平」，组数越少伤得越重，MQA 是这条路的极端，所有头共享一份，质量损失最明显。</p>
+
+<p>　　DeepSeek-V2 的设计者换了个角度问这个问题。KV 缓存之所以大，是因为我们存的是「成品」：每个头展开好的 K、V。可这些 K、V 本来就是从同一个 token 表示 \(h_t\) 经过投影矩阵算出来的。既然它们同出一源，信息上就有大量冗余，那能不能不存成品，改存「原料」？</p>
+
+<p>　　这就是 MLA 的出发点：<strong>推理时只缓存一个由 \(h_t\) 直接压缩出来的低维隐向量，各头的 K、V 需要用到时再从隐向量临时展开</strong>。共享是「几个头喝同一杯茶」，压缩是「不存茶水存茶粉，喝的时候现冲」。茶粉占的地方远小于茶水，而只要浓缩工艺够好，冲出来的味道可以不打折。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">低秩压缩 Low-rank Compression</span>
+    <span class="term-en">用一个小向量承载大向量的主要信息</span>
+  </div>
+  <div class="term-body">
+    <p>一个高维向量如果实际只在一个低维子空间里变化，就可以先乘一个「下投影」矩阵把它压成低维向量，需要时再乘「上投影」矩阵还原。压缩过程有损还是无损，取决于原向量里真实信息的秩。MLA 押的注是：各头 K、V 里值得保留的信息，用一个远小于总维度的隐向量就装得下，模型可以在训练中学会把重要信息塞进这个小瓶子里。</p>
+  </div>
+</div>
+
+<h2>5.3.2 MLA 的浓缩–展开机制</h2>
+
+<p>　　把话落到公式上。标准 MHA 里，位置 \(t\) 的表示 \(h_t\) 分别乘 128 个头的投影矩阵，得到 128 份 K 和 128 份 V，推理时这些全部要缓存。MLA 第一步是把这些投影「砍掉」，换成一次下投影：</p>
+
+<div class="formula-card">
+  \[ c_t^{KV} = W^{DKV}\, h_t \tag{1} \]
+  <div class="formula-note">公式 (1)：下投影。符号说明：\(h_t\) 是位置 \(t\) 的 token 表示（上一层输出）；\(W^{DKV}\) 是下投影矩阵，把 \(d\) 维的 \(h_t\) 压成 \(d_c\) 维的隐向量 \(c_t^{KV}\)，随训练学习；\(d_c \ll n_h \cdot d_h\) 表示压缩维度远小于全部头的总维度（\(n_h\) 是头数，\(d_h\) 是每头维度）。推理时真正缓存的就是 \(c_t^{KV}\)。</div>
+</div>
+
+<p>　　用 DeepSeek-V2 的真实配置代入数字：隐藏维度 \(d=5120\)，共 \(n_h=128\) 个头，每头 \(d_h=128\) 维，压缩维度取 \(d_c=512\)（即 \(4\,d_h\)）。一个 \(5120\) 维的向量被压成 \(512\) 维，这一份隐向量是 128 个头共用的「浓缩液」。</p>
+
+<p>　　第二步，注意力计算需要某个头的 K、V 时，用该头的上投影矩阵把浓缩液「冲开」：</p>
+
+<div class="formula-card">
+  \[ k_{t,i}^{C} = W_i^{UK}\, c_t^{KV}, \qquad v_{t,i}^{C} = W_i^{UV}\, c_t^{KV} \tag{2} \]
+  <div class="formula-note">公式 (2)：上投影。符号说明：\(W_i^{UK}\)、\(W_i^{UV}\) 是第 \(i\) 个头各自的上投影矩阵，随训练学习；\(k_{t,i}^{C}\)、\(v_{t,i}^{C}\) 是从同一份 \(c_t^{KV}\) 展开出的内容段 K、V（上标 C 表示 content 内容，不带位置信息）。各头的上投影互不相同，所以每个头拿到的 K、V 不一样。</div>
+</div>
+
+<p>　　注意它和 GQA 的本质区别：GQA 里同组的头拿到的是逐元素相同的 K、V；MLA 里各头的上投影矩阵互不相同，展开出的 K、V 各不相同，头与头的多样性保住了。压缩的只是「存储介质」，不是「头的个性」。<strong>所以这步在干嘛：把 128 份成品 K、V 换成一份 512 维的浓缩液存起来，喝的时候每个头用自己的配方冲一杯。</strong></p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 400" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 输入 h_t -->
+    <rect x="20" y="160" width="130" height="80" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="85" y="192" text-anchor="middle" font-size="15" fill="#333">token 表示</text>
+    <text x="85" y="216" text-anchor="middle" font-size="12" fill="#666">h_t（5120 维）</text>
+    <!-- 下投影 -->
+    <rect x="200" y="160" width="130" height="80" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="265" y="192" text-anchor="middle" font-size="15" fill="#333">下投影压缩</text>
+    <text x="265" y="216" text-anchor="middle" font-size="12" fill="#666">c = W^DKV · h_t</text>
+    <!-- 隐向量（缓存） -->
+    <rect x="390" y="160" width="150" height="80" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="2.5"/>
+    <text x="465" y="188" text-anchor="middle" font-size="15" fill="#333">低维隐向量</text>
+    <text x="465" y="210" text-anchor="middle" font-size="12" fill="#666">c_t^KV（512 维）</text>
+    <text x="465" y="228" text-anchor="middle" font-size="12" fill="#dc2626">推理时只缓存它</text>
+    <!-- 上投影到 K / V -->
+    <rect x="590" y="80" width="150" height="70" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="665" y="108" text-anchor="middle" font-size="14" fill="#333">上投影 W^UK</text>
+    <text x="665" y="130" text-anchor="middle" font-size="12" fill="#666">128 个头各自的 K</text>
+    <rect x="590" y="250" width="150" height="70" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="665" y="278" text-anchor="middle" font-size="14" fill="#333">上投影 W^UV</text>
+    <text x="665" y="300" text-anchor="middle" font-size="12" fill="#666">128 个头各自的 V</text>
+    <!-- 箭头 -->
+    <line x1="150" y1="200" x2="200" y2="200" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr5)"/>
+    <line x1="330" y1="200" x2="390" y2="200" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr5)"/>
+    <path d="M540,175 C570,160 570,130 590,120" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr5)"/>
+    <path d="M540,225 C570,240 570,270 590,280" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr5)"/>
+    <!-- 对比注记 -->
+    <text x="85" y="290" text-anchor="middle" font-size="13" fill="#666">传统 MHA：</text>
+    <text x="85" y="312" text-anchor="middle" font-size="13" fill="#666">缓存 128 份 K + 128 份 V</text>
+    <text x="85" y="334" text-anchor="middle" font-size="13" fill="#dc2626">每层每 token 32768 个数</text>
+    <text x="265" y="290" text-anchor="middle" font-size="13" fill="#666">MLA：</text>
+    <text x="265" y="312" text-anchor="middle" font-size="13" fill="#666">只缓存一份浓缩液</text>
+    <text x="265" y="334" text-anchor="middle" font-size="13" fill="#dc2626">512 个数（另加 64 维位置分量）</text>
+    <!-- 底部说明 -->
+    <text x="380" y="385" text-anchor="middle" font-size="13" fill="#666">浓缩液存缓存，K、V 用时现展开：缓存从 32768 个数缩到 576 个数。</text>
+  </svg>
+  <div class="diagram-caption">图 3：MLA 的浓缩–展开流程。\(h_t\) 经下投影压成 512 维隐向量存入缓存，各头的 K、V 由各自的上投影从隐向量临时展开，不再逐头缓存。</div>
+</div>
+
+<div class="highlight-box">
+  核心结论：MLA 每层每 token 的 KV 缓存从 MHA 的 \(2\,n_h d_h\) 个数（DeepSeek-V2 配置下 32768 个）降到 \(d_c + d_h^R\) 个数（512 + 64 = 576 个），约等于 GQA 只开 2.25 组的缓存量，而论文报告其性能强于 MHA。缓存与质量第一次不再此消彼长。
+</div>
+
+<h2>5.3.3 位置与内容分家：decoupled RoPE</h2>
+
+<p>　　浓缩方案有一个暗礁，名字叫做 RoPE。回忆第 3 章：RoPE 是给 Q、K 按位置做旋转的位置编码，旋转矩阵和位置编号绑定。问题在于，RoPE 是直接作用在展开后的 K 上的，而 MLA 的 K 是推理时才从 \(c_t^{KV}\) 展开出来的。旋转矩阵随位置编号而变，不是一张能预先合并进投影的固定矩阵：先把位置信息混进 \(c_t^{KV}\) 再压缩，旋转和投影两种变换缠在一起，「用时再展开」的账就算不转了；展开后再逐头加 RoPE，则每个头的 K 都得真的展开出来单独旋转——要么逐头存下带位置的 K，要么每步逐头现算，压缩带来的收益被吃回去一大块。低秩压缩和 RoPE 在数学上互相打架。</p>
+
+<p>　　DeepSeek 的解法干脆利落：<strong>位置和内容彻底分家</strong>。K、Q 各拆成两段：</p>
+
+<ul>
+  <li><strong>内容段</strong>：占大头，从浓缩液展开，不带位置信息，走上一节的压缩流程；</li>
+  <li><strong>位置段</strong>：一小段专门承载 RoPE 的分量，单独从 \(h_t\) 算出来，不进压缩通道，也不按头区分。</li>
+</ul>
+
+<div class="formula-card">
+  \[ k_t^{R} = \mathrm{RoPE}\!\left(W^{KR}\, h_t\right) \tag{3} \]
+  <div class="formula-note">公式 (3)：解耦的位置 key。符号说明：\(W^{KR}\) 是位置 key 的投影矩阵，由 \(h_t\) 直接算出这一小段；\(\mathrm{RoPE}(\cdot)\) 是按位置编号做旋转的位置编码算子；\(k_t^{R}\) 是算出的位置段 key，维度很小（DeepSeek-V2 取 \(d_h^R = 64\)，即 \(d_h/2\)），所有头共享同一份，随 \(c_t^{KV}\) 一起缓存。</div>
+</div>
+
+<p>　　注意力打分就变成两项相加：内容段对内容段，位置段对位置段：</p>
+
+<div class="formula-card">
+  \[ \mathrm{score}(q_t, k_s) \;=\; \big(q_t^{C}\big)^{\!\top} k_s^{C} \;+\; \big(q_t^{R}\big)^{\!\top} k_s^{R} \tag{4} \]
+  <div class="formula-note">公式 (4)：内容相似度与位置相似度分开计算再相加。符号说明：\(q_t^{C}\)、\(k_s^{C}\) 是 Query、Key 的内容段（由浓缩液展开而来）；\(q_t^{R}\)、\(k_s^{R}\) 是位置段，Query 侧同样拆两段，位置段也带 RoPE；上标 \(\top\) 表示转置，两向量的内积即它们的相似度。</div>
+</div>
+
+<p>　　这份 64 维的位置 key 全头共享，所以缓存里只需再加 64 个数。最终每层每 token 缓存总量是 \(512 + 64 = 576\) 个数，对照 MHA 的 32768 个，缩到约 1/57。<strong>所以这步在干嘛：RoPE 不肯被压缩，那就别难为它，单独给它开一间 64 维的小储藏室，主仓库继续放浓缩液。</strong></p>
+
+<div class="highlight-box info">
+  补充：Query 侧 MLA 也做了同款低秩压缩（\(c_t^{Q} = W^{DQ} h_t\)，DeepSeek-V2 中压缩到 1536 维），但 Query 不需要跨步缓存，这一压缩省的是参数量与训练显存，与 KV 缓存无关，知道即可。
+</div>
+
+<h2>5.3.4 推理加速：把上投影「吸收」掉</h2>
+
+<p>　　按 5.3.2 节的描述，推理时好像每读一个缓存 token 都要做 128 次上投影，会不会把省下的显存又赔进算力里？不会，因为线性代数允许「合并同类项」。注意力打分是 \(q^{\top} k\)，把上投影代进去：</p>
+
+<div class="formula-card">
+  \[ \big(q_t^{C}\big)^{\!\top} k_s^{C} = \big(W_i^{UQ}\, c_t^{Q}\big)^{\!\top} \big(W_i^{UK}\, c_s^{KV}\big) = \big(c_t^{Q}\big)^{\!\top} \underbrace{\big(W_i^{UQ}\big)^{\!\top} W_i^{UK}}_{\text{可预先合并成一个矩阵}}\, c_s^{KV} \tag{5} \]
+  <div class="formula-note">公式 (5)：矩阵结合律。符号说明：\(c_t^{Q}\) 是 Query 侧的低秩隐向量（5.3.3 的 \(c_t^{Q} = W^{DQ} h_t\)）；\(W_i^{UQ}\) 是第 \(i\) 个头的 Query 上投影矩阵。两个投影矩阵的乘积 \((W_i^{UQ})^{\top} W_i^{UK}\) 可在加载模型时预先合并成一个矩阵，推理时 query 侧的隐向量直接与缓存的 \(c_s^{KV}\) 打分，K 根本不需要真的展开。</div>
+</div>
+
+<p>　　V 侧同理：上投影 \(W_i^{UV}\) 可以被输出投影 \(W_i^{O}\) 吸收，先对 \(c_s^{KV}\) 加权求和，最后一次性映射回隐藏维度。这套操作论文里称为矩阵吸收（absorb）。吸收之后，推理全程打交道的只有隐向量，等效于只缓存、只读取那份 576 个数的浓缩液，省显存也省显存带宽。<strong>所以这步在干嘛：展开只是数学上的中间步骤，用结合律把它折叠掉，推理时连「冲茶粉」的动作都省了。</strong></p>
+
+<div class="highlight-box info">
+  注释：吸收技巧改变的是计算顺序，不改变计算结果，属于「免费」的加速。训练时参数仍需分开存储，吸收发生在推理部署阶段。
+</div>
+
+<h2>5.3.5 与 MHA / GQA / MQA 对照</h2>
+
+<p>　　把四种注意力变体放在同一张桌上，按「每层每 token 缓存的元素个数」算账（\(l\) 为层数，\(n_g\) 为 GQA 组数，元素个数与存储精度无关）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>机制</th><th>缓存什么</th><th>每层每 token 缓存量</th><th>质量表现</th><th>代表模型</th></tr></thead>
+    <tbody>
+      <tr><td>MHA</td><td>每个头完整的 K、V</td><td>\(2\,n_h d_h\)（32768）</td><td>强（基准）</td><td>原始 Transformer</td></tr>
+      <tr><td>GQA</td><td>每组一份 K、V，组内共享</td><td>\(2\,n_g d_h\)</td><td>中等，随组数减少而下降</td><td>Llama 2/3、Qwen 系</td></tr>
+      <tr><td>MQA</td><td>全部头共享一份 K、V</td><td>\(2\,d_h\)（256）</td><td>较弱</td><td>Falcon、早期 PaLM</td></tr>
+      <tr><td>MLA</td><td>一份低维隐向量 + 共享位置 key</td><td>\(d_c + d_h^R\)（576，约 GQA 2.25 组）</td><td>论文报告不弱于 MHA</td><td>DeepSeek-V2 / V3</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　缓存量一列用的是 DeepSeek-V2 的配置（\(n_h=128\)，\(d_h=128\)，\(d_c=512\)，\(d_h^R=64\)）。可以看到 MLA 落在很特殊的位置：缓存量逼近 MQA，质量却站到了 MHA 一侧。放到整机对比上，DeepSeek-V2 技术报告给出的数字是：相比自家稠密的 DeepSeek 67B，KV 缓存减少 93.3%，最大生成吞吐提升到 5.76 倍。</p>
+
+<p>　　为什么压缩能比共享做得更好？直觉上可以这样想：共享是硬约束，强行规定若干头必须一样；压缩是软约束，只限制存储的维度，至于各头的 K、V 长什么样，模型在训练中自由学习。低秩假设赌的是「K、V 里的有效信息本来就没那么满」，DeepSeek-V2 的实验结果支持了这个赌注。当然，MLA 也不是白捡的便宜：训练和推理实现都比 GQA 复杂，对工程团队的要求更高，这也是它目前主要见于 DeepSeek 系模型的原因之一。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">MLA 和 GQA 省缓存的思路差在哪里？</div>
+    <div class="sc-key">GQA 让多个头共享同一份 K、V，牺牲头的多样性；MLA 只缓存一个低维隐向量 \(c_t^{KV}\)，各头用各自的上投影临时展开 K、V，多样性保住，缓存照样大降。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么 RoPE 和低秩压缩会冲突，怎么解决？</div>
+    <div class="sc-key">RoPE 的旋转作用在展开后的 K 上，与「先存浓缩液、用时再展开」的流程打架。解法是 decoupled RoPE：内容段走压缩通道，另留一小段（64 维）全头共享的位置分量单独承载 RoPE，两者分开算分再相加。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">MLA 的缓存到底省了多少，质量代价是什么？</div>
+    <div class="sc-key">DeepSeek-V2 配置下每层每 token 缓存 576 个数，约为 MHA 的 1/57，相当于 GQA 2.25 组；论文报告性能不弱于 MHA，整机 KV 缓存较 DeepSeek 67B 减少 93.3%。主要代价是实现复杂度。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>DeepSeek-AI, 2024. DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model（arXiv:2405.04434）。MLA 的提出处：低秩 KV 联合压缩、decoupled RoPE、矩阵吸收技巧、缓存对比表（Table 1）与 93.3% 缓存缩减、5.76 倍吞吐均出自该文。</li>
+  <li>DeepSeek-AI, 2024. DeepSeek-V3 Technical Report（arXiv:2412.19437），MLA 在 V3 中的沿用。</li>
+  <li>Ainslie et al., 2023. GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints（arXiv:2305.13245），GQA 缓存量级对照的出处。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch5_2_mqa_gqa.html" title="5.2 注意力的省显存之路：MHA、MQA 与 GQA">← 上一节：5.2 注意力的省显存之路：MHA、MQA 与 GQA</a><a class="next" href="ch5_4_moe.html" title="5.4 MoE 混合专家：一个大脑，多位专科医生">下一节：5.4 MoE 混合专家：一个大脑，多位专科医生 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

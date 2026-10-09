@@ -1,0 +1,758 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>7.3 张量并行与流水线并行：把模型本身切开 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link active" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 7 章 预训练工程</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>7.3 张量并行与流水线并行：把模型本身切开</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>7.3 张量并行与流水线并行：把模型本身切开</h1>
+<p class="subtitle">本页范围：第 7 章第 3 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>数据并行（DP）的前提是每张卡装得下一整份模型。当模型大到单机都装不下时，还能怎么切？</td></tr>
+      <tr><td>本节主张</td><td>把模型本身切开有两把刀：张量并行（TP）横着切，把每一层的矩阵乘拆到多卡；流水线并行（PP）竖着切，把不同层分给不同卡。TP 通信频繁只能困在单机 NVLink 内，PP 通信稀疏可以跨机，两者再与 DP 拼成 3D 并行，撑起千亿参数训练。</td></tr>
+      <tr><td>一句话结论</td><td>TP 靠「列切加行切」两刀把一层 GEMM 拆到多卡、代价是每层四次 all-reduce；PP 靠 micro-batch 灌流消除空转、代价是 \( (p-1)/(m+p-1) \) 的气泡；实战按「TP 限机内、PP 跨机、DP 拉满」组网，MT-NLG 530B 就是 8×35×16 = 4480 张 A100。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>张量并行 TP</span><span>流水线并行 PP</span><span>all-reduce</span><span>micro-batch</span><span>流水线气泡</span><span>1F1B</span><span>序列并行</span><span>上下文并行</span><span>3D 并行</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　7.1 节把账算清了：大模型训练的墙砌在两处——显存放不下，算力等不起。6.3 节见过的数据并行（DDP）解决的是「多张卡分数据」，但它有个硬性前提：每张卡都得装得下一整份模型（参数、梯度、优化器状态）。7.2 节的混合精度和 ZeRO 能把这份副本压小，可压到头，模型本身还有那么大——5300 亿参数的模型，一份权重就要 1 TB 开外，单张 80 GB 的卡、甚至整台 8 卡服务器都无能为力。路只剩一条：<strong>把模型本身切开</strong>，让每张卡只持有模型的一部分。</p>
+
+<p>　　怎么切？沿两个方向下刀：横着切，把每一层的矩阵运算拆到多张卡上共同完成；竖着切，把模型的不同层直接分给不同的卡。前者是张量并行，后者是流水线并行，长序列时代又衍生出沿序列维的切法。本节沿这条线展开：</p>
+
+<ol>
+  <li><strong>张量并行 TP：把一层切到多卡</strong>（7.3.1）：Megatron-LM 的「列切加行切」两刀，为什么切完每层前向只剩两次 all-reduce、算上反向共四次，又为什么这高频通信把 TP 锁死在单机之内；</li>
+  <li><strong>流水线并行 PP：把层切到多卡</strong>（7.3.2）：micro-batch 灌流如何消除空转，气泡率 \( (p-1)/(m+p-1) \) 怎么算，1F1B 调度如何省下一半激活显存；</li>
+  <li><strong>序列并行与上下文并行：长序列时代的新切法</strong>（7.3.3）：TP 切不动的 LayerNorm 激活沿序列维接着切，Ring Attention 把整条序列铺到多卡；</li>
+  <li><strong>3D 并行组合拳：实战怎么配</strong>（7.3.4）：「TP 限机内、PP 跨机、DP 拉满」的经验法则，以及 MT-NLG 530B 的 8×35×16 实战配置。</li>
+</ol>
+
+<p>　　读完本节，你应该能看懂任何一份大模型训练配置里的 <code>tensor_model_parallel_size</code>、<code>pipeline_model_parallel_size</code> 在干什么，并说出它们为什么这么配。</p>
+
+<p>　　两把刀展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及这个位置放大之后的内部结构。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS73tensorpipelineparallel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG73tensorpipelineparallel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS73tensorpipelineparallel)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS73tensorpipelineparallel)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG73tensorpipelineparallel)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG73tensorpipelineparallel)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG73tensorpipelineparallel)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG73tensorpipelineparallel)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG73tensorpipelineparallel)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：训练工程在 LLM 生命周期中的位置。数据（第 1 章）与预训练目标（第 6 章）就位后，这一站把训练摊到集群上跑起来，随后交给中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章）。本节管这一站里「模型本身装不下」的那半：把模型切开，横切归 TP、竖切归 PP。</div>
+</div>
+
+<p>　　图 1 里这个紫框放大之后长什么样？「横切」与「竖切」两刀分别切在什么上、切完各是什么形状？把两把刀并排拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 480" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrTp73" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrPp73" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <text x="24" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：两把刀——TP 横切层内矩阵，PP 竖切整个模型</text>
+    <text x="24" y="50" font-size="10.5" fill="#64748b">TP 输入：一层权重 + 一份激活；PP 输入：L 层堆栈（以 8 层分 2 段为例）</text>
+    <!-- 左半：TP -->
+    <text x="24" y="80" font-size="12.5" font-weight="bold" fill="#6d28d9">张量并行 TP：横切一层权重 A（h × 4h）</text>
+    <rect x="70" y="96" width="180" height="130" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="115" y1="96" x2="115" y2="226" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="205" y1="96" x2="205" y2="226" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="70" y1="128" x2="250" y2="128" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="70" y1="161" x2="250" y2="161" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="70" y1="194" x2="250" y2="194" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="160" y1="92" x2="160" y2="230" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="115" y="158" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">A₁</text>
+    <text x="115" y="176" text-anchor="middle" font-size="10" fill="#6d28d9">h × 2h</text>
+    <text x="205" y="158" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">A₂</text>
+    <text x="205" y="176" text-anchor="middle" font-size="10" fill="#6d28d9">h × 2h</text>
+    <line x1="115" y1="230" x2="105" y2="258" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrTp73)"/>
+    <line x1="205" y1="230" x2="255" y2="258" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#arrTp73)"/>
+    <rect x="40" y="262" width="130" height="64" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="105" y="286" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">GPU 1：左半列</text>
+    <text x="105" y="306" text-anchor="middle" font-size="10.5" fill="#555">算出 Y 的左半 Y₁</text>
+    <rect x="190" y="262" width="130" height="64" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="255" y="286" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">GPU 2：右半列</text>
+    <text x="255" y="306" text-anchor="middle" font-size="10.5" fill="#555">算出 Y 的右半 Y₂</text>
+    <text x="180" y="354" text-anchor="middle" font-size="10.5" fill="#555">第二层行切接住半份，各算部分和</text>
+    <text x="180" y="372" text-anchor="middle" font-size="10.5" fill="#555">一次 all-reduce 求和还原完整输出</text>
+    <text x="180" y="390" text-anchor="middle" font-size="10.5" fill="#dc2626">每层 4 次集合通信 → 困在单机 NVLink（≤ 8 卡）</text>
+    <!-- 右半：PP -->
+    <text x="400" y="80" font-size="12.5" font-weight="bold" fill="#0891b2">流水线并行 PP：竖切，按层分段</text>
+    <rect x="440" y="92" width="200" height="142" rx="8" fill="#ecfeff" fill-opacity="0.4" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="540" y="108" text-anchor="middle" font-size="10.5" fill="#155e75">第 1 段（第 1–4 层）→ 机器 A</text>
+    <rect x="470" y="114" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="129" text-anchor="middle" font-size="10.5" fill="#155e75">第 1 层</text>
+    <rect x="470" y="140" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="155" text-anchor="middle" font-size="10.5" fill="#155e75">第 2 层</text>
+    <rect x="470" y="166" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="181" text-anchor="middle" font-size="10.5" fill="#155e75">第 3 层</text>
+    <rect x="470" y="192" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="207" text-anchor="middle" font-size="10.5" fill="#155e75">第 4 层</text>
+    <line x1="540" y1="236" x2="540" y2="256" stroke="#0891b2" stroke-width="2" marker-end="url(#arrPp73)"/>
+    <text x="556" y="250" font-size="10.5" fill="#155e75">激活接力（点对点小包）</text>
+    <rect x="440" y="260" width="200" height="142" rx="8" fill="#ecfeff" fill-opacity="0.4" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="540" y="276" text-anchor="middle" font-size="10.5" fill="#155e75">第 2 段（第 5–8 层）→ 机器 B</text>
+    <rect x="470" y="282" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="297" text-anchor="middle" font-size="10.5" fill="#155e75">第 5 层</text>
+    <rect x="470" y="308" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="323" text-anchor="middle" font-size="10.5" fill="#155e75">第 6 层</text>
+    <rect x="470" y="334" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="349" text-anchor="middle" font-size="10.5" fill="#155e75">第 7 层</text>
+    <rect x="470" y="360" width="140" height="22" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="540" y="375" text-anchor="middle" font-size="10.5" fill="#155e75">第 8 层</text>
+    <text x="540" y="424" text-anchor="middle" font-size="10.5" fill="#555">micro-batch 连续灌流压气泡（气泡率 (p−1)/(m+p−1)）</text>
+    <text x="540" y="442" text-anchor="middle" font-size="10.5" fill="#555">通信只在段边界 → 敢跨机走 InfiniBand</text>
+    <!-- 底部通栏 -->
+    <text x="380" y="466" text-anchor="middle" font-size="11" fill="#4c1d95">实战两刀叠加再套 DP：MT-NLG 530B = TP 8 × PP 35 × DP 16 = 4480 张 A100（7.3.4）</text>
+  </svg>
+  <div class="diagram-caption">图 2：模型装不下时的两把刀。左：张量并行横着切——一层权重矩阵按列劈给两张卡，各算输出的一半，第二层行切接住后用一次 all-reduce 把部分和加回完整输出，每层 4 次高频通信把它锁在单机 NVLink 内；右：流水线并行竖着切——8 层分两段交给两台机器，micro-batch 连续灌流压气泡，段间只传激活小包，可以跨机。两刀的内部细节（FFN 两刀、时间轴气泡）分别在图 3 与图 4 里展开。</div>
+</div>
+
+<h2>7.3.1 张量并行 TP：把一层切到多卡</h2>
+
+<p>　　先建立核心直觉：<strong>矩阵乘法天然可以拆着算</strong>。以 Transformer 的 FFN 第一层为例，\(Y = XA\)，\(X\) 是输入激活，\(A\) 是权重矩阵。把 \(A\) 沿<strong>列</strong>切成两半 \(A_1\)、\(A_2\)，输出 \(Y\) 就沿列分成 \(XA_1\)、\(XA_2\) 两块——两块之间没有任何依赖，两张卡各算一半，谁的活都不缺。一句话：按输出维度纵切权重，每张卡算出输出的一半。</p>
+
+<p>　　Megatron-LM（Shoeybi et al., 2019）把这一直觉变成了 Transformer 的完整切法。FFN 是「\(h \to 4h \to h\)」的两层结构（4.4 节），Megatron 对它下了两刀：</p>
+
+<ul>
+  <li><strong>第一刀：列切（column parallel）</strong>。第一层权重 \(A\)（\(h \times 4h\)）按列纵切，每卡拿 \(2h\) 列，各自算出 \(Y\) 的一半。关键在于紧随其后的激活函数 GeLU 是逐元素运算，各卡在自己的半份上独立施加即可，无需通信；</li>
+  <li><strong>第二刀：行切（row parallel）</strong>。第二层权重 \(B\)（\(4h \times h\)）按行横切，每卡拿 \(2h\) 行，恰好接住上一刀产出的半份 \(Y\)，各自算出一个「部分和」。两个部分和相加才是完整输出，这次求和就是一次 all-reduce。</li>
+</ul>
+
+<div class="formula-card">
+  \[ Y = XA, \quad A = [A_1 \; A_2] \;\Rightarrow\; Y = [\,XA_1 \;\; XA_2\,], \qquad Z = YB = Y_1 B_1 + Y_2 B_2 \tag{1} \]
+  <div class="formula-note">公式 (1)：FFN 两刀的数学面貌——第一刀把输出「劈成两半各算各的」，第二刀把「两半各自的结果」加回去，求和这一步就是 all-reduce 干的活。符号说明：\(X\) 是输入激活（尺寸 b×s×h，即 batch×序列长×隐藏维）；\(A\) 是 FFN 第一层权重，\([A_1\ A_2]\) 表示把它按列拼成两块；\(Y\) 是中间激活，\(Y_i = XA_i\) 是第 \(i\) 张卡持有的那一半；\(B\) 是 FFN 第二层权重，\(B_i\) 是按行切出的块；\(Z\) 是 FFN 的完整输出，等于两个部分和 \(Y_iB_i\) 相加。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 780 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+<defs><marker id="ar-tp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/></marker><marker id="ar-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/></marker></defs>
+<text x="390" y="24" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#333">Transformer 的 MLP：两刀切两张卡（TP = 2 示意）</text>
+<rect x="14" y="190" width="96" height="64" rx="6" fill="#fff" stroke="#6d28d9" stroke-width="1.5"/><text x="62.0" y="214.0" text-anchor="middle" font-size="13" fill="#333" font-weight="bold">输入 X</text><text x="62.0" y="231.0" text-anchor="middle" font-size="11" fill="#333">b×s, h</text>
+<line x1="110" y1="210" x2="158" y2="128" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#ar-tp)"/>
+<line x1="110" y1="234" x2="158" y2="318" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#ar-tp)"/>
+<text x="118" y="176" font-size="11" fill="#666">同一份 X 广播</text>
+<rect x="150" y="64" width="500" height="126" rx="10" fill="#6d28d9" fill-opacity="0.06" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/><text x="160" y="58" font-size="13" font-weight="bold" fill="#6d28d9">GPU 1</text><rect x="164" y="96" width="84" height="60" rx="6" fill="#fff" stroke="#6d28d9" stroke-width="1.5"/><text x="206.0" y="118.0" text-anchor="middle" font-size="13" fill="#333" font-weight="bold">A₁</text><text x="206.0" y="135.0" text-anchor="middle" font-size="11" fill="#333">h × 2h</text><text x="206" y="88" text-anchor="middle" font-size="12" fill="#6d28d9">① 列切</text><rect x="262" y="96" width="108" height="60" rx="6" fill="#fff" stroke="#6d28d9" stroke-width="1.5"/><text x="316.0" y="118.0" text-anchor="middle" font-size="13" fill="#333" font-weight="bold">Y₁ = X·A₁</text><text x="316.0" y="135.0" text-anchor="middle" font-size="11" fill="#333">b×s, 2h</text><text x="316" y="172" text-anchor="middle" font-size="11" fill="#666">GeLU 逐元素，互不依赖</text><rect x="384" y="96" width="84" height="60" rx="6" fill="#fff" stroke="#6d28d9" stroke-width="1.5"/><text x="426.0" y="118.0" text-anchor="middle" font-size="13" fill="#333" font-weight="bold">B₁</text><text x="426.0" y="135.0" text-anchor="middle" font-size="11" fill="#333">2h × h</text><text x="426" y="88" text-anchor="middle" font-size="12" fill="#6d28d9">② 行切</text><rect x="482" y="96" width="110" height="60" rx="6" fill="#fff" stroke="#6d28d9" stroke-width="1.5"/><text x="537.0" y="118.0" text-anchor="middle" font-size="13" fill="#333" font-weight="bold">Z₁ = Y₁·B₁</text><text x="537.0" y="135.0" text-anchor="middle" font-size="11" fill="#333">部分和</text><line x1="248" y1="126" x2="262" y2="126" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#ar-tp)"/><line x1="370" y1="126" x2="384" y2="126" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#ar-tp)"/><line x1="468" y1="126" x2="482" y2="126" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#ar-tp)"/>
+<rect x="150" y="254" width="500" height="126" rx="10" fill="#0891b2" fill-opacity="0.06" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6 4"/><text x="160" y="248" font-size="13" font-weight="bold" fill="#0891b2">GPU 2</text><rect x="164" y="286" width="84" height="60" rx="6" fill="#fff" stroke="#6d28d9" stroke-width="1.5"/><text x="206.0" y="308.0" text-anchor="middle" font-size="13" fill="#333" font-weight="bold">A₂</text><text x="206.0" y="325.0" text-anchor="middle" font-size="11" fill="#333">h × 2h</text><text x="206" y="278" text-anchor="middle" font-size="12" fill="#6d28d9">① 列切</text><rect x="262" y="286" width="108" height="60" rx="6" fill="#fff" stroke="#6d28d9" stroke-width="1.5"/><text x="316.0" y="308.0" text-anchor="middle" font-size="13" fill="#333" font-weight="bold">Y₂ = X·A₂</text><text x="316.0" y="325.0" text-anchor="middle" font-size="11" fill="#333">b×s, 2h</text><text x="316" y="362" text-anchor="middle" font-size="11" fill="#666">GeLU 逐元素，互不依赖</text><rect x="384" y="286" width="84" height="60" rx="6" fill="#fff" stroke="#6d28d9" stroke-width="1.5"/><text x="426.0" y="308.0" text-anchor="middle" font-size="13" fill="#333" font-weight="bold">B₂</text><text x="426.0" y="325.0" text-anchor="middle" font-size="11" fill="#333">2h × h</text><text x="426" y="278" text-anchor="middle" font-size="12" fill="#6d28d9">② 行切</text><rect x="482" y="286" width="110" height="60" rx="6" fill="#fff" stroke="#6d28d9" stroke-width="1.5"/><text x="537.0" y="308.0" text-anchor="middle" font-size="13" fill="#333" font-weight="bold">Z₂ = Y₂·B₂</text><text x="537.0" y="325.0" text-anchor="middle" font-size="11" fill="#333">部分和</text><line x1="248" y1="316" x2="262" y2="316" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#ar-tp)"/><line x1="370" y1="316" x2="384" y2="316" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#ar-tp)"/><line x1="468" y1="316" x2="482" y2="316" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#ar-tp)"/>
+<line x1="592" y1="126" x2="664" y2="204" stroke="#dc2626" stroke-width="1.8" marker-end="url(#ar-red)"/>
+<line x1="592" y1="316" x2="664" y2="242" stroke="#dc2626" stroke-width="1.8" marker-end="url(#ar-red)"/>
+<rect x="668" y="186" width="92" height="72" rx="10" fill="#fef3c7" stroke="#dc2626" stroke-width="2"/>
+<text x="714" y="212" text-anchor="middle" font-size="16" font-weight="bold" fill="#dc2626">⊕</text>
+<text x="714" y="231" text-anchor="middle" font-size="12" fill="#dc2626">all-reduce</text>
+<text x="714" y="247" text-anchor="middle" font-size="12" fill="#dc2626">求和</text>
+<line x1="714" y1="258" x2="714" y2="296" stroke="#dc2626" stroke-width="1.8" marker-end="url(#ar-red)"/>
+<text x="714" y="314" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">完整输出 Z</text>
+<text x="714" y="332" text-anchor="middle" font-size="11" fill="#666">b×s, h（Z₁+Z₂）</text>
+<text x="390" y="416" text-anchor="middle" font-size="12.5" fill="#333">前向两卡各算各的，只在第二刀后做一次 all-reduce；反向在层入口再做一次。每层共 4 次集合通信。</text>
+</svg>
+  <div class="diagram-caption">图 3：FFN 的两刀切法（以 TP = 2 为例）。同一份输入广播给两卡；第一刀列切权重 A，各算一半中间激活，GeLU 各自独立施加；第二刀行切权重 B，各算一个部分和；最后由一次 all-reduce 求和还原完整输出。注意力块同理：按头切 Q/K/V 投影（列切），输出投影行切后再做一次 all-reduce。</div>
+</div>
+
+<p>　　注意力块的切法甚至更顺。4.3 节讲过，多头注意力的各个头本来就相互独立、最后才拼接投影——TP 按头分工即可：每卡分到一半的头，Q/K/V 三个投影矩阵按头列切，各卡独立算完自己那批头的注意力，输出投影按行切，收尾同样是一次 all-reduce。</p>
+
+<p>　　于是一个 Transformer 层，前向传播需要 <strong>2 次 all-reduce</strong>（注意力输出一次、FFN 输出一次）；反向传播在层的两个入口处还需要 2 次，每层合计 4 次集合通信。注意通信的货物不是梯度，而是<strong>激活</strong>：每次 all-reduce 搬运的是 b×s×h 大小的张量，随 batch 和序列长同步膨胀。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">all-reduce 全归约</span>
+    <span class="term-en">all-reduce = 所有卡把各自的数据归约（求和/取均值）后，人人拿到结果</span>
+  </div>
+  <div class="term-body">
+    <p>一种集合通信操作：每张卡出一份数据，按某种运算（通常是求和）合并，合并结果再发还给每一张卡。TP 里它负责把两张卡的部分和加成完整输出；DP 里它负责把各卡的梯度聚成一份。它的代价随参与卡数和数据量增长，是分布式训练里最常见的通信原语。</p>
+    <div class="term-analogy">就像几个小组分头清点同一堆选票，最后把各组计数汇总、再把总数抄送每个小组——汇总加抄送这两步合起来就是 all-reduce。</div>
+  </div>
+</div>
+
+<p>　　通信频次账一算就明白 TP 的软肋：一个 100 层的模型，每个训练步要做约 400 次 all-reduce，每次搬一整个激活张量。频次极高、单次量又大，只有 NVLink/NVSwitch 这种机内高速互联（数百 GB/s）扛得住；一旦跨出机箱走 InfiniBand，通信就会吃掉大部分算力。MT-NLG 论文把话说得很直白：TP <strong>最好限制在单台 DGX 服务器内</strong>。这就是工程上 TP 通常不超过 8（一台 8 卡机的卡数）的原因。Megatron-LM 论文自己的实战成绩是：8.3B 参数的 GPT-2 用 8 路 TP，在 512 张 GPU 上训练，整机 15.1 PetaFLOP/s，扩展效率 76%。</p>
+
+<div class="highlight-box info">
+  5.2 节的 GQA 在这里埋了个工程约束：TP 按头分工时，希望每卡至少分到一个完整的 KV 头，KV 头数太少会限制 TP 度数（或迫使 KV 头被复制多份）。这也是 GQA 时代 TP 常开到 8 的一个现实背景。
+</div>
+
+<div class="highlight-box">
+  张量并行的本质：利用 GEMM 的可分解性，列切让非线性和多头各自独立，行切把求和推迟到一次 all-reduce。换来的是模型显存近似按卡数均摊；付出的代价是每层 4 次高频 all-reduce，因此 TP 一般困在单机 NVLink 域内（≤ 8 卡）。
+</div>
+
+<h2>7.3.2 流水线并行 PP：把层切到多卡</h2>
+
+<p>　　TP 是横着切每一层，流水线并行则是竖着切整个模型：把 \(L\) 层切成 \(p\) 段（stage），每张卡（或每台机器）负责一段。前向时，第 1 段算完把激活传给第 2 段，依次接力；反向时梯度沿原路传回。通信只发生在段与段的边界，是点对点的小包传递，频次和体量都比 TP 低几个量级——所以 PP 敢跨机器，走普通 InfiniBand 网络。</p>
+
+<p>　　但朴素的流水有个致命问题：<strong>任意时刻只有一段在干活</strong>。整个 batch 灌进去，第 1 段算时其余 \(p-1\) 段干等，第 2 段算时第 1 段又开始等——每段只有 \(1/p\) 的时间在工作，其余全是空转，这部分空转就叫<strong>流水线气泡</strong>（bubble）。</p>
+
+<p>　　GPipe（Huang et al., 2018）给出的解法朴素而有效：<strong>把一个 mini-batch 切成 \(m\) 个 micro-batch，像流水线一样连续灌入</strong>。第 1 段算完 micro-batch 1 立刻转交第 2 段，自己马上接 micro-batch 2——几步之后所有段都忙起来，各自处理不同的 micro-batch。这与 6.3.4 节的梯度累积是同一个切分动作：工程上 micro-batch 数常就取梯度累积的步数，一份切法，两份用途。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">micro-batch 微批次</span>
+    <span class="term-en">micro-batch = 把一个训练 batch 再切成的小份，流水灌入管线</span>
+  </div>
+  <div class="term-body">
+    <p>流水线并行实际处理的调度单位。一个全局 batch（如 1920 条）被切成 m 份（如每份 8 条），逐份流过各段；所有 micro-batch 的梯度累积起来，等价于原来那个大 batch 的梯度，数学语义不变。</p>
+    <div class="term-analogy">就像食堂出餐：不是等 100 份全做完才开饭（后厨前厅轮流干等），而是做一份传一份，炒菜、配餐、打包三个工位同时都在忙。</div>
+  </div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 780 560" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+<defs><marker id="ar-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#666"/></marker></defs>
+<text x="96" y="26" font-size="13.5" font-weight="bold" fill="#333">做法 A：整个 batch 一次灌入（不切 micro-batch）</text><rect x="174" y="38" width="468" height="160" fill="#dc2626" fill-opacity="0.05" stroke="#dc2626" stroke-width="1.2" stroke-dasharray="5 4"/><text x="88" y="62" text-anchor="end" font-size="12.5" fill="#333">第 1 段</text><text x="88" y="76" text-anchor="end" font-size="10.5" fill="#888">GPU 0</text><rect x="96" y="44" width="78" height="28" rx="4" fill="#6d28d9"/><text x="135.0" y="62" text-anchor="middle" font-size="12" fill="#fff" font-weight="bold">前向</text><rect x="642" y="44" width="78" height="28" rx="4" fill="#0891b2"/><text x="681.0" y="62" text-anchor="middle" font-size="12" fill="#fff" font-weight="bold">反向</text><text x="88" y="102" text-anchor="end" font-size="12.5" fill="#333">第 2 段</text><text x="88" y="116" text-anchor="end" font-size="10.5" fill="#888">GPU 1</text><rect x="174" y="84" width="78" height="28" rx="4" fill="#6d28d9"/><text x="213.0" y="102" text-anchor="middle" font-size="12" fill="#fff" font-weight="bold">前向</text><rect x="564" y="84" width="78" height="28" rx="4" fill="#0891b2"/><text x="603.0" y="102" text-anchor="middle" font-size="12" fill="#fff" font-weight="bold">反向</text><text x="88" y="142" text-anchor="end" font-size="12.5" fill="#333">第 3 段</text><text x="88" y="156" text-anchor="end" font-size="10.5" fill="#888">GPU 2</text><rect x="252" y="124" width="78" height="28" rx="4" fill="#6d28d9"/><text x="291.0" y="142" text-anchor="middle" font-size="12" fill="#fff" font-weight="bold">前向</text><rect x="486" y="124" width="78" height="28" rx="4" fill="#0891b2"/><text x="525.0" y="142" text-anchor="middle" font-size="12" fill="#fff" font-weight="bold">反向</text><text x="88" y="182" text-anchor="end" font-size="12.5" fill="#333">第 4 段</text><text x="88" y="196" text-anchor="end" font-size="10.5" fill="#888">GPU 3</text><rect x="330" y="164" width="78" height="28" rx="4" fill="#6d28d9"/><text x="369.0" y="182" text-anchor="middle" font-size="12" fill="#fff" font-weight="bold">前向</text><rect x="408" y="164" width="78" height="28" rx="4" fill="#0891b2"/><text x="447.0" y="182" text-anchor="middle" font-size="12" fill="#fff" font-weight="bold">反向</text><line x1="96" y1="204" x2="720" y2="204" stroke="#666" stroke-width="1.2" marker-end="url(#ar-t)"/><text x="726" y="208" font-size="11" fill="#666">时间</text><text x="408" y="120" text-anchor="middle" font-size="12.5" fill="#dc2626">每段只有 1/4 时间在干活，其余 75% 全部空转（bubble）</text>
+<text x="96" y="268" font-size="13.5" font-weight="bold" fill="#333">做法 B：切成 6 个 micro-batch 流水灌入（1F1B 调度）</text><text x="88" y="304" text-anchor="end" font-size="12.5" fill="#333">第 1 段</text><text x="88" y="318" text-anchor="end" font-size="10.5" fill="#888">GPU 0</text><rect x="96" y="286" width="32" height="28" rx="3" fill="#6d28d9"/><text x="112.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F1</text><rect x="130" y="286" width="32" height="28" rx="3" fill="#6d28d9"/><text x="146.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F2</text><rect x="164" y="286" width="32" height="28" rx="3" fill="#6d28d9"/><text x="180.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F3</text><rect x="198" y="286" width="32" height="28" rx="3" fill="#6d28d9"/><text x="214.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F4</text><rect x="232" y="286" width="32" height="28" rx="3" fill="#6d28d9"/><text x="248.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F5</text><rect x="266" y="286" width="32" height="28" rx="3" fill="#6d28d9"/><text x="282.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F6</text><rect x="300" y="286" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="334" y="286" width="32" height="28" rx="3" fill="#0891b2"/><text x="350.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B1</text><rect x="368" y="286" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="402" y="286" width="32" height="28" rx="3" fill="#0891b2"/><text x="418.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B2</text><rect x="436" y="286" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="470" y="286" width="32" height="28" rx="3" fill="#0891b2"/><text x="486.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B3</text><rect x="504" y="286" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="538" y="286" width="32" height="28" rx="3" fill="#0891b2"/><text x="554.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B4</text><rect x="572" y="286" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="606" y="286" width="32" height="28" rx="3" fill="#0891b2"/><text x="622.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B5</text><rect x="640" y="286" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="674" y="286" width="32" height="28" rx="3" fill="#0891b2"/><text x="690.0" y="304" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B6</text><text x="88" y="344" text-anchor="end" font-size="12.5" fill="#333">第 2 段</text><text x="88" y="358" text-anchor="end" font-size="10.5" fill="#888">GPU 1</text><rect x="96" y="326" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="130" y="326" width="32" height="28" rx="3" fill="#6d28d9"/><text x="146.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F1</text><rect x="164" y="326" width="32" height="28" rx="3" fill="#6d28d9"/><text x="180.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F2</text><rect x="198" y="326" width="32" height="28" rx="3" fill="#6d28d9"/><text x="214.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F3</text><rect x="232" y="326" width="32" height="28" rx="3" fill="#6d28d9"/><text x="248.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F4</text><rect x="266" y="326" width="32" height="28" rx="3" fill="#6d28d9"/><text x="282.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F5</text><rect x="300" y="326" width="32" height="28" rx="3" fill="#0891b2"/><text x="316.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B1</text><rect x="334" y="326" width="32" height="28" rx="3" fill="#6d28d9"/><text x="350.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F6</text><rect x="368" y="326" width="32" height="28" rx="3" fill="#0891b2"/><text x="384.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B2</text><rect x="402" y="326" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="436" y="326" width="32" height="28" rx="3" fill="#0891b2"/><text x="452.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B3</text><rect x="470" y="326" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="504" y="326" width="32" height="28" rx="3" fill="#0891b2"/><text x="520.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B4</text><rect x="538" y="326" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="572" y="326" width="32" height="28" rx="3" fill="#0891b2"/><text x="588.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B5</text><rect x="606" y="326" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="640" y="326" width="32" height="28" rx="3" fill="#0891b2"/><text x="656.0" y="344" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B6</text><rect x="674" y="326" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><text x="88" y="384" text-anchor="end" font-size="12.5" fill="#333">第 3 段</text><text x="88" y="398" text-anchor="end" font-size="10.5" fill="#888">GPU 2</text><rect x="96" y="366" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="130" y="366" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="164" y="366" width="32" height="28" rx="3" fill="#6d28d9"/><text x="180.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F1</text><rect x="198" y="366" width="32" height="28" rx="3" fill="#6d28d9"/><text x="214.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F2</text><rect x="232" y="366" width="32" height="28" rx="3" fill="#6d28d9"/><text x="248.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F3</text><rect x="266" y="366" width="32" height="28" rx="3" fill="#0891b2"/><text x="282.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B1</text><rect x="300" y="366" width="32" height="28" rx="3" fill="#6d28d9"/><text x="316.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F4</text><rect x="334" y="366" width="32" height="28" rx="3" fill="#0891b2"/><text x="350.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B2</text><rect x="368" y="366" width="32" height="28" rx="3" fill="#6d28d9"/><text x="384.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F5</text><rect x="402" y="366" width="32" height="28" rx="3" fill="#0891b2"/><text x="418.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B3</text><rect x="436" y="366" width="32" height="28" rx="3" fill="#6d28d9"/><text x="452.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F6</text><rect x="470" y="366" width="32" height="28" rx="3" fill="#0891b2"/><text x="486.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B4</text><rect x="504" y="366" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="538" y="366" width="32" height="28" rx="3" fill="#0891b2"/><text x="554.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B5</text><rect x="572" y="366" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="606" y="366" width="32" height="28" rx="3" fill="#0891b2"/><text x="622.0" y="384" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B6</text><rect x="640" y="366" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="674" y="366" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><text x="88" y="424" text-anchor="end" font-size="12.5" fill="#333">第 4 段</text><text x="88" y="438" text-anchor="end" font-size="10.5" fill="#888">GPU 3</text><rect x="96" y="406" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="130" y="406" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="164" y="406" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="198" y="406" width="32" height="28" rx="3" fill="#6d28d9"/><text x="214.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F1</text><rect x="232" y="406" width="32" height="28" rx="3" fill="#0891b2"/><text x="248.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B1</text><rect x="266" y="406" width="32" height="28" rx="3" fill="#6d28d9"/><text x="282.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F2</text><rect x="300" y="406" width="32" height="28" rx="3" fill="#0891b2"/><text x="316.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B2</text><rect x="334" y="406" width="32" height="28" rx="3" fill="#6d28d9"/><text x="350.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F3</text><rect x="368" y="406" width="32" height="28" rx="3" fill="#0891b2"/><text x="384.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B3</text><rect x="402" y="406" width="32" height="28" rx="3" fill="#6d28d9"/><text x="418.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F4</text><rect x="436" y="406" width="32" height="28" rx="3" fill="#0891b2"/><text x="452.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B4</text><rect x="470" y="406" width="32" height="28" rx="3" fill="#6d28d9"/><text x="486.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F5</text><rect x="504" y="406" width="32" height="28" rx="3" fill="#0891b2"/><text x="520.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B5</text><rect x="538" y="406" width="32" height="28" rx="3" fill="#6d28d9"/><text x="554.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">F6</text><rect x="572" y="406" width="32" height="28" rx="3" fill="#0891b2"/><text x="588.0" y="424" text-anchor="middle" font-size="11.5" fill="#fff" font-weight="bold">B6</text><rect x="606" y="406" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="640" y="406" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><rect x="674" y="406" width="32" height="28" rx="3" fill="#dc2626" fill-opacity="0.10"/><line x1="96" y1="446" x2="708" y2="446" stroke="#666" stroke-width="1.2" marker-end="url(#ar-t)"/><text x="714" y="450" font-size="11" fill="#666">时间</text><text x="164" y="466" font-size="11.5" fill="#dc2626">◀ 填充期气泡</text><text x="592.4" y="282" font-size="11.5" fill="#dc2626">排空期气泡 ▶</text><text x="402" y="484" text-anchor="middle" font-size="12" fill="#dc2626">粉色 = 空转（bubble）：p = 4 段、m = 6 时，气泡率 = (p−1)/(m+p−1) = 3/9 ≈ 33%，m 越大越薄</text>
+<rect x="150" y="500" width="14" height="14" rx="3" fill="#6d28d9"/><text x="170" y="512" font-size="12" fill="#333">F 前向（数字为 micro-batch 编号）</text><rect x="420" y="500" width="14" height="14" rx="3" fill="#0891b2"/><text x="440" y="512" font-size="12" fill="#333">B 反向</text><rect x="510" y="500" width="14" height="14" rx="3" fill="#dc2626" fill-opacity="0.15"/><text x="530" y="512" font-size="12" fill="#333">空转 bubble</text>
+</svg>
+  <div class="diagram-caption">图 4：4 段流水线的时间轴。上：整 batch 直灌，任意时刻只有一段在算，75% 时间是气泡；下：切成 6 个 micro-batch 后（1F1B 调度），气泡只剩首尾填充与排空两端的斜坡，稳态时各段满负荷。</div>
+</div>
+
+<p>　　从图 4 可以数出气泡的规律：无论怎么调度，管线开始时要逐段「填充」（第 1 段的活先到，末段要晚 \(p-1\) 步才开工），结束时要逐段「排空」。填充加排空合计 \(p-1\) 个 micro-batch 的空转时间，摊在总共 \(m+p-1\) 个 micro-batch 的时间里：</p>
+
+<div class="formula-card">
+  \[ \text{气泡率} = \frac{p-1}{m+p-1}, \qquad \text{流水效率} = \frac{m}{m+p-1} \tag{2} \]
+  <div class="formula-note">公式 (2)：气泡占比只由两个数决定——段数 \(p\) 和 micro-batch 数 \(m\)。白话解读：灌的 micro-batch 越多，首尾那截固定的填充排空时间被摊得越薄。符号说明：\(p\) 是流水线的段数（填充与排空共浪费约 \(p-1\) 份时间）；\(m\) 是一个训练步切出的 micro-batch 总数；分母 \(m+p-1\) 是一个完整流水周期占用的总时间槽。代入感受一下：\(p=8, m=8\) 时气泡率 \(7/15 \approx 47\%\)，近一半算力在空转；\(m\) 加到 32，气泡率降到 \(7/39 \approx 18\%\)。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">流水线气泡 Bubble</span>
+    <span class="term-en">bubble = 流水线填充与排空阶段，部分段无活可干的空转时间</span>
+  </div>
+  <div class="term-body">
+    <p>PP 的结构性成本。它来自接力赛的固有事实：第一棒和最后一棒不可能同时起跑。压气泡只有两条路——增加 micro-batch 数 \(m\)（摊薄固定开销），或减少段数 \(p\)。MT-NLG 论文给出的经验值：\(m\) 达到 \(p\) 的 4 倍、8 倍时，流水效率分别约为 81% 和 90%。</p>
+    <div class="term-analogy">就像洗车流水线：第一辆车进入打蜡工位时，洗车工位已经空出来了；收工时最后一辆车还没走完，前段工位提前下班。车越多，这一头一尾的闲置占比越小。</div>
+  </div>
+</div>
+
+<p>　　气泡之外还有一笔显存账，它引出了调度方式的第二次进化。GPipe 的原始调度是「先做完全部 \(m\) 个前向、再做全部 \(m\) 个反向」，反向需要用到对应 micro-batch 的前向激活，于是每段要为全部 \(m\) 个在飞 micro-batch 缓存激活——\(m\) 越大显存越吃紧，与压气泡的目标直接打架。PipeDream（Harlap et al., 2018）提出的 <strong>1F1B</strong> 调度解开了这个结：稳态时每段做一个前向、紧接着做一个反向（one-forward-one-backward），在飞的 micro-batch 数量被段数 \(p\) 封顶，激活显存从 \(m\) 份降到 \(p\) 份，与图 4 的做法 B 一致。</p>
+
+<div class="highlight-box info">
+  1F1B 的两代实现值得区分：PipeDream 原版为让流水不停，允许同一模型存在多份权重版本（weight stashing）；Megatron 系列（2104.04473）用的是 PipeDream-Flush 变体——只保留单一权重版本，每个训练步末尾把管线排空一次再统一更新，训练语义与普通单卡完全一致，还进一步提出交错式 1F1B（interleaved），让每张卡管多个更薄的段切片，吞吐再提升 10% 以上。
+</div>
+
+<div class="highlight-box warn">
+  PP 的两个隐性约束：一是各段计算量必须均衡，否则最快的段也要等最慢的段，切层时要把 Embedding、输出投影这些「零头」算进去；二是段数 \(p\) 越大，为压气泡需要的 \(m\) 越大，batch 太小撑不起深流水。
+</div>
+
+<h2>7.3.3 序列并行与上下文并行：长序列时代的新切法</h2>
+
+<p>　　TP 有一个切不动的盲区。注意力与 FFN 被拆到了各卡，但每一层里的 LayerNorm 和 Dropout 仍是各卡<strong>完整复制</strong>一份激活。序列短时无所谓；序列拉到几万、几十万 token 后，激活大小随序列长线性膨胀，这份复制就成了显存瓶颈。</p>
+
+<p>　　Korthikanti 等人（2022）提出的<strong>序列并行</strong>（sequence parallelism）补上了这一刀：LayerNorm、Dropout 这类沿序列维逐位置独立的运算，其激活干脆按序列维切给 TP 组内的各卡——每张卡只存序列的一段。通信模式相应地从 all-reduce 换成数学上等价的 reduce-scatter 加 all-gather 组合，<strong>总通信量不变</strong>，激活显存却按卡数均摊。配合选择性重算，这篇论文把激活显存降了 5 倍、重算引入的时间开销砍掉 90% 以上：530B 模型在 2240 张 A100 上，MFU 从 42.1% 提到 54.2%。</p>
+
+<div class="highlight-box info">
+  直觉上理解「通信量不变还省显存」：原来每卡都要把整份激活收齐再各自存一份；现在是各卡只收自己负责的那一段序列。同一份数据，从「人手一份全本」变成「各存一章」，搬运总量没变，书架占用除下去了。
+</div>
+
+<p>　　序列并行切的是 TP 盲区里的激活，注意力的 Q/K/V 仍按头分卡。而<strong>上下文并行</strong>（context parallelism）更激进：把整条序列直接切到多卡，每卡只持有序列的一段。麻烦在于注意力需要看到全序列的 K/V——Ring Attention（Liu et al., 2023）让各卡把自己那段 K/V 沿一个环依次传递，每收到一段就算一部分注意力，通信与计算相互重叠，上下文长度近乎随卡数线性扩展。这套切法是长上下文训练的基础设施，第 8 章讲长上下文扩展时还会回来。</p>
+
+<p>　　至此三种切法的分工就齐了：<strong>TP 切隐藏维</strong>（一层之内），<strong>SP 切序列维</strong>（仅限 LayerNorm/Dropout 等 TP 盲区），<strong>CP 切序列维</strong>（整条序列全局铺开），分别回答「层太大」「激活太长」「序列太长」三个问题。</p>
+
+<h2>7.3.4 3D 并行组合拳：实战怎么配</h2>
+
+<p>　　三种并行各有脾气，先摆在一起看：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>并行方式</th><th>切什么</th><th>通信模式</th><th>通信特点</th><th>典型范围</th><th>主要瓶颈</th></tr></thead>
+    <tbody>
+      <tr><td>数据并行 DP</td><td>数据（每卡完整模型）</td><td>每步一次梯度 all-reduce</td><td>低频，可与反向重叠</td><td>数千卡</td><td>不省模型显存（需 ZeRO 类分片变体）</td></tr>
+      <tr><td>张量并行 TP</td><td>层内权重（隐藏维）</td><td>每层 4 次激活 all-reduce</td><td>高频大量</td><td>单机内（≤ 8）</td><td>通信频次，离不开 NVLink</td></tr>
+      <tr><td>流水线并行 PP</td><td>层（按段分卡）</td><td>段边界点对点传激活/梯度</td><td>低频小量</td><td>跨机，数十段</td><td>气泡率与负载均衡</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　组网的经验法则从这张表直接长出来：<strong>通信最贵的，放到带宽最高的地方</strong>。机内 NVLink 带宽数百 GB/s，给 TP；机间 InfiniBand 带宽低一个量级，给 PP；DP 通信最稀疏（每步一次，还能和反向计算重叠），铺满整个集群。于是总卡数就是三个维度的乘积：</p>
+
+<div class="formula-card">
+  \[ N_{\mathrm{GPU}} = n_{\mathrm{TP}} \times n_{\mathrm{PP}} \times n_{\mathrm{DP}} \tag{3} \]
+</div>
+
+<p>　　拿真实案例验证这条法则。Megatron-Turing NLG 530B（Smith et al., 2022）：5300 亿参数，105 层、隐藏维 20480、128 个注意力头。它的配置是 <strong>TP = 8</strong>（恰好一台 DGX 的 8 张 A100，机内 NVLink）× <strong>PP = 35</strong>（35 段跨机器铺开）× <strong>DP = 16</strong>（16 份副本拉满吞吐）——\(8 \times 35 \times 16 = 4480\) 张 A100，即 Selene 超算的 560 台 DGX 节点，每个 530B 模型副本占 280 张卡。论文把这套布局称为 topology-aware mapping：按通信量大小把三个并行维度逐一映射到对应的网络层级上。同一作者群的 Megatron 1T 实验（2104.04473）是另一个数据点：TP = 8、PP = 64、DP = 6 共 3072 张 A100 训练万亿参数模型，整机 502 PetaFLOP/s，达到理论峰值的 52%。</p>
+
+<div class="highlight-box">
+  3D 并行配置口诀：<strong>TP 限机内、PP 跨机、DP 拉满</strong>。先让 TP 吃满一台机器的 NVLink（通常 8），把单层切开；再用 PP 把层分到多台机器，段数配合 micro-batch 数压气泡；剩下的卡全部给 DP 复制副本、摊大数据吞吐。通信量决定每个维度落在哪层网络上。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">张量并行的两刀为什么要列切加行切搭配着下？</div>
+    <div class="sc-key">列切让 GeLU、多头注意力这类逐元素/逐头运算各卡独立完成，全程免通信；行切把必须的求和推迟到层尾，用一次 all-reduce 收拢。两刀交替，一个 Transformer 层前向只需 2 次通信——这是 TP 能做到的通信下限，也是它必须困在 NVLink 机内的原因。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">流水线气泡从哪来，怎么压？</div>
+    <div class="sc-key">来自管线填充与排空的固有开销，气泡率 \( (p-1)/(m+p-1) \)。压法是切更多 micro-batch 灌流（经验上 m ≥ 4p 后效率超 80%）；调度上 GPipe 的全前向再全反向要缓存 m 份激活，1F1B 把在飞数量封顶到 p，激活显存随之大降。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">给你 4480 张 A100 训练 530B 模型，并行度怎么配？</div>
+    <div class="sc-key">照 MT-NLG 的答卷：TP = 8 放在单机 NVLink 内（通信最贵给最高带宽），PP = 35 跨机切段（通信稀疏走得远），DP = 16 复制副本拉满，8 × 35 × 16 = 4480。总卡数永远是三个维度的乘积。</div>
+  </div>
+</div>
+
+<p>　　minimind 只有 64M 参数，单张消费级显卡就装得下完整模型，所以它的代码里只有 6.3 节见过的数据并行包装（<code>trainer/train_pretrain.py</code> 第 146 行的 <code>DistributedDataParallel</code>），没有任何 TP/PP 实现——不是不需要，而是规模不到。这正是 7.1 节「规模决定工程取舍」的例证：张量并行与流水线并行是为「一份模型装不下」的千亿参数世界准备的工具，小模型用了反而白交通信税。</p>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Shoeybi et al., 2019. Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism（张量并行的列切/行切方案与 8.3B GPT-2 实验，arXiv:1909.08053）。</li>
+  <li>Huang et al., 2018. GPipe: Efficient Training of Giant Neural Networks using Pipeline Parallelism（micro-batch 流水线的提出，arXiv:1811.06965，NeurIPS 2019）。</li>
+  <li>Harlap et al., 2018. PipeDream: Fast and Efficient Pipeline Parallel DNN Training（1F1B 调度的提出，arXiv:1806.03377）。</li>
+  <li>Narayanan et al., 2021. Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM（3D 并行组合与交错式 1F1B，arXiv:2104.04473，SC21）。</li>
+  <li>Korthikanti et al., 2022. Reducing Activation Recomputation in Large Transformer Models（序列并行与选择性重算，arXiv:2205.05198）。</li>
+  <li>Smith et al., 2022. Using DeepSpeed and Megatron to Train Megatron-Turing NLG 530B（TP = 8、PP = 35、DP = 16 的实战配置与气泡率经验值，arXiv:2201.11990）。</li>
+  <li>Liu, Zaharia &amp; Abbeel, 2023. Ring Attention with Blockwise Transformers for Near-Infinite Context（上下文并行/环形注意力，arXiv:2310.01889，ICLR 2024）。</li>
+  <li>minimind 工程代码：<code>trainer/train_pretrain.py</code>（Apache 2.0 协议），作为「单卡可跑故无需模型并行」的对照。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch7_2_data_parallel_zero.html" title="7.2 数据并行与 ZeRO：把模型状态拆开装">← 上一节：7.2 数据并行与 ZeRO：把模型状态拆开装</a><a class="next" href="ch7_4_mixed_precision_stability.html" title="7.4 混合精度与训练稳定性：快而不炸">下一节：7.4 混合精度与训练稳定性：快而不炸 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

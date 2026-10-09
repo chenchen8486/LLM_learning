@@ -1,0 +1,842 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>5.5 现代 LLM 架构总账：2017 到今天改了什么 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link active" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 5 章 现代架构变体与效率改进</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>5.5 现代 LLM 架构总账：2017 到今天改了什么</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>5.5 现代 LLM 架构总账：2017 到今天改了什么</h1>
+<p class="subtitle">本页范围：第 5 章第 5 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>2017 年论文里的 Transformer，和今天服务器上跑的开源大模型，架构上到底差在哪？哪些零件被换掉了，哪些一字未动？</td></tr>
+      <tr><td>本节主张</td><td>从 2017 到 2024，Transformer 的骨架原样保留，换掉的主要是四类零件：归一化、激活函数、位置编码、注意力的缓存形态。所有改动都指向三件事：训练更稳、推理更省、能力更能随规模增长。</td></tr>
+      <tr><td>一句话结论</td><td>今天的 LLM 是「原版骨架加现代化零件」：缩放点积注意力、多头、残差、逐位置 FFN、自回归生成一个没少，LayerNorm、ReLU、正弦位置、MHA 则被 RMSNorm、SwiGLU、RoPE、GQA 与 MLA 替换。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>Pre-LN</span><span>RMSNorm</span><span>SwiGLU</span><span>RoPE</span><span>GQA / MLA</span><span>MoE</span><span>架构总账</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　本章前四节把现代 LLM 的新零件逐个拆了一遍：RMSNorm 与 SwiGLU、GQA、MLA、MoE。本节是收官，要把镜头拉远，回答一个更大的问题：从 2017 年原论文到今天服务器上跑的开源大模型，架构上到底改了什么，又是什么七年没人换得动？本节按「先看全景、再算总账、装回图纸、最后叩问不变的部分」的顺序走：</p>
+
+<ol>
+  <li><strong>七年演化一图速览</strong>（5.5.1）：从 2017 的 Transformer 到 2024 的 MLA 与 MoE，五个节点看清骨架不变、零件常新；</li>
+  <li><strong>零件替换总账表</strong>（5.5.2）：原论文与 Llama 3、Qwen2.5、DeepSeek-V3 摆到同一张表上，换了什么一目了然；</li>
+  <li><strong>四处替换，各自为什么换</strong>（5.5.3）：归一化、激活、位置编码、注意力四笔账，指向训练更稳、推理更省、更能 scaling；</li>
+  <li><strong>现代 LLM 的一层长什么样</strong>（5.5.4）：把换好的零件装回原版图纸，和第 4 章的原版图（4.4 节图 3）对照着看；</li>
+  <li><strong>没换的部分为什么屹立不倒</strong>（5.5.5）：缩放点积、多头、残差、逐位置 FFN、自回归，它们在三件事上同时拿高分；</li>
+  <li><strong>与后续章节的衔接</strong>（5.5.6）：架构图纸讲完，预训练、长上下文扩展与推理系统分别接到第 6、8、13 章。</li>
+</ol>
+
+<p>　　读完本节，「模型长什么样」这条线就完整了：你应该能给任意一个现代开源模型开出一张零件清单，说清每样零件的来历，也知道骨架为什么不动。</p>
+
+<p>　　按「先看全景、再算总账、装回图纸、最后叩问不变的部分」展开之前，先看一眼本章内容在整条链路中的位置。第 4 章搭好了 Transformer 块的骨架，本章四节都是对块内部的改造，本节是收官，要把换好的零件装回图纸。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS55modernrecap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG55modernrecap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.2–3.5 节）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS55modernrecap)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS55modernrecap)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS55modernrecap)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS55modernrecap)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG55modernrecap)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG55modernrecap)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG55modernrecap)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）切成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，再经输出投影算出各 token 的概率（第 4 章），采样出下一个 token（第 12 章）并接回输入循环。第 5 章是对这个紫框内部的改造：本节收官，把前四节换上的新零件装回块的图纸，盘点七年改了什么、什么没动。</div>
+</div>
+
+<p>　　这个紫框换上全部新零件之后长什么样？每个零件来自哪一节、minimind 把它们配成了什么规格？把现代块的全家福摆出来看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 800 474" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrR55" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：现代 Transformer 块全家福——每个零件来自哪一节，minimind 配成什么规格</text>
+    <!-- 输入 -->
+    <rect x="300" y="44" width="200" height="38" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="400" y="68" text-anchor="middle" font-size="12" fill="#333">输入：n 个 token × 768 维</text>
+    <line x1="400" y1="82" x2="400" y2="98" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrR55)"/>
+    <!-- 中央块框 -->
+    <rect x="250" y="102" width="300" height="240" rx="12" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.8" stroke-dasharray="6 4"/>
+    <text x="400" y="128" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">现代 Transformer 块（×8 层）</text>
+    <text x="400" y="147" text-anchor="middle" font-size="11" fill="#555">骨架不动：两个子层 ＋ 两条残差</text>
+    <rect x="290" y="160" width="220" height="54" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="400" y="182" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">注意力子层（Pre-LN）</text>
+    <text x="400" y="200" text-anchor="middle" font-size="10.5" fill="#555">归一化 → 注意力 → 加残差</text>
+    <rect x="290" y="228" width="220" height="54" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="400" y="250" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">前馈子层（Pre-LN）</text>
+    <text x="400" y="268" text-anchor="middle" font-size="10.5" fill="#555">归一化 → 前馈 → 加残差</text>
+    <text x="400" y="306" text-anchor="middle" font-size="11" fill="#0891b2">残差主干恒等直通（5.1.2）</text>
+    <text x="400" y="328" text-anchor="middle" font-size="10.5" fill="#888">每个零件的完整讲解见对应小节</text>
+    <!-- 输出 -->
+    <line x1="400" y1="342" x2="400" y2="358" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrR55)"/>
+    <rect x="300" y="362" width="200" height="38" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="400" y="386" text-anchor="middle" font-size="12" fill="#155e75">输出：n × 768，形状不变</text>
+    <!-- 组件卡 A：RMSNorm -->
+    <rect x="20" y="100" width="205" height="98" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="122" y="124" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">RMSNorm（5.1 节）</text>
+    <text x="122" y="144" text-anchor="middle" font-size="10.5" fill="#555">只缩放不对中，少一步统计</text>
+    <text x="122" y="162" text-anchor="middle" font-size="10.5" fill="#555">Pre-LN：挪到子层输入侧</text>
+    <text x="122" y="180" text-anchor="middle" font-size="10.5" fill="#888">minimind：每层 2 处</text>
+    <line x1="225" y1="160" x2="286" y2="180" stroke="#9ca3af" stroke-width="1.2"/>
+    <!-- 组件卡 B：GQA / MLA -->
+    <rect x="20" y="230" width="205" height="100" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="122" y="254" text-anchor="middle" font-size="12" font-weight="bold" fill="#155e75">GQA（5.2）／MLA（5.3）</text>
+    <text x="122" y="274" text-anchor="middle" font-size="10.5" fill="#555">注意力子层的缓存改造</text>
+    <text x="122" y="292" text-anchor="middle" font-size="10.5" fill="#555">GQA：8 查询头配 4 KV 头</text>
+    <text x="122" y="310" text-anchor="middle" font-size="10.5" fill="#555">MLA：只存 576 个数隐向量</text>
+    <line x1="225" y1="270" x2="286" y2="196" stroke="#9ca3af" stroke-width="1.2"/>
+    <!-- 组件卡 C：RoPE -->
+    <rect x="575" y="100" width="205" height="98" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="677" y="124" text-anchor="middle" font-size="12" font-weight="bold" fill="#155e75">RoPE（3.4 节）</text>
+    <text x="677" y="144" text-anchor="middle" font-size="10.5" fill="#555">位置信息旋转进 Q、K</text>
+    <text x="677" y="162" text-anchor="middle" font-size="10.5" fill="#555">基频可调，撑长上下文</text>
+    <text x="677" y="180" text-anchor="middle" font-size="10.5" fill="#888">（3.5 节与第 8 章展开）</text>
+    <line x1="575" y1="160" x2="514" y2="180" stroke="#9ca3af" stroke-width="1.2"/>
+    <!-- 组件卡 D：SwiGLU / MoE -->
+    <rect x="575" y="230" width="205" height="100" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="677" y="254" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">SwiGLU（5.1）／MoE（5.4）</text>
+    <text x="677" y="274" text-anchor="middle" font-size="10.5" fill="#555">前馈子层的两处升级</text>
+    <text x="677" y="292" text-anchor="middle" font-size="10.5" fill="#555">SwiGLU：768→2432→768 门控</text>
+    <text x="677" y="310" text-anchor="middle" font-size="10.5" fill="#555">MoE：4 个专家只激活 1 个</text>
+    <line x1="575" y1="270" x2="514" y2="258" stroke="#9ca3af" stroke-width="1.2"/>
+    <!-- minimind 配置汇总 -->
+    <rect x="20" y="416" width="760" height="46" rx="10" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="400" y="435" text-anchor="middle" font-size="11" fill="#4c1d95">minimind 默认配置汇总：hidden 768 · 8 层 · 词表 6400（与输出投影共享权重）· 8 查询头 / 4 KV 头 · 每头 96 维</text>
+    <text x="400" y="453" text-anchor="middle" font-size="11" fill="#4c1d95">FFN 中间维 2432 · 可选 MoE 4 选 1（辅助损失系数 5e-4）· 全量参数约 63.9M</text>
+  </svg>
+  <div class="diagram-caption">图 2：现代 Transformer 块的零件全家福。块骨架与第 4 章一致（两个子层加两条残差，输入输出都是 n×768），换掉的是零件：归一化用 RMSNorm 并挪到 Pre-LN 位置（5.1），注意力配 GQA 或 MLA 压缩缓存（5.2、5.3），位置信息由 RoPE 注入（3.4），前馈换 SwiGLU 门控、可选 MoE 稀疏激活（5.1、5.4）。底部是 minimind 的默认配置汇总，各数字与正文及 minimind 源码一致。</div>
+</div>
+
+<h2>5.5.1 七年演化一图速览</h2>
+
+<p>　　第 4 章逐层拆解了 2017 年的原版 Transformer，本章前几节又分别讲了 RMSNorm、SwiGLU、GQA、MLA 与 MoE 这些新零件。收官之前，先把七年的演化拉到同一条时间线上看一眼：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 930 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 时间轴 -->
+    <line x1="30" y1="190" x2="905" y2="190" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#arrT)"/>
+    <!-- 节点 1：2017 Transformer -->
+    <rect x="35" y="48" width="170" height="106" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="120" y="74" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#4c1d95">2017 · Transformer</text>
+    <text x="120" y="96" text-anchor="middle" font-size="11" fill="#555">编码器-解码器做翻译</text>
+    <text x="120" y="116" text-anchor="middle" font-size="11" fill="#555">Post-LN · ReLU</text>
+    <text x="120" y="136" text-anchor="middle" font-size="11" fill="#555">正弦位置 · MHA</text>
+    <line x1="120" y1="154" x2="120" y2="186" stroke="#6d28d9" stroke-width="1.5"/>
+    <circle cx="120" cy="190" r="5.5" fill="#6d28d9"/>
+    <!-- 节点 2：2018 GPT -->
+    <rect x="215" y="48" width="170" height="106" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="300" y="74" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#4c1d95">2018 · GPT</text>
+    <text x="300" y="96" text-anchor="middle" font-size="11" fill="#555">砍掉编码器</text>
+    <text x="300" y="116" text-anchor="middle" font-size="11" fill="#555">只留自回归解码器栈</text>
+    <text x="300" y="136" text-anchor="middle" font-size="11" fill="#555">预训练 + 微调范式</text>
+    <line x1="300" y1="154" x2="300" y2="186" stroke="#6d28d9" stroke-width="1.5"/>
+    <circle cx="300" cy="190" r="5.5" fill="#6d28d9"/>
+    <!-- 节点 3：2020 GPT-3 -->
+    <rect x="395" y="48" width="170" height="106" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="480" y="74" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#4c1d95">2020 · GPT-3</text>
+    <text x="480" y="96" text-anchor="middle" font-size="11" fill="#555">1750 亿参数</text>
+    <text x="480" y="116" text-anchor="middle" font-size="11" fill="#555">架构几乎不变</text>
+    <text x="480" y="136" text-anchor="middle" font-size="11" fill="#555">规模即能力</text>
+    <line x1="480" y1="154" x2="480" y2="186" stroke="#6d28d9" stroke-width="1.5"/>
+    <circle cx="480" cy="190" r="5.5" fill="#6d28d9"/>
+    <!-- 节点 4：2023 LLaMA / GQA -->
+    <rect x="575" y="48" width="170" height="106" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="660" y="74" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#155e75">2023 · LLaMA / GQA</text>
+    <text x="660" y="96" text-anchor="middle" font-size="11" fill="#555">LLaMA 集齐现代配方</text>
+    <text x="660" y="116" text-anchor="middle" font-size="11" fill="#555">RMSNorm+SwiGLU+RoPE</text>
+    <text x="660" y="136" text-anchor="middle" font-size="11" fill="#555">Llama 2 引入 GQA</text>
+    <line x1="660" y1="154" x2="660" y2="186" stroke="#0891b2" stroke-width="1.5"/>
+    <circle cx="660" cy="190" r="5.5" fill="#0891b2"/>
+    <!-- 节点 5：2024 MLA / MoE -->
+    <rect x="755" y="48" width="170" height="106" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="840" y="74" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#155e75">2024 · MLA / MoE</text>
+    <text x="840" y="96" text-anchor="middle" font-size="11" fill="#555">DeepSeek-V2 提出 MLA</text>
+    <text x="840" y="116" text-anchor="middle" font-size="11" fill="#555">V3 大规模验证</text>
+    <text x="840" y="136" text-anchor="middle" font-size="11" fill="#555">MoE 全面铺开</text>
+    <line x1="840" y1="154" x2="840" y2="186" stroke="#0891b2" stroke-width="1.5"/>
+    <circle cx="840" cy="190" r="5.5" fill="#0891b2"/>
+    <!-- 底部补充 -->
+    <text x="465" y="240" text-anchor="middle" font-size="12" fill="#666">零件的发明普遍早于普及：RMSNorm 出自 2019，SwiGLU 出自 2020，RoPE 出自 2021，</text>
+    <text x="465" y="262" text-anchor="middle" font-size="12" fill="#666">直到 2023 年 LLaMA 把它们打包验证，「现代配方」才算定型。</text>
+  </svg>
+  <div class="diagram-caption">图 3：从 2017 年原版 Transformer 到 2024 年 MLA 与 MoE 普及，骨架始终是「多头注意力 + 逐位置 FFN + 残差」的堆叠，变化发生在零件层。</div>
+</div>
+
+<p>　　有两个节点值得单独说一句。一是 2018 年的 GPT：它把原论文为翻译任务设计的编码器整个砍掉，只保留带因果掩码的自回归解码器栈，今天所有主流 LLM 都是这个形态。二是 2020 年的 GPT-3：架构上它几乎没动 GPT-2 的图纸，只把参数量推到 1750 亿，却换来了质变的能力。这件事给整个行业的启发是：先把骨架稳住，再围绕它换更好的零件、喂更多的数据。</p>
+
+<h2>5.5.2 零件替换总账表</h2>
+
+<p>　　把原论文和三家 2024 年的代表性开源模型摆到同一张表上，换了什么一目了然：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>配置项</th><th>原论文 Transformer（2017）</th><th>Llama 3（2024）</th><th>Qwen2.5（2024）</th><th>DeepSeek-V3（2024）</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>归一化</td><td>LayerNorm，Post-LN（残差相加之后）</td><td>RMSNorm，Pre-LN</td><td>RMSNorm，Pre-LN</td><td>RMSNorm，Pre-LN</td></tr>
+      <tr><td>激活函数</td><td>ReLU</td><td>SwiGLU</td><td>SwiGLU</td><td>SwiGLU（MoE 专家内）</td></tr>
+      <tr><td>注意力</td><td>MHA，Q、K、V 都是 8 头</td><td>GQA，8 个 KV 头</td><td>GQA，带 QKV 偏置</td><td>MLA，512 维隐向量加 64 维解耦旋转键</td></tr>
+      <tr><td>位置编码</td><td>正弦绝对位置编码，加在嵌入上</td><td>RoPE，基频 \(\theta=500000\)</td><td>RoPE，长上下文阶段 ABF 提至 100 万</td><td>RoPE（MLA 解耦键），YaRN 扩展</td></tr>
+      <tr><td>词表</td><td>约 3.7 万（英德共享 BPE）</td><td>128,256</td><td>151,643 常规加 22 控制</td><td>129,280（BBPE）</td></tr>
+      <tr><td>上下文</td><td>翻译句子，数百 token 量级</td><td>8192（3.1 代扩至 128K）</td><td>32K 至 128K（YARN 与 DCA 扩展）</td><td>128K（两阶段扩展）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box info">
+  表中数字以各技术报告与官方配置文件为准。原论文的正弦位置编码本身不设硬长度上限，「数百 token」指机器翻译句子的实际长度量级，不是架构限制。DeepSeek-V3 的 FFN 换成了 DeepSeekMoE（前 3 层稠密，其余每层 256 个专家选 8 个加 1 个共享专家），这是规模扩张维度上的改动，表中不重复展开。
+</div>
+
+<p>　　词表和上下文这两行虽然不是「零件替换」，但变化幅度同样惊人。词表从 3.7 万涨到 12.8 万以上，动机是更好的多语言覆盖和更高的压缩率：Llama 3 的报告提到，新词表把英文样本的压缩率从 Llama 2 的 3.17 提升到 3.94 字符每 token，同样的文本切成更少的 token，训练和推理都跟着省。上下文从几百 token 涨到 8K 起步、128K 主流，Qwen2.5-Turbo 更是推到 100 万 token，背后是位置编码、注意力和训练流程一整套配合的结果，第 8 章会讲训练侧怎么把窗口一步步撑大。</p>
+
+<h2>5.5.3 四处替换，各自为什么换</h2>
+
+<p>　　总账表说的是「换了什么」，这一节回答「为什么换」。四处替换各有各的直接动机，但底层的账本是同一本：</p>
+
+<div class="highlight-box">
+  七年下来骨架没动，所有替换都指向三件事：训练更稳（Pre-LN 加 RMSNorm）、推理更省（GQA 与 MLA 压缩 KV 缓存）、能力更能 scaling（SwiGLU 增强表达力，RoPE 撑住长上下文）。
+</div>
+
+<h3>归一化：Post-LN 加 LayerNorm 换成 Pre-LN 加 RMSNorm</h3>
+
+<p>　　原论文的写法是把归一化放在残差相加<strong>之后</strong>，数据每过一个子层都要先和输入相加、再过一次 LayerNorm。这种 Post-LN 在深模型里有个麻烦：梯度主要涌向最顶层的归一化附近，底层参数得不到干净的梯度，训练前期容易发散，必须靠学习率 warmup（先小步热身再加速）才能稳住。Xiong 等人在 2020 年的分析表明，把归一化挪到子层<strong>输入端</strong>（Pre-LN），残差主路就成了恒等直通的高速公路，不加 warmup 也能稳定训练。GPT-2 在 2019 年已经这么干了，Pre-LN 随后成为所有主流模型的标配。</p>
+
+<div class="formula-card">
+  \[ \text{Post-LN（2017 原版）：}\quad \mathrm{LayerNorm}\big(x+\mathrm{Sublayer}(x)\big) \tag{1} \]
+  \[ \text{Pre-LN（现代主流）：}\quad x+\mathrm{Sublayer}\big(\mathrm{RMSNorm}(x)\big) \tag{2} \]
+  <div class="formula-note">公式 (1)(2)：归一化的位置之差。Pre-LN 里主路上的 \(x\) 原样直通到层尾，梯度可以无衰减地传回浅层。符号说明：\(x\) 是本层输入的隐藏向量；\(\mathrm{Sublayer}(\cdot)\) 是注意力或前馈子层；\(\mathrm{LayerNorm}\) 与 \(\mathrm{RMSNorm}\) 是两种归一化算子，完整公式见 5.1 节。</div>
+</div>
+
+<p>　　RMSNorm 换的是归一化本身：LayerNorm 先减均值、再除以标准差，RMSNorm 跳过减均值这一步，直接除以均方根再缩放。少一步计算，开销更小，效果与 LayerNorm 相当（Zhang 与 Sennrich，2019）。<strong>所以这步在干嘛：把收费站从主路挪到岔路入口，让梯度一路直通，再把收费站的流程砍掉一半。</strong></p>
+
+<h3>激活函数：ReLU 换成 SwiGLU</h3>
+
+<p>　　原论文的 FFN 是「升维、ReLU、降维」三步，ReLU 的判别标准简单粗暴：负数一律归零。SwiGLU 把 FFN 改成双支路门控结构，一支算「门开多大」，一支算「传什么内容」，逐元素相乘后再投影回去：</p>
+
+<div class="formula-card">
+  \[ \mathrm{FFN}_{\mathrm{SwiGLU}}(x)=\big(\mathrm{Swish}(xW_1)\odot xV\big)\,W_2, \qquad \mathrm{Swish}(x)=x\cdot\sigma(x) \tag{3} \]
+  <div class="formula-note">公式 (3)：门控 FFN。符号说明：\(W_1,V\) 是两个并行的投影矩阵，\(xW_1\) 过 Swish 当「门」、\(xV\) 当「内容」；\(\sigma\) 是 sigmoid 函数，把任意实数压到 0~1；\(\odot\) 是逐元素相乘；\(W_2\) 是把门控结果压回原维度的输出矩阵。模型可以学到对每个维度连续地调节放行比例，而不是 ReLU 的 0 或 1。</div>
+</div>
+
+<p>　　Shazeer 在 2020 年系统比较了 GLU 家族的多个变体，SwiGLU 综合表现最好，此后被 LLaMA 带成了行业标准。门控结构多一个投影矩阵，为了总参数量不超标，论文给出的办法是把 FFN 中间维度按三分之二的系数折算，实际各家再按硬件取整。<strong>所以这步在干嘛：ReLU 是保安，负数直接赶走；SwiGLU 是双岗门卫，一个判断放行几成，一个递上内容，表达更细腻，scaling 的性价比更高。</strong></p>
+
+<h3>位置编码：正弦与可学习换成 RoPE</h3>
+
+<p>　　正弦编码是给每个位置钉一块「绝对门牌号」，直接加在词嵌入上；RoPE 换成记录「转角」，把位置信息以旋转的方式作用在 Q、K 上，两个位置做内积时天然只剩相对位移。机制细节 3.4 节已经讲透，这里只补一个数字链条，看看「基频」这个旋钮怎么把上下文越转越远：</p>
+
+<ul>
+  <li>RoFormer（2021）沿用 \(\theta=10000\)，与原论文正弦编码的波长上限一致；</li>
+  <li>Llama 3（2024）把基频提到 \(\theta=500000\)，官方报告写明此举是为了支持更长上下文；</li>
+  <li>Qwen2.5（2024）在长上下文训练阶段用 ABF 技术把基频从 1 万提到 100 万，长上下文版本更用到 1000 万，配合分阶段训练把窗口推到 100 万 token。</li>
+</ul>
+
+<p>　　基频越大，单个维度转得越慢，远处位置的转角不至于绕圈缠在一起，模型才分得清第 1 个 token 和第 10 万个 token。3.5 节讲的长度外推技巧，大半都是围着这个旋钮做文章。<strong>所以这步在干嘛：把「门牌号」改成「相对转角」，位置关系更贴合注意力的计算方式，还把「看得远」变成了一个有得调的参数。</strong></p>
+
+<h3>注意力：MHA 换成 GQA，再压成 MLA</h3>
+
+<p>　　前三处替换主要服务训练，这一处服务推理。自回归生成每蹦一个 token，都要把历史所有 token 的 K、V 再读一遍，所以推理时要把它们缓存起来，这就是 KV 缓存。头越多、上下文越长，缓存越恐怖，它才是长上下文落地的真正瓶颈。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">KV 缓存 KV Cache</span>
+    <span class="term-en">cache = 把算过的中间结果存起来，避免重复计算</span>
+  </div>
+  <div class="term-body">
+    <p>推理时每生成一个 token，都要拿它的 Q 去和<strong>之前所有位置</strong>的 K、V 算注意力。这些 K、V 在生成它们时已经算过一遍，存下来就不用重算。代价是显存：缓存量等于「层数 × 序列长度 × KV 头数 × 每头维度 × 2（K 和 V）」，上下文一拉长，显存先被它吃光。</p>
+  </div>
+</div>
+
+<p>　　用真实配置算一笔账，看每层每个 token 要缓存多少个浮点数：</p>
+
+<ul>
+  <li><strong>MHA</strong>（以 64 个头、每头 128 维为例）：\(64\times128\times2=16384\) 个数，K 和 V 各一份；</li>
+  <li><strong>GQA</strong>（Llama 3 的做法，64 个查询头只配 8 个 KV 头）：\(8\times128\times2=2048\) 个数，缓存直接缩到八分之一；</li>
+  <li><strong>MLA</strong>（DeepSeek-V3）：只存 512 维压缩隐向量加 64 维解耦旋转键，共 576 个数。注意三家各按各的配置，这组数字直接相除只是跨模型的量级参考：576 比上面 GQA 的 2048 再省约 3.5 倍，约为 MHA 16384 的二十八分之一；放回 DeepSeek-V3 自家 128 头的口径，则是 5.3 节算过的约五十七分之一。</li>
+</ul>
+
+<p>　　GQA 的代价是同组的头拿到一模一样的 K、V，表达被打了个折扣；MLA 改用「存浓缩液、用时现冲」的低秩压缩，把这份折扣几乎抹平，5.3 节有完整推导。<strong>所以这步在干嘛：MHA 是每个秘书各备一份档案，GQA 是几个秘书共享一份，MLA 是只存档案粉末、用时现冲，目的都是一个，把推理的显存账单砍下来。</strong></p>
+
+<h2>5.5.4 现代 LLM 的一层长什么样</h2>
+
+<p>　　把换好的零件装回原版图纸，就得到今天主流模型的一层 block。和第 4 章的原版图（4.4 节图 3）对照着看，结构关系没变，变的是每个格子里装的货：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 930 640" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 主路：自下而上 -->
+    <!-- 输入 -->
+    <rect x="210" y="560" width="250" height="52" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="335" y="592" text-anchor="middle" font-size="14" fill="#333">输入 x（上一层输出）</text>
+    <!-- RMSNorm 1 -->
+    <rect x="210" y="470" width="250" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="335" y="502" text-anchor="middle" font-size="14" fill="#333">RMSNorm</text>
+    <!-- GQA -->
+    <rect x="210" y="370" width="250" height="72" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="335" y="398" text-anchor="middle" font-size="14" font-weight="bold" fill="#4c1d95">GQA 注意力</text>
+    <text x="335" y="418" text-anchor="middle" font-size="11.5" fill="#555">查询头多 · KV 头少，Q、K 上施加 RoPE</text>
+    <text x="335" y="434" text-anchor="middle" font-size="11.5" fill="#555">（MLA 模型此处换低秩压缩）</text>
+    <!-- 残差加 1 -->
+    <circle cx="335" cy="305" r="17" fill="#fff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="335" y="311" text-anchor="middle" font-size="16" fill="#6d28d9">+</text>
+    <!-- RMSNorm 2 -->
+    <rect x="210" y="220" width="250" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="335" y="252" text-anchor="middle" font-size="14" fill="#333">RMSNorm</text>
+    <!-- FFN -->
+    <rect x="210" y="120" width="250" height="72" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="335" y="148" text-anchor="middle" font-size="14" font-weight="bold" fill="#4c1d95">SwiGLU FFN</text>
+    <text x="335" y="168" text-anchor="middle" font-size="11.5" fill="#555">门控双支路，逐位置独立</text>
+    <text x="335" y="184" text-anchor="middle" font-size="11.5" fill="#555">（MoE 模型此处换路由 + 专家）</text>
+    <!-- 残差加 2 -->
+    <circle cx="335" cy="70" r="17" fill="#fff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="335" y="76" text-anchor="middle" font-size="16" fill="#6d28d9">+</text>
+    <!-- 输出 -->
+    <rect x="210" y="8" width="250" height="40" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="335" y="33" text-anchor="middle" font-size="14" fill="#333">输出：送往下一层</text>
+    <!-- 主路箭头 -->
+    <line x1="335" y1="560" x2="335" y2="524" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="470" x2="335" y2="444" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="370" x2="335" y2="324" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="288" x2="335" y2="274" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="220" x2="335" y2="194" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="120" x2="335" y2="89" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <line x1="335" y1="53" x2="335" y2="50" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB)"/>
+    <!-- 残差 ①：输入 -> 加1 -->
+    <path d="M210,586 L140,586 L140,305 L316,305" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrB)"/>
+    <text x="126" y="440" font-size="11.5" fill="#0891b2" text-anchor="middle" transform="rotate(-90 126 440)">残差 ①：绕过注意力层</text>
+    <!-- 残差 ②：加1 后 -> 加2 -->
+    <path d="M335,281 L180,281 L180,70 L316,70" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrB)"/>
+    <text x="166" y="180" font-size="11.5" fill="#0891b2" text-anchor="middle" transform="rotate(-90 166 180)">残差 ②：绕过 FFN</text>
+    <!-- 右侧注释：GQA + RoPE -->
+    <line x1="460" y1="406" x2="600" y2="406" stroke="#9ca3af" stroke-width="1"/>
+    <text x="608" y="378" font-size="12" fill="#444">GQA：64 查询头只配 8 KV 头，</text>
+    <text x="608" y="398" font-size="12" fill="#444">KV 缓存立省 8 倍（MLA 更省）</text>
+    <text x="608" y="422" font-size="12" fill="#444">RoPE：位置信息只旋转 Q、K，</text>
+    <text x="608" y="442" font-size="12" fill="#444">门牌号变成相对转角</text>
+    <!-- 右侧注释：Pre-LN -->
+    <line x1="460" y1="246" x2="600" y2="246" stroke="#9ca3af" stroke-width="1"/>
+    <text x="608" y="232" font-size="12" fill="#444">Pre-LN：归一化挪到岔路入口，</text>
+    <text x="608" y="252" font-size="12" fill="#444">主路全程直通，梯度不衰减</text>
+    <!-- 右侧注释：FFN -->
+    <line x1="460" y1="156" x2="600" y2="156" stroke="#9ca3af" stroke-width="1"/>
+    <text x="608" y="142" font-size="12" fill="#444">SwiGLU：一支算「门」、一支算「内容」</text>
+    <text x="608" y="162" font-size="12" fill="#444">MoE 版：路由器把 token 分给少数专家</text>
+  </svg>
+  <div class="diagram-caption">图 4：现代 LLM 的一层 block。与第 4 章原版图（4.4 节图 3）同构：两个子层、两条残差；Pre-LN 把归一化移到子层输入端，GQA 与 SwiGLU 替换了子层内部的实现。</div>
+</div>
+
+<p>　　对照原论文的解码器层，变化可以数得很清楚：少了与编码器的交叉注意力子层（decoder-only 没有编码器可对），归一化从残差之后挪到子层之前，MHA 换 GQA 或 MLA，ReLU 版 FFN 换 SwiGLU 版，位置信息从嵌入处的加法变成 Q、K 上的旋转。剩下的部分，就是下一节的主角。</p>
+
+<h2>5.5.5 没换的部分为什么屹立不倒</h2>
+
+<p>　　比起换了什么，更值得问的是：为什么这些东西七年没人换得动？</p>
+
+<ul>
+  <li><strong>缩放点积注意力的核心</strong>：\(\mathrm{softmax}(QK^{\top}/\sqrt{d_k})V\) 这一行公式原样跑在今天每一个模型里。GQA 和 MLA 改的都是「K、V 怎么存」，注意力本身怎么算，没人找到又便宜又好的替代品。</li>
+  <li><strong>多头结构</strong>：多组 Q 并行地从不同子空间看同一序列，这个设计被证明是容量与成本的甜点位。变的只是 KV 头的数量，「多头并行」本身没动。</li>
+  <li><strong>残差连接</strong>：从 ResNet 借来之后一直原样保留。它是上百层网络还能训练的物理基础，Pre-LN 的全部意义其实就是把残差主路彻底腾干净。</li>
+  <li><strong>逐位置 FFN 的位置与分工</strong>：注意力负责跨位置混合信息，FFN 负责对每个位置独立加工，这个分工沿用至今。MoE 也只是把 FFN 复制很多份再加个路由器，角色没变。</li>
+  <li><strong>自回归生成</strong>：2017 年的解码器就是一个 token 一个 token 往外蹦，今天依然如此。它把「生成任意文本」化归成「反复预测下一个 token」，简单到没有对手。</li>
+</ul>
+
+<p>　　这套组合能活下来，原因可以归结为一句话：它在并行效率、表达容量、梯度可达性三件事上同时拿高分，后来者的改进空间只剩它暴露出的具体短板，也就是显存、稳定性和长度，而不是核心理念。所有新零件都是对着短板去的补丁，骨架本身没有裂缝。</p>
+
+<h2>5.5.6 与后续章节的衔接</h2>
+
+<p>　　到这里，「模型长什么样」就讲完了，但架构只是静态图纸，接下来的章节回答它怎么被用起来：</p>
+
+<ul>
+  <li><strong>第 6 章</strong>接过一个最自然的问题：这套架构在预训练时「学什么」。答案简单得惊人，就是反复预测下一个 token，但配合 scaling law，简单的目标撑起了全部能力；</li>
+  <li><strong>第 8 章</strong>讲中间训练，其中长上下文扩展正是本节 RoPE 基频数字链在训练侧的完整操作：怎么分阶段把窗口从几千撑到十几万；</li>
+  <li><strong>第 13 章</strong>把推理的账算到底：KV 缓存只是第一刀，量化、投机采样、连续批处理这些推理系统技术，都是沿着 GQA 与 MLA「省显存、提吞吐」的思路继续往下走。</li>
+</ul>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">今天的开源 LLM 和 2017 年原论文相比，骨架上最大的共同点是什么？</div>
+    <div class="sc-key">缩放点积注意力、多头并行、残差连接、逐位置 FFN、自回归生成全部原样保留；换掉的只是归一化、激活函数、位置编码、KV 缓存形态这四类零件。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">这些零件替换共同指向哪三个目标？</div>
+    <div class="sc-key">训练更稳（Pre-LN 加 RMSNorm 让梯度直通）、推理更省（GQA 与 MLA 把 KV 缓存压缩一个数量级）、能力更能 scaling（SwiGLU 增强表达力，RoPE 加基频调整撑住长上下文）。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Llama 3 的 64 个查询头只配 8 个 KV 头，到底省了什么？</div>
+    <div class="sc-key">省推理时的 KV 缓存：每个 token 每层要存的 K、V 份数从 64 降到 8，缓存缩到八分之一。上下文越长，这笔省下的显存越关键，MLA 进一步压到 576 个数（DeepSeek-V3 的 128 头配置），与这条 GQA 账本跨模型相比约再省 3.5 倍。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762），原论文配置列（Post-LN、ReLU、正弦位置、MHA、约 3.7 万词表）对照该文第 3、5 节。</li>
+  <li>Zhang &amp; Sennrich, 2019. Root Mean Square Layer Normalization（RMSNorm 原始论文，arXiv:1910.07467）。</li>
+  <li>Xiong et al., 2020. On Layer Normalization in the Transformer Architecture（arXiv:2002.04745），Pre-LN 稳定性与 warmup 分析。</li>
+  <li>Shazeer, 2020. GLU Variants Improve Transformer（SwiGLU 出处，arXiv:2002.05202），含三分之二折算系数。</li>
+  <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864）。</li>
+  <li>Ainslie et al., 2023. GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints（arXiv:2305.13245）。</li>
+  <li>Radford et al., 2018. Improving Language Understanding by Generative Pre-Training（GPT 报告，decoder-only 起点）；Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3，arXiv:2005.14165）。</li>
+  <li>Touvron et al., 2023. LLaMA: Open and Efficient Foundation Language Models（arXiv:2302.13971，现代配方定型）与 Llama 2（arXiv:2307.09288，引入 GQA）。</li>
+  <li>Grattafiori, Dubey et al., 2024. The Llama 3 Herd of Models（arXiv:2407.21783），词表 128K、GQA 8 个 KV 头、RoPE 基频提至 500,000、压缩率 3.17 到 3.94 均出自该文。</li>
+  <li>Yang et al., 2024. Qwen2.5 Technical Report（arXiv:2412.15115），词表 151,643 常规加 22 控制、ABF 基频 100 万、32K 至 128K 上下文。</li>
+  <li>DeepSeek-AI, 2024. DeepSeek-V2（arXiv:2405.04434，MLA 出处）与 DeepSeek-V3 Technical Report（arXiv:2412.19437，671B 总参、37B 激活、512 维隐向量加 64 维解耦键、128K 上下文；词表 129,280 见其官方配置文件）。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch5_4_moe.html" title="5.4 MoE 混合专家：一个大脑，多位专科医生">← 上一节：5.4 MoE 混合专家：一个大脑，多位专科医生</a><a class="next" href="ch6_1_pretraining_objective.html" title="6.1 预训练目标：预测下一个 token 凭什么学会智能">下一节：6.1 预训练目标：预测下一个 token 凭什么学会智能 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

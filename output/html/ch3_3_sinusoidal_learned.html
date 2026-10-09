@@ -1,0 +1,1200 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3.3 绝对位置编码：正弦与可学习两种方案 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link active" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 3 章 词向量与位置编码</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>3.3 绝对位置编码：正弦与可学习两种方案</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>3.3 绝对位置编码：正弦与可学习两种方案</h1>
+<p class="subtitle">本页范围：第 3 章第 3 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>注意力本身对顺序“无感”，模型怎么知道每个 token 排在第几位？</td></tr>
+      <tr><td>本节主张</td><td>绝对位置编码给每个位置分配一个专属向量，与词向量相加后一并送入模型。两种经典做法：人工设计波形的正弦位置编码（原始 Transformer）和交给训练自己学的可学习位置编码（GPT 系列）。</td></tr>
+      <tr><td>一句话结论</td><td>两者效果几乎相同：正弦省参数、理论上可外推，可学习零设计成本但外推差；它们都是“绝对”方案，后来共同让位于相对位置编码。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>绝对位置编码</span><span>正弦位置编码</span><span>可学习位置编码</span><span>波长几何级数</span><span>外推</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　3.2 节确认了注意力对顺序“脸盲”，位置信息必须额外注入。本节讲最早、也最直观的一派做法：给每个位置发一个专属向量，加在词向量上一起送进模型。围绕“这个向量从哪来”，历史上出现过两种经典答案，本节沿这条线逐个拆开：</p>
+
+<ol>
+  <li><strong>把位置“写”进向量</strong>（3.3.1）：位置向量与词向量相加的注入方式，以及相加为什么不会互相干扰；</li>
+  <li><strong>正弦位置编码：给每个维度配一把不同刻度的尺子</strong>（3.3.2）：人工设计的固定波形，为什么用正弦、为什么波长按几何级数排布；</li>
+  <li><strong>可学习位置编码：交给训练自己学</strong>（3.3.3）：不做任何人工设计，建一张表让模型自己背下来；</li>
+  <li><strong>共同的局限：绝对位置的天花板</strong>（3.3.4）：两种方案效果几乎相同，也共享同一块短板。</li>
+</ol>
+
+<p>　　读完全节，你应该能说清正弦编码的波形设计妙在哪、它和可学习编码该怎么选，以及两者为什么后来一起让位于相对位置编码——那正是 3.4 节的开场。</p>
+
+<p>　　两种方案逐一拆开之前，先看一眼位置编码这一站在整条前向链路中的位置：它在 Embedding 之后、进 Transformer 之前，只负责回答「这个 token 排在第几位」。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS33sinusoidallearned" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG33sinusoidallearned" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS33sinusoidallearned)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS33sinusoidallearned)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS33sinusoidallearned)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG33sinusoidallearned)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG33sinusoidallearned)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG33sinusoidallearned)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG33sinusoidallearned)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：绝对位置编码在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（3.1 节），位置编码给每个位置发一个专属向量、与词向量相加（本节），随后进入 Transformer 层（第 4 章），算出各 token 的概率并采样（第 12 章），新 token 接回输入循环往复。本节只管位置这一站：正弦与可学习两种「发号」方式，以及它们共同的天花板。</div>
+</div>
+
+<p>　　图 1 中这个紫框放大之后长什么样？它的输入只是位置编号，输出又是什么形状？把正弦方案这张「位置 × 维度」的编码矩阵单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 520" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="pe33" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="60" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：正弦位置编码——输入位置编号，输出 n × 768 编码矩阵</text>
+    <text x="60" y="50" font-size="11" fill="#64748b">输入：n 个位置编号 0, 1, …, n−1（每个位置对应表中的一行；此处只画前 16 行、28 组等距抽样列）</text>
+    <!-- 热力波纹矩阵：行 = 位置 pos 0..15，列 = 28 组抽样维度对，颜色 = sin 取值（紫正青负） -->
+    <rect x="110" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="110" y="80" width="17" height="14" fill="#844adf"/>
+    <rect x="110" y="94" width="17" height="14" fill="#7a3cdc"/>
+    <rect x="110" y="108" width="17" height="14" fill="#eae1fa"/>
+    <rect x="110" y="122" width="17" height="14" fill="#44acc5"/>
+    <rect x="110" y="136" width="17" height="14" fill="#1296b5"/>
+    <rect x="110" y="150" width="17" height="14" fill="#bae0e9"/>
+    <rect x="110" y="164" width="17" height="14" fill="#9f72e6"/>
+    <rect x="110" y="178" width="17" height="14" fill="#6f2ad9"/>
+    <rect x="110" y="192" width="17" height="14" fill="#c3a6ef"/>
+    <rect x="110" y="206" width="17" height="14" fill="#79c3d5"/>
+    <rect x="110" y="220" width="17" height="14" fill="#0891b2"/>
+    <rect x="110" y="234" width="17" height="14" fill="#7ac4d6"/>
+    <rect x="110" y="248" width="17" height="14" fill="#c2a5ef"/>
+    <rect x="110" y="262" width="17" height="14" fill="#6e2ad9"/>
+    <rect x="110" y="276" width="17" height="14" fill="#a073e6"/>
+    <rect x="127" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="127" y="80" width="17" height="14" fill="#9f72e6"/>
+    <rect x="127" y="94" width="17" height="14" fill="#6e2ad9"/>
+    <rect x="127" y="108" width="17" height="14" fill="#844adf"/>
+    <rect x="127" y="122" width="17" height="14" fill="#d6c3f4"/>
+    <rect x="127" y="136" width="17" height="14" fill="#98d1df"/>
+    <rect x="127" y="150" width="17" height="14" fill="#1e9bb9"/>
+    <rect x="127" y="164" width="17" height="14" fill="#1296b5"/>
+    <rect x="127" y="178" width="17" height="14" fill="#7bc4d6"/>
+    <rect x="127" y="192" width="17" height="14" fill="#e9dff9"/>
+    <rect x="127" y="206" width="17" height="14" fill="#905be2"/>
+    <rect x="127" y="220" width="17" height="14" fill="#6d28d9"/>
+    <rect x="127" y="234" width="17" height="14" fill="#925ee3"/>
+    <rect x="127" y="248" width="17" height="14" fill="#ece3fa"/>
+    <rect x="127" y="262" width="17" height="14" fill="#77c3d5"/>
+    <rect x="127" y="276" width="17" height="14" fill="#1195b5"/>
+    <rect x="144" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="144" y="80" width="17" height="14" fill="#b896ec"/>
+    <rect x="144" y="94" width="17" height="14" fill="#8248df"/>
+    <rect x="144" y="108" width="17" height="14" fill="#6d28d9"/>
+    <rect x="144" y="122" width="17" height="14" fill="#7d40dd"/>
+    <rect x="144" y="136" width="17" height="14" fill="#ae88ea"/>
+    <rect x="144" y="150" width="17" height="14" fill="#f4effc"/>
+    <rect x="144" y="164" width="17" height="14" fill="#97d1df"/>
+    <rect x="144" y="178" width="17" height="14" fill="#37a6c1"/>
+    <rect x="144" y="192" width="17" height="14" fill="#0a92b3"/>
+    <rect x="144" y="206" width="17" height="14" fill="#1b9ab8"/>
+    <rect x="144" y="220" width="17" height="14" fill="#67bbd0"/>
+    <rect x="144" y="234" width="17" height="14" fill="#d9eef3"/>
+    <rect x="144" y="248" width="17" height="14" fill="#ccb4f2"/>
+    <rect x="144" y="262" width="17" height="14" fill="#8f5be2"/>
+    <rect x="144" y="276" width="17" height="14" fill="#702cda"/>
+    <rect x="161" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="161" y="80" width="17" height="14" fill="#ccb4f2"/>
+    <rect x="161" y="94" width="17" height="14" fill="#9f72e6"/>
+    <rect x="161" y="108" width="17" height="14" fill="#7f42de"/>
+    <rect x="161" y="122" width="17" height="14" fill="#6f2ad9"/>
+    <rect x="161" y="136" width="17" height="14" fill="#702dda"/>
+    <rect x="161" y="150" width="17" height="14" fill="#844adf"/>
+    <rect x="161" y="164" width="17" height="14" fill="#a77ee8"/>
+    <rect x="161" y="178" width="17" height="14" fill="#d5c2f4"/>
+    <rect x="161" y="192" width="17" height="14" fill="#eef8fa"/>
+    <rect x="161" y="206" width="17" height="14" fill="#99d2df"/>
+    <rect x="161" y="220" width="17" height="14" fill="#51b2c9"/>
+    <rect x="161" y="234" width="17" height="14" fill="#1f9bb9"/>
+    <rect x="161" y="248" width="17" height="14" fill="#0991b2"/>
+    <rect x="161" y="262" width="17" height="14" fill="#1295b5"/>
+    <rect x="161" y="276" width="17" height="14" fill="#38a6c1"/>
+    <rect x="178" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="178" y="80" width="17" height="14" fill="#dac9f5"/>
+    <rect x="178" y="94" width="17" height="14" fill="#b896ec"/>
+    <rect x="178" y="108" width="17" height="14" fill="#9a6ae5"/>
+    <rect x="178" y="122" width="17" height="14" fill="#8348df"/>
+    <rect x="178" y="136" width="17" height="14" fill="#7331db"/>
+    <rect x="178" y="150" width="17" height="14" fill="#6d28d9"/>
+    <rect x="178" y="164" width="17" height="14" fill="#702dda"/>
+    <rect x="178" y="178" width="17" height="14" fill="#7d3fdd"/>
+    <rect x="178" y="192" width="17" height="14" fill="#915ee2"/>
+    <rect x="178" y="206" width="17" height="14" fill="#ad87ea"/>
+    <rect x="178" y="220" width="17" height="14" fill="#cfb8f2"/>
+    <rect x="178" y="234" width="17" height="14" fill="#f3edfc"/>
+    <rect x="178" y="248" width="17" height="14" fill="#d5ecf2"/>
+    <rect x="178" y="262" width="17" height="14" fill="#99d2df"/>
+    <rect x="178" y="276" width="17" height="14" fill="#64bacf"/>
+    <rect x="195" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="195" y="80" width="17" height="14" fill="#e5d8f8"/>
+    <rect x="195" y="94" width="17" height="14" fill="#cbb2f1"/>
+    <rect x="195" y="108" width="17" height="14" fill="#b38feb"/>
+    <rect x="195" y="122" width="17" height="14" fill="#9e70e6"/>
+    <rect x="195" y="136" width="17" height="14" fill="#8c55e1"/>
+    <rect x="195" y="150" width="17" height="14" fill="#7d40dd"/>
+    <rect x="195" y="164" width="17" height="14" fill="#7331db"/>
+    <rect x="195" y="178" width="17" height="14" fill="#6e29d9"/>
+    <rect x="195" y="192" width="17" height="14" fill="#6d29d9"/>
+    <rect x="195" y="206" width="17" height="14" fill="#722fda"/>
+    <rect x="195" y="220" width="17" height="14" fill="#7a3cdd"/>
+    <rect x="195" y="234" width="17" height="14" fill="#884fe0"/>
+    <rect x="195" y="248" width="17" height="14" fill="#9969e4"/>
+    <rect x="195" y="262" width="17" height="14" fill="#ae87ea"/>
+    <rect x="195" y="276" width="17" height="14" fill="#c5a9f0"/>
+    <rect x="212" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="212" y="80" width="17" height="14" fill="#ece3fa"/>
+    <rect x="212" y="94" width="17" height="14" fill="#d9c8f5"/>
+    <rect x="212" y="108" width="17" height="14" fill="#c7adf1"/>
+    <rect x="212" y="122" width="17" height="14" fill="#b694ec"/>
+    <rect x="212" y="136" width="17" height="14" fill="#a77de8"/>
+    <rect x="212" y="150" width="17" height="14" fill="#9868e4"/>
+    <rect x="212" y="164" width="17" height="14" fill="#8c55e1"/>
+    <rect x="212" y="178" width="17" height="14" fill="#8145de"/>
+    <rect x="212" y="192" width="17" height="14" fill="#7839dc"/>
+    <rect x="212" y="206" width="17" height="14" fill="#7230da"/>
+    <rect x="212" y="220" width="17" height="14" fill="#6e2ad9"/>
+    <rect x="212" y="234" width="17" height="14" fill="#6d28d9"/>
+    <rect x="212" y="248" width="17" height="14" fill="#6e2ad9"/>
+    <rect x="212" y="262" width="17" height="14" fill="#722fda"/>
+    <rect x="212" y="276" width="17" height="14" fill="#7838dc"/>
+    <rect x="229" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="229" y="80" width="17" height="14" fill="#f1ebfb"/>
+    <rect x="229" y="94" width="17" height="14" fill="#e4d7f8"/>
+    <rect x="229" y="108" width="17" height="14" fill="#d7c4f5"/>
+    <rect x="229" y="122" width="17" height="14" fill="#cab1f1"/>
+    <rect x="229" y="136" width="17" height="14" fill="#bd9fee"/>
+    <rect x="229" y="150" width="17" height="14" fill="#b28deb"/>
+    <rect x="229" y="164" width="17" height="14" fill="#a67de8"/>
+    <rect x="229" y="178" width="17" height="14" fill="#9c6de5"/>
+    <rect x="229" y="192" width="17" height="14" fill="#935fe3"/>
+    <rect x="229" y="206" width="17" height="14" fill="#8a53e1"/>
+    <rect x="229" y="220" width="17" height="14" fill="#8247df"/>
+    <rect x="229" y="234" width="17" height="14" fill="#7c3edd"/>
+    <rect x="229" y="248" width="17" height="14" fill="#7636db"/>
+    <rect x="229" y="262" width="17" height="14" fill="#7230da"/>
+    <rect x="229" y="276" width="17" height="14" fill="#6f2bda"/>
+    <rect x="246" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="246" y="80" width="17" height="14" fill="#f5f1fc"/>
+    <rect x="246" y="94" width="17" height="14" fill="#ece2fa"/>
+    <rect x="246" y="108" width="17" height="14" fill="#e2d4f7"/>
+    <rect x="246" y="122" width="17" height="14" fill="#d9c6f5"/>
+    <rect x="246" y="136" width="17" height="14" fill="#cfb9f3"/>
+    <rect x="246" y="150" width="17" height="14" fill="#c6abf0"/>
+    <rect x="246" y="164" width="17" height="14" fill="#bd9eee"/>
+    <rect x="246" y="178" width="17" height="14" fill="#b592ec"/>
+    <rect x="246" y="192" width="17" height="14" fill="#ad86ea"/>
+    <rect x="246" y="206" width="17" height="14" fill="#a57ae8"/>
+    <rect x="246" y="220" width="17" height="14" fill="#9d6fe6"/>
+    <rect x="246" y="234" width="17" height="14" fill="#9665e4"/>
+    <rect x="246" y="248" width="17" height="14" fill="#905be2"/>
+    <rect x="246" y="262" width="17" height="14" fill="#8a52e1"/>
+    <rect x="246" y="276" width="17" height="14" fill="#844adf"/>
+    <rect x="263" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="263" y="80" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="263" y="94" width="17" height="14" fill="#f1ebfb"/>
+    <rect x="263" y="108" width="17" height="14" fill="#ebe1fa"/>
+    <rect x="263" y="122" width="17" height="14" fill="#e4d7f8"/>
+    <rect x="263" y="136" width="17" height="14" fill="#ddcef6"/>
+    <rect x="263" y="150" width="17" height="14" fill="#d7c4f5"/>
+    <rect x="263" y="164" width="17" height="14" fill="#d0baf3"/>
+    <rect x="263" y="178" width="17" height="14" fill="#cab1f1"/>
+    <rect x="263" y="192" width="17" height="14" fill="#c4a8f0"/>
+    <rect x="263" y="206" width="17" height="14" fill="#be9fee"/>
+    <rect x="263" y="220" width="17" height="14" fill="#b896ec"/>
+    <rect x="263" y="234" width="17" height="14" fill="#b28deb"/>
+    <rect x="263" y="248" width="17" height="14" fill="#ac85e9"/>
+    <rect x="263" y="262" width="17" height="14" fill="#a77de8"/>
+    <rect x="263" y="276" width="17" height="14" fill="#a175e7"/>
+    <rect x="280" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="280" y="80" width="17" height="14" fill="#faf8fe"/>
+    <rect x="280" y="94" width="17" height="14" fill="#f5f1fc"/>
+    <rect x="280" y="108" width="17" height="14" fill="#f0eafb"/>
+    <rect x="280" y="122" width="17" height="14" fill="#ece3fa"/>
+    <rect x="280" y="136" width="17" height="14" fill="#e7dbf9"/>
+    <rect x="280" y="150" width="17" height="14" fill="#e2d4f7"/>
+    <rect x="280" y="164" width="17" height="14" fill="#ddcef6"/>
+    <rect x="280" y="178" width="17" height="14" fill="#d9c7f5"/>
+    <rect x="280" y="192" width="17" height="14" fill="#d4c0f4"/>
+    <rect x="280" y="206" width="17" height="14" fill="#cfb9f3"/>
+    <rect x="280" y="220" width="17" height="14" fill="#cbb2f1"/>
+    <rect x="280" y="234" width="17" height="14" fill="#c6acf0"/>
+    <rect x="280" y="248" width="17" height="14" fill="#c2a5ef"/>
+    <rect x="280" y="262" width="17" height="14" fill="#be9fee"/>
+    <rect x="280" y="276" width="17" height="14" fill="#b998ed"/>
+    <rect x="297" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="297" y="80" width="17" height="14" fill="#fcfafe"/>
+    <rect x="297" y="94" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="297" y="108" width="17" height="14" fill="#f5f0fc"/>
+    <rect x="297" y="122" width="17" height="14" fill="#f1ebfb"/>
+    <rect x="297" y="136" width="17" height="14" fill="#eee6fb"/>
+    <rect x="297" y="150" width="17" height="14" fill="#eae1fa"/>
+    <rect x="297" y="164" width="17" height="14" fill="#e7dbf9"/>
+    <rect x="297" y="178" width="17" height="14" fill="#e3d6f8"/>
+    <rect x="297" y="192" width="17" height="14" fill="#e0d1f7"/>
+    <rect x="297" y="206" width="17" height="14" fill="#ddccf6"/>
+    <rect x="297" y="220" width="17" height="14" fill="#d9c8f5"/>
+    <rect x="297" y="234" width="17" height="14" fill="#d6c3f4"/>
+    <rect x="297" y="248" width="17" height="14" fill="#d3bef3"/>
+    <rect x="297" y="262" width="17" height="14" fill="#cfb9f3"/>
+    <rect x="297" y="276" width="17" height="14" fill="#ccb4f2"/>
+    <rect x="314" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="314" y="80" width="17" height="14" fill="#fdfbfe"/>
+    <rect x="314" y="94" width="17" height="14" fill="#faf8fe"/>
+    <rect x="314" y="108" width="17" height="14" fill="#f8f4fd"/>
+    <rect x="314" y="122" width="17" height="14" fill="#f5f0fc"/>
+    <rect x="314" y="136" width="17" height="14" fill="#f3edfc"/>
+    <rect x="314" y="150" width="17" height="14" fill="#f0e9fb"/>
+    <rect x="314" y="164" width="17" height="14" fill="#eee6fb"/>
+    <rect x="314" y="178" width="17" height="14" fill="#ebe2fa"/>
+    <rect x="314" y="192" width="17" height="14" fill="#e9def9"/>
+    <rect x="314" y="206" width="17" height="14" fill="#e6dbf9"/>
+    <rect x="314" y="220" width="17" height="14" fill="#e4d7f8"/>
+    <rect x="314" y="234" width="17" height="14" fill="#e2d4f7"/>
+    <rect x="314" y="248" width="17" height="14" fill="#dfd0f7"/>
+    <rect x="314" y="262" width="17" height="14" fill="#ddccf6"/>
+    <rect x="314" y="276" width="17" height="14" fill="#dac9f5"/>
+    <rect x="331" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="331" y="80" width="17" height="14" fill="#fdfcff"/>
+    <rect x="331" y="94" width="17" height="14" fill="#fbfafe"/>
+    <rect x="331" y="108" width="17" height="14" fill="#faf7fe"/>
+    <rect x="331" y="122" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="331" y="136" width="17" height="14" fill="#f6f2fd"/>
+    <rect x="331" y="150" width="17" height="14" fill="#f4effc"/>
+    <rect x="331" y="164" width="17" height="14" fill="#f3edfc"/>
+    <rect x="331" y="178" width="17" height="14" fill="#f1eafb"/>
+    <rect x="331" y="192" width="17" height="14" fill="#efe8fb"/>
+    <rect x="331" y="206" width="17" height="14" fill="#ede5fa"/>
+    <rect x="331" y="220" width="17" height="14" fill="#ece2fa"/>
+    <rect x="331" y="234" width="17" height="14" fill="#eae0f9"/>
+    <rect x="331" y="248" width="17" height="14" fill="#e8ddf9"/>
+    <rect x="331" y="262" width="17" height="14" fill="#e6dbf9"/>
+    <rect x="331" y="276" width="17" height="14" fill="#e5d8f8"/>
+    <rect x="348" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="348" y="80" width="17" height="14" fill="#fefdff"/>
+    <rect x="348" y="94" width="17" height="14" fill="#fdfbfe"/>
+    <rect x="348" y="108" width="17" height="14" fill="#fbfafe"/>
+    <rect x="348" y="122" width="17" height="14" fill="#faf8fe"/>
+    <rect x="348" y="136" width="17" height="14" fill="#f9f6fd"/>
+    <rect x="348" y="150" width="17" height="14" fill="#f8f4fd"/>
+    <rect x="348" y="164" width="17" height="14" fill="#f6f2fd"/>
+    <rect x="348" y="178" width="17" height="14" fill="#f5f0fc"/>
+    <rect x="348" y="192" width="17" height="14" fill="#f4effc"/>
+    <rect x="348" y="206" width="17" height="14" fill="#f3edfc"/>
+    <rect x="348" y="220" width="17" height="14" fill="#f1ebfb"/>
+    <rect x="348" y="234" width="17" height="14" fill="#f0e9fb"/>
+    <rect x="348" y="248" width="17" height="14" fill="#efe7fb"/>
+    <rect x="348" y="262" width="17" height="14" fill="#eee6fb"/>
+    <rect x="348" y="276" width="17" height="14" fill="#ede4fa"/>
+    <rect x="365" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="365" y="80" width="17" height="14" fill="#fefeff"/>
+    <rect x="365" y="94" width="17" height="14" fill="#fdfcff"/>
+    <rect x="365" y="108" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="365" y="122" width="17" height="14" fill="#fbfafe"/>
+    <rect x="365" y="136" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="365" y="150" width="17" height="14" fill="#faf7fe"/>
+    <rect x="365" y="164" width="17" height="14" fill="#f9f6fd"/>
+    <rect x="365" y="178" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="365" y="192" width="17" height="14" fill="#f7f3fd"/>
+    <rect x="365" y="206" width="17" height="14" fill="#f6f2fd"/>
+    <rect x="365" y="220" width="17" height="14" fill="#f5f1fc"/>
+    <rect x="365" y="234" width="17" height="14" fill="#f4effc"/>
+    <rect x="365" y="248" width="17" height="14" fill="#f4eefc"/>
+    <rect x="365" y="262" width="17" height="14" fill="#f3edfc"/>
+    <rect x="365" y="276" width="17" height="14" fill="#f2ecfc"/>
+    <rect x="382" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="382" y="80" width="17" height="14" fill="#fefeff"/>
+    <rect x="382" y="94" width="17" height="14" fill="#fefdff"/>
+    <rect x="382" y="108" width="17" height="14" fill="#fefdff"/>
+    <rect x="382" y="122" width="17" height="14" fill="#fefdff"/>
+    <rect x="382" y="136" width="17" height="14" fill="#fcfafe"/>
+    <rect x="382" y="150" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="382" y="164" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="382" y="178" width="17" height="14" fill="#faf8fe"/>
+    <rect x="382" y="192" width="17" height="14" fill="#f9f7fe"/>
+    <rect x="382" y="206" width="17" height="14" fill="#f9f6fd"/>
+    <rect x="382" y="220" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="382" y="234" width="17" height="14" fill="#f7f4fd"/>
+    <rect x="382" y="248" width="17" height="14" fill="#f7f3fd"/>
+    <rect x="382" y="262" width="17" height="14" fill="#f6f2fd"/>
+    <rect x="382" y="276" width="17" height="14" fill="#f6f1fd"/>
+    <rect x="399" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="399" y="80" width="17" height="14" fill="#fffeff"/>
+    <rect x="399" y="94" width="17" height="14" fill="#fefeff"/>
+    <rect x="399" y="108" width="17" height="14" fill="#fefdff"/>
+    <rect x="399" y="122" width="17" height="14" fill="#fdfcff"/>
+    <rect x="399" y="136" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="399" y="150" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="399" y="164" width="17" height="14" fill="#fcfafe"/>
+    <rect x="399" y="178" width="17" height="14" fill="#fbfafe"/>
+    <rect x="399" y="192" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="399" y="206" width="17" height="14" fill="#faf8fe"/>
+    <rect x="399" y="220" width="17" height="14" fill="#faf8fe"/>
+    <rect x="399" y="234" width="17" height="14" fill="#faf7fe"/>
+    <rect x="399" y="248" width="17" height="14" fill="#f9f6fd"/>
+    <rect x="399" y="262" width="17" height="14" fill="#f9f6fd"/>
+    <rect x="399" y="276" width="17" height="14" fill="#f8f5fd"/>
+    <rect x="416" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="416" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="416" y="94" width="17" height="14" fill="#fefeff"/>
+    <rect x="416" y="108" width="17" height="14" fill="#fefeff"/>
+    <rect x="416" y="122" width="17" height="14" fill="#fefdff"/>
+    <rect x="416" y="136" width="17" height="14" fill="#fdfdff"/>
+    <rect x="416" y="150" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="416" y="164" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="416" y="178" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="416" y="192" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="416" y="206" width="17" height="14" fill="#fcfafe"/>
+    <rect x="416" y="220" width="17" height="14" fill="#fbfafe"/>
+    <rect x="416" y="234" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="416" y="248" width="17" height="14" fill="#fbf9fe"/>
+    <rect x="416" y="262" width="17" height="14" fill="#faf8fe"/>
+    <rect x="416" y="276" width="17" height="14" fill="#faf8fe"/>
+    <rect x="433" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="433" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="433" y="94" width="17" height="14" fill="#fffeff"/>
+    <rect x="433" y="108" width="17" height="14" fill="#fefeff"/>
+    <rect x="433" y="122" width="17" height="14" fill="#fefeff"/>
+    <rect x="433" y="136" width="17" height="14" fill="#fefdff"/>
+    <rect x="433" y="150" width="17" height="14" fill="#fefdff"/>
+    <rect x="433" y="164" width="17" height="14" fill="#fdfdff"/>
+    <rect x="433" y="178" width="17" height="14" fill="#fdfcff"/>
+    <rect x="433" y="192" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="433" y="206" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="433" y="220" width="17" height="14" fill="#fdfbfe"/>
+    <rect x="433" y="234" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="433" y="248" width="17" height="14" fill="#fcfbfe"/>
+    <rect x="433" y="262" width="17" height="14" fill="#fcfafe"/>
+    <rect x="433" y="276" width="17" height="14" fill="#fcfafe"/>
+    <rect x="450" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="450" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="450" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="450" y="108" width="17" height="14" fill="#fffeff"/>
+    <rect x="450" y="122" width="17" height="14" fill="#fefeff"/>
+    <rect x="450" y="136" width="17" height="14" fill="#fefeff"/>
+    <rect x="450" y="150" width="17" height="14" fill="#fefeff"/>
+    <rect x="450" y="164" width="17" height="14" fill="#fefdff"/>
+    <rect x="450" y="178" width="17" height="14" fill="#fefdff"/>
+    <rect x="450" y="192" width="17" height="14" fill="#fefdff"/>
+    <rect x="450" y="206" width="17" height="14" fill="#fdfdff"/>
+    <rect x="450" y="220" width="17" height="14" fill="#fdfcff"/>
+    <rect x="450" y="234" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="450" y="248" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="450" y="262" width="17" height="14" fill="#fdfcfe"/>
+    <rect x="450" y="276" width="17" height="14" fill="#fdfbfe"/>
+    <rect x="467" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="467" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="467" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="467" y="108" width="17" height="14" fill="#fffeff"/>
+    <rect x="467" y="122" width="17" height="14" fill="#fffeff"/>
+    <rect x="467" y="136" width="17" height="14" fill="#fefeff"/>
+    <rect x="467" y="150" width="17" height="14" fill="#fefeff"/>
+    <rect x="467" y="164" width="17" height="14" fill="#fefeff"/>
+    <rect x="467" y="178" width="17" height="14" fill="#fefeff"/>
+    <rect x="467" y="192" width="17" height="14" fill="#fefdff"/>
+    <rect x="467" y="206" width="17" height="14" fill="#fefdff"/>
+    <rect x="467" y="220" width="17" height="14" fill="#fefdff"/>
+    <rect x="467" y="234" width="17" height="14" fill="#fefdff"/>
+    <rect x="467" y="248" width="17" height="14" fill="#fefdff"/>
+    <rect x="467" y="262" width="17" height="14" fill="#fdfdff"/>
+    <rect x="467" y="276" width="17" height="14" fill="#fdfcff"/>
+    <rect x="484" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="484" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="484" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="484" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="484" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="484" y="136" width="17" height="14" fill="#fffeff"/>
+    <rect x="484" y="150" width="17" height="14" fill="#fffeff"/>
+    <rect x="484" y="164" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="178" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="192" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="206" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="220" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="234" width="17" height="14" fill="#fefeff"/>
+    <rect x="484" y="248" width="17" height="14" fill="#fefdff"/>
+    <rect x="484" y="262" width="17" height="14" fill="#fefdff"/>
+    <rect x="484" y="276" width="17" height="14" fill="#fefdff"/>
+    <rect x="501" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="136" width="17" height="14" fill="#ffffff"/>
+    <rect x="501" y="150" width="17" height="14" fill="#fffeff"/>
+    <rect x="501" y="164" width="17" height="14" fill="#fffeff"/>
+    <rect x="501" y="178" width="17" height="14" fill="#fffeff"/>
+    <rect x="501" y="192" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="206" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="220" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="234" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="248" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="262" width="17" height="14" fill="#fefeff"/>
+    <rect x="501" y="276" width="17" height="14" fill="#fefeff"/>
+    <rect x="518" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="136" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="150" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="164" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="178" width="17" height="14" fill="#ffffff"/>
+    <rect x="518" y="192" width="17" height="14" fill="#fffeff"/>
+    <rect x="518" y="206" width="17" height="14" fill="#fffeff"/>
+    <rect x="518" y="220" width="17" height="14" fill="#fffeff"/>
+    <rect x="518" y="234" width="17" height="14" fill="#fefeff"/>
+    <rect x="518" y="248" width="17" height="14" fill="#fefeff"/>
+    <rect x="518" y="262" width="17" height="14" fill="#fefeff"/>
+    <rect x="518" y="276" width="17" height="14" fill="#fefeff"/>
+    <rect x="535" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="136" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="150" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="164" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="178" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="192" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="206" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="220" width="17" height="14" fill="#ffffff"/>
+    <rect x="535" y="234" width="17" height="14" fill="#fffeff"/>
+    <rect x="535" y="248" width="17" height="14" fill="#fffeff"/>
+    <rect x="535" y="262" width="17" height="14" fill="#fffeff"/>
+    <rect x="535" y="276" width="17" height="14" fill="#fffeff"/>
+    <rect x="552" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="136" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="150" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="164" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="178" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="192" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="206" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="220" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="234" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="248" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="262" width="17" height="14" fill="#ffffff"/>
+    <rect x="552" y="276" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="66" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="80" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="94" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="108" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="122" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="136" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="150" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="164" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="178" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="192" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="206" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="220" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="234" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="248" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="262" width="17" height="14" fill="#ffffff"/>
+    <rect x="569" y="276" width="17" height="14" fill="#ffffff"/>
+    <!-- 矩阵外框与高亮行 -->
+    <rect x="110" y="66" width="476" height="224" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="110" y="80" width="476" height="14" fill="none" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="594" y="91" font-size="11" fill="#dc2626">第 1 行 = 位置 1 的</text>
+    <text x="594" y="106" font-size="11" fill="#dc2626">编码向量（768 维）</text>
+    <!-- 纵轴：位置 -->
+    <text x="102" y="77" text-anchor="end" font-size="11" fill="#666">0</text>
+    <text x="102" y="175" text-anchor="end" font-size="11" fill="#666">7</text>
+    <text x="102" y="287" text-anchor="end" font-size="11" fill="#666">15</text>
+    <text x="48" y="178" text-anchor="middle" font-size="11" fill="#666" transform="rotate(-90 48 178)">纵轴：位置 pos</text>
+    <!-- 横轴：维度 -->
+    <line x1="118.5" y1="290" x2="118.5" y2="296" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="271.5" y1="290" x2="271.5" y2="296" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="424.5" y1="290" x2="424.5" y2="296" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="577.5" y1="290" x2="577.5" y2="296" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="118.5" y="310" text-anchor="middle" font-size="11" fill="#666">0</text>
+    <text x="271.5" y="310" text-anchor="middle" font-size="11" fill="#666">256</text>
+    <text x="424.5" y="310" text-anchor="middle" font-size="11" fill="#666">512</text>
+    <text x="577.5" y="310" text-anchor="middle" font-size="11" fill="#666">768</text>
+    <text x="348" y="332" text-anchor="middle" font-size="11" fill="#666">横轴：维度（0 → 768，28 组等距抽样列）</text>
+    <!-- 频率注解 -->
+    <text x="110" y="356" font-size="11" font-weight="bold" fill="#6d28d9">← 低维：波长 ≈ 6.3 步，相邻位置读数跳变</text>
+    <text x="586" y="356" text-anchor="end" font-size="11" font-weight="bold" fill="#0891b2">高维：波长 ≈ 6.3 万步，几乎不动 →</text>
+    <!-- 输出 -->
+    <line x1="348" y1="368" x2="348" y2="392" stroke="#6d28d9" stroke-width="2" marker-end="url(#pe33)"/>
+    <text x="360" y="414" text-anchor="middle" font-size="11.5" fill="#333">输出：位置编码矩阵 n × 768 —— 第 pos 行加到第 pos 个 token 的词向量上（公式 1），n = 序列长度</text>
+    <!-- 旁注：可学习方案 -->
+    <rect x="60" y="428" width="600" height="78" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/>
+    <text x="76" y="449" font-size="11.5" font-weight="bold" fill="#92400e">旁注 · 可学习方案（3.3.3）：同形状的一张可训练大表</text>
+    <text x="76" y="469" font-size="11" fill="#333">一张 max_len × 768 的参数矩阵，随机初始化、随训练更新，第 pos 行查表即得；</text>
+    <text x="76" y="489" font-size="11" fill="#333">效果与正弦几乎相同（BLEU 25.8 vs 25.7），但超出 max_len 的行无从外推。</text>
+  </svg>
+  <div class="diagram-caption">图 2：正弦位置编码矩阵的热力波纹（位置 × 维度，以 minimind 的 768 维为例，画前 16 个位置、28 组等距抽样维度；每格颜色是该位置在该维度上的 sin 取值，紫正青负）。每一行是一个位置的 768 维编码向量：低维列波长约 6.3 步，相邻位置读数剧烈交替；高维列波长约 6.3 万步，走十几步几乎不变。整张表由公式现算、零参数；旁注的可学习方案把同样形状的一张表交给训练去背。</div>
+</div>
+
+<h2>3.3.1 把位置“写”进向量</h2>
+
+<p>　　上一节看到，每个 token 经过 Embedding 层变成一个 \(d_{\mathrm{model}}\) 维向量。但这个向量只回答了“这个词是什么”，没有回答“它排在第几位”。而自注意力（第 4 章细讲）在计算时对所有位置一视同仁：把输入序列打乱重排，每个位置算出的注意力结果不会有任何变化。换句话说，裸的注意力机制对顺序是“无感”的，“狗咬了人”和“人咬了狗”在它眼里是同一袋向量。</p>
+
+<p>　　RNN 按顺序逐个读入，顺序信息天然存在；Transformer 一次性并行读入全部 token，就必须把位置信息显式注入进去。原论文（Vaswani et al., 2017）的做法非常直接：给每个位置 pos 也配一个 \(d_{\mathrm{model}}\) 维向量 \(\boldsymbol{p}_{pos}\)，与词向量相加后送入网络：</p>
+
+<div class="formula-card">
+  \[ \boldsymbol{h}_{pos} = \boldsymbol{e}_{token} + \boldsymbol{p}_{pos} \tag{1} \]
+  <div class="formula-note">公式 (1)：输入向量 = 词向量 + 位置向量，两者维度相同才能逐维相加。这个相加只在编码器/解码器堆栈的最底部做一次。符号说明：\(\boldsymbol{e}_{token}\) 是 token 的词向量，来自 Embedding 层查表（3.1 节）；\(\boldsymbol{p}_{pos}\) 是位置 \(pos\) 的位置向量，它从哪来正是本节的主题；\(\boldsymbol{h}_{pos}\) 是相加后的结果，即真正送入 Transformer 第一层的输入向量。</div>
+</div>
+
+<p>　　相加为什么不会互相干扰？直觉上，\(d_{\mathrm{model}}\) 维空间足够大，语义信息和位置信息像写在同一张纸不同图层上的内容，后续的线性变换可以把两者分别读出来。就像信封上同时印着收信人地址（内容）和邮戳（时间地点），邮局两样都读得到。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">位置编码 Positional Encoding</span>
+    <span class="term-en">positional = 位置的；encoding = 编码</span>
+  </div>
+  <div class="term-body">
+    <p>位置编码是为序列中每个位置准备的一个向量，与词向量相加后告诉模型“这个 token 排在第几位”。它分两大类：本节讲的<strong>绝对位置编码</strong>给每个位置一个独立编号（正弦波形或查表学习）；3.4 节要讲的<strong>相对位置编码</strong>则直接告诉注意力“两个 token 相距多远”。</p>
+  </div>
+</div>
+
+<div class="highlight-box info">
+  两个容易忽略的工程细节：原论文在“词向量 + 位置编码”相加之后还会施加一次 dropout（基础模型 \(P_{drop} = 0.1\)），再送入第一层子层；另外位置编码必须与词向量同为 \(d_{\mathrm{model}}\) 维，否则无法逐维相加。
+</div>
+
+<h2>3.3.2 正弦位置编码：给每个维度配一把不同刻度的尺子</h2>
+
+<p>　　正弦位置编码是人工设计的一套固定波形。它的基本单元不是单个函数，而是一对搭档：<strong>sin 和 cos 必须成对出现</strong>。为什么？因为单看一个 sin 值确定不了位置——同一个读数会对应好几个角度；配上 cos，两个数合起来是圆上一个点的纵、横坐标，角度才唯一确定。三角函数不太熟也没关系，图 3 把这件事画出来了：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 310" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 左面板：sin 撞车 -->
+    <text x="185" y="30" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">只给一个 sin 读数：位置不唯一</text>
+    <line x1="45" y1="190" x2="330" y2="190" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrp)"/>
+    <line x1="65" y1="250" x2="65" y2="60" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrp)"/>
+    <text x="65" y="50" text-anchor="middle" font-size="12" fill="#666">sin 读数</text>
+    <text x="295" y="212" text-anchor="middle" font-size="12" fill="#666">位置 pos</text>
+    <!-- sin 曲线（一个周期） -->
+    <path d="M 65,190.0 L 66,188.4 L 67,186.9 L 68,185.3 L 69,183.7 L 70,182.2 L 71,180.6 L 72,179.1 L 73,177.5 L 74,176.0 L 75,174.5 L 76,173.0 L 77,171.5 L 78,170.0 L 79,168.5 L 80,167.0 L 81,165.6 L 82,164.2 L 83,162.8 L 84,161.4 L 85,160.0 L 86,158.7 L 87,157.3 L 88,156.0 L 89,154.7 L 90,153.5 L 91,152.2 L 92,151.0 L 93,149.9 L 94,148.7 L 95,147.6 L 96,146.5 L 97,145.4 L 98,144.4 L 99,143.4 L 100,142.4 L 101,141.5 L 102,140.6 L 103,139.7 L 104,138.8 L 105,138.0 L 106,137.3 L 107,136.5 L 108,135.8 L 109,135.2 L 110,134.6 L 111,134.0 L 112,133.4 L 113,132.9 L 114,132.5 L 115,132.0 L 116,131.7 L 117,131.3 L 118,131.0 L 119,130.7 L 120,130.5 L 121,130.3 L 122,130.2 L 123,130.1 L 124,130.0 L 125,130.0 L 126,130.0 L 127,130.1 L 128,130.2 L 129,130.3 L 130,130.5 L 131,130.7 L 132,131.0 L 133,131.3 L 134,131.7 L 135,132.0 L 136,132.5 L 137,132.9 L 138,133.4 L 139,134.0 L 140,134.6 L 141,135.2 L 142,135.8 L 143,136.5 L 144,137.3 L 145,138.0 L 146,138.8 L 147,139.7 L 148,140.6 L 149,141.5 L 150,142.4 L 151,143.4 L 152,144.4 L 153,145.4 L 154,146.5 L 155,147.6 L 156,148.7 L 157,149.9 L 158,151.0 L 159,152.2 L 160,153.5 L 161,154.7 L 162,156.0 L 163,157.3 L 164,158.7 L 165,160.0 L 166,161.4 L 167,162.8 L 168,164.2 L 169,165.6 L 170,167.0 L 171,168.5 L 172,170.0 L 173,171.5 L 174,173.0 L 175,174.5 L 176,176.0 L 177,177.5 L 178,179.1 L 179,180.6 L 180,182.2 L 181,183.7 L 182,185.3 L 183,186.9 L 184,188.4 L 185,190.0 L 186,191.6 L 187,193.1 L 188,194.7 L 189,196.3 L 190,197.8 L 191,199.4 L 192,200.9 L 193,202.5 L 194,204.0 L 195,205.5 L 196,207.0 L 197,208.5 L 198,210.0 L 199,211.5 L 200,213.0 L 201,214.4 L 202,215.8 L 203,217.2 L 204,218.6 L 205,220.0 L 206,221.3 L 207,222.7 L 208,224.0 L 209,225.3 L 210,226.5 L 211,227.8 L 212,229.0 L 213,230.1 L 214,231.3 L 215,232.4 L 216,233.5 L 217,234.6 L 218,235.6 L 219,236.6 L 220,237.6 L 221,238.5 L 222,239.4 L 223,240.3 L 224,241.2 L 225,242.0 L 226,242.7 L 227,243.5 L 228,244.2 L 229,244.8 L 230,245.4 L 231,246.0 L 232,246.6 L 233,247.1 L 234,247.5 L 235,248.0 L 236,248.3 L 237,248.7 L 238,249.0 L 239,249.3 L 240,249.5 L 241,249.7 L 242,249.8 L 243,249.9 L 244,250.0 L 245,250.0 L 246,250.0 L 247,249.9 L 248,249.8 L 249,249.7 L 250,249.5 L 251,249.3 L 252,249.0 L 253,248.7 L 254,248.3 L 255,248.0 L 256,247.5 L 257,247.1 L 258,246.6 L 259,246.0 L 260,245.4 L 261,244.8 L 262,244.2 L 263,243.5 L 264,242.7 L 265,242.0 L 266,241.2 L 267,240.3 L 268,239.4 L 269,238.5 L 270,237.6 L 271,236.6 L 272,235.6 L 273,234.6 L 274,233.5 L 275,232.4 L 276,231.3 L 277,230.1 L 278,229.0 L 279,227.8 L 280,226.5 L 281,225.3 L 282,224.0 L 283,222.7 L 284,221.3 L 285,220.0 L 286,218.6 L 287,217.2 L 288,215.8 L 289,214.4 L 290,213.0 L 291,211.5 L 292,210.0 L 293,208.5 L 294,207.0 L 295,205.5 L 296,204.0 L 297,202.5 L 298,200.9 L 299,199.4 L 300,197.8 L 301,196.3 L 302,194.7 L 303,193.1 L 304,191.6 L 305,190.0" fill="none" stroke="#6d28d9" stroke-width="2"/>
+    <!-- 同一读数水平线 -->
+    <line x1="65" y1="160" x2="305" y2="160" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="303" y="153" text-anchor="end" font-size="12" fill="#dc2626">sin = 0.5</text>
+    <!-- 两个撞车点 -->
+    <circle cx="85" cy="160" r="5" fill="#dc2626"/>
+    <text x="85" y="138" text-anchor="middle" font-size="12" fill="#dc2626">位置 A</text>
+    <line x1="85" y1="160" x2="85" y2="190" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3 3"/>
+    <circle cx="165" cy="160" r="5" fill="#dc2626"/>
+    <text x="165" y="138" text-anchor="middle" font-size="12" fill="#dc2626">位置 B</text>
+    <line x1="165" y1="160" x2="165" y2="190" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3 3"/>
+    <text x="185" y="282" text-anchor="middle" font-size="12" fill="#666">A 和 B 读数相同 → 单看 sin 分不清谁是谁</text>
+    <!-- 分隔线 -->
+    <line x1="365" y1="45" x2="365" y2="285" stroke="#e5e7eb" stroke-width="1"/>
+    <!-- 右面板：sin+cos 唯一 -->
+    <text x="540" y="30" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">配上 cos：角度唯一确定</text>
+    <circle cx="540" cy="160" r="70" fill="#ede9fe" fill-opacity="0.5" stroke="#6d28d9" stroke-width="1.5"/>
+    <circle cx="540" cy="160" r="3" fill="#333"/>
+    <!-- 半径与指针端点（约 40°） -->
+    <line x1="540" y1="160" x2="593.6" y2="115" stroke="#6d28d9" stroke-width="2"/>
+    <circle cx="593.6" cy="115" r="5" fill="#6d28d9"/>
+    <text x="606" y="112" font-size="12" fill="#333">指针端点</text>
+    <!-- cos 投影（横） -->
+    <line x1="540" y1="160" x2="593.6" y2="160" stroke="#0891b2" stroke-width="3"/>
+    <text x="566" y="178" text-anchor="middle" font-size="12" fill="#0891b2">cos（横坐标）</text>
+    <!-- sin 投影（纵） -->
+    <line x1="593.6" y1="160" x2="593.6" y2="115" stroke="#d97706" stroke-width="3"/>
+    <text x="604" y="142" font-size="12" fill="#d97706">sin（纵坐标）</text>
+    <text x="540" y="282" text-anchor="middle" font-size="12" fill="#666">（sin, cos）两个数 ↔ 圆上唯一的点</text>
+  </svg>
+  <div class="diagram-caption">图 3：为什么 sin 和 cos 必须成对。左：同一个 sin 值（0.5）在波形上对应多个位置，单看 sin 编码不唯一；右：sin 与 cos 合起来是圆上一个点的纵、横坐标，两个数一起才能唯一锁定角度。</div>
+</div>
+
+<p>　　成对之后，账就好算了：每根「指针」贡献两个数（一个 sin、一个 cos），所以 \(d_{\mathrm{model}}\) 维的编码向量由 \(d_{\mathrm{model}}/2\) 根指针拼成——比如 512 维的编码就是 256 根指针。这些指针转速各不相同：第一根每 6 步多就转完一圈，中间的一根每 63 步转一圈，越往后越慢，最后一根要 6 万多步才转完一圈。位置每前进一格，所有指针同时按各自的速度转动一点。于是任意一个位置，都对应一组独一无二的读数组合——这组读数就是这个位置的编码。</p>
+
+<p>　　把每根指针的读数写成公式，就是原论文 §3.5 的定义：</p>
+
+<div class="formula-card">
+  \[ PE_{(pos,\,2i)} = \sin\!\left(\frac{pos}{10000^{\,2i/d_{\mathrm{model}}}}\right) \qquad PE_{(pos,\,2i+1)} = \cos\!\left(\frac{pos}{10000^{\,2i/d_{\mathrm{model}}}}\right) \tag{2} \]
+  <div class="formula-note">公式 (2)：偶数维用 sin、奇数维用 cos，同一对的两个读数相当于一根指针的横、纵坐标。符号说明：\(PE\) 是位置编码（Positional Encoding），\(PE_{(pos,\,2i)}\) 与 \(PE_{(pos,\,2i+1)}\) 分别是位置 \(pos\) 的编码向量在第 \(2i\)（偶）维与第 \(2i+1\)（奇）维上的取值；\(pos\) 是位置编号（0, 1, 2, …）；\(i\) 是维度对编号，从 0 取到 \(d_{\mathrm{model}}/2-1\)；\(d_{\mathrm{model}}\) 是模型维度；分母 \(10000^{\,2i/d_{\mathrm{model}}}\) 随 \(i\) 按几何级数增大，决定该维度对的波长。</div>
+</div>
+
+<p>　　每个维度对的角频率是 \(\omega_i = 1/10000^{2i/d_{\mathrm{model}}}\)，对应波长 \(\lambda_i = 2\pi \cdot 10000^{2i/d_{\mathrm{model}}}\)。按原论文的说法，这些波长从 \(2\pi\) 到 \(10000 \cdot 2\pi\) 构成几何级数：最短约 6.3 步，最长约 6.3 万步。短波长的维度转得快，相邻两个位置的读数差别很大，负责精确定位；长波长的维度转得极慢，走上几百步几乎不动，负责标记“大致在哪一段”。</p>
+
+<p>　　这套设计很像钟表：秒针（短波长）告诉你精确的秒，时针（长波长）告诉你大致几点，单看任何一根都不够，合起来才唯一确定时刻。也可以把它看成多进制计数器的连续光滑版本：二进制计数里个位每步翻转、高位很久才变一次，正弦编码用平滑的波形实现了同样的“快慢搭配”。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <!-- 中心虚线 -->
+    <line x1="165" y1="72" x2="705" y2="72" stroke="#d1d5db" stroke-width="1" stroke-dasharray="5,4"/>
+    <line x1="165" y1="168" x2="705" y2="168" stroke="#d1d5db" stroke-width="1" stroke-dasharray="5,4"/>
+    <line x1="165" y1="264" x2="705" y2="264" stroke="#d1d5db" stroke-width="1" stroke-dasharray="5,4"/>
+    <!-- 三条波形 -->
+    <path d="M165.0,72.0 L167.2,60.3 L169.3,50.5 L171.5,44.0 L173.6,42.0 L175.8,44.7 L178.0,51.7 L180.1,62.0 L182.3,73.8 L184.4,85.3 L186.6,94.7 L188.8,100.5 L190.9,101.9 L193.1,98.5 L195.2,90.9 L197.4,80.4 L199.6,68.5 L201.7,57.2 L203.9,48.2 L206.0,43.0 L208.2,42.3 L210.4,46.4 L212.5,54.5 L214.7,65.3 L216.8,77.2 L219.0,88.3 L221.2,96.8 L223.3,101.4 L225.5,101.4 L227.6,96.7 L229.8,88.1 L232.0,77.0 L234.1,65.1 L236.3,54.2 L238.4,46.2 L240.6,42.3 L242.8,43.0 L244.9,48.4 L247.1,57.4 L249.2,68.8 L251.4,80.6 L253.6,91.1 L255.7,98.6 L257.9,101.9 L260.0,100.5 L262.2,94.5 L264.4,85.0 L266.5,73.5 L268.7,61.7 L270.8,51.5 L273.0,44.6 L275.2,42.0 L277.3,44.1 L279.5,50.7 L281.6,60.6 L283.8,72.3 L286.0,83.9 L288.1,93.7 L290.3,100.1 L292.4,102.0 L294.6,99.2 L296.8,92.1 L298.9,81.8 L301.1,70.0 L303.2,58.5 L305.4,49.1 L307.6,43.4 L309.7,42.1 L311.9,45.6 L314.0,53.3 L316.2,63.9 L318.4,75.8 L320.5,87.1 L322.7,96.0 L324.8,101.1 L327.0,101.6 L329.2,97.5 L331.3,89.3 L333.5,78.4 L335.6,66.5 L337.8,55.5 L340.0,47.0 L342.1,42.5 L344.3,42.7 L346.4,47.5 L348.6,56.1 L350.8,67.3 L352.9,79.2 L355.1,90.0 L357.2,97.9 L359.4,101.8 L361.6,100.9 L363.7,95.5 L365.9,86.4 L368.0,75.0 L370.2,63.1 L372.4,52.7 L374.5,45.3 L376.7,42.1 L378.8,43.6 L381.0,49.6 L383.2,59.2 L385.3,70.8 L387.5,82.5 L389.6,92.7 L391.8,99.5 L394.0,102.0 L396.1,99.8 L398.3,93.1 L400.4,83.2 L402.6,71.5 L404.8,59.8 L406.9,50.1 L409.1,43.9 L411.2,42.0 L413.4,44.9 L415.6,52.1 L417.7,62.5 L419.9,74.3 L422.0,85.7 L424.2,95.0 L426.4,100.7 L428.5,101.8 L430.7,98.3 L432.8,90.5 L435.0,79.9 L437.2,68.0 L439.3,56.7 L441.5,47.9 L443.6,42.8 L445.8,42.4 L448.0,46.6 L450.1,54.9 L452.3,65.8 L454.4,77.8 L456.6,88.8 L458.8,97.1 L460.9,101.5 L463.1,101.3 L465.2,96.4 L467.4,87.6 L469.6,76.4 L471.7,64.5 L473.9,53.8 L476.0,46.0 L478.2,42.2 L480.4,43.2 L482.5,48.7 L484.7,57.9 L486.8,69.3 L489.0,81.1 L491.2,91.5 L493.3,98.9 L495.5,101.9 L497.6,100.3 L499.8,94.2 L502.0,84.6 L504.1,73.0 L506.3,61.2 L508.4,51.2 L510.6,44.4 L512.8,42.0 L514.9,44.3 L517.1,51.0 L519.2,61.1 L521.4,72.8 L523.6,84.4 L525.7,94.1 L527.9,100.2 L530.0,102.0 L532.2,98.9 L534.4,91.7 L536.5,81.3 L538.7,69.5 L540.8,58.0 L543.0,48.8 L545.2,43.2 L547.3,42.2 L549.5,45.9 L551.6,53.7 L553.8,64.4 L556.0,76.3 L558.1,87.5 L560.3,96.3 L562.4,101.2 L564.6,101.6 L566.8,97.2 L568.9,88.9 L571.1,77.9 L573.2,66.0 L575.4,55.0 L577.6,46.7 L579.7,42.4 L581.9,42.8 L584.0,47.8 L586.2,56.6 L588.4,67.8 L590.5,79.7 L592.7,90.4 L594.8,98.2 L597.0,101.8 L599.2,100.8 L601.3,95.1 L603.5,85.9 L605.6,74.4 L607.8,62.6 L610.0,52.3 L612.1,45.0 L614.3,42.0 L616.4,43.8 L618.6,50.0 L620.8,59.7 L622.9,71.3 L625.1,83.0 L627.2,93.0 L629.4,99.7 L631.6,102.0 L633.7,99.6 L635.9,92.8 L638.0,82.7 L640.2,70.9 L642.4,59.3 L644.5,49.8 L646.7,43.7 L648.8,42.1 L651.0,45.2 L653.2,52.5 L655.3,63.0 L657.5,74.8 L659.6,86.2 L661.8,95.4 L664.0,100.9 L666.1,101.8 L668.3,98.0 L670.4,90.1 L672.6,79.4 L674.8,67.5 L676.9,56.3 L679.1,47.6 L681.2,42.7 L683.4,42.5 L685.6,46.9 L687.7,55.3 L689.9,66.4 L692.0,78.3 L694.2,89.2 L696.4,97.4 L698.5,101.6 L700.7,101.1 L702.8,96.1 L705.0,87.2" fill="none" stroke="#6d28d9" stroke-width="2"/>
+    <path d="M165.0,168.0 L167.2,166.8 L169.3,165.6 L171.5,164.4 L173.6,163.2 L175.8,162.0 L178.0,160.9 L180.1,159.7 L182.3,158.6 L184.4,157.4 L186.6,156.3 L188.8,155.2 L190.9,154.1 L193.1,153.1 L195.2,152.1 L197.4,151.1 L199.6,150.1 L201.7,149.1 L203.9,148.2 L206.0,147.3 L208.2,146.5 L210.4,145.7 L212.5,144.9 L214.7,144.1 L216.8,143.4 L219.0,142.8 L221.2,142.1 L223.3,141.5 L225.5,141.0 L227.6,140.5 L229.8,140.0 L232.0,139.6 L234.1,139.3 L236.3,138.9 L238.4,138.7 L240.6,138.4 L242.8,138.3 L244.9,138.1 L247.1,138.0 L249.2,138.0 L251.4,138.0 L253.6,138.1 L255.7,138.2 L257.9,138.3 L260.0,138.5 L262.2,138.8 L264.4,139.1 L266.5,139.4 L268.7,139.8 L270.8,140.2 L273.0,140.7 L275.2,141.2 L277.3,141.8 L279.5,142.4 L281.6,143.1 L283.8,143.7 L286.0,144.5 L288.1,145.2 L290.3,146.0 L292.4,146.9 L294.6,147.7 L296.8,148.6 L298.9,149.6 L301.1,150.5 L303.2,151.5 L305.4,152.5 L307.6,153.6 L309.7,154.6 L311.9,155.7 L314.0,156.8 L316.2,158.0 L318.4,159.1 L320.5,160.2 L322.7,161.4 L324.8,162.6 L327.0,163.8 L329.2,165.0 L331.3,166.2 L333.5,167.4 L335.6,168.6 L337.8,169.8 L340.0,170.9 L342.1,172.1 L344.3,173.3 L346.4,174.5 L348.6,175.7 L350.8,176.8 L352.9,178.0 L355.1,179.1 L357.2,180.2 L359.4,181.3 L361.6,182.3 L363.7,183.4 L365.9,184.4 L368.0,185.4 L370.2,186.4 L372.4,187.3 L374.5,188.2 L376.7,189.1 L378.8,189.9 L381.0,190.7 L383.2,191.5 L385.3,192.2 L387.5,192.9 L389.6,193.5 L391.8,194.1 L394.0,194.7 L396.1,195.2 L398.3,195.7 L400.4,196.2 L402.6,196.5 L404.8,196.9 L406.9,197.2 L409.1,197.4 L411.2,197.7 L413.4,197.8 L415.6,197.9 L417.7,198.0 L419.9,198.0 L422.0,198.0 L424.2,197.9 L426.4,197.8 L428.5,197.6 L430.7,197.4 L432.8,197.1 L435.0,196.8 L437.2,196.4 L439.3,196.0 L441.5,195.5 L443.6,195.0 L445.8,194.5 L448.0,193.9 L450.1,193.3 L452.3,192.6 L454.4,191.9 L456.6,191.2 L458.8,190.4 L460.9,189.6 L463.1,188.7 L465.2,187.9 L467.4,186.9 L469.6,186.0 L471.7,185.0 L473.9,184.0 L476.0,183.0 L478.2,181.9 L480.4,180.9 L482.5,179.8 L484.7,178.7 L486.8,177.5 L489.0,176.4 L491.2,175.2 L493.3,174.1 L495.5,172.9 L497.6,171.7 L499.8,170.5 L502.0,169.3 L504.1,168.1 L506.3,166.9 L508.4,165.7 L510.6,164.5 L512.8,163.3 L514.9,162.1 L517.1,161.0 L519.2,159.8 L521.4,158.7 L523.6,157.5 L525.7,156.4 L527.9,155.3 L530.0,154.2 L532.2,153.2 L534.4,152.1 L536.5,151.1 L538.7,150.2 L540.8,149.2 L543.0,148.3 L545.2,147.4 L547.3,146.5 L549.5,145.7 L551.6,144.9 L553.8,144.2 L556.0,143.5 L558.1,142.8 L560.3,142.2 L562.4,141.6 L564.6,141.0 L566.8,140.5 L568.9,140.1 L571.1,139.7 L573.2,139.3 L575.4,139.0 L577.6,138.7 L579.7,138.5 L581.9,138.3 L584.0,138.1 L586.2,138.0 L588.4,138.0 L590.5,138.0 L592.7,138.1 L594.8,138.2 L597.0,138.3 L599.2,138.5 L601.3,138.8 L603.5,139.1 L605.6,139.4 L607.8,139.8 L610.0,140.2 L612.1,140.7 L614.3,141.2 L616.4,141.8 L618.6,142.4 L620.8,143.0 L622.9,143.7 L625.1,144.4 L627.2,145.2 L629.4,146.0 L631.6,146.8 L633.7,147.7 L635.9,148.6 L638.0,149.5 L640.2,150.5 L642.4,151.4 L644.5,152.5 L646.7,153.5 L648.8,154.6 L651.0,155.6 L653.2,156.7 L655.3,157.9 L657.5,159.0 L659.6,160.1 L661.8,161.3 L664.0,162.5 L666.1,163.7 L668.3,164.9 L670.4,166.1 L672.6,167.3 L674.8,168.5 L676.9,169.7 L679.1,170.9 L681.2,172.0 L683.4,173.2 L685.6,174.4 L687.7,175.6 L689.9,176.7 L692.0,177.9 L694.2,179.0 L696.4,180.1 L698.5,181.2 L700.7,182.3 L702.8,183.3 L705.0,184.3" fill="none" stroke="#0891b2" stroke-width="2.5"/>
+    <path d="M165.0,264.0 L167.2,264.0 L169.3,264.0 L171.5,264.0 L173.6,264.0 L175.8,264.0 L178.0,264.0 L180.1,264.0 L182.3,264.0 L184.4,264.0 L186.6,264.0 L188.8,264.0 L190.9,264.0 L193.1,264.0 L195.2,264.0 L197.4,264.0 L199.6,264.0 L201.7,264.0 L203.9,264.0 L206.0,264.0 L208.2,264.0 L210.4,264.0 L212.5,264.0 L214.7,264.0 L216.8,264.0 L219.0,264.0 L221.2,264.0 L223.3,264.0 L225.5,264.0 L227.6,264.0 L229.8,264.0 L232.0,264.0 L234.1,264.0 L236.3,264.0 L238.4,264.0 L240.6,264.0 L242.8,264.0 L244.9,264.0 L247.1,264.0 L249.2,264.0 L251.4,264.0 L253.6,264.0 L255.7,263.9 L257.9,263.9 L260.0,263.9 L262.2,263.9 L264.4,263.9 L266.5,263.9 L268.7,263.9 L270.8,263.9 L273.0,263.9 L275.2,263.9 L277.3,263.9 L279.5,263.9 L281.6,263.9 L283.8,263.9 L286.0,263.9 L288.1,263.9 L290.3,263.9 L292.4,263.9 L294.6,263.9 L296.8,263.9 L298.9,263.9 L301.1,263.9 L303.2,263.9 L305.4,263.9 L307.6,263.9 L309.7,263.9 L311.9,263.9 L314.0,263.9 L316.2,263.9 L318.4,263.9 L320.5,263.9 L322.7,263.9 L324.8,263.9 L327.0,263.9 L329.2,263.9 L331.3,263.9 L333.5,263.9 L335.6,263.9 L337.8,263.9 L340.0,263.9 L342.1,263.9 L344.3,263.9 L346.4,263.9 L348.6,263.9 L350.8,263.9 L352.9,263.9 L355.1,263.9 L357.2,263.9 L359.4,263.9 L361.6,263.9 L363.7,263.9 L365.9,263.9 L368.0,263.9 L370.2,263.9 L372.4,263.9 L374.5,263.9 L376.7,263.9 L378.8,263.9 L381.0,263.9 L383.2,263.9 L385.3,263.9 L387.5,263.9 L389.6,263.9 L391.8,263.9 L394.0,263.9 L396.1,263.9 L398.3,263.9 L400.4,263.9 L402.6,263.9 L404.8,263.9 L406.9,263.9 L409.1,263.9 L411.2,263.9 L413.4,263.9 L415.6,263.9 L417.7,263.9 L419.9,263.9 L422.0,263.9 L424.2,263.9 L426.4,263.9 L428.5,263.9 L430.7,263.9 L432.8,263.9 L435.0,263.9 L437.2,263.8 L439.3,263.8 L441.5,263.8 L443.6,263.8 L445.8,263.8 L448.0,263.8 L450.1,263.8 L452.3,263.8 L454.4,263.8 L456.6,263.8 L458.8,263.8 L460.9,263.8 L463.1,263.8 L465.2,263.8 L467.4,263.8 L469.6,263.8 L471.7,263.8 L473.9,263.8 L476.0,263.8 L478.2,263.8 L480.4,263.8 L482.5,263.8 L484.7,263.8 L486.8,263.8 L489.0,263.8 L491.2,263.8 L493.3,263.8 L495.5,263.8 L497.6,263.8 L499.8,263.8 L502.0,263.8 L504.1,263.8 L506.3,263.8 L508.4,263.8 L510.6,263.8 L512.8,263.8 L514.9,263.8 L517.1,263.8 L519.2,263.8 L521.4,263.8 L523.6,263.8 L525.7,263.8 L527.9,263.8 L530.0,263.8 L532.2,263.8 L534.4,263.8 L536.5,263.8 L538.7,263.8 L540.8,263.8 L543.0,263.8 L545.2,263.8 L547.3,263.8 L549.5,263.8 L551.6,263.8 L553.8,263.8 L556.0,263.8 L558.1,263.8 L560.3,263.8 L562.4,263.8 L564.6,263.8 L566.8,263.8 L568.9,263.8 L571.1,263.8 L573.2,263.8 L575.4,263.8 L577.6,263.8 L579.7,263.8 L581.9,263.8 L584.0,263.8 L586.2,263.8 L588.4,263.8 L590.5,263.8 L592.7,263.8 L594.8,263.8 L597.0,263.8 L599.2,263.8 L601.3,263.8 L603.5,263.8 L605.6,263.8 L607.8,263.8 L610.0,263.8 L612.1,263.8 L614.3,263.8 L616.4,263.7 L618.6,263.7 L620.8,263.7 L622.9,263.7 L625.1,263.7 L627.2,263.7 L629.4,263.7 L631.6,263.7 L633.7,263.7 L635.9,263.7 L638.0,263.7 L640.2,263.7 L642.4,263.7 L644.5,263.7 L646.7,263.7 L648.8,263.7 L651.0,263.7 L653.2,263.7 L655.3,263.7 L657.5,263.7 L659.6,263.7 L661.8,263.7 L664.0,263.7 L666.1,263.7 L668.3,263.7 L670.4,263.7 L672.6,263.7 L674.8,263.7 L676.9,263.7 L679.1,263.7 L681.2,263.7 L683.4,263.7 L685.6,263.7 L687.7,263.7 L689.9,263.7 L692.0,263.7 L694.2,263.7 L696.4,263.7 L698.5,263.7 L700.7,263.7 L702.8,263.7 L705.0,263.7" fill="none" stroke="#d97706" stroke-width="2.5"/>
+    <!-- 行内注释：长波长几乎水平 -->
+    <text x="435" y="246" text-anchor="middle" font-size="11.5" fill="#d97706">100 步内几乎纹丝不动</text>
+    <!-- 左侧标签 -->
+    <text x="10" y="58" font-size="12" font-weight="bold" fill="#6d28d9">低维（i ≈ 0）</text>
+    <text x="10" y="76" font-size="11" fill="#555">波长 2π ≈ 6.3</text>
+    <text x="10" y="92" font-size="11" fill="#555">相邻位置差别大，看局部</text>
+    <text x="10" y="154" font-size="12" font-weight="bold" fill="#0891b2">中间维度</text>
+    <text x="10" y="172" font-size="11" fill="#555">波长 2π×10 ≈ 63</text>
+    <text x="10" y="188" font-size="11" fill="#555">中距离平缓变化</text>
+    <text x="10" y="250" font-size="12" font-weight="bold" fill="#d97706">高维（i ≈ d/2）</text>
+    <text x="10" y="268" font-size="11" fill="#555">波长 10000·2π ≈ 62832</text>
+    <text x="10" y="284" font-size="11" fill="#555">上百步几乎不动，看全局</text>
+    <!-- 底部横轴 -->
+    <line x1="165" y1="310" x2="705" y2="310" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="165" y1="310" x2="165" y2="315" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="300" y1="310" x2="300" y2="315" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="435" y1="310" x2="435" y2="315" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="570" y1="310" x2="570" y2="315" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="705" y1="310" x2="705" y2="315" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="165" y="330" text-anchor="middle" font-size="11" fill="#666">0</text>
+    <text x="300" y="330" text-anchor="middle" font-size="11" fill="#666">25</text>
+    <text x="435" y="330" text-anchor="middle" font-size="11" fill="#666">50</text>
+    <text x="570" y="330" text-anchor="middle" font-size="11" fill="#666">75</text>
+    <text x="705" y="330" text-anchor="middle" font-size="11" fill="#666">100</text>
+    <text x="435" y="352" text-anchor="middle" font-size="12" fill="#666">横轴：位置 pos</text>
+  </svg>
+  <div class="diagram-caption">图 4：正弦位置编码中三个维度的波形（仅画 sin 分量，纵轴为该维度的编码取值）。低维振荡快、精细区分相邻位置；高维近乎水平、标记全局范围。全部维度叠加后，每个位置得到独一无二的编码组合。</div>
+</div>
+
+<p>　　图 4 最容易误读的一点是：<strong>曲线是属于维度的，不是属于 token 的</strong>。低维、中维、高维三条曲线是三个「维度对」各自的波形，所有 token 共用同一套曲线。token 之间的差别只在于站在横轴的不同位置去读数。举个具体例子：假设一句话切出 3 个 token「我、爱、猫」，位置分别是 0、1、2，再假设玩具版的 \(d_{\mathrm{model}}=6\)（3 个维度对，真实模型是几百维）。每个 token 的编码就是把三条曲线在自己位置上的读数依次抄下来，拼成 6 个数：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>token</th><th>位置 pos</th><th>编码向量（6 维玩具版）</th></tr></thead>
+    <tbody>
+      <tr><td>我</td><td>0</td><td>[0,　1,　0,　1,　0,　1]</td></tr>
+      <tr><td>爱</td><td>1</td><td>[0.84,　0.54,　0.05,　1.00,　0.00,　1.00]</td></tr>
+      <tr><td>猫</td><td>2</td><td>[0.91,　-0.42,　0.09,　1.00,　0.00,　1.00]</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　对照图 4 的波形看这张表：快维度对（前两个数）在相邻位置之间跳变剧烈，0 → 0.84 → 0.91，负责把「相邻位置」区分开；慢维度对（后两个数）几乎纹丝不动，0 → 0.00 → 0.00，负责在大尺度上做标记。三个位置的 6 维组合互不相同，编码的唯一性就此实现。真实模型里这套读数有几百维，但读法一模一样：token 换的是位置，曲线不变。</p>
+
+<p>　　原论文选择正弦函数还有一个更技术性的理由：<strong>对任意固定偏移 k，\(PE_{pos+k}\) 可以写成 \(PE_{pos}\) 的线性函数</strong>。利用三角恒等式，对每个维度对有：</p>
+
+<div class="formula-card">
+  \[ \sin(\omega_i(pos+k)) = \cos(\omega_i k)\sin(\omega_i pos) + \sin(\omega_i k)\cos(\omega_i pos) \tag{3} \]
+  \[ \cos(\omega_i(pos+k)) = -\sin(\omega_i k)\sin(\omega_i pos) + \cos(\omega_i k)\cos(\omega_i pos) \]
+  <div class="formula-note">公式 (3)：展开系数只含 k 不含 pos，相当于在每个维度对上施加一个只由 k 决定的 2×2 旋转。知道某位置的编码和偏移量 k，一次固定的线性变换就能推出 k 步之外的编码。符号说明：\(\omega_i\) 是第 \(i\) 个维度对的角频率（\(\omega_i = 1/10000^{\,2i/d_{\mathrm{model}}}\)，见上文）；\(pos\) 是当前位置编号；\(k\) 是固定的位置偏移量；两式分别是正弦与余弦的和角展开，右端系数 \(\cos(\omega_i k)\)、\(\sin(\omega_i k)\) 只与 \(k\) 有关。</div>
+</div>
+
+<p>　　这意味着“相对距离”被直接编码进了向量结构：模型想做“往前数 3 个位置”这类操作时，学到的只是一个固定的线性变换，而不必从两个毫无规律的编号里猜关系。原论文正是据此推断，正弦编码能让模型更容易学会按相对位置做注意力。</p>
+
+<h2>3.3.3 可学习位置编码：交给训练自己学</h2>
+
+<p>　　另一条路线干脆不做任何人工设计：给位置建一张表，让模型自己学。以 GPT 系列为代表的可学习位置编码（learned positional embedding）维护一个 <code>max_len × d_model</code> 的参数矩阵，随机初始化，像词向量一样随训练更新。位置 pos 的编码就是矩阵的第 pos 行，查表即得。</p>
+
+<p>　　这种把位置“背下来”的做法简单直接，效果一点不差。原论文在机器翻译任务上对比过两种方案：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>对比项</th><th>正弦位置编码</th><th>可学习位置编码</th></tr></thead>
+    <tbody>
+      <tr><td>向量来源</td><td>人工设计的固定公式</td><td>随机初始化，训练中学出</td></tr>
+      <tr><td>额外参数</td><td>0</td><td><code>max_len × d_model</code></td></tr>
+      <tr><td>训练中是否变化</td><td>固定不变</td><td>随数据更新</td></tr>
+      <tr><td>超出训练长度</td><td>公式可以继续算，理论上可外推</td><td>表里没有对应的行，无从外推</td></tr>
+      <tr><td>代表模型</td><td>原始 Transformer</td><td>GPT 系列、BERT</td></tr>
+      <tr><td>原论文实测</td><td>基础模型 BLEU 25.8</td><td>换用后 BLEU 25.7，几乎相同（表 3 第 (E) 行）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box">
+  两种绝对位置编码在建模能力上没有实质差距。原论文最终选正弦，不是因为它效果更好，而是因为它不增加任何参数，且有望外推到比训练时更长的序列；GPT 系选可学习，是因为它零设计成本、实现最简单，而当时的上下文长度（GPT-1 为 512 个 token）根本用不到外推。
+</div>
+
+<h2>3.3.4 共同的局限：绝对位置的天花板</h2>
+
+<p>　　无论正弦还是可学习，思路都是给每个位置发一张“绝对门牌号”，再指望模型自己从门牌号里推出相对关系。这个思路有两个绕不开的短板：</p>
+
+<ul>
+  <li><strong>间接性</strong>：注意力真正关心的是“两个 token 相距多远”，而绝对编码只告诉模型“各自坐在哪”，相对距离要靠模型从两个向量的相互作用里间接算出来；</li>
+  <li><strong>外推落空</strong>：原论文期望正弦编码能外推到更长序列，但后来的系统实验表明，无论正弦还是可学习，输入一旦超过训练长度，模型表现都会明显下滑（Press et al., 2021）。</li>
+</ul>
+
+<p>　　既然“先发绝对编号、再间接推相对”绕了弯路，何不直接告诉注意力“你们相距 k 步”？这就是相对位置编码的思路：RoPE 把相对距离以旋转向量的方式注入注意力计算，ALiBi 干脆按距离给注意力分数加惩罚。它们是现代 LLM 的主流选择，也是下一节的主题。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么自注意力必须额外注入位置信息？</div>
+    <div class="sc-key">注意力计算对输入顺序是排列不变的：打乱 token 顺序，每个位置的计算结果不变。没有位置编码，模型分不清语序不同的两句话。把位置向量与词向量相加，是最直接的注入方式。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">正弦编码为什么让不同维度用 \(2\pi\) 到 \(10000 \cdot 2\pi\) 的不同波长？</div>
+    <div class="sc-key">短波长维度精细区分相邻位置，长波长维度标记全局范围，几何级数的波长组合让每个位置的编码独一无二；且对固定偏移 k，\(PE_{pos+k}\) 是 \(PE_{pos}\) 的线性函数，方便模型学相对位置。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">正弦和可学习位置编码该选哪个？</div>
+    <div class="sc-key">原论文实测两者效果几乎相同（BLEU 25.8 对 25.7）。正弦省参数、理论上可外推；可学习零设计成本但超出训练长度就失效。如今两者都让位于相对位置编码（RoPE、ALiBi）。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）。正弦位置编码公式、线性函数动机、表 3 第 (E) 行对比实验均出自该文 §3.5 及表 3。</li>
+  <li>Gehring et al., 2017. Convolutional Sequence to Sequence Learning（arXiv:1705.03122）。原论文引用的可学习位置嵌入出处（其参考文献 [9]）。</li>
+  <li>Radford et al., 2018. Improving Language Understanding by Generative Pre-Training（OpenAI 技术报告）。GPT 系列采用可学习位置嵌入的起点。</li>
+  <li>Devlin et al., 2019. BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding（arXiv:1810.04805）。可学习位置嵌入的代表模型之一。</li>
+  <li>Press, Smith &amp; Lewis, 2021. Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation（ALiBi 论文，arXiv:2108.12409）。绝对位置编码外推失败的系统实验证据。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch3_2_why_position.html" title="3.2 为什么需要位置编码：注意力是个「脸盲」">← 上一节：3.2 为什么需要位置编码：注意力是个「脸盲」</a><a class="next" href="ch3_4_rope_alibi.html" title="3.4 相对位置编码：RoPE 与 ALiBi">下一节：3.4 相对位置编码：RoPE 与 ALiBi →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

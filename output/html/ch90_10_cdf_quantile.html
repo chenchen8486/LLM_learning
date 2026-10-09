@@ -1,0 +1,611 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A.10 累积概率与分位数：top-p 的数学底座 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link active" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">附录 数学与深度学习基础速览</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>A.10 累积概率与分位数：top-p 的数学底座</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>A.10 累积概率与分位数：top-p 的数学底座</h1>
+<p class="subtitle">本页范围：附录 A 第 10 节　|　整理时间：2026-10-09</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>12.2 节的 top-p 采样只有一句话的操作说明：候选按概率从高到低排队，从头累加，累计概率首次达到阈值 p 就停，身后的全部砍掉。「排队、累加、首次达到」对应数学里的什么对象？为什么动一个 p 就能让候选集合自动伸缩？</td></tr>
+      <tr><td>本节主张</td><td>从高到低排队再从头累加，得到的是累积分布函数（CDF）：一条从 0 爬到 1 的阶梯。「累计首次达到 p 的位置」就是 p-分位数，top-p 的核正是降序口径下的 p-分位数前缀；阈值 p 不是「砍多少」的直接开关，而是「至少覆盖多少概率」的保证书。</td></tr>
+      <tr><td>一句话结论</td><td>会排队、会累加、会找首次越线的名次，就看懂了 top-p 的全部数学；minimind 用四行代码（排序、累加、掩码右移、置 −∞）把它完整实现。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>累积分布函数 CDF</span><span>分位数</span><span>top-p</span><span>核</span><span>cumsum</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　A.3 节把模型输出的分数变成了概率，A.9 节讲了怎么按概率从分布里抽出一个 token。12.2 节的 top-p 采样在抽样之前还要先砍一刀：把候选按概率从高到低排队，从第一名开始累加，累计概率首次达到阈值 p 就停，排在后面的全部出局。这一刀砍掉了不靠谱的尾巴，也让候选席的大小跟着分布形状自动伸缩。</p>
+
+<p>　　「排队、累加、首次达到」这三件事背后是两个标准的数学对象：累积分布函数与分位数。本节把它们讲到够用为止，再用 minimind 的四行真实代码收尾对照。</p>
+
+<ol>
+  <li><strong>排队加累加：累积分布函数</strong>（A.10.1）：一条从 0 爬到 1 的阶梯，每个台阶是一名候选贡献的概率；</li>
+  <li><strong>分位数：首次达到阈值的位置</strong>（A.10.2）：为什么定义必须写「首次达到」，写「最接近」会出什么错；</li>
+  <li><strong>top-p 就是一个分位数</strong>（A.10.3）：核 = 覆盖 p 的最小前缀集合，min-p 一句话变体，minimind 四行代码逐行对照。</li>
+</ol>
+
+<p>　　读完应能手算一道小题：给一组概率和一个阈值 p，说出核里有几个候选、谁被关在门外，并指出 minimind 的哪一行代码对应哪一步。</p>
+
+<h2>A.10.1 排队加累加：累积分布函数</h2>
+
+<p>　　任意一组概率都可以按一个选定的顺序排成一排。softmax（A.3 节）之后，词表上 6400 个候选各拿一个概率，总和为 1。top-p 关心的排法是按概率从高到低：概率最高的候选排第 1 名，依次往后，最低的垫底。排好之后从第 1 名开始逐个累加：前 1 名合计多少、前 2 名合计多少……每加一个名次，合计值就抬升一格。这个「累计到第 \(k\) 名为止的总概率」有正式的数学名字：</p>
+
+<div class="formula-card">
+  \[ F(k) = \sum_{i=1}^{k} p_{(i)} \tag{1} \]
+  <div class="formula-note">公式 (1)：离散分布在降序口径下的累积分布函数（Cumulative Distribution Function，CDF）。符号说明：\(p_{(i)}\) 是概率排名第 \(i\) 的候选的概率（下标加括号表示名次，\(p_{(1)}\) 最大）；\(k\) 是名次；\(F(k)\) 是前 \(k\) 名合计的概率。\(F\) 有两个显然但关键的性质：单调不减，每加一个名次只会变大或持平；加完全体候选正好等于 1。</div>
+</div>
+
+<p>　　拿一组具体数字走一遍。假设某一步排序后的概率是 \([0.40, 0.25, 0.15, 0.12, 0.08]\)（只用 5 个候选，便于口算），逐个累加：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>名次 \(k\)</th><th>概率 \(p_{(k)}\)</th><th>累计 \(F(k)\)</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>0.40</td><td>0.40</td></tr>
+      <tr><td>2</td><td>0.25</td><td>0.65</td></tr>
+      <tr><td>3</td><td>0.15</td><td>0.80</td></tr>
+      <tr><td>4</td><td>0.12</td><td>0.92</td></tr>
+      <tr><td>5</td><td>0.08</td><td>1.00</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　一个前提必须记住：CDF 的长相取决于排序口径。同一组概率，按词表原顺序累加也能画出一条阶梯，但那条阶梯与「谁靠谱」无关，对截断没有意义。本节与 12.2 节说的 CDF 一律指按概率降序的那一条——这也正是 top-p 的实现里第一步永远是排序的原因。</p>
+
+<h2>A.10.2 分位数：首次达到阈值的位置</h2>
+
+<p>　　有了 \(F(k)\)，「累计概率首次达到阈值 \(p\) 的那个名次」就可以一句话定义出来。这个位置就是 \(p\)-分位数对应的位置：</p>
+
+<div class="formula-card">
+  \[ k^* = \min\left\{ k:\ F(k) \geq p \right\} \tag{2} \]
+  <div class="formula-note">公式 (2)：p-分位数位置的定义。符号说明：\(p\) 是 0 到 1 之间的阈值（top-p 场景常用 0.85、0.9、0.95）；\(F(k)\) 是公式 (1) 的累计概率；\(k^*\) 是满足 \(F(k) \geq p\) 的最小名次，即累计阶梯第一次够到或越过 \(p\) 的位置。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">分位数 Quantile</span>
+    <span class="term-en">quantile = 把分布按累计比例切分的位置</span>
+  </div>
+  <div class="term-body">
+    <p>日常里最熟悉的分位数是考试成绩的百分位：「超过 85% 的考生」意思就是落在 85 分位。换成概率分布的语言，p-分位数回答同一个问题：累计概率达到 p 时，走到哪一名了。top-p 里的 p 与这个 p 是同一个东西。</p>
+    <div class="term-analogy">像按名次依次把每个候选的概率倒进同一个量杯，问「水面首次碰到 0.85 刻度线时，倒到第几个人了」——那个人所在的名次就是 0.85-分位数的位置。</div>
+  </div>
+</div>
+
+<p>　　为什么定义写「首次达到」而不是「最接近」？拿上表对 \(p = 0.85\) 找一遍位置就清楚了：第 3 名的累计是 0.80，离 0.85 只差 0.05；第 4 名的累计是 0.92，超出 0.07。若按「最接近」取舍，第 3 名当选——但 0.80 并没有完成「至少覆盖 0.85」的任务，候选集合里缺了一块概率质量。阈值 \(p\) 的本意是覆盖率的下限，不是近似目标，所以必须走到首次不低于 \(p\) 的第 4 名：宁可多收一个候选，不让覆盖率跌破 \(p\)。这个「宁多勿缺」的取向，下一小节会在代码里再遇见一次。</p>
+
+<p>　　把这张表画成图，阶梯与阈值的交点一目了然（图 1）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="cdfArrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <text x="56" y="30" font-size="13" fill="#333">① 按概率从高到低排队（5 个候选）</text>
+    <text x="404" y="30" font-size="13" fill="#333">② 从头累加：累积分布 F(k) 的阶梯</text>
+    <line x1="374" y1="44" x2="374" y2="304" stroke="#e2e8f0" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <!-- 面板 ①：降序概率柱 -->
+    <line x1="56" y1="250" x2="56" y2="76" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cdfArrG)"/>
+    <line x1="56" y1="250" x2="344" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cdfArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="52" y1="170" x2="60" y2="170"/>
+      <line x1="52" y1="90" x2="60" y2="90"/>
+    </g>
+    <text x="48" y="174" font-size="11" fill="#64748b" text-anchor="end">0.2</text>
+    <text x="48" y="94" font-size="11" fill="#64748b" text-anchor="end">0.4</text>
+    <text x="64" y="68" font-size="11" fill="#64748b">概率</text>
+    <rect x="78" y="90" width="36" height="160" fill="#6d28d9"/>
+    <rect x="132" y="150" width="36" height="100" fill="#6d28d9"/>
+    <rect x="186" y="190" width="36" height="60" fill="#6d28d9"/>
+    <rect x="240" y="202" width="36" height="48" fill="#6d28d9"/>
+    <rect x="294" y="218" width="36" height="32" fill="#d1d5db" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="96" y="82" font-size="11.5" fill="#6d28d9" text-anchor="middle">0.40</text>
+    <text x="150" y="142" font-size="11.5" fill="#6d28d9" text-anchor="middle">0.25</text>
+    <text x="204" y="182" font-size="11.5" fill="#6d28d9" text-anchor="middle">0.15</text>
+    <text x="258" y="194" font-size="11.5" fill="#6d28d9" text-anchor="middle">0.12</text>
+    <text x="312" y="210" font-size="11.5" fill="#9ca3af" text-anchor="middle">0.08</text>
+    <text x="96" y="266" font-size="11" fill="#64748b" text-anchor="middle">第 1 名</text>
+    <text x="150" y="266" font-size="11" fill="#64748b" text-anchor="middle">第 2 名</text>
+    <text x="204" y="266" font-size="11" fill="#64748b" text-anchor="middle">第 3 名</text>
+    <text x="258" y="266" font-size="11" fill="#64748b" text-anchor="middle">第 4 名</text>
+    <text x="312" y="266" font-size="11" fill="#9ca3af" text-anchor="middle">第 5 名</text>
+    <line x1="78" y1="280" x2="276" y2="280" stroke="#6d28d9" stroke-width="1.6"/>
+    <line x1="78" y1="276" x2="78" y2="284" stroke="#6d28d9" stroke-width="1.6"/>
+    <line x1="276" y1="276" x2="276" y2="284" stroke="#6d28d9" stroke-width="1.6"/>
+    <text x="177" y="296" font-size="11.5" fill="#6d28d9" text-anchor="middle">核：前 4 名留下</text>
+    <text x="312" y="296" font-size="11.5" fill="#dc2626" text-anchor="middle">砍掉</text>
+    <!-- 面板 ②：CDF 阶梯 -->
+    <line x1="404" y1="250" x2="404" y2="70" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cdfArrG)"/>
+    <line x1="404" y1="250" x2="692" y2="250" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#cdfArrG)"/>
+    <g stroke="#cbd5e1" stroke-width="1.2">
+      <line x1="400" y1="160" x2="408" y2="160"/>
+      <line x1="400" y1="70" x2="408" y2="70"/>
+    </g>
+    <text x="396" y="254" font-size="11" fill="#64748b" text-anchor="end">0</text>
+    <text x="396" y="164" font-size="11" fill="#64748b" text-anchor="end">0.5</text>
+    <text x="396" y="74" font-size="11" fill="#64748b" text-anchor="end">1.0</text>
+    <text x="412" y="62" font-size="11" fill="#64748b">F(k)</text>
+    <line x1="404" y1="97" x2="692" y2="97" stroke="#dc2626" stroke-width="1.4" stroke-dasharray="6 4"/>
+    <text x="412" y="91" font-size="11.5" fill="#dc2626">阈值 p = 0.85</text>
+    <line x1="576" y1="250" x2="576" y2="106" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="3 3"/>
+    <path d="M 420 250 L 420 178 L 472 178 L 472 133 L 524 133 L 524 106 L 576 106 L 576 84.4 L 628 84.4 L 628 70 L 680 70" fill="none" stroke="#6d28d9" stroke-width="2.4"/>
+    <g fill="#6d28d9">
+      <circle cx="420" cy="178" r="3"/>
+      <circle cx="472" cy="133" r="3"/>
+      <circle cx="524" cy="106" r="3"/>
+      <circle cx="576" cy="84.4" r="3"/>
+      <circle cx="628" cy="70" r="3"/>
+    </g>
+    <circle cx="576" cy="84.4" r="6" fill="none" stroke="#dc2626" stroke-width="1.6"/>
+    <text x="446" y="172" font-size="10.5" fill="#6d28d9" text-anchor="middle">0.40</text>
+    <text x="498" y="146" font-size="10.5" fill="#6d28d9" text-anchor="middle">0.65</text>
+    <text x="550" y="122" font-size="10.5" fill="#6d28d9" text-anchor="middle">0.80</text>
+    <text x="606" y="74" font-size="10.5" fill="#6d28d9" text-anchor="middle">0.92</text>
+    <text x="654" y="62" font-size="10.5" fill="#6d28d9" text-anchor="middle">1.00</text>
+    <text x="590" y="116" font-size="12" font-weight="bold" fill="#6d28d9">k* = 4</text>
+    <text x="590" y="132" font-size="10.5" fill="#666">首次越过阈值的位置</text>
+    <text x="446" y="266" font-size="11" fill="#64748b" text-anchor="middle">1</text>
+    <text x="498" y="266" font-size="11" fill="#64748b" text-anchor="middle">2</text>
+    <text x="550" y="266" font-size="11" fill="#64748b" text-anchor="middle">3</text>
+    <text x="602" y="266" font-size="11" fill="#64748b" text-anchor="middle">4</text>
+    <text x="654" y="266" font-size="11" fill="#64748b" text-anchor="middle">5</text>
+    <text x="692" y="266" font-size="10.5" fill="#94a3b8" text-anchor="end">名次</text>
+    <line x1="420" y1="280" x2="628" y2="280" stroke="#6d28d9" stroke-width="1.6"/>
+    <line x1="420" y1="276" x2="420" y2="284" stroke="#6d28d9" stroke-width="1.6"/>
+    <line x1="628" y1="276" x2="628" y2="284" stroke="#6d28d9" stroke-width="1.6"/>
+    <text x="524" y="296" font-size="11.5" fill="#6d28d9" text-anchor="middle">核 = 前 4 名：累计 0.92，首次 ≥ 0.85</text>
+    <text x="654" y="296" font-size="11.5" fill="#dc2626" text-anchor="middle">砍掉</text>
+    <text x="374" y="320" font-size="11.5" fill="#666" text-anchor="middle">读法：阶梯在名次 4 处首次越过 p = 0.85，前 4 名构成核，第 5 名出局</text>
+  </svg>
+  <div class="diagram-caption">图 1：累积分布与分位数的位置。左图把 5 个候选按概率从高到低排好；右图从第 1 名开始逐个累加，紫色阶梯就是公式 (1) 的 \(F(k)\)，每个台阶的抬升幅度是该名候选的概率。红色虚线是阈值 \(p = 0.85\)：累计到第 3 名只有 0.80、尚不达标，第 4 名把累计推到 0.92、阶梯首次越过阈值，于是 \(k^* = 4\)，前 4 名构成核（紫色括线），第 5 名被砍掉。这就是 12.2 节 top-p 在每一步解码中做的事。</div>
+</div>
+
+<h2>A.10.3 top-p 就是一个分位数</h2>
+
+<p>　　把前两节拼起来，top-p 采样（12.2 节细讲）的定义只剩一句话：按概率降序排，取覆盖阈值 \(p\) 的最小前缀集合——也就是图 1 里被紫色括线留下的前 4 名。这个集合有专门的名字，叫核（nucleus）：</p>
+
+<div class="formula-card">
+  \[ \mathcal{N} = \{ (1), (2), \dots, (k^*) \} \tag{3} \]
+  <div class="formula-note">公式 (3)：top-p 的核。符号说明：\(\mathcal{N}\) 是保留下来的候选集合；\(k^*\) 由公式 (2) 给出；名次 \(k^* + 1\) 起的候选全部出局——实现上把它们的 logit 置为 \(-\infty\)，softmax 后概率严格为 0，核内按原比例重新归一化（12.2 节公式 (2)）。因为 \(k^*\) 随分布形状变化，分布尖锐时核可能只有 1 个候选，分布平坦时可能几十上百个，这是 top-p 相对固定名额的 top-k（只留概率前 \(k\) 名）的核心优势。</div>
+</div>
+
+<p>　　同一家族还有一个一句话变体 min-p：不拿累计概率划线，改拿「第一名概率乘系数 \(\alpha\)」当及格线，留下的候选集合同样随分布形状伸缩。它的公式与出处见 12.2.4 节，本节只需认出它也是「先定一个位置，再砍掉身后」的家族成员。</p>
+
+<p>　　落到代码上，minimind（Apache 2.0）的 generate 函数用四行把本节从头到尾实现了一遍（model/model_minimind.py:278–282，其中第 278 行是入口判断 <code>if top_p &lt; 1.0</code>，取 1.0 即不截断）：</p>
+
+<pre><code>sorted_logits, sorted_indices = torch.sort(logits, descending=True)          # 279 行：按概率降序排队
+mask = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1) &gt; top_p    # 280 行：算 F(k) 并与阈值比较
+mask[..., 1:], mask[..., 0] = mask[..., :-1].clone(), 0                      # 281 行：掩码右移一格，首位豁免
+logits[mask.scatter(1, sorted_indices, mask)] = -float('inf')                # 282 行：核外置 −∞</code></pre>
+
+<p>　　拿本节的数值小例逐行对照（top_p = 0.85）：</p>
+
+<ol>
+  <li><strong>279 行，排序</strong>：就是 A.10.1 的「排队」；同时返回的 <code>sorted_indices</code> 记下每个名次在词表里的原始位置，后面散回去要用；</li>
+  <li><strong>280 行，累加并比较</strong>：<code>torch.softmax</code> 把排好序的 logit 变回概率（A.3 节），<code>torch.cumsum</code> 做的就是公式 (1) 的累加，整条语句得到「\(F(k)\) 严格大于 \(p\)」的布尔掩码。上例的累计是 [0.40, 0.65, 0.80, 0.92, 1.00]，与 0.85 比较得 [假, 假, 假, 真, 真]；</li>
+  <li><strong>281 行，掩码右移一格</strong>：右移后首位强制置 0，掩码变成 [假, 假, 假, 假, 真]。这一格移动正是「保住阈值线上第一个跨界者」：第 4 名的 0.92 本来被标成越界，右移后它本人豁免、身后的第 5 名顶替出局。这就是 A.10.2 的「宁多勿缺」——少了第 4 名，累计只剩 0.80，不够 p；</li>
+  <li><strong>282 行，散回原顺序</strong>：掩码此刻按名次排列，<code>scatter</code> 按 <code>sorted_indices</code> 把每一格散回词表原顺序，核外位置的 logit 置 −∞；之后 softmax 时 \(e^{-\infty} = 0\)（A.3 节），这些候选的概率严格归零。置 −∞ 这手屏蔽技巧在手册里反复登场（注意力因果掩码、约束解码），附录 A.11 统一讲它。</li>
+</ol>
+
+<div class="highlight-box">
+  top-p 的全部数学就是三件事：排队（sort）、累加（cumsum）、找首次越线的名次（分位数）。阈值 p 是「至少留住多少概率」的保证书：p 越高核越大、尾巴越长；p 取 1.0 时一个都不砍（代码里 top_p 小于 1.0 才启用），p 越小核收得越紧。
+</div>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>出现在哪</th><th>用它做什么</th></tr></thead>
+    <tbody>
+      <tr><td>12.2 采样三件套（top-p）</td><td>top-p 截断就是求降序 CDF 的 p-分位数：核内保留、核外置 −∞ 再重新归一化（公式 (3)；实现见 model_minimind.py:278–282）</td></tr>
+      <tr><td>12.2 采样三件套（min-p）</td><td>min-p 是同一思路的相对阈值变体：及格线从「累计概率 p」换成「第一名概率 × α」，候选集合同样随分布形状伸缩</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch90_9_sampling.html" title="A.9 概率分布与依概率抽样：轮盘怎么转">← 上一节：A.9 概率分布与依概率抽样：轮盘怎么转</a><a class="next" href="ch90_11_softmax_mask.html" title="A.11 softmax 掩码：用 −∞ 屏蔽非法位置">下一节：A.11 softmax 掩码：用 −∞ 屏蔽非法位置 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

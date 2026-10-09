@@ -4,13 +4,17 @@
 
 　　讲解对标高校公开课水平：先直觉类比再上公式，关键术语逐个讲透，抽象机制配原创示意图（页面内 SVG），全部公式用 KaTeX 渲染。
 
-## 构建与浏览
+## 直接阅读（无需构建）
+
+　　成品页面已随库发布：克隆后用浏览器打开 `output/html/ch0_1_what_is_llm.html`（第 0 章第 1 节），从侧边栏逐章阅读即可。公式与字体走 CDN（KaTeX、Noto Sans SC），首次打开需联网一次。
+
+## 重新构建（仅改动内容后需要）
 
 ```bash
 python output/html/build.py
 ```
 
-　　构建产物输出到 `output/html/`（不进入版本库），浏览器打开 `output/html/index.html` 即可离线阅读。
+　　页面源文件在 `output/html/pages/`，构建产物（`output/html/ch*.html` 与配图副本）也提交在库中，构建只是重新生成它们。
 
 ## 目录结构
 

@@ -1,0 +1,716 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>6.5 涌现能力：规模到了，能力「突然」出现？ — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link active" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 6 章 预训练</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>6.5 涌现能力：规模到了，能力「突然」出现？</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>6.5 涌现能力：规模到了，能力「突然」出现？</h1>
+<p class="subtitle">本页范围：第 6 章第 5 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>Scaling Law 说损失随规模平滑下降，可下游任务的表现曲线常呈“相变”式跳变：某些能力在小模型上接近随机，规模越过某个阈值后突然可用。这种涌现是模型内部的真实质变，还是度量方式造出的错觉？</td></tr>
+      <tr><td>本节主张</td><td>涌现曲线是真实的测量结果，但“突变感”很大程度上是 0-1 指标对平滑进步的非线性放大；正反两派证据都要看，度量口径要先问清。</td></tr>
+      <tr><td>一句话结论</td><td>无论是否相变，规模扩大可靠地解锁新用法是经验事实；但把涌现当神秘突变来敬畏没有必要——看到相变曲线，先问指标、测试集大小和小模型一端的读数。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>涌现能力</span><span>相变</span><span>In-context Learning</span><span>Exact Match</span><span>度量伪影</span><span>BIG-Bench</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　上一节讲 Scaling Law：语言模型的测试损失随参数量、数据量、算力按幂律平滑下降，温顺且可预测。但损失只是训练目标的代理指标，从业者和公众真正关心的是另一件事——模型到底会做什么。当人们把视线从损失曲线移到具体任务的表现曲线时，看到了一类反直觉的现象：某些能力不是渐进变好，而是在规模越过某个阈值后突然“点亮”，仿佛烧到 100°C 的水。这就是本节的主角，涌现能力（emergent abilities）。</p>
+
+<p>　　围绕这个现象有一场仍在继续的论战：正方视其为规模带来的质变，是“继续做大”的最强理由；反方则论证它可能主要是度量指标的伪影。本节不预设立场，按四个环节把双方证据摆清楚：</p>
+
+<ol>
+  <li><strong>涌现现象与经典案例</strong>（6.5.1）：相变式曲线长什么样，Wei 等人的定义与两个标志特征，三个教科书级案例；</li>
+  <li><strong>ICL：不更新参数的学习</strong>（6.5.2）：GPT-3 的 few-shot 能力为何被视为涌现叙事的招牌；</li>
+  <li><strong>反方：也许是尺子的伪影</strong>（6.5.3）：NeurIPS 2023 获奖论文的论证——换一把尺子，涌现就“蒸发”；</li>
+  <li><strong>我们该怎么看</strong>（6.5.4）：两派各退一步后的平衡立场，以及读论文时的三个检查点。</li>
+</ol>
+
+<p>　　读完全节，你应该能对任何一条“某某能力是涌现的”的说法给出有依据的反应：先问尺子，再谈现象。</p>
+
+<p>　　摆出双方证据之前，先看一眼预训练在 LLM 整条生命周期中的位置，以及涌现曲线在这一站长什么样。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS65emergence" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG65emergence" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS65emergence)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG65emergence)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG65emergence)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG65emergence)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG65emergence)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG65emergence)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG65emergence)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：预训练在 LLM 生命周期中的位置。训练数据（第 1 章）备好后进入预训练（本章，紫框）：在海量语料上做自监督学习，把文本规律压进参数；配套的并行、精度与稳定性工程在第 7 章，之后的中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）、推理与部署（第 12–13 章）在对应章节展开。本节只需记住：损失平滑下降不代表能力平滑出现——任务表现曲线可能呈相变式跳变，而突变感与度量尺子有关。</div>
+</div>
+
+<p>　　图 1 里这个紫框放大之后，为什么会看到「突然点亮」的曲线？把涌现现象的典型形态单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr65z" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="30" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：涌现曲线——小模型贴随机线，越过阈值陡升</text>
+    <text x="30" y="50" font-size="11" fill="#64748b">横轴模型规模（log 刻度），纵轴任务准确率（0-1 指标）；曲线的「悬崖」形态正是本节论战的对象</text>
+    <!-- 坐标轴 -->
+    <line x1="90" y1="300" x2="90" y2="56" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr65z)"/>
+    <line x1="80" y1="300" x2="668" y2="300" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr65z)"/>
+    <text x="58" y="50" text-anchor="middle" font-size="11" fill="#666">准确率</text>
+    <text x="80" y="304" text-anchor="end" font-size="10.5" fill="#666">0</text>
+    <text x="80" y="66" text-anchor="end" font-size="10.5" fill="#666">1</text>
+    <text x="660" y="322" text-anchor="end" font-size="11" fill="#666">模型规模（log）</text>
+    <!-- 随机基线 -->
+    <line x1="95" y1="272" x2="650" y2="272" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="646" y="264" text-anchor="end" font-size="10.5" fill="#9ca3af">随机水平</text>
+    <!-- 阈值线 -->
+    <line x1="380" y1="64" x2="380" y2="300" stroke="#dc2626" stroke-width="1" stroke-dasharray="4 3" opacity="0.55"/>
+    <text x="392" y="82" font-size="10.5" fill="#dc2626">阈值</text>
+    <!-- 涌现曲线 -->
+    <polyline points="100,270 170,269 240,268 310,266 360,262 390,240 410,200 428,150 444,110 466,90 520,80 600,76" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="100" cy="270" r="4.5" fill="#dc2626"/>
+    <circle cx="240" cy="268" r="4.5" fill="#dc2626"/>
+    <circle cx="360" cy="262" r="4.5" fill="#dc2626"/>
+    <circle cx="410" cy="200" r="4.5" fill="#dc2626"/>
+    <circle cx="444" cy="110" r="4.5" fill="#dc2626"/>
+    <circle cx="600" cy="76" r="4.5" fill="#dc2626"/>
+    <!-- 标注 -->
+    <text x="225" y="232" text-anchor="middle" font-size="11" fill="#555">小模型：贴着随机线</text>
+    <text x="225" y="250" text-anchor="middle" font-size="10" fill="#888">不是一无所知——0-1 尺子把进步压平了</text>
+    <text x="492" y="168" text-anchor="middle" font-size="11" fill="#dc2626">越过阈值陡升</text>
+    <line x1="478" y1="160" x2="446" y2="134" stroke="#dc2626" stroke-width="1" opacity="0.6"/>
+    <!-- 底部说明 -->
+    <text x="370" y="336" text-anchor="middle" font-size="11" fill="#64748b">教科书案例：GPT-3 三位数加法，13B 及以下 ≈ 0%，175B 突然达到 80.2%（Brown et al., 2020）</text>
+    <text x="370" y="358" text-anchor="middle" font-size="11" fill="#64748b">6.5.3 的追问：换连续指标（token 编辑距离）重新打分，悬崖变回斜坡</text>
+  </svg>
+  <div class="diagram-caption">图 2：涌现曲线的典型形态（0-1 指标下）。阈值左侧，准确率贴着随机水平几乎不动；越过阈值后在很窄的规模区间内陡升。曲线形状为示意，非真实实验数据；左段的「贴平」不代表小模型一无所得——exact match 这类 0-1 尺子会把平滑进步压成零，6.5.3 用连续指标重新打分后悬崖变回斜坡。</div>
+</div>
+
+<h2>6.5.1 涌现现象与经典案例</h2>
+
+<p>　　先把直觉建立起来。水烧到 99°C 还是平静的液体，再升 1°C 就翻滚沸腾——物理学家把这种量变积累到临界点后发生的质变称为相变（phase transition）。1972 年，诺贝尔物理学奖得主 P. W. Anderson 在著名文章 "More Is Different" 中提出：系统的复杂度跨过某个量级后，会浮现出从微观细节无法预言的全新性质。2022 年，Google 的 Jason Wei 领衔的一篇论文把这套语言搬进了 LLM 语境（Wei et al., 2022）。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">涌现 Emergence</span>
+    <span class="term-en">emerge = 浮现、显现；系统整体呈现出部分所不具备的性质</span>
+  </div>
+  <div class="term-body">
+    <p>Wei 等人的定义很具体：一种能力是<strong>涌现</strong>的，当它在小规模模型上不存在、在大规模模型上存在——因此无法通过外推小模型的表现来预测。由此衍生两个标志特征：<strong>突变性</strong>（sharpness），表现从接近随机到明显可用的过渡发生在很窄的规模区间内；<strong>不可预测性</strong>（unpredictability），事先不知道阈值出现在哪个规模上。</p>
+    <div class="term-analogy">就像烧水：温度平滑上升，水的状态却在 100°C 突然跳变。平滑的输入变化，在临界点上制造出跳变的输出。</div>
+  </div>
+</div>
+
+<p>　　典型的涌现曲线长这样：横轴是训练算力（FLOPs，对数刻度），纵轴是任务准确率。阈值左侧，准确率贴着随机基线（random chance）几乎不动，几亿参数和几十亿参数的模型看上去“同样不会”；越过阈值后曲线陡然抬头，在很窄的规模区间内冲到远高于随机的水平。注意它与 Scaling Law 的反差：损失曲线是处处光滑的幂律，任务表现曲线却像被折了一下。图 3 的示意图会把这个形态画出来。</p>
+
+<p>　　Wei 等人汇总了多个模型家族（GPT-3、LaMDA、PaLM 等）在 BIG-Bench 等基准上的此类曲线，三个传播最广的案例：</p>
+
+<ul>
+  <li><strong>多位数算术</strong>：GPT-3 系列在三位数加法上，13B 及以下的成员准确率几乎为零，175B 模型突然达到 80.2%（Brown et al., 2020）；</li>
+  <li><strong>BIG-Bench 任务簇</strong>：词形重组（word unscrambling）、多步算术等一批任务上，多个模型家族出现相似的阈值跳变（Wei et al., 2022）；</li>
+  <li><strong>思维链推理</strong>：Chain-of-Thought prompting 只在约 100B 量级以上的模型上带来稳定增益，小模型用了反而可能更差（Wei et al., 2022）——连“怎么提问才有效”都会随规模切换。</li>
+</ul>
+
+<div class="highlight-box info">
+  “涌现”一词在科学史上有悠长谱系：物理学的相变、生物学的蚁群协作、神经科学的意识研究，都用它描述“整体大于部分之和”的现象。Anderson 1972 年的 "More Is Different" 是这套思想的经典出处，Wei 等人的论文正是站在这一传统上发问。
+</div>
+
+<p>　　这批曲线成了 GPT-3 时代以来规模叙事的核心证据：如果能力会不可预测地涌现，那么继续扩大规模就可能“意外解锁”谁也没料到的新能力。下一节看其中最具颠覆性的一类。</p>
+
+<h2>6.5.2 ICL：不更新参数的学习</h2>
+
+<p>　　传统机器学习中，“学会一个任务”几乎等价于“更新参数”：梯度下降一步步拧动权重。GPT-3（Brown et al., 2020）展示了另一条路：参数一个不动，只在输入里演示几个例子，模型就现场照做。这就是上下文学习。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">上下文学习 In-context Learning</span>
+    <span class="term-en">in-context = 在上下文之中；不改权重，仅凭输入中的示例现场适应任务</span>
+  </div>
+  <div class="term-body">
+    <p>GPT-3 论文系统对比了三种设定：<strong>zero-shot</strong> 只给任务描述，<strong>one-shot</strong> 给一个示例，<strong>few-shot</strong> 给几个到几十个示例。任务说明与示例全部写进 prompt 文本，模型做一次前向传播就给出答案，全程没有任何梯度更新。它后来常被缩写为 ICL。</p>
+    <div class="term-analogy">像一个悟性极高的实习生：不必送他培训三天（那是更新参数），布置任务时顺手演示两三个例子，他立刻照着做。</div>
+  </div>
+</div>
+
+<p>　　ICL 被视为涌现叙事的招牌，原因有二。一是<strong>增益随规模拉开</strong>：GPT-3 论文的曲线显示，few-shot 相对 zero-shot 的提升在小模型上很有限，模型越大提升越明显——小模型给了例子也学不会，大模型才能从例子中读出任务规律。二是<strong>曲线形态本身</strong>：一大批 few-shot 任务的表现曲线正是 6.5.1 描述的相变形态。换句话说，随规模质变的似乎不只是“会做题”，而是“会了一种新的学习方式”。</p>
+
+<div class="highlight-box info">
+  GPT-3 的算术实验是 ICL 涌现的教科书案例：175B 模型 few-shot 达到两位数加法 100%、三位数加法 80.2%、三位数减法 94.2%，而 13B 及以下的家族成员在三位数运算上几乎全错。此外，175B 在部分 NLP 任务上的 few-shot 成绩已逼近当时微调模型的最佳水平（Brown et al., 2020）。
+</div>
+
+<p>　　不改参数为何也能“学”？这至今是活跃的研究问题。一种有影响力的机制解释是归纳头（induction heads）：Transformer 内部会自然形成一类负责“复制前文出现过的模式”的注意力头，其形成过程恰好也呈相变式（Olsson et al., 2022）。机制细节留待架构与可解释性的讨论展开，这里只需记住：ICL 的存在与强度都强烈依赖规模。</p>
+
+<h2>6.5.3 反方：也许是尺子的伪影</h2>
+
+<p>　　2023 年，斯坦福大学的 Rylan Schaeffer、Brando Miranda 与 Sanmi Koyejo 发表论文《Are Emergent Abilities of Large Language Models a Mirage?》（涌现是不是海市蜃楼），获 NeurIPS 2023 杰出论文奖。标题即论点：涌现也许不在模型里，而在尺子里。</p>
+
+<p>　　论证从一个温和的前提出发：假设模型逐 token 的错误率随规模平滑下降——这正是 Scaling Law 反复验证过的事。问题出在打分方式上。以四位数加法为例，设答案为 4 位数字组成的串，常用指标 exact match 要求整串完全正确才记 1 分，错一位也是 0 分。设模型单个 token 的正确率为 \(p\)，在各 token 近似独立的假设下：</p>
+
+<div class="formula-card">
+  \[ \mathrm{Accuracy}(N) \approx p(N)^{L}, \qquad p(N) = \exp\!\big(-(N/c)^{\alpha}\big) \tag{1} \]
+  <div class="formula-note">公式 (1)：单 token 正确率 \(p\) 的平滑提升，被“整串全对才得分”连乘 \(L\) 次后，会在很长一段规模区间里被压在零附近，直到 \(p\) 接近 1 时才猛然抬起——平滑的进步被指标放大成了悬崖。符号说明：\(N\) 是模型参数量；\(p(N)\) 是参数量为 \(N\) 的模型预测单个 token 正确的概率，式中假设逐 token 交叉熵随规模按幂律 \((N/c)^{\alpha}\) 下降，\(c&gt;0\)、\(\alpha&lt;0\) 为幂律常数；\(L\) 是输出串的 token 数（四位数加法的答案有 4 位数字）；\(\mathrm{Accuracy}\) 是 0-1 指标，整串全对记 1，否则记 0。</div>
+</div>
+
+<p>　　代入数字感受这把尺子的放大作用。设 \(L=10\)：\(p\) 从 0.90 提到 0.99，得分从 \(0.9^{10}\approx0.35\) 跳到 \(0.99^{10}\approx0.90\)——单 token 只进步了 9 个百分点，整串得分却从三成多涨到九成。再看小模型一端：\(p\) 从 0.50 提到 0.80 是实打实的进步，可 \(0.8^{10}\approx0.11\)，画在图上仍贴着零。悬崖的两头，是同一把尺子造出来的。</p>
+
+<p>　　换一把连续尺子试试：把 exact match 换成 Token 编辑距离（逐 token 统计答对了多少位），对同一批模型的同一份输出重新打分，悬崖立刻变回斜坡。Schaeffer 等人用三路实验把这一解释钉牢：</p>
+
+<ol>
+  <li><strong>换指标</strong>：在 InstructGPT/GPT-3 家族的两位数乘法与四位数加法上，0-1 指标下涌现清晰可见，换连续指标后曲线平滑可预测；</li>
+  <li><strong>元分析</strong>：BIG-Bench 上超过 92% 的涌现案例，出现在 Multiple Choice Grade（选对选项才得分）或 Exact String Match（整串全对才得分）这两类 0-1 指标之下；</li>
+  <li><strong>反向制造</strong>：在视觉任务上故意选用非线性指标，人为“制造”出一批前所未见的涌现——既然能按需生产，它就很难是模型的内在属性。</li>
+</ol>
+
+<p>　　还有一个次级因素：测试集太小。小模型一端的真实得分若是 2%，一百题的测试集几乎分辨不出它与 0 的可靠区别，曲线被压成一条平线，突变感因此更强。换大测试集、提高测量分辨率，一些“涌现”同样会消退。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 310" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="axisArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 分隔线 -->
+    <line x1="380" y1="20" x2="380" y2="285" stroke="#e5e7eb" stroke-width="1"/>
+    <!-- 左面板标题 -->
+    <text x="205" y="26" text-anchor="middle" font-size="13" font-weight="600" fill="#333">0-1 指标（Exact Match）：像相变</text>
+    <!-- 左面板坐标轴 -->
+    <line x1="70" y1="250" x2="70" y2="50" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#axisArr)"/>
+    <line x1="70" y1="250" x2="340" y2="250" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#axisArr)"/>
+    <text x="70" y="40" text-anchor="middle" font-size="12" fill="#666">得分</text>
+    <text x="205" y="272" text-anchor="middle" font-size="12" fill="#666">模型规模（对数刻度）</text>
+    <text x="60" y="254" text-anchor="end" font-size="11" fill="#666">0</text>
+    <text x="60" y="54" text-anchor="end" font-size="11" fill="#666">1</text>
+    <!-- 随机基线 -->
+    <line x1="75" y1="235" x2="335" y2="235" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="333" y="229" text-anchor="end" font-size="10" fill="#9ca3af">随机水平</text>
+    <!-- 阈值线 -->
+    <line x1="252" y1="55" x2="252" y2="250" stroke="#dc2626" stroke-width="1" stroke-dasharray="4 3" opacity="0.55"/>
+    <text x="252" y="47" text-anchor="middle" font-size="10" fill="#dc2626">阈值</text>
+    <!-- 左曲线：贴底后陡升 -->
+    <polyline points="80,238 120,237 160,236 200,233 230,228 250,218 262,192 271,150 278,108 288,84 305,76 330,73" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="80" cy="238" r="3" fill="#dc2626"/>
+    <circle cx="160" cy="236" r="3" fill="#dc2626"/>
+    <circle cx="230" cy="228" r="3" fill="#dc2626"/>
+    <circle cx="262" cy="192" r="3" fill="#dc2626"/>
+    <circle cx="288" cy="84" r="3" fill="#dc2626"/>
+    <circle cx="330" cy="73" r="3" fill="#dc2626"/>
+    <!-- 右面板标题 -->
+    <text x="565" y="26" text-anchor="middle" font-size="13" font-weight="600" fill="#333">连续指标（Token 编辑距离）：是渐进</text>
+    <!-- 右面板坐标轴 -->
+    <line x1="430" y1="250" x2="430" y2="50" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#axisArr)"/>
+    <line x1="430" y1="250" x2="700" y2="250" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#axisArr)"/>
+    <text x="430" y="40" text-anchor="middle" font-size="12" fill="#666">得分</text>
+    <text x="565" y="272" text-anchor="middle" font-size="12" fill="#666">模型规模（对数刻度）</text>
+    <text x="420" y="254" text-anchor="end" font-size="11" fill="#666">0</text>
+    <text x="420" y="54" text-anchor="end" font-size="11" fill="#666">1</text>
+    <!-- 右曲线：平滑渐进 -->
+    <polyline points="440,225 480,200 520,178 560,158 600,140 640,124 672,112 695,104" fill="none" stroke="#0891b2" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="440" cy="225" r="3" fill="#0891b2"/>
+    <circle cx="520" cy="178" r="3" fill="#0891b2"/>
+    <circle cx="600" cy="140" r="3" fill="#0891b2"/>
+    <circle cx="695" cy="104" r="3" fill="#0891b2"/>
+    <!-- 底部说明 -->
+    <text x="380" y="300" text-anchor="middle" font-size="12" fill="#666">同一批模型检查点 · 同一任务 · 同一份输出，只是换了打分方式</text>
+  </svg>
+  <div class="diagram-caption">图 3：同一批模型在 0-1 指标（左）与连续指标（右）下的表现曲线。左侧呈“相变”，右侧呈渐进——曲线形状为示意，非真实实验数据。</div>
+</div>
+
+<div class="highlight-box danger">
+  “小模型表现接近随机”不等于“小模型一无所知”。0-1 指标下，小模型把四位数加法的前三位都写对了，得分依然是 0——进步被尺子整个抹掉。把“测不出来”读成“不存在”，是涌现叙事流传最广的误读。
+</div>
+
+<h2>6.5.4 我们该怎么看</h2>
+
+<p>　　先把两派各退一步后的共识摆出来。反方论文从未否认大模型比小模型强：它质疑的是“突变”这一形态描述——换连续指标后进步依然真实存在，只是从悬崖变成斜坡。正方也有反方射程之外的证据：像“CoT 只在足够大的模型上才有增益”这类涉及行为模式切换的案例，很难用单一指标伪影完全解释。更稳妥的读法是：涌现与否部分取决于任务与度量的组合，逐案例问清口径，不一概而论。</p>
+
+<p>　　对手册读者，实用立场是三条：</p>
+
+<ul>
+  <li><strong>经验事实无可争议</strong>：规模扩大可靠地解锁新用法。从 GPT-2 到 GPT-3 再到 GPT-4，每一档规模都带来了上一代做不到的应用形态，这一点与“曲线是不是相变”无关；</li>
+  <li><strong>不必敬畏突变</strong>：涌现不是神秘开关。看到相变曲线先问三件事——用什么指标？测试集多大？小模型一端的读数是不是被压成了零？</li>
+  <li><strong>要预测，不要惊叹</strong>：工程上真正有用的问题是“下一代模型能不能做这件事”。连续指标下的平滑曲线可以外推，0-1 指标下的悬崖不能——这是 Scaling Law 与涌现之争给实践者最实在的启示。</li>
+</ul>
+
+<div class="highlight-box">
+  规模与能力的关系，在损失曲线上是幂律（可外推），在任务曲线上可能表现为相变（难外推）；而相变感相当一部分是 0-1 度量对平滑进步的非线性放大。规模可靠地解锁新用法成立；把涌现当神秘突变来敬畏，没有必要。
+</div>
+
+<p>　　度量口径的问题不会到此为止。第 15 章讨论评测时它会再次登场：评测指标怎么设计，直接决定我们“看见”什么样的能力。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">什么是涌现能力？它的两个标志特征是什么？</div>
+    <div class="sc-key">小模型上不存在、大模型上存在、无法从小模型表现外推的能力（Wei et al., 2022）。两个特征：突变性——从接近随机到可用的过渡发生在很窄的规模区间；不可预测性——阈值出现在哪个规模事先无法预言。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么说 ICL 是涌现叙事的招牌案例？</div>
+    <div class="sc-key">ICL 不更新任何参数，仅凭 prompt 中的示例现场学会任务；且 few-shot 相对 zero-shot 的增益随规模显著拉大——随规模质变的似乎不只是做题能力，还有“学习方式”本身。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Schaeffer 等人凭什么说涌现可能是“海市蜃楼”？</div>
+    <div class="sc-key">逐 token 错误率随规模平滑下降，但 exact match 这类 0-1 指标把平滑进步连乘放大成悬崖（公式 (1) 的 \(p^{L}\)）；换连续指标后曲线回归渐进。BIG-Bench 上超 92% 的涌现案例出自两类 0-1 指标，他们还能在视觉任务上人为制造涌现。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Wei et al., 2022. Emergent Abilities of Large Language Models（TMLR 2022，arXiv:2206.07682）。</li>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3 论文，NeurIPS 2020，arXiv:2005.14165）。</li>
+  <li>Wei et al., 2022. Chain-of-Thought Prompting Elicits Reasoning in Large Language Models（NeurIPS 2022，arXiv:2201.11903）。</li>
+  <li>Schaeffer, Miranda &amp; Koyejo, 2023. Are Emergent Abilities of Large Language Models a Mirage?（NeurIPS 2023 杰出论文奖，arXiv:2304.15004）。</li>
+  <li>Olsson et al., 2022. In-context Learning and Induction Heads（Anthropic，arXiv:2209.11895）。</li>
+  <li>Anderson, 1972. More Is Different（Science, 177(4047): 393–396）。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch6_4_scaling_law.html" title="6.4 Scaling Law：规模是可以计算的命运">← 上一节：6.4 Scaling Law：规模是可以计算的命运</a><a class="next" href="ch7_1_scaling_wall.html" title="7.1 显存墙与算力墙：为什么单卡训不动大模型">下一节：7.1 显存墙与算力墙：为什么单卡训不动大模型 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

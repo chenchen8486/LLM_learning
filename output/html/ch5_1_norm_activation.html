@@ -1,0 +1,770 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children">
+    <a class="nav-link active" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 5 章 现代架构变体与效率改进</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</h1>
+<p class="subtitle">本页范围：第 5 章第 1 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>第 4 章讲完了原论文的 Transformer：LayerNorm 加 ReLU 前馈。可今天打开任何一个主流 LLM 的源码，看到的却是 RMSNorm、Pre-LN 和 SwiGLU。为什么要换？换成了什么？</td></tr>
+      <tr><td>本节主张</td><td>现代 LLM 的标配残差块是三处精准改造的组合：归一化从 LayerNorm 化简为 RMSNorm（做减法）、从 Post-LN 挪到 Pre-LN（改位置）、前馈从 ReLU 升级为 SwiGLU 门控（加闸门）。三处改动都不增加参数量，却换来更稳的深层训练和更好的效果。</td></tr>
+      <tr><td>一句话结论</td><td>RMSNorm 砍掉减均值、Pre-LN 给梯度留一条恒等通路、SwiGLU 让 FFN 学会按内容放行信息，这套组合是 Llama、Qwen、minimind 等现代模型的共同选择。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>LayerNorm</span><span>RMSNorm</span><span>Pre-LN</span><span>Post-LN</span><span>SwiGLU</span><span>门控</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　本节要回答一个承上启下的问题：第 4 章逐层拆完了 2017 年的原版 Transformer，配方是 LayerNorm 加 ReLU 前馈；可今天打开 Llama、Qwen、minimind 任何一个主流模型的源码，看到的却是 RMSNorm、Pre-LN 和 SwiGLU。为什么要换？换成了什么？本节沿"三处精准改造"的主线逐个拆解，每一处改动对应一种设计哲学：</p>
+
+<ol>
+  <li><strong>从 LayerNorm 到 RMSNorm：一次成功的化简</strong>（5.1.1）：砍掉减均值这一步统计，只保留统一"音量"，效果持平还更快；</li>
+  <li><strong>从 Post-LN 到 Pre-LN：归一化挪个位置，深层训练就稳了</strong>（5.1.2）：不改公式改位置，残差主干变成不设卡的高速公路，几十层不要 warmup 也训得稳；</li>
+  <li><strong>SwiGLU：给前馈网络装一道闸门</strong>（5.1.3）：一半通道算"开度"、一半通道当"货物"，多出的第三个矩阵靠缩维三分之二把参数账做平；</li>
+  <li><strong>为什么这套组合成为标配</strong>（5.1.4）：做减法、改位置、加门控三笔账合起来，看 Llama 到 minimind 的工程共识是怎么收敛出来的。</li>
+</ol>
+
+<p>　　读完全节，你应该能打开任意一个现代模型的源码，说清它的残差块为什么长这样：三处改动都不加参数量，却换来更稳的深层训练和更好的效果。5.1.4 的收尾还会把话头递给注意力侧的改造，那是 5.2 节的内容。</p>
+
+<p>　　逐处拆解之前，先看一眼本节内容在整条链路中的位置。第 4 章把 Transformer 块的骨架搭好了，本章几节都是对块内部零件的改造，本节动的是归一化与前馈这两处。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS51normactivation" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG51normactivation" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">注入「第几格」</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.2–3.5 节）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS51normactivation)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS51normactivation)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS51normactivation)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS51normactivation)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG51normactivation)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG51normactivation)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG51normactivation)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）切成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，再经输出投影算出各 token 的概率（第 4 章），采样出下一个 token（第 12 章）并接回输入循环。第 4 章讲完的是这个紫框的骨架，第 5 章是对块内部的改造：本节换的是其中的归一化与前馈两个零件，块在链路中的位置与进出数据的形状都不动。</div>
+</div>
+
+<p>　　这个紫框内部的零件放大之后长什么样？向量进去之后经过什么运算、出来时是什么形状？把本节要换上的两个新零件——RMSNorm 与 SwiGLU——单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 402" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrN51" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：RMSNorm——输入一个 768 维向量，输出同形状的 768 维向量</text>
+    <!-- 主链：输入 → 求 RMS → 除以 RMS → 乘增益 -->
+    <rect x="24" y="48" width="140" height="88" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="94" y="72" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">输入向量 x</text>
+    <text x="94" y="92" text-anchor="middle" font-size="11" fill="#555">768 维（minimind）</text>
+    <text x="94" y="112" text-anchor="middle" font-size="11" fill="#555">示例 (1, 2, 2, 1)</text>
+    <line x1="164" y1="92" x2="192" y2="92" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrN51)"/>
+    <rect x="196" y="48" width="160" height="88" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="276" y="70" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">① 求均方根</text>
+    <text x="276" y="89" text-anchor="middle" font-size="11" fill="#555">平方 → 平均 → 开根号</text>
+    <text x="276" y="108" text-anchor="middle" font-size="11" fill="#555">RMS = √(10/4) ≈ 1.58</text>
+    <text x="276" y="126" text-anchor="middle" font-size="10.5" fill="#888">唯一的统计量</text>
+    <line x1="356" y1="92" x2="384" y2="92" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrN51)"/>
+    <rect x="388" y="48" width="150" height="88" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="463" y="72" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">② 除以 RMS</text>
+    <text x="463" y="92" text-anchor="middle" font-size="11" fill="#555">逐分量 ÷ 1.58</text>
+    <text x="463" y="112" text-anchor="middle" font-size="11" fill="#555">音量拧到 1 附近</text>
+    <line x1="538" y1="92" x2="566" y2="92" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrN51)"/>
+    <rect x="570" y="48" width="140" height="88" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="640" y="70" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">③ 乘可学增益</text>
+    <text x="640" y="89" text-anchor="middle" font-size="11" fill="#555">×g（768 维）</text>
+    <text x="640" y="108" text-anchor="middle" font-size="11" fill="#555">逐元素缩放</text>
+    <text x="640" y="126" text-anchor="middle" font-size="10.5" fill="#888">唯一的可学参数</text>
+    <!-- 输出 -->
+    <line x1="640" y1="136" x2="640" y2="166" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrN51)"/>
+    <rect x="530" y="170" width="180" height="78" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="620" y="194" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">输出：768 维向量</text>
+    <text x="620" y="214" text-anchor="middle" font-size="11" fill="#ede9fe">g=1 时示例 (0.63, 1.26, 1.26, 0.63)</text>
+    <text x="620" y="233" text-anchor="middle" font-size="10.5" fill="#d8b4fe">形状与输入完全相同</text>
+    <!-- 对照 LayerNorm -->
+    <rect x="24" y="170" width="260" height="78" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <text x="154" y="192" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#6b7280">对照 LayerNorm，砍掉了：</text>
+    <text x="154" y="211" text-anchor="middle" font-size="11" fill="#6b7280">减均值（不对中）和平移 β</text>
+    <text x="154" y="230" text-anchor="middle" font-size="11" fill="#6b7280">输出均值不为 0，只统一音量</text>
+    <!-- SwiGLU 旁注 -->
+    <rect x="24" y="272" width="686" height="118" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="44" y="296" font-size="12.5" font-weight="bold" fill="#4c1d95">旁注：同一块里的另一半改造——SwiGLU 前馈三路投影（5.1.3，minimind 配置）</text>
+    <rect x="44" y="308" width="190" height="62" rx="6" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="139" y="333" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">gate_proj：768 → 2432</text>
+    <text x="139" y="353" text-anchor="middle" font-size="11" fill="#555">过 SiLU，算「开度」</text>
+    <rect x="258" y="308" width="190" height="62" rx="6" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="353" y="333" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">up_proj：768 → 2432</text>
+    <text x="353" y="353" text-anchor="middle" font-size="11" fill="#555">装「内容」</text>
+    <text x="462" y="345" text-anchor="middle" font-size="15" font-weight="bold" fill="#6d28d9">⊙</text>
+    <rect x="478" y="308" width="190" height="62" rx="6" fill="#ffffff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="573" y="333" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">down_proj：2432 → 768</text>
+    <text x="573" y="353" text-anchor="middle" font-size="11" fill="#555">压回原维度</text>
+    <line x1="234" y1="339" x2="258" y2="339" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="448" y1="339" x2="452" y2="339" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="472" y1="339" x2="478" y2="339" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrN51)"/>
+  </svg>
+  <div class="diagram-caption">图 2：RMSNorm 的计算流与 SwiGLU 的三路投影。RMSNorm 对一个 token 的 768 维特征向量只做一次统计（均方根）、一次除法、一次可学缩放，输出形状与输入相同；示例数字取自正文对 4 维向量 (1, 2, 2, 1) 的演算（取 g=1、暂不计 ε）。旁注是 minimind 的 SwiGLU 真实配置：gate_proj 与 up_proj 把 768 维升到 2432 维，一门一货逐元素相乘，再由 down_proj 压回 768 维。</div>
+</div>
+
+<h2>5.1.1 从 LayerNorm 到 RMSNorm：一次成功的化简</h2>
+
+<p>　　先回顾第 4 章见过的 LayerNorm。它对一个 token 的特征向量 \(x\)（维度为 \(d\)）做两件事：先减均值、再除以标准差，最后用可学习的缩放 \(\gamma\) 和平移 \(\beta\) 把表达能力还回去：</p>
+
+<div class="formula-card">
+  \[ \mathrm{LayerNorm}(x)=\frac{x-\mu}{\sqrt{\sigma^{2}+\epsilon}}\odot\gamma+\beta,\qquad \mu=\frac{1}{d}\sum_{i=1}^{d}x_i,\qquad \sigma^{2}=\frac{1}{d}\sum_{i=1}^{d}(x_i-\mu)^{2} \tag{1} \]
+  <div class="formula-note">公式 (1)：LayerNorm 的两步统计——先算均值 \(\mu\) 对中，再算方差 \(\sigma^{2}\) 缩放，\(\epsilon\) 防止除零。符号说明：\(x\) 是一个 token 的特征向量，\(x_i\) 是它的第 \(i\) 维分量，\(d\) 是特征维度；\(\mu\) 与 \(\sigma^{2}\) 分别是这 \(d\) 个分量的均值与方差，由 \(x\) 自身逐 token 算出；\(\epsilon\) 是防止除零的小常数；\(\gamma\) 与 \(\beta\) 是可学习的缩放与平移参数，随训练更新；\(\odot\) 表示逐元素相乘。</div>
+</div>
+
+<p>　　2019 年，Zhang 和 Sennrich 问了一个大胆的问题：<strong>减均值这步真的必要吗？</strong>他们假设 LayerNorm 里的对中（re-centering）性质可有可无，真正起作用的是控制尺度（re-scaling）。于是他们砍掉了减均值和平移 \(\beta\)，只保留一步缩放，得到 RMSNorm：</p>
+
+<div class="formula-card">
+  \[ \mathrm{RMSNorm}(x)=\frac{x}{\mathrm{RMS}(x)}\odot g,\qquad \mathrm{RMS}(x)=\sqrt{\frac{1}{d}\sum_{i=1}^{d}x_i^{2}+\epsilon} \tag{2} \]
+  <div class="formula-note">公式 (2)：RMSNorm 只做一次统计——平方、取平均、开根号（均方根 RMS），再除过去、乘上可学习的 \(g\)。没有减均值，没有平移。符号说明：\(\mathrm{RMS}(x)\) 是 \(x\) 的均方根，由各分量的平方平均再开根号得来；\(g\) 是可学习的缩放向量，作用与 LayerNorm 的 \(\gamma\) 相同；\(\epsilon\) 同公式 (1)，防止除零。</div>
+</div>
+
+<p>　　落到具体数字上看两者的差别。取一个 4 维向量 \(x=(1,\,2,\,2,\,1)\)，暂不看 \(\epsilon\) 与可学习参数：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>对照项</th><th>LayerNorm</th><th>RMSNorm</th></tr></thead>
+    <tbody>
+      <tr><td>统计量</td><td>均值 \(\mu=1.5\)，方差 \(\sigma^{2}=0.25\)</td><td>均方根 \(\mathrm{RMS}=\sqrt{10/4}\approx 1.58\)</td></tr>
+      <tr><td>输出向量</td><td>\((-1,\,1,\,1,\,-1)\)</td><td>\((0.63,\,1.26,\,1.26,\,0.63)\)</td></tr>
+      <tr><td>输出均值</td><td>被归零（对中）</td><td>仍偏正（不对中，只统一音量）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　可以看到，RMSNorm 干的事很纯粹：把向量整体"音量"拧到 1 附近，至于它偏向正侧还是负侧，一概不管。它保留了 LayerNorm 最关键的免缩放性质——把整个输入向量放大 \(k\) 倍，分母 RMS 也跟着放大 \(k\) 倍，输出纹丝不动。而省掉的是一次均值统计、一次减法和一个平移参数。</p>
+
+<p>　　效果会不会打折？论文在多种网络结构和多个任务上的实验答案是：不会。RMSNorm 与 LayerNorm 效果相当，而运行时间明显减少——论文摘要报告的口径是<strong>在不同模型上运行时间减少 7%~64%</strong>，即最高约六成提速。</p>
+
+<div class="highlight-box info">
+  提速幅度与模型结构相关，论文实验中提速最明显的场景含有较重的循环网络部分。在现代 LLM 里，RMSNorm 的价值更多体现在统计量少算一次、算子更简单、便于融合加速，而不是端到端快六成。
+</div>
+
+<div class="highlight-box danger">
+  RMSNorm 的输出均值不是 0。推公式或写代码时，如果下意识假设"归一化之后一定零均值"，在 RMSNorm 这里会翻车：它只做缩放，不做对中。
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">归一化 Normalization</span>
+    <span class="term-en">normalize = 把数据的尺度拉回标准范围</span>
+  </div>
+  <div class="term-body">
+    <p>神经网络每层输出的数值范围飘忽不定，有的通道动辄几十，有的只有零点零几，下一层很难稳定处理。归一化就是在层与层之间设一个"安检门"，把每个特征向量的尺度拧回标准范围，让训练不因为数值忽大忽小而震荡。Transformer 里归一化沿特征维度 \(d\) 独立地对每个 token 做，与批次大小无关。</p>
+  </div>
+</div>
+
+<p>　　<strong>所以这步在干嘛</strong>：RMSNorm 就是给每个 token 的特征向量统一"音量"，不再纠正"跑调"。统计量少算一次、参数少一组，效果持平还更快——这是现代 LLM 集体换掉 LayerNorm 的原因。</p>
+
+<h2>5.1.2 从 Post-LN 到 Pre-LN：归一化挪个位置，深层训练就稳了</h2>
+
+<p>　　比"用哪种归一化"更重要的，是"归一化放在哪"。第 4 章讲过，原论文的每个残差块先算子层（注意力或前馈）、加残差、<strong>最后</strong>做 LayerNorm，这个写法后来被称为 Post-LN：</p>
+
+<div class="formula-card">
+  \[ \text{Post-LN：}\quad x_{l+1}=\mathrm{LayerNorm}\bigl(x_l+\mathrm{Sublayer}(x_l)\bigr) \tag{3} \]
+  \[ \text{Pre-LN：}\quad x_{l+1}=x_l+\mathrm{Sublayer}\bigl(\mathrm{Norm}(x_l)\bigr) \tag{4} \]
+  <div class="formula-note">公式 (3)(4)：同一个子层、同一个归一化，区别只在归一化的位置——Post-LN 卡在残差相加之后，Pre-LN 挪到子层输入侧，残差主干不再经过归一化。符号说明：\(x_l\) 是第 \(l\) 层的输入（即上一层的输出），\(x_{l+1}\) 是该层的输出；\(\mathrm{Sublayer}(\cdot)\) 是注意力或前馈子层；\(\mathrm{Norm}\) 泛指任一种归一化算子（LayerNorm 或 RMSNorm）。</div>
+</div>
+
+<p>　　Xiong 等人在 2020 年的论文里用均场理论（mean field theory）把这件事分析透了：Post-LN 在初始化时，<strong>靠近输出层的参数梯度期望很大</strong>，一上来就用大学习率会直接训崩，所以必须配一段学习率慢慢爬坡的 warmup 热身阶段；而 Pre-LN 初始化时梯度表现良好，<strong>不要 warmup 也能稳定训练</strong>，省下大量训练时间与调参成本。</p>
+
+<p>　　直觉上可以这样理解：残差连接是梯度回传的高速公路，Pre-LN 让 \(x_l\) 原封不动地贯穿所有层，反向传播时总有一条"恒等通路"把梯度无损送回浅层；Post-LN 则在这条高速公路上每层设一道关卡（归一化），几十层关卡连乘下来，梯度大小被逐层扭曲。类比高速公路与匝道：Post-LN 把收费站建在主干道上，车流一多就堵；Pre-LN 把收费站挪到匝道入口，主干道一路畅通。</p>
+
+<div class="highlight-box warn">
+  Post-LN 不是原罪。原论文 6 层的编码器-解码器配好 warmup 训得很好，问题出在层数加深之后：梯度失衡被几十层连乘放大。现代 LLM 动辄几十层起步，Pre-LN 因此成为默认选择。
+</div>
+
+<div class="highlight-box info">
+  历史脉络：GPT-2（2019）已把 LayerNorm 挪到每个子层的输入侧，并在最后一个残差块之后补了一个额外归一化，是 Pre-LN 写法的早期主流采用；Xiong 等人 2020 年的论文则从理论上解释了它为什么好训。
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <text x="14" y="26" font-size="15" font-weight="bold" fill="#333">Pre-LN 残差块（现代 LLM 标配）</text>
+    <!-- 主干 -->
+    <rect x="165" y="40" width="170" height="36" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="250" y="64" text-anchor="middle" font-size="14" fill="#333">来自上一层的 x</text>
+    <line x1="250" y1="76" x2="250" y2="88" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="165" y="90" width="170" height="36" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="250" y="114" text-anchor="middle" font-size="14" fill="#333">RMSNorm</text>
+    <line x1="250" y1="126" x2="250" y2="138" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="165" y="140" width="170" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="250" y="164" text-anchor="middle" font-size="14" fill="#333">多头注意力子层</text>
+    <line x1="250" y1="176" x2="250" y2="188" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <circle cx="250" cy="204" r="13" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="250" y="209" text-anchor="middle" font-size="16" fill="#6d28d9">+</text>
+    <line x1="250" y1="217" x2="250" y2="229" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="165" y="231" width="170" height="36" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="250" y="255" text-anchor="middle" font-size="14" fill="#333">RMSNorm</text>
+    <line x1="250" y1="267" x2="250" y2="279" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="165" y="281" width="170" height="36" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="250" y="305" text-anchor="middle" font-size="14" fill="#333">SwiGLU 前馈子层</text>
+    <line x1="250" y1="317" x2="250" y2="329" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <circle cx="250" cy="345" r="13" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="250" y="350" text-anchor="middle" font-size="16" fill="#6d28d9">+</text>
+    <line x1="250" y1="358" x2="250" y2="370" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
+    <rect x="165" y="372" width="170" height="36" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="250" y="396" text-anchor="middle" font-size="14" fill="#333">输出到下一残差块</text>
+    <!-- 残差直连 1 -->
+    <circle cx="335" cy="58" r="3.5" fill="#0891b2"/>
+    <path d="M335 58 H440 V204 H266" fill="none" stroke="#0891b2" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrT)"/>
+    <!-- 残差直连 2 -->
+    <circle cx="250" cy="224" r="3.5" fill="#0891b2"/>
+    <path d="M250 224 H470 V345 H266" fill="none" stroke="#0891b2" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrT)"/>
+    <!-- 左侧标注 -->
+    <text x="14" y="102" font-size="12.5" fill="#d97706">归一化只在</text>
+    <text x="14" y="120" font-size="12.5" fill="#d97706">分支上生效</text>
+    <text x="14" y="196" font-size="12.5" fill="#0891b2">主干原值</text>
+    <text x="14" y="214" font-size="12.5" fill="#0891b2">直达加法点</text>
+    <!-- 右侧标注 -->
+    <text x="452" y="92" font-size="12.5" fill="#0891b2">残差直连</text>
+    <text x="452" y="110" font-size="12.5" fill="#0891b2">不经过任何变换</text>
+  </svg>
+  <div class="diagram-caption">图 3：Pre-LN 残差块的数据流。归一化（黄色）只作用在子层分支上，输入沿残差直连（青色虚线）原样抵达加法点，主干始终保持"原值 + 增量"的累加形态，梯度有一条不设卡的恒等通路。</div>
+</div>
+
+<p>　　<strong>所以这步在干嘛</strong>：把归一化从主干挪到匝道，让残差主干变成一条不设卡的高速公路。梯度畅通了，几十上百层的模型才训得稳，连 warmup 都可以省掉。</p>
+
+<h2>5.1.3 SwiGLU：给前馈网络装一道闸门</h2>
+
+<p>　　第 4 章讲过，Transformer 每个位置还要过一个两层的前馈网络（FFN）：先升维到约 \(4d\)，过 ReLU，再压回 \(d\)：</p>
+
+<div class="formula-card">
+  \[ \mathrm{FFN}_{\mathrm{ReLU}}(x)=\max(0,\;xW_1+b_1)\,W_2+b_2 \tag{5} \]
+  <div class="formula-note">公式 (5)：原论文的 FFN。升维—ReLU—压回，现代实现一般去掉偏置 \(b_1,b_2\)。FFN 占了稠密模型约三分之二的参数，是模型的"记忆仓库"。符号说明：\(W_1\) 是升维矩阵，把 \(d\) 维升到约 \(4d\)；\(W_2\) 是压回矩阵，把升维结果压回 \(d\) 维；\(b_1,b_2\) 是对应的偏置向量；\(\max(0,\cdot)\) 就是 ReLU，负数归零、正数原样保留。</div>
+</div>
+
+<p>　　2020 年 Shazeer 把 GLU（门控线性单元，Dauphin 等人 2016 年提出）家族引进了 FFN。GLU 的想法是把一路线性投影拆成两路，一路过 sigmoid 当"开度"，两路逐元素相乘：</p>
+
+<div class="formula-card">
+  \[ \mathrm{GLU}(x)=\sigma(xW)\otimes xV \tag{6} \]
+  \[ \mathrm{Swish}_{\beta}(x)=x\cdot\sigma(\beta x) \tag{7} \]
+  \[ \mathrm{FFN}_{\mathrm{SwiGLU}}(x)=\bigl(\mathrm{Swish}_{1}(xW)\otimes xV\bigr)W_2 \tag{8} \]
+  <div class="formula-note">公式 (6)(7)(8)：GLU 的门控结构、Swish 激活（\(\beta=1\) 时也叫 SiLU）、以及二者合成的 SwiGLU 前馈。Swish 比 ReLU 平滑：负半轴不一刀切到 0，允许小的负值漏过去。符号说明：\(\sigma(\cdot)\) 是 sigmoid 函数，把任意实数压到 0~1；\(W,V\) 是两个并行的投影矩阵，分别算「开度」与「内容」；\(\otimes\) 表示逐元素相乘；\(\beta\) 是 Swish 的陡峭度参数，取 1 时即 SiLU；\(W_2\) 是把门控结果压回 \(d\) 维的输出矩阵。</div>
+</div>
+
+<p>　　门控的直觉用<strong>安检门 + 传送带</strong>来理解：\(xV\) 是传送带上的货物（信息内容），\(\mathrm{Swish}_1(xW)\) 是每件货物面前的闸口开度（0 到 1 之间平滑变化），两者相乘决定这件货物放行多少。对比 ReLU 的"非开即关"（要么全挡、要么全放），Swish 闸门能开一条缝，放行比例随输入连续可调——而且闸口开度本身也是同一个输入算出来的，等于让数据自己决定自己的通过率。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">门控 Gating</span>
+    <span class="term-en">gate = 用一个 0~1 的开度系数控制另一路信号通过多少</span>
+  </div>
+  <div class="term-body">
+    <p>门控是深度学习里反复出现的结构：一路信号算"内容"，另一路信号算"开度"，逐元素相乘。LSTM 的遗忘门、GLU 家族、SwiGLU 都是这个思路。它的妙处在于<strong>开度是学出来的、且随输入变化</strong>：模型可以针对不同 token 动态决定哪些特征通道放行、哪些压掉，信息过滤从"一刀切"变成"精细化分拣"。</p>
+  </div>
+</div>
+
+<p>　　眼尖的读者会发现：SwiGLU 有三个矩阵 \(W,V,W_2\)，比原 FFN 的两个多了一个，参数量岂不是涨了五成？Shazeer 的处理是把账做平：<strong>隐藏维度从 \(4d\) 缩到原来的约三分之二</strong>，即 \(d_{ff}=\frac{8d}{3}\)。这样三个矩阵的总参数量与原 FFN 完全一致：</p>
+
+<div class="formula-card">
+  \[ \underbrace{2\times d\times 4d}_{\text{原 FFN：}W_1,W_2}=8d^{2}\qquad\Longleftrightarrow\qquad \underbrace{3\times d\times \tfrac{8d}{3}}_{\text{SwiGLU：}W,V,W_2}=8d^{2} \tag{9} \]
+  <div class="formula-note">公式 (9)：参数量做账。代入 \(d=768\)：原 FFN 为 \(2\times768\times3072=4{,}718{,}592\)，SwiGLU 为 \(3\times768\times2048=4{,}718{,}592\)，分毫不差。T5 上的对照实验正是用 3072 对 2048 这组数。</div>
+</div>
+
+<p>　　同样的参数预算，SwiGLU 买到的是更强的表达能力。论文在 T5 上系统对比了各种 FFN 变体：SwiGLU 与 GEGLU 的预训练困惑度最低，多数下游任务上也最好。有意思的是，作者坦承<strong>给不出理论解释</strong>，原话调侃把成功归因于"divine benevolence"（上天的眷顾）——这是深度学习里典型的"先有效、后解释"的组件。</p>
+
+<div class="highlight-box info">
+  实际工程里 Llama、Qwen、minimind 的 SwiGLU 都用 SiLU 当门控激活，即公式 (7) 中 \(\beta=1\) 的 Swish，与 Shazeer 论文的 \(\mathrm{Swish}_1\) 设定一致，只是名字不同。
+</div>
+
+<p>　　<strong>所以这步在干嘛</strong>：FFN 不再是无脑升维再压回，而是一半通道当闸门、一半通道当货物，模型学着按内容决定每个特征放行多少。多出来的第三个矩阵靠缩维把参数账做平，等于不加钱换了套更精密的设备。</p>
+
+<h2>5.1.4 为什么这套组合成为标配</h2>
+
+<p>　　把三节合起来看，现代 LLM 残差块的定型配方是：<strong>Pre-LN 残差骨架 + RMSNorm + SwiGLU 前馈</strong>。Llama 技术报告在架构部分明确列出的改动正是这几项（外加第 3 章讲过的 RoPE 位置编码），Qwen、minimind 等模型同款。三处改动各代表一种设计哲学：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>做减法：RMSNorm</h4><p>砍掉不必须的统计量（均值）与参数（平移），计算更少、算子更简单，效果持平。</p></div>
+  <div class="concept-card"><h4>改位置：Pre-LN</h4><p>不改公式改结构，把归一化挪进分支，残差主干变成恒等通路，深层训练免去 warmup。</p></div>
+  <div class="concept-card"><h4>加门控：SwiGLU</h4><p>多一个矩阵换门控表达能力，靠缩维三分之二把参数账做平，预算不变、效果更好。</p></div>
+</div>
+
+<div class="highlight-box">
+  这套组合不是理论证明出来的唯一解，而是大规模实验中稳定性、效果、成本三方权衡收敛出的工程共识：每一个改动单独看都不起眼，合起来让几百亿、几千亿参数的模型能够稳定、可复现地训练出来。
+</div>
+
+<p>　　归一化与前馈改造完，下一个被动刀的是注意力本身：5.2 节将看到 GQA、MLA 如何压缩 KV Cache，把多头注意力的显存开销降下来。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">RMSNorm 相比 LayerNorm 砍掉了什么？为什么敢砍？</div>
+    <div class="sc-key">砍掉减均值（对中）和平移 \(\beta\)，只保留"除以均方根 + 可学习缩放"。原论文假设对中性质可有可无，实验证实效果持平，而运行时间减少 7%~64%（不同模型），最高约六成提速。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Pre-LN 为什么比 Post-LN 好训？</div>
+    <div class="sc-key">Pre-LN 把归一化挪到子层输入侧，残差主干是恒等通路，初始化时梯度表现良好，不用 warmup 也能稳定训练；Post-LN 把归一化卡在残差通路上，初始化时输出层附近梯度过大，离开 warmup 容易训崩。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">SwiGLU 有三个矩阵，为什么模型没有变大？</div>
+    <div class="sc-key">隐藏维度从 \(4d\) 缩到 \(\frac{8d}{3}\)（原来的约三分之二）：\(3\times d\times\frac{8d}{3}=8d^{2}\)，与原 FFN 的 \(2\times d\times 4d=8d^{2}\) 恰好打平。多出来的是门控带来的表达能力，不是参数量。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Zhang &amp; Sennrich, 2019. Root Mean Square Layer Normalization（RMSNorm 原始论文，NeurIPS 2019，arXiv:1910.07467）。RMSNorm 公式与"运行时间减少 7%~64%"的口径出自该文摘要。</li>
+  <li>Ba, Kiros &amp; Hinton, 2016. Layer Normalization（LayerNorm 原始论文，arXiv:1607.06450）。公式 (1) 出自该文。</li>
+  <li>Xiong et al., 2020. On Layer Normalization in the Transformer Architecture（ICML 2020，arXiv:2002.04745）。Post-LN 初始化梯度失衡的均场理论分析、Pre-LN 免 warmup 的结论出自该文。</li>
+  <li>Shazeer, 2020. GLU Variants Improve Transformer（arXiv:2002.05202）。SwiGLU 公式、隐藏维度乘 \(\frac{2}{3}\) 的做账方式、T5 实验（\(d_{ff}\) 3072 对 2048）与"divine benevolence"原话出自该文。</li>
+  <li>Dauphin et al., 2016. Language Modeling with Gated Convolutional Networks（GLU 原始论文，arXiv:1612.08083）。公式 (6) 的门控结构出自该文。</li>
+  <li>Touvron et al., 2023. LLaMA: Open and Efficient Foundation Language Models（arXiv:2302.13971）。Pre-LN + RMSNorm + SwiGLU 在主流开源 LLM 中的定型搭配出自该文架构部分。</li>
+  <li>Radford et al., 2019. Language Models are Unsupervised Multitask Learners（GPT-2 报告）。Pre-LN 写法的早期主流采用。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch4_6_forward_walkthrough.html" title="4.6 一次完整前向：张量尺寸逐步走查">← 上一节：4.6 一次完整前向：张量尺寸逐步走查</a><a class="next" href="ch5_2_mqa_gqa.html" title="5.2 注意力的省显存之路：MHA、MQA 与 GQA">下一节：5.2 注意力的省显存之路：MHA、MQA 与 GQA →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

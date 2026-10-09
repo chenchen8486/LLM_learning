@@ -1,0 +1,778 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3.2 为什么需要位置编码：注意力是个「脸盲」 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link active" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 3 章 词向量与位置编码</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>3.2 为什么需要位置编码：注意力是个「脸盲」</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>3.2 为什么需要位置编码：注意力是个「脸盲」</h1>
+<p class="subtitle">本页范围：第 3 章第 2 节　|　整理时间：2026-09-28</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>Embedding 告诉模型「每个 token 是什么」，但 Transformer 的注意力天生不看顺序。「第几个出现的 token」这条信息从哪来？</td></tr>
+      <tr><td>本节主张</td><td>纯自注意力是置换等变的：把输入 token 打乱，输出只是跟着重排，数值一点不变。它把句子当「集合」而非「序列」，语序信息必须额外注入。</td></tr>
+      <tr><td>一句话结论</td><td>绝对位置编码给每个位置发一个向量加在 token 上，相对位置编码让注意力计算时直接感知两个 token 相距多远；选哪种深刻影响模型的长度外推能力。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>置换等变</span><span>位置编码</span><span>语序</span><span>绝对位置</span><span>相对位置</span><span>RoPE</span><span>ALiBi</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　3.1 节把 token 变成了向量，模型知道了「每个词是什么」。但这些向量马上要送进注意力层，而注意力有一个天生的盲区：它认得出每个 token，却认不出 token 的顺序。本节先把这个盲区用最直接的方式摆出来，再给出它的数学名字，最后引出补位置信息的两条路线：</p>
+
+<ol>
+  <li><strong>一个思想实验：把句子打乱</strong>（3.2.1）：亲手做一次打乱输入的实验，看注意力的输出到底发生了什么；</li>
+  <li><strong>语序即语义：顺序本身就是意思</strong>（3.2.2）：「狗咬人」和「人咬狗」说明顺序丢了，意思就丢了一半；</li>
+  <li><strong>「脸盲」的数学表述：置换等变</strong>（3.2.3）：这个盲区的正式名字，后面几节会反复用到；</li>
+  <li><strong>两条解决路线：绝对位置 vs 相对位置</strong>（3.2.4）：发门牌号还是见面问距离，两派方案一次分清；</li>
+  <li><strong>本章地图</strong>（3.2.5）：接下来的 3.3、3.4、3.5 三节各自讲什么。</li>
+</ol>
+
+<p>　　读完全节，你要能独立讲清两件事：为什么注意力天生「脸盲」，以及绝对位置与相对位置两条路线的分水岭在哪。这两件事是 3.3 到 3.5 节所有技术细节的地基。</p>
+
+<p>　　位置编码坐在 Embedding 与 Transformer 之间：词向量查出「我是谁」之后、进 Transformer 之前，必须在这里补上「我在第几格」。先看它的站位：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="loc32P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="loc32G" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">本节主角：位置注入</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（3.2–3.5 节）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc32P)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc32P)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc32P)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc32P)"/>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">注意力与前馈 ×N</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（4.6 节）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc32G)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc32G)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#loc32G)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="120" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="146" y="302" font-size="10.5" fill="#555">浅色实线框：已讲章节</text>
+    <rect x="330" y="292" width="18" height="11" rx="2" fill="#6d28d9"/>
+    <text x="356" y="302" font-size="10.5" fill="#555">紫底框：本节主角</text>
+    <rect x="510" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="536" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：位置编码在前向链路中的位置。词向量查好「我是谁」之后、进 Transformer 之前，必须在这一站注入「我在第几格」。</div>
+</div>
+
+<p>　　为什么非补不可？因为注意力天生「脸盲」：不认顺序。把「不补」和「补上」两种情形并排画出来，差异一目了然：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 510" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="pos32P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="pos32G" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <text x="40" y="34" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：位置编码注入——没有它，打乱顺序等于同一句话</text>
+    <text x="40" y="62" font-size="11" fill="#64748b">① 没有位置编码：两句话只是同一袋向量的不同排列</text>
+    <rect x="40" y="76" width="160" height="34" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="120" y="98" text-anchor="middle" font-size="12" fill="#333">句 A：我 爱 中国</text>
+    <rect x="40" y="118" width="160" height="34" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="120" y="140" text-anchor="middle" font-size="12" fill="#333">句 B：中国 爱 我</text>
+    <line x1="200" y1="93" x2="250" y2="93" stroke="#9ca3af" stroke-width="1.6" marker-end="url(#pos32G)"/>
+    <line x1="200" y1="135" x2="250" y2="135" stroke="#9ca3af" stroke-width="1.6" marker-end="url(#pos32G)"/>
+    <rect x="255" y="70" width="200" height="48" rx="6" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="355" y="91" text-anchor="middle" font-size="11" fill="#4c1d95">向量袋 A</text>
+    <text x="355" y="109" text-anchor="middle" font-size="11" fill="#4c1d95">{我，爱，中国}</text>
+    <rect x="255" y="118" width="200" height="48" rx="6" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="355" y="139" text-anchor="middle" font-size="11" fill="#4c1d95">向量袋 B</text>
+    <text x="355" y="157" text-anchor="middle" font-size="11" fill="#4c1d95">{中国，爱，我}</text>
+    <text x="480" y="119" text-anchor="middle" font-size="20" font-weight="bold" fill="#6d28d9">≈</text>
+    <text x="510" y="98" font-size="11" fill="#64748b">同一袋，只是排列不同</text>
+    <text x="510" y="126" font-size="11" fill="#64748b">注意力看来：同一句话（脸盲）</text>
+    <text x="40" y="196" font-size="11" fill="#64748b">② 注入位置编码：每个向量贴上「第几格」，两袋立刻不同</text>
+    <text x="60" y="214" font-size="11" font-weight="bold" fill="#4c1d95">句 A</text>
+    <rect x="60" y="222" width="100" height="28" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="110" y="241" text-anchor="middle" font-size="12" fill="#4c1d95">我</text>
+    <rect x="164" y="222" width="90" height="28" fill="#ecfeff" stroke="#0891b2"/>
+    <text x="209" y="241" text-anchor="middle" font-size="11" fill="#0e7490">+ 位置 0</text>
+    <rect x="60" y="256" width="100" height="28" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="110" y="275" text-anchor="middle" font-size="12" fill="#4c1d95">爱</text>
+    <rect x="164" y="256" width="90" height="28" fill="#ecfeff" stroke="#0891b2"/>
+    <text x="209" y="275" text-anchor="middle" font-size="11" fill="#0e7490">+ 位置 1</text>
+    <rect x="60" y="290" width="100" height="28" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="110" y="309" text-anchor="middle" font-size="12" fill="#4c1d95">中国</text>
+    <rect x="164" y="290" width="90" height="28" fill="#ecfeff" stroke="#0891b2"/>
+    <text x="209" y="309" text-anchor="middle" font-size="11" fill="#0e7490">+ 位置 2</text>
+    <text x="400" y="214" font-size="11" font-weight="bold" fill="#4c1d95">句 B</text>
+    <rect x="400" y="222" width="100" height="28" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="450" y="241" text-anchor="middle" font-size="12" fill="#4c1d95">中国</text>
+    <rect x="504" y="222" width="90" height="28" fill="#ecfeff" stroke="#0891b2"/>
+    <text x="549" y="241" text-anchor="middle" font-size="11" fill="#0e7490">+ 位置 0</text>
+    <rect x="400" y="256" width="100" height="28" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="450" y="275" text-anchor="middle" font-size="12" fill="#4c1d95">爱</text>
+    <rect x="504" y="256" width="90" height="28" fill="#ecfeff" stroke="#0891b2"/>
+    <text x="549" y="275" text-anchor="middle" font-size="11" fill="#0e7490">+ 位置 1</text>
+    <rect x="400" y="290" width="100" height="28" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="450" y="309" text-anchor="middle" font-size="12" fill="#4c1d95">我</text>
+    <rect x="504" y="290" width="90" height="28" fill="#ecfeff" stroke="#0891b2"/>
+    <text x="549" y="309" text-anchor="middle" font-size="11" fill="#0e7490">+ 位置 2</text>
+    <rect x="56" y="218" width="202" height="36" rx="6" fill="none" stroke="#dc2626" stroke-width="1.4" stroke-dasharray="5 4"/>
+    <rect x="396" y="286" width="202" height="36" rx="6" fill="none" stroke="#dc2626" stroke-width="1.4" stroke-dasharray="5 4"/>
+    <text x="40" y="344" font-size="11" fill="#64748b">红框对照：同一个「我」，在句 A 带位置 0、在句 B 带位置 2——向量不再相同，注意力能分清语序</text>
+    <text x="40" y="384" font-size="11" fill="#64748b">③ 输出：词向量 + 位置向量 = 最终嵌入（逐元素相加，尺寸不变）</text>
+    <!-- 词向量矩阵：3 行 × 768 列，只画 4 列加省略号 -->
+    <rect x="60" y="398" width="170" height="50" rx="6" fill="#f5f3fe" stroke="#6d28d9"/>
+    <line x1="60" y1="420" x2="230" y2="420" stroke="#ddd6fe"/>
+    <line x1="60" y1="427" x2="230" y2="427" stroke="#ddd6fe"/>
+    <line x1="88" y1="414" x2="88" y2="433" stroke="#ddd6fe"/>
+    <line x1="116" y1="414" x2="116" y2="433" stroke="#ddd6fe"/>
+    <line x1="144" y1="414" x2="144" y2="433" stroke="#ddd6fe"/>
+    <text x="201" y="425" text-anchor="middle" font-size="12" fill="#94a3b8">…</text>
+    <text x="145" y="410" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">词向量矩阵</text>
+    <text x="145" y="443" text-anchor="middle" font-size="10" fill="#6d28d9">3 × 768</text>
+    <text x="245" y="429" text-anchor="middle" font-size="16" font-weight="bold" fill="#6d28d9">+</text>
+    <!-- 位置矩阵：3 行 × 768 列，只画 4 列加省略号 -->
+    <rect x="280" y="398" width="170" height="50" rx="6" fill="#ecfeff" stroke="#0891b2"/>
+    <line x1="280" y1="420" x2="450" y2="420" stroke="#a5f3fc"/>
+    <line x1="280" y1="427" x2="450" y2="427" stroke="#a5f3fc"/>
+    <line x1="308" y1="414" x2="308" y2="433" stroke="#a5f3fc"/>
+    <line x1="336" y1="414" x2="336" y2="433" stroke="#a5f3fc"/>
+    <line x1="364" y1="414" x2="364" y2="433" stroke="#a5f3fc"/>
+    <text x="421" y="425" text-anchor="middle" font-size="12" fill="#94a3b8">…</text>
+    <text x="365" y="410" text-anchor="middle" font-size="11" font-weight="bold" fill="#0e7490">位置矩阵</text>
+    <text x="365" y="443" text-anchor="middle" font-size="10" fill="#0e7490">3 × 768（怎么算见 3.3 节）</text>
+    <text x="465" y="429" text-anchor="middle" font-size="16" font-weight="bold" fill="#6d28d9">=</text>
+    <!-- 最终嵌入矩阵：3 行 × 768 列，只画 4 列加省略号 -->
+    <rect x="500" y="398" width="170" height="50" rx="6" fill="#6d28d9" opacity="0.85"/>
+    <line x1="500" y1="420" x2="670" y2="420" stroke="#a78bfa"/>
+    <line x1="500" y1="427" x2="670" y2="427" stroke="#a78bfa"/>
+    <line x1="528" y1="414" x2="528" y2="433" stroke="#a78bfa"/>
+    <line x1="556" y1="414" x2="556" y2="433" stroke="#a78bfa"/>
+    <line x1="584" y1="414" x2="584" y2="433" stroke="#a78bfa"/>
+    <text x="641" y="425" text-anchor="middle" font-size="12" fill="#ddd6fe">…</text>
+    <text x="585" y="410" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">最终嵌入矩阵</text>
+    <text x="585" y="443" text-anchor="middle" font-size="10" fill="#ede9fe">3 × 768（输出）</text>
+    <line x1="585" y1="448" x2="585" y2="476" stroke="#6d28d9" stroke-width="2" marker-end="url(#pos32P)"/>
+    <text x="585" y="494" text-anchor="middle" font-size="11" fill="#64748b">送往 Transformer 第 1 层（第 4 章）</text>
+  </svg>
+  <div class="diagram-caption">图 2：位置编码为什么必需、以及它怎么注入。没有位置编码时，「我 爱 中国」与「中国 爱 我」在注意力眼里是同一袋向量；注入后每个向量带上自己的位置标签，同一个词在不同语序下向量不同。注入方式就是逐元素相加：词向量矩阵加位置矩阵，得到同样大小的最终嵌入矩阵。位置向量怎么算出来（正弦公式或可学习）是 3.3 节的内容。</div>
+</div>
+
+<h2>3.2.1 一个思想实验：把句子打乱</h2>
+
+<p>　　上一节讲过，Embedding 层把每个 token ID 变成一个向量。到这里，模型知道了「这句话里有哪些词」。接下来这些向量会被送进一摞 Transformer 层做注意力计算（第 4 章的主题）。在正式拆开 Transformer 之前，先做一个思想实验，它能暴露注意力机制一个天生的盲区。</p>
+
+<p>　　实验很简单：把「我 / 爱 / 大语言 / 模型」四个 token 的向量喂给一个不带位置编码的注意力层，记下每个 token 的输出向量；然后把输入打乱成「模型 / 爱 / 大语言 / 我」，再喂一次。直觉上，输入顺序变了，输出总该跟着变吧？实际发生的事恰恰相反：<strong>每个 token 的输出向量数值一点没变，只是按新顺序重新排了一遍</strong>。「我」在两次实验里得到的输出完全相同，它根本不知道自己第一次站在队首、第二次站在队尾。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 实验 A -->
+    <text x="20" y="24" font-size="13" fill="#555">实验 A：正常顺序输入</text>
+    <text x="48" y="44" text-anchor="middle" font-size="9" fill="#999">位置0</text>
+    <text x="110" y="44" text-anchor="middle" font-size="9" fill="#999">位置1</text>
+    <text x="172" y="44" text-anchor="middle" font-size="9" fill="#999">位置2</text>
+    <text x="234" y="44" text-anchor="middle" font-size="9" fill="#999">位置3</text>
+    <rect x="20" y="50" width="56" height="34" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="48" y="71" text-anchor="middle" font-size="13" fill="#333">我</text>
+    <rect x="82" y="50" width="56" height="34" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="110" y="71" text-anchor="middle" font-size="13" fill="#333">爱</text>
+    <rect x="144" y="50" width="56" height="34" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="172" y="71" text-anchor="middle" font-size="13" fill="#333">大语言</text>
+    <rect x="206" y="50" width="56" height="34" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="234" y="71" text-anchor="middle" font-size="13" fill="#333">模型</text>
+    <line x1="266" y1="67" x2="292" y2="67" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="292" y="47" width="104" height="40" rx="9" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="344" y="64" text-anchor="middle" font-size="12" fill="#333">自注意力</text>
+    <text x="344" y="79" text-anchor="middle" font-size="9" fill="#777">无位置编码</text>
+    <line x1="400" y1="67" x2="426" y2="67" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="426" y="50" width="56" height="34" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="454" y="71" text-anchor="middle" font-size="13" fill="#333">我'</text>
+    <rect x="488" y="50" width="56" height="34" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="516" y="71" text-anchor="middle" font-size="13" fill="#333">爱'</text>
+    <rect x="550" y="50" width="56" height="34" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="578" y="71" text-anchor="middle" font-size="13" fill="#333">大语言'</text>
+    <rect x="612" y="50" width="56" height="34" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="640" y="71" text-anchor="middle" font-size="13" fill="#333">模型'</text>
+    <text x="454" y="98" text-anchor="middle" font-size="10" fill="#888">0.21</text>
+    <text x="516" y="98" text-anchor="middle" font-size="10" fill="#888">0.87</text>
+    <text x="578" y="98" text-anchor="middle" font-size="10" fill="#888">0.45</text>
+    <text x="640" y="98" text-anchor="middle" font-size="10" fill="#888">0.63</text>
+    <!-- 实验 B -->
+    <text x="20" y="140" font-size="13" fill="#555">实验 B：打乱顺序输入</text>
+    <text x="48" y="160" text-anchor="middle" font-size="9" fill="#999">位置0</text>
+    <text x="110" y="160" text-anchor="middle" font-size="9" fill="#999">位置1</text>
+    <text x="172" y="160" text-anchor="middle" font-size="9" fill="#999">位置2</text>
+    <text x="234" y="160" text-anchor="middle" font-size="9" fill="#999">位置3</text>
+    <rect x="20" y="166" width="56" height="34" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="48" y="187" text-anchor="middle" font-size="13" fill="#333">模型</text>
+    <rect x="82" y="166" width="56" height="34" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="110" y="187" text-anchor="middle" font-size="13" fill="#333">爱</text>
+    <rect x="144" y="166" width="56" height="34" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="172" y="187" text-anchor="middle" font-size="13" fill="#333">大语言</text>
+    <rect x="206" y="166" width="56" height="34" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="234" y="187" text-anchor="middle" font-size="13" fill="#333">我</text>
+    <line x1="266" y1="183" x2="292" y2="183" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="292" y="163" width="104" height="40" rx="9" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="344" y="180" text-anchor="middle" font-size="12" fill="#333">自注意力</text>
+    <text x="344" y="195" text-anchor="middle" font-size="9" fill="#777">无位置编码</text>
+    <line x1="400" y1="183" x2="426" y2="183" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
+    <rect x="426" y="166" width="56" height="34" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="454" y="187" text-anchor="middle" font-size="13" fill="#333">模型'</text>
+    <rect x="488" y="166" width="56" height="34" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="516" y="187" text-anchor="middle" font-size="13" fill="#333">爱'</text>
+    <rect x="550" y="166" width="56" height="34" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="578" y="187" text-anchor="middle" font-size="13" fill="#333">大语言'</text>
+    <rect x="612" y="166" width="56" height="34" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="640" y="187" text-anchor="middle" font-size="13" fill="#333">我'</text>
+    <text x="454" y="214" text-anchor="middle" font-size="10" fill="#888">0.63</text>
+    <text x="516" y="214" text-anchor="middle" font-size="10" fill="#888">0.87</text>
+    <text x="578" y="214" text-anchor="middle" font-size="10" fill="#888">0.45</text>
+    <text x="640" y="214" text-anchor="middle" font-size="10" fill="#888">0.21</text>
+    <!-- 底部结论 -->
+    <rect x="20" y="242" width="648" height="58" rx="10" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1"/>
+    <text x="344" y="266" text-anchor="middle" font-size="13" fill="#333">「我」的输出两次都是 0.21，它不知道自己站在队首还是队尾</text>
+    <text x="344" y="288" text-anchor="middle" font-size="13" fill="#6d28d9">打乱输入，输出只是跟着重排：注意力对语序「脸盲」</text>
+  </svg>
+  <div class="diagram-caption">图 3：同一句子的两种排列喂给不带位置编码的注意力层，每个 token 的输出数值完全相同（颜色与数字一一对应），只是顺序跟着重排。</div>
+</div>
+
+<p>　　这个现象不是 bug，而是注意力的计算方式决定的。注意力算的是「任意两个 token 之间的相关程度」：每个 token 都和所有 token 两两匹配一次，再把结果加权求和。整个过程没有任何一步用到「这个 token 排第几」。所以注意力对语序天然是「盲」的：它知道哪些 token 在场，却不知道谁排在谁前面。</p>
+
+<h2>3.2.2 语序即语义：顺序本身就是意思</h2>
+
+<p>　　分不清顺序，问题有多严重？看这组中文例子：</p>
+
+<blockquote>
+  狗咬人。<br>人咬狗。
+</blockquote>
+
+<p>　　两句话由完全相同的三个 token 组成，意思却完全相反：谁是动作的发出者、谁是承受者，全部编码在顺序里。对一个「脸盲」的模型来说，这两句话是同一个集合 {狗，咬，人}，算出的表示一模一样，它没有任何线索知道两句话的意思相反。</p>
+
+<p>　　这样的例子在中文里俯拾皆是。「我请你吃饭」和「你请我吃饭」，人情方向完全颠倒；「屡战屡败」和「屡败屡战」用字全同，一个是丧气汇报，一个是顽强表态。人类语言的语义有相当一部分就装在词序里，读不出顺序，等于丢了一半的信息。</p>
+
+<p>　　所以 Transformer 必须有办法感知位置。原论文对此写得非常直白：</p>
+
+<blockquote>
+  由于我们的模型不包含循环和卷积，为了让模型利用序列的顺序信息，我们必须注入关于序列中令牌相对或绝对位置的信息。<br>—— Vaswani et al., Attention Is All You Need，第 3.5 节
+</blockquote>
+
+<h2>3.2.3 「脸盲」的数学表述：置换等变</h2>
+
+<p>　　这个盲区在数学上有个正式名字，值得记住，后面几节会反复用到：</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">置换等变 Permutation Equivariant</span>
+    <span class="term-en">permutation（置换）+ equivariant（等变）= 输入怎么换顺序，输出就跟着怎么换顺序</span>
+  </div>
+  <div class="term-body">
+    <p>「等变」指一种「跟着变」的性质。对注意力来说：把输入 token 的顺序任意打乱（置换），输出的内容不变，只是顺序跟着同样打乱。它意味着注意力把输入当成一个<strong>无序的集合</strong>，而不是一串有先后的序列。</p>
+  </div>
+</div>
+
+<p>　　用公式写出来。设 \(X\) 是 \(n\) 个 token 的向量排成的矩阵，\(\pi\) 表示任意一种打乱顺序的操作（置换），那么：</p>
+
+<div class="formula-card">
+  \[ \mathrm{Attention}(\pi X) \;=\; \pi\,\mathrm{Attention}(X) \tag{1} \]
+  <div class="formula-note">公式 (1)：先打乱再算注意力，与先算注意力再打乱，结果完全一样。注意力不创造任何顺序信息，输入怎么排，输出就怎么排。</div>
+</div>
+
+<p>　　对比一下前代架构就明白这有多特殊：RNN 一个词一个词按顺序读进来，顺序天然烙在计算过程里；CNN 的卷积核也有固定的左右结构。Transformer 为了追求并行效率，让所有位置同时计算，代价就是把顺序信息弄丢了。位置编码的任务，就是把这块信息补回来。</p>
+
+<div class="highlight-box info">
+  有研究（Kazemnejad et al., 2023）发现，GPT 类模型的因果掩码会泄露少量先后信息：第 \(i\) 个位置只能看到前 \(i\) 个 token，这本身已是一种位置线索，所以 decoder-only 模型不加显式位置编码也能学到部分语序。但「相距多远」它依然感知不到，主流模型仍离不开专门的位置编码，这一点 3.4 节再展开。
+</div>
+
+<h2>3.2.4 两条解决路线：绝对位置 vs 相对位置</h2>
+
+<p>　　补位置信息的方案分成两大流派，区别用一个类比就能说清。给小区住户定位：一种思路是<strong>发门牌号</strong>，每栋楼钉一块牌子，1 号楼、2 号楼，住户报出号码就知道自己在哪；另一种思路<strong>不发门牌号，见面问距离</strong>，任意两户碰面，先问一句「咱们两家隔几栋楼」。前一种是绝对位置编码，后一种是相对位置编码。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>对比维度</th><th>绝对位置编码</th><th>相对位置编码</th></tr></thead>
+    <tbody>
+      <tr><td>核心思想</td><td>给每个位置发一个「门牌号」向量</td><td>不标门牌号，让 token 两两感知「相距多远」</td></tr>
+      <tr><td>代表方法</td><td>正弦编码（Transformer 原版）、可学习编码（GPT、BERT）</td><td>RoPE（旋转位置编码）、ALiBi</td></tr>
+      <tr><td>注入位置</td><td>输入端：位置向量直接加在 token 向量上</td><td>注意力内部：改造两两匹配的内积（QK 内积，见 3.4 节）或给注意力分数加偏置</td></tr>
+      <tr><td>模型感知到</td><td>「我排在序列的第几位」</td><td>「我们两个隔多远、谁前谁后」</td></tr>
+      <tr><td>长度外推</td><td>偏弱：训练时没见过的位置，没有现成的向量可用</td><td>偏强：距离规律不随序列变长而失效（ALiBi 的论文标题就叫 Train Short, Test Long）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　两派的分歧不只是工程口味。绝对位置编码把「第 512 位」这样的信息写死在向量里，训练时没见过第 513 位，推理时就没有现成的表示可用（可学习编码是表里少了这一行，正弦编码虽能算出数值、模型却没学过怎么用）；相对位置编码只学「距离 3 是什么意思」，这条规律不随序列变长而失效。这就是为什么位置编码的选择会一路影响模型的长度外推能力，也就是第 3.5 节的主线。</p>
+
+<div class="highlight-box">
+  自注意力天生是个「脸盲」：认得出每个 token，认不出 token 的顺序，位置编码是 Transformer 唯一的位置信息来源。绝对位置编码发「门牌号」，相对位置编码量「间距」。当代主流 LLM（LLaMA、Qwen、DeepSeek 等）几乎一边倒地选择了相对阵营的 RoPE，3.4 节细讲原因。
+</div>
+
+<h2>3.2.5 本章地图</h2>
+
+<p>　　接下来的三节把位置编码讲透：</p>
+
+<ul>
+  <li><strong>3.3 绝对位置编码</strong>：正弦编码的公式设计（为什么用正弦？为什么波长按几何级数排布？）与可学习位置编码；</li>
+  <li><strong>3.4 相对位置编码</strong>：RoPE 如何用「旋转」把绝对位置转化为相对距离、为什么成为当代 LLM 的默认选项，ALiBi 一条直线凭什么外推；</li>
+  <li><strong>3.5 长度外推</strong>：推理长度超过训练长度时模型会发生什么，位置编码如何决定模型能不能「读长文」。</li>
+</ul>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么说不加位置编码的注意力是个「脸盲」？</div>
+    <div class="sc-key">注意力是置换等变的：输入 token 怎么打乱，输出只是跟着重排，每个 token 的输出数值不变。它把句子当集合而非序列，认得出 token，认不出顺序。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">「狗咬人」和「人咬狗」对纯注意力模型来说是什么关系？</div>
+    <div class="sc-key">完全是一回事。两者的 token 集合相同，模型算出的每个 token 表示一模一样；两句话意思相反这件事，它无从得知，语序承载的语义对它全部丢失。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">绝对位置编码和相对位置编码的分水岭在哪里？</div>
+    <div class="sc-key">前者给每个位置发固定的「门牌号」向量加在 token 上（正弦编码、可学习编码），后者不标绝对位置，让注意力计算时直接感知两个 token 的距离（RoPE、ALiBi）。这个选择深刻影响长度外推能力，是 3.5 节的主线。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762），第 3.5 节明确提出「模型不含循环与卷积，必须注入位置信息」。</li>
+  <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864），3.4 节详述。</li>
+  <li>Press, Smith &amp; Lewis, 2021. Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation（ALiBi 原始论文，arXiv:2108.12409），3.4、3.5 节详述。</li>
+  <li>Devlin et al., 2019. BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding（arXiv:1810.04805），可学习绝对位置编码的代表。</li>
+  <li>Kazemnejad et al., 2023. The Impact of Positional Encoding on Length Generalization in Transformers（NeurIPS 2023），因果掩码泄露位置信息与无显式位置编码（NoPE）现象的讨论。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch3_1_word_embeddings.html" title="3.1 词向量：把 token 放进语义坐标系">← 上一节：3.1 词向量：把 token 放进语义坐标系</a><a class="next" href="ch3_3_sinusoidal_learned.html" title="3.3 绝对位置编码：正弦与可学习两种方案">下一节：3.3 绝对位置编码：正弦与可学习两种方案 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

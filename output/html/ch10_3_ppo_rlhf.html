@@ -1,0 +1,781 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>10.3 RLHF：PPO 强化学习对齐 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link active" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 10 章 后训练 II：偏好对齐</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>10.3 RLHF：PPO 强化学习对齐</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>10.3 RLHF：PPO 强化学习对齐</h1>
+<p class="subtitle">本页范围：第 10 章第 3 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>10.2 节训出的奖励模型会打分了，但打分本身不会改变策略模型的一个参数。怎么把这个分数变成实际的参数更新，让模型产出高分回答，又不让它为了刷分跑飞？</td></tr>
+      <tr><td>本节主张</td><td>RLHF 把对齐变成一场强化学习：策略模型生成回答、奖励模型打分、参考模型用 KL 罚项拴住脚步、价值模型估计优势，四个模型同台上演「采样—打分—更新」循环；PPO 的裁剪目标保证每步只走一小步，防止一步跨太远把训练带崩。</td></tr>
+      <tr><td>一句话结论</td><td>RLHF = 四个模型 + 一条「RM 分数减 KL 罚项」的奖励 + PPO 裁剪更新；效果上限高，代价是又贵又脆——这正是 10.4 节 DPO 要整个绕开它的原因。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>RLHF</span><span>PPO</span><span>clip 裁剪</span><span>KL 罚项</span><span>价值模型</span><span>GAE</span><span>reward hacking</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　10.2 节交出了偏好对齐的第一块地基：一个能对「同一个问题的两个回答谁更好」打分的奖励模型（RM）。但要清醒：RM 是一把尺子，不是一把刻刀——它能测量回答好坏，本身却改不了策略模型。本节解决的就是「怎么改」：把 RM 的分数接进一套强化学习回路，让 SFT 模型在「拿高分」与「别跑偏」的拉扯中一步步调整参数。这套流程就是 RLHF（Reinforcement Learning from Human Feedback，基于人类反馈的强化学习），它的经典优化算法是 PPO。</p>
+
+<p>　　本节按「角色 → 信号 → 算法 → 代价」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>四模型同台：策略、参考、奖励、价值</strong>（10.3.1）：一轮 RLHF 要同时请出哪四个模型，谁被训练、谁被冻结，显存账怎么算；</li>
+  <li><strong>奖励信号设计：RM 分数减 KL 罚项</strong>（10.3.2）：为什么不能只拿 RM 分数当奖励，KL 罚项怎么给模型拴上缰绳；</li>
+  <li><strong>PPO 裁剪目标：小步更新，防止一步跨太远</strong>（10.3.3）：clip 机制逐符号讲透，配数值小例与裁剪曲线图；</li>
+  <li><strong>工程代价：RLHF 为什么又贵又脆</strong>（10.3.4）：贵在哪、脆在哪，顺势引出 10.4 节的 DPO。</li>
+</ol>
+
+<p>　　读完本节，应该能画出 RLHF 的一轮训练循环，说清四个模型各自的角色，并解释 PPO 的 clip 为什么能稳住训练。讲解过程会对照 minimind（Apache 2.0）的 train_ppo.py 真实实现，它把工业界 RLHF 的标准动作完整做了一遍。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及 RLHF 这一站放大之后的内部回路。心里有图 1、图 2 这两张地图，后面每一步都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS103pporlhf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG103pporlhf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS103pporlhf)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS103pporlhf)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS103pporlhf)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS103pporlhf)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS103pporlhf)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG103pporlhf)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG103pporlhf)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）与 SFT（第 9 章）交出会对话的模型；偏好对齐（本章）是它的下一站，任务从「会对话」升级为「懂好坏」。本节讲这一站的经典路线 RLHF/PPO，10.4 节讲简化路线 DPO，随后接推理训练（第 11 章）与推理部署（第 12–13 章）。</div>
+</div>
+
+<p>　　这个紫框里的 RLHF 路线放大之后长什么样？四个模型怎么接力，一轮循环里数据如何流动？把 RLHF 的一轮训练单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP103loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrR103loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <text x="24" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：RLHF 一轮训练循环——四个模型同台，只有 actor 与 critic 的参数被更新（数字为 minimind 默认配置）</text>
+    <!-- 第一行：prompt → actor → 回答 -->
+    <rect x="24" y="64" width="170" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="109" y="89" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">prompt 批次</text>
+    <text x="109" y="110" text-anchor="middle" font-size="11" fill="#555">[B, ≤ 768 token]</text>
+    <text x="109" y="128" text-anchor="middle" font-size="10.5" fill="#888">来自 RLAIF 数据集</text>
+    <line x1="194" y1="104" x2="234" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP103loop)"/>
+    <rect x="240" y="52" width="230" height="104" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="355" y="77" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">策略模型 actor（要训练）</text>
+    <text x="355" y="97" text-anchor="middle" font-size="11" fill="#ede9fe">从 SFT 权重（full_sft）出发</text>
+    <text x="355" y="115" text-anchor="middle" font-size="11" fill="#ede9fe">自回归采样生成回答</text>
+    <text x="355" y="133" text-anchor="middle" font-size="11" fill="#ede9fe">temperature 0.8</text>
+    <line x1="470" y1="104" x2="510" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP103loop)"/>
+    <rect x="516" y="64" width="190" height="80" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="611" y="89" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">回答</text>
+    <text x="611" y="110" text-anchor="middle" font-size="11" fill="#555">[B, ≤ 1024 token]</text>
+    <text x="611" y="128" text-anchor="middle" font-size="10.5" fill="#888">逐 token 生成，耗时大头</text>
+    <!-- 回答 → 三个模型 -->
+    <line x1="660" y1="144" x2="780" y2="210" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP103loop)"/>
+    <line x1="590" y1="144" x2="505" y2="210" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP103loop)"/>
+    <line x1="540" y1="144" x2="185" y2="210" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP103loop)"/>
+    <!-- 第二行：RM / ref / critic -->
+    <rect x="680" y="216" width="240" height="100" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="800" y="241" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">奖励模型 RM（冻结）</text>
+    <text x="800" y="261" text-anchor="middle" font-size="11" fill="#555">整段回答 → 一个标量分</text>
+    <text x="800" y="280" text-anchor="middle" font-size="10.5" fill="#888">minimind 默认调用</text>
+    <text x="800" y="298" text-anchor="middle" font-size="10.5" fill="#888">internlm2-1_8b-reward</text>
+    <rect x="360" y="216" width="240" height="100" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="480" y="241" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">参考模型 ref（冻结）</text>
+    <text x="480" y="261" text-anchor="middle" font-size="11" fill="#555">SFT 权重原样复制</text>
+    <text x="480" y="280" text-anchor="middle" font-size="11" fill="#555">逐 token 算 log π_ref</text>
+    <text x="480" y="298" text-anchor="middle" font-size="10.5" fill="#888">KL 罚项的锚点</text>
+    <rect x="40" y="216" width="240" height="100" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="160" y="241" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">价值模型 critic（要训练）</text>
+    <text x="160" y="261" text-anchor="middle" font-size="11" fill="#555">SFT 权重 + 新增 value_head</text>
+    <text x="160" y="280" text-anchor="middle" font-size="11" fill="#555">Linear(768 → 1)</text>
+    <text x="160" y="298" text-anchor="middle" font-size="10.5" fill="#888">逐 token 估「局势值多少分」</text>
+    <!-- 第二行 → 第三行 -->
+    <line x1="800" y1="316" x2="640" y2="372" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP103loop)"/>
+    <text x="752" y="346" text-anchor="middle" font-size="10.5" fill="#888">RM 分</text>
+    <line x1="480" y1="316" x2="480" y2="372" stroke="#dc2626" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrR103loop)"/>
+    <text x="492" y="346" text-anchor="start" font-size="10.5" fill="#dc2626">KL 罚项（缰绳）</text>
+    <line x1="160" y1="316" x2="160" y2="372" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP103loop)"/>
+    <text x="172" y="346" text-anchor="start" font-size="10.5" fill="#888">价值 V</text>
+    <!-- 第三行：奖励合成 / GAE -->
+    <rect x="360" y="376" width="320" height="96" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="520" y="401" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">逐 token 奖励合成</text>
+    <text x="520" y="421" text-anchor="middle" font-size="11" fill="#555">r = RM 分 − β · KL　（β = 0.02）</text>
+    <text x="520" y="440" text-anchor="middle" font-size="10.5" fill="#888">RM 分只加在回答末位 token</text>
+    <text x="520" y="458" text-anchor="middle" font-size="10.5" fill="#888">KL 罚项逐 token 都有</text>
+    <rect x="40" y="376" width="240" height="96" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="160" y="401" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">GAE 优势估计</text>
+    <text x="160" y="421" text-anchor="middle" font-size="11" fill="#555">δ = r + γ·V′ − V</text>
+    <text x="160" y="440" text-anchor="middle" font-size="11" fill="#555">γ = 1.0，λ = 0.95</text>
+    <text x="160" y="458" text-anchor="middle" font-size="10.5" fill="#888">再标准化后使用</text>
+    <line x1="360" y1="424" x2="286" y2="424" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP103loop)"/>
+    <!-- 第四行：PPO 更新 / 产物 -->
+    <line x1="160" y1="472" x2="330" y2="516" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP103loop)"/>
+    <rect x="280" y="520" width="340" height="64" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="450" y="545" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">PPO 裁剪更新（同批数据更新 2 轮）</text>
+    <text x="450" y="566" text-anchor="middle" font-size="11" fill="#ede9fe">只动 actor 与 critic，ref 与 RM 全程冻结</text>
+    <line x1="620" y1="552" x2="694" y2="552" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP103loop)"/>
+    <rect x="700" y="520" width="230" height="64" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="815" y="545" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#0e7490">产物：对齐后的策略模型</text>
+    <text x="815" y="566" text-anchor="middle" font-size="11" fill="#555">保存为 ppo_actor 权重</text>
+    <!-- 回路：PPO → actor -->
+    <polyline points="280,552 12,552 12,40 355,40 355,46" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR103loop)"/>
+    <text x="146" y="540" text-anchor="middle" font-size="10.5" fill="#dc2626">更新后的参数回灌 actor（红色回路），进入下一轮采样</text>
+  </svg>
+  <div class="diagram-caption">图 2：RLHF 一轮训练循环的局部放大（数字均为 minimind 默认配置，见 train_ppo.py）。流程为：prompt 批次（≤ 768 token）交给 actor 自回归采样出回答（≤ 1024 token，temperature 0.8）；回答兵分三路——RM 打标量分、冻结的 ref 逐 token 算对数概率用于 KL 罚项、critic 逐 token 估价值；奖励合成后（RM 分加在末位 token，KL 罚项逐 token 施加，β = 0.02）与价值一起算出 GAE 优势（γ = 1.0、λ = 0.95）；PPO 按裁剪目标更新 actor 与 critic（同一批数据默认更新 2 轮），新参数回灌 actor 开始下一轮。四个模型里 ref 与 RM 全程只推理不训练。10.3.1 到 10.3.3 会逐块讲清本图的每个环节。</div>
+</div>
+
+<h2>10.3.1 四模型同台：策略、参考、奖励、价值</h2>
+
+<p>　　SFT 的训练台上只有一个模型，RLHF 的台上要同时站四个。先用一个类比记住它们的分工：把对齐训练想象成训练一名实习生写客服回复——<strong>策略模型</strong>是实习生本人，真正动笔写回复、也是唯一被改造的；<strong>奖励模型</strong>是教练，读完回复给一个分数，但不下场改人；<strong>参考模型</strong>是实习生入职第一天的快照，用来随时比对「你现在离当初那个正常的自己偏了多远」；<strong>价值模型</strong>是实习生脑子里的自我评估员，写到一半就预估「照这么写下去大概能拿多少分」，有了它才知道每一步写得比预期好还是差。</p>
+
+<p>　　对照 minimind 的 train_ppo.py，四个模型的初始化方式写得很直白：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型</th><th>别名</th><th>初始化</th><th>是否训练</th><th>职责</th><th>minimind 出处</th></tr></thead>
+    <tbody>
+      <tr><td>策略模型 actor</td><td>policy</td><td>SFT 权重（full_sft）</td><td>训练，lr 3e-7</td><td>生成回答，唯一产物</td><td>train_ppo.py:336、379、312</td></tr>
+      <tr><td>参考模型 ref</td><td>reference</td><td>SFT 权重再加载一份</td><td>冻结（eval + requires_grad_(False)）</td><td>KL 罚项的比对基准</td><td>train_ppo.py:380–381</td></tr>
+      <tr><td>奖励模型 RM</td><td>reward model</td><td>外部奖励模型（默认 internlm2-1_8b-reward）</td><td>冻结</td><td>给整段回答打标量分</td><td>train_ppo.py:337–338、388</td></tr>
+      <tr><td>价值模型 critic</td><td>value model</td><td>SFT 权重 + 新增 value_head（Linear(768→1)）</td><td>训练，lr 5e-7</td><td>逐 token 估计局面价值</td><td>train_ppo.py:36–48、313、385–387</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　三个要点值得圈出来。其一，actor 与 ref 是同一份 SFT 权重的两个拷贝：一个要动，一个冻结，ref 的存在就是给 actor 立一根「不许跑远」的桩（10.3.2 展开）。其二，critic 是在 SFT 模型上加了一个输出头长出来的——minimind 的 CriticModel 直接继承 MiniMindForCausalLM，把原来的词表输出头换成一个 768 维到 1 维的线性层，每个 token 位置吐一个标量，表示「截至目前的局面预估总分」（train_ppo.py:36–48）。其三，RM 是外部模型，不参与梯度，只做推理。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">价值模型 Critic</span>
+    <span class="term-en">critic = 评论者；对「当前局面」而非「最终答案」打分</span>
+  </div>
+  <div class="term-body">
+    <p>强化学习里与环境交互、做动作的模型叫策略（policy），critic 是它的搭档：不看最终结局，而是对中间每一步预估「从这里走下去，预期还能拿多少累计奖励」。这个预估叫价值（value）。有了它，策略每生成一个 token 都能立刻知道「比预期好还是差」，而不必苦等整段回答写完才知道输赢。RLHF 里 critic 通常从 SFT 权重初始化、换掉输出头，再与策略一起被训练。</p>
+    <div class="term-analogy">像下棋时的形势判断：不必等到终局，中盘就能估出「这局面大概赢面七成」。有了这个实时估计，每一步棋的好坏立刻可评。</div>
+  </div>
+</div>
+
+<p>　　四模型同台直接解释了 RLHF 的第一笔账：<strong>显存</strong>。actor 与 critic 各带一份参数、梯度和 AdamW 优化器状态，ref 与 RM 各占一份推理态参数——同台上场的模型参数量大约是单个模型的四倍，其中 actor 和 critic 两份还要按第 7 章的口径乘上训练状态的倍数。预训练时一张卡喂一个模型，RLHF 时一台机器要喂四个，这是它「贵」的最直观来源。第二笔账「生成开销」留到 10.3.4 再算。</p>
+
+<div class="highlight-box">
+  RLHF 的四模型台账：actor 生成并唯一对外交付、ref 冻结当锚、RM 冻结当裁判、critic 随行评估局面。四个模型同时驻留显存、两个带训练状态，显存开销数倍于普通微调——这是 RLHF 成本的第一层原因。
+</div>
+
+<h2>10.3.2 奖励信号设计：RM 分数减 KL 罚项</h2>
+
+<p>　　四个模型就位，接下来的问题是：奖励信号本身怎么设计？最省事的做法是直接拿 RM 分数当奖励，模型做什么能拿高分就加强什么。但 10.2 节讲过，RM 只是人类偏好的代理，代理必有漏洞——一旦奖励只由 RM 说了算，策略模型会很快发现漏洞并全力钻营：回答越写越长、堆砌教练爱听的套话、格式浮夸内容空洞，分数节节高升，质量一路下滑。这就是 reward hacking 在训练中的实景。</p>
+
+<p>　　解决办法是给奖励装上缰绳。InstructGPT 沿用的设计是在每个 token 上从 RM 分数里减去一项「离参考模型有多远」的惩罚：</p>
+
+<div class="formula-card">
+  \[ r(x, y) = r_{\mathrm{RM}}(x, y) - \beta \log \frac{\pi^{\mathrm{RL}}(y \mid x)}{\pi^{\mathrm{SFT}}(y \mid x)} \tag{1} \]
+  <div class="formula-note">公式 (1)：RLHF 的单条奖励 = 奖励模型的打分 − KL 罚项；后一项度量当前策略与 SFT 模型的偏离程度，偏得越远罚得越狠。符号说明：\(x\) 是 prompt，\(y\) 是模型生成的回答；\(r_{\mathrm{RM}}(x,y)\) 是奖励模型对这对问答的标量打分；\(\pi^{\mathrm{RL}}(y \mid x)\) 是正在训练的 RL 策略生成 \(y\) 的概率；\(\pi^{\mathrm{SFT}}(y \mid x)\) 是冻结的 SFT 模型（即参考模型 ref）对同一个 \(y\) 的概率；两者的对数比是逐 token 计算的 KL 惩罚（InstructGPT 论文明确为 per-token KL penalty）；\(\beta\) 是 KL 惩罚系数，控制缰绳的松紧，minimind 默认取 0.02（train_ppo.py:329）。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">KL 散度 KL Divergence</span>
+    <span class="term-en">Kullback–Leibler divergence = 衡量两个概率分布「差多远」的尺子</span>
+  </div>
+  <div class="term-body">
+    <p>给定同一个上文，当前策略和参考模型各自给出一个下一个 token 的概率分布，KL 散度度量这两个分布的差异：一模一样时为 0，差得越多值越大，且恒不为负。RLHF 把它用作罚项，含义很朴素——<strong>允许为了高分调整行为，但不许说「不像人话」的话</strong>。minimind 的实现用了 \(\exp(\Delta) - \Delta - 1\) 这个等价非负形式估计 KL（\(\Delta\) 为两个模型对数概率之差，train_ppo.py:204–205），数值上更稳。</p>
+    <div class="term-analogy">像给实习生定的规矩：可以琢磨怎么让客户更满意，但每句话都得像正常客服说的——一旦开始满嘴黑话套话，立刻扣分。</div>
+  </div>
+</div>
+
+<p>　　这套奖励在 minimind 里的落法还有两处细节值得看。第一，RM 分数是「整段回答一个分」，而 KL 罚项是逐 token 的，两者粒度不同；minimind 的做法是把外部奖励只加到回答最后一个 token 的位置上（train_ppo.py:136–138），中间 token 的奖励完全来自 KL 项，再由 GAE（10.3.3）把末端的一次性奖励折算回每一步。第二，minimind 作为教学实现，还在 RM 分之外混入了手工规则整形：回答长度在 20 到 800 字符内加 0.5 分、think 段格式合规加分、重复 n-gram 扣分（train_ppo.py:61–67）。这提示一个工程现实：线上 RLHF 的奖励往往也是「RM 分 + 若干规则」的混合体，没有哪家真敢只信 RM。</p>
+
+<p>　　InstructGPT 还在奖励之外加了一道保险：往 PPO 的梯度里混入预训练梯度，防止模型在公共 NLP 基准上退化，这个变体叫 PPO-ptx。合并后的目标写成：</p>
+
+<div class="formula-card">
+  \[ \mathrm{objective}(\phi) = \mathbb{E}\left[ r_{\mathrm{RM}}(x, y) - \beta \log \frac{\pi^{\mathrm{RL}}_{\phi}(y \mid x)}{\pi^{\mathrm{SFT}}(y \mid x)} \right] + \gamma\, \mathbb{E}_{x \sim D_{\mathrm{pretrain}}}\left[ \log \pi^{\mathrm{RL}}_{\phi}(x) \right] \tag{2} \]
+  <div class="formula-note">公式 (2)：PPO-ptx 的合并目标 = RLHF 奖励项 + 预训练梯度项，后者强迫模型在预训练语料上继续做语言建模，对冲遗忘。符号说明：\(\phi\) 是策略模型的参数；第一项与公式 (1) 相同，期望取自当前策略的采样分布；\(D_{\mathrm{pretrain}}\) 是预训练数据分布；\(\gamma\) 是预训练损失系数，控制「复习旧课」的强度；\(\beta\) 与公式 (1) 同为 KL 惩罚系数。论文报告 PPO-ptx 能消除公共基准上的性能回退，代价是偏好表现略有折损。</div>
+</div>
+
+<div class="highlight-box warn">
+  没有 KL 罚项的 RLHF 等于把训练完全交给一个有漏洞的裁判：策略会顺着 RM 的偏见狂奔，回答变长、变油、变得不像人话。KL 罚项把策略拴在 SFT 模型附近——\(\beta\) 大则保守（高分难拿），\(\beta\) 小则激进（易跑飞），它是 RLHF 最关键的旋钮之一。
+</div>
+
+<h2>10.3.3 PPO 裁剪目标：小步更新，防止一步跨太远</h2>
+
+<p>　　奖励信号有了，还差最后一块：按什么规则更新参数。先把强化学习的术语映射到文本生成上：状态 \(s_t\) 是「prompt 加上已生成的前 \(t-1\) 个 token」，动作 \(a_t\) 是「生成第 \(t\) 个 token」，策略 \(\pi_{\theta}(a_t \mid s_t)\) 就是语言模型本身——给定上文时下一个 token 的概率分布。策略梯度法的直觉很简单：一段回答拿了高奖励，就把它每个 token 的出现概率都往上抬；拿了低奖励就往下压。</p>
+
+<p>　　问题在于抬多少、压多少。朴素的策略梯度没有刹车：某个回答碰巧拿了高分，模型可能一步把它的概率抬到天上去，连带把参数搅得大乱，下一步采样出的东西面目全非，训练就此发散。PPO（Proximal Policy Optimization，近端策略优化，Schulman et al. 2017）的核心思想就是给每一步更新装上刹车：定义新旧策略在同一个动作上的概率比，再把这个比值的活动范围剪死：</p>
+
+<div class="formula-card">
+  \[ r_t(\theta) = \frac{\pi_{\theta}(a_t \mid s_t)}{\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)}, \qquad \mathcal{L}^{\mathrm{CLIP}}(\theta) = \mathbb{E}_t\left[ \min\left( r_t(\theta)\, \hat{A}_t,\; \mathrm{clip}\left( r_t(\theta),\, 1-\varepsilon,\, 1+\varepsilon \right) \hat{A}_t \right) \right] \tag{3} \]
+  <div class="formula-note">公式 (3)：PPO 的裁剪目标——概率比 \(r_t\) 乘上优势得到「自由版」收益，再把 \(r_t\) 裁到 \([1-\varepsilon, 1+\varepsilon]\) 得到「保守版」收益，取两者中较小的那个来优化；无论更新方向好坏，越过裁剪区的额外收益都被没收，梯度在边界处归零，模型自然不敢一步跨太远。符号说明：\(\pi_{\theta}\) 是当前正在更新的策略；\(\pi_{\theta_{\mathrm{old}}}\) 是采样这批数据时的旧策略（更新期间固定不动）；\(a_t\) 是第 \(t\) 步生成的 token，\(s_t\) 是它的上文；\(\hat{A}_t\) 是优势估计（下一步动作比平均水平好多少，见公式 (4)）；\(\mathrm{clip}(v, l, u)\) 把 \(v\) 截断到区间 \([l, u]\)；\(\varepsilon\) 是裁剪半径，minimind 默认 0.2（train_ppo.py:327），与 PPO 原论文的常用取值一致。</div>
+</div>
+
+<p>　　一个数值小例把 clip 讲死。设 \(\varepsilon = 0.2\)，某 token 的优势 \(\hat{A}_t = 1\)（好动作，想抬概率）。若更新后概率比涨到 \(r_t = 1.3\)，自由版收益是 \(1.3\)，但保守版把 \(r_t\) 裁到 \(1.2\)，收益只有 \(1.2\)；取 min 后按 \(1.2\) 算——超出 20% 的那部分改进不给奖励，梯度在边界处直接归零，模型没有动力继续往这个方向冲。反过来，若 \(\hat{A}_t = -1\)（坏动作，想压概率），概率比跌破 \(0.8\) 之后同样被封顶：min 会选中更「难看」的那个值，把过度的压低也拦在门外。两个方向一对照，就是图 3：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 740 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrC103clip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="24" font-size="13" font-weight="bold" fill="#4c1d95">PPO 裁剪目标的形状（ε = 0.2）：紫色实线 = 实际生效的目标，灰色虚线 = 不裁剪的样子</text>
+    <!-- 左图：A > 0 -->
+    <text x="205" y="46" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">A &gt; 0（好动作，想抬概率）</text>
+    <rect x="130" y="56" width="100" height="184" fill="#ede9fe" opacity="0.55"/>
+    <line x1="80" y1="240" x2="330" y2="240" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="80" y1="240" x2="80" y2="56" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="230" y1="131.8" x2="330" y2="70" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <polyline points="80,224.5 230,131.8 330,131.8" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <text x="130" y="256" text-anchor="middle" font-size="10.5" fill="#555">0.8</text>
+    <text x="180" y="256" text-anchor="middle" font-size="10.5" fill="#555">1.0</text>
+    <text x="230" y="256" text-anchor="middle" font-size="10.5" fill="#555">1.2</text>
+    <text x="330" y="256" text-anchor="middle" font-size="10.5" fill="#555">1.6</text>
+    <text x="205" y="286" text-anchor="middle" font-size="11" fill="#64748b">ratio = π_new / π_old（浅色带 = 免裁剪区）</text>
+    <text x="96" y="66" text-anchor="start" font-size="10.5" fill="#64748b">目标值</text>
+    <text x="236" y="106" text-anchor="start" font-size="10.5" fill="#dc2626">ratio = 1.3 时按 1.2 算：</text>
+    <text x="236" y="122" text-anchor="start" font-size="10.5" fill="#dc2626">超出部分不给奖励</text>
+    <!-- 右图：A < 0 -->
+    <text x="575" y="46" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">A &lt; 0（坏动作，想压概率）</text>
+    <rect x="500" y="56" width="100" height="184" fill="#ede9fe" opacity="0.55"/>
+    <line x1="450" y1="240" x2="700" y2="240" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="450" y1="240" x2="450" y2="56" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="500" y1="148" x2="450" y2="125" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <polyline points="450,148 500,148 700,240" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <text x="500" y="256" text-anchor="middle" font-size="10.5" fill="#555">0.8</text>
+    <text x="550" y="256" text-anchor="middle" font-size="10.5" fill="#555">1.0</text>
+    <text x="600" y="256" text-anchor="middle" font-size="10.5" fill="#555">1.2</text>
+    <text x="700" y="256" text-anchor="middle" font-size="10.5" fill="#555">1.6</text>
+    <text x="575" y="286" text-anchor="middle" font-size="11" fill="#64748b">ratio = π_new / π_old（浅色带 = 免裁剪区）</text>
+    <text x="466" y="66" text-anchor="start" font-size="10.5" fill="#64748b">目标值</text>
+    <text x="508" y="128" text-anchor="start" font-size="10.5" fill="#dc2626">ratio 跌破 0.8 后压价封顶：</text>
+    <text x="508" y="144" text-anchor="start" font-size="10.5" fill="#dc2626">惩罚不再加深</text>
+  </svg>
+  <div class="diagram-caption">图 3：PPO 裁剪目标的形状（ε = 0.2，数值小例见正文）。左图优势为正：概率比涨过 1.2 后目标值变成平台，继续抬概率没有额外收益，梯度归零；右图优势为负：概率比跌破 0.8 后目标值封顶，过度压低同样被拦下。灰色虚线是没有裁剪时目标值会沿直线继续延伸的样子——正是那条「不刹车」的路会导致训练发散。两图合起来就是 clip 机制：把每步更新限制在旧策略附近的窄带内。</div>
+</div>
+
+<p>　　对照 minimind 的实现，公式 (3) 写成了一行等价代码：因为训练框架做的是最小化损失，minimind 把 min 换成对负收益取 max——<code>torch.max(-advantages * ratio, -advantages * clamp(ratio, 1-ε, 1+ε))</code>（train_ppo.py:206–209），数学上与公式 (3) 完全一致。同一批采样数据会被重复利用 2 轮更新（<code>ppo_update_iters</code> 默认 2，第 333 行），这正是 PPO 相对传统策略梯度的卖点：裁剪约束保证了多次小步更新是安全的。minimind 还加了一道更硬的刹车：一旦发现新旧策略的近似 KL 超过 0.25（<code>early_stop_kl</code>，第 334 行），本轮直接停止继续更新（第 198–199 行）。</p>
+
+<p>　　公式 (3) 里还有一个符号没交代：优势 \(\hat{A}_t\) 从哪来。它回答「这一步比平均水平好多少」，由 critic 的价值估计配合奖励算出，标准算法是 GAE（Generalized Advantage Estimation，广义优势估计）：</p>
+
+<div class="formula-card">
+  \[ \delta_t = r_t + \gamma V(s_{t+1}) - V(s_t), \qquad \hat{A}_t = \sum_{l=0}^{\infty} (\gamma \lambda)^l\, \delta_{t+l} \tag{4} \]
+  <div class="formula-note">公式 (4)：GAE 把「一次性兑现的末端奖励」折算成每个 token 的功劳——先算每步的时序差分 \(\delta_t\)（实际拿到的奖励加上「下一站预估值」与「本站预估值」之差），再按指数衰减把未来的 \(\delta\) 累加回当前步。符号说明：\(r_t\) 是第 \(t\) 步的即时奖励（KL 罚项逐 token 都有，RM 分只在末位）；\(V(s_t)\) 是 critic 对状态 \(s_t\) 的价值估计；\(\gamma\) 是折扣因子（未来的奖励打几折），\(\lambda\) 是 GAE 的平滑系数（在偏差与方差之间权衡），minimind 取 \(\gamma = 1.0\)、\(\lambda = 0.95\)（train_ppo.py:330–331）；实现上用反向递推累加（train_ppo.py:140–147），算完再做标准化（第 149–151 行）。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">优势函数 Advantage</span>
+    <span class="term-en">advantage = 比平均水平好多少；A = Q − V</span>
+  </div>
+  <div class="term-body">
+    <p>单看奖励有个麻烦：一段回答拿 7 分算好还是坏？如果这类问题大家都能拿 7 分，那它只是及格；如果别人只能拿 3 分，那它很出色。优势函数就是把奖励减去一个基线（critic 预估的平均水平），回答「超出预期多少」。用优势而不是原始奖励驱动更新，梯度方向更干净：及格的照常对待，超常的加强，失常的压制。GAE 是估计优势的常用算法，critic 正是为提供这个基线而存在。</p>
+    <div class="term-analogy">像绩效评定不看绝对产出，看「超出岗位预期的部分」：预期内的完成不加不扣，超预期的才发奖金。</div>
+  </div>
+</div>
+
+<div class="highlight-box">
+  PPO 的核心就一句话：用 clip 把每步更新限制在旧策略附近的窄带里，换取「同一批数据可以放心更新好几轮」的自由。对比信任域方法 TRPO 的复杂约束求解，PPO 只用一行 min-clip 就拿到了差不多的稳定性——这是它成为 RLHF 标配算法的原因。
+</div>
+
+<h2>10.3.4 工程代价：RLHF 为什么又贵又脆</h2>
+
+<p>　　机制讲完，该算账了。RLHF 的「贵」有两层。第一层是显存：10.3.1 的四模型台账，四个模型同驻、两个带训练状态，占用数倍于普通微调。第二层是时间：每一轮更新前都要真刀真枪地生成回答——自回归采样是逐 token 串行的，minimind 默认每步最多生成 1024 个 token（train_ppo.py:325），温度 0.8（第 93 行），生成完还要过一遍 RM、一遍 ref、一遍 critic 三次前向。相比 SFT「读数据、算损失、反传」的紧凑循环，RLHF 的单步是一条「生成 → 三方打分 → 优势折算 → 多轮小更新」的长流水线，吞吐量自然低得多。</p>
+
+<p>　　「脆」则体现在超参与细节密度上。SFT 的配方只有学习率、batch、轮数几个旋钮；RLHF 的旋钮多出一整排，且彼此耦合：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>旋钮</th><th>minimind 默认值</th><th>拧错会怎样</th></tr></thead>
+    <tbody>
+      <tr><td>actor / critic 学习率</td><td>3e-7 / 5e-7</td><td>大了立刻跑飞或价值估计崩掉，小了原地踏步</td></tr>
+      <tr><td>KL 惩罚系数 β（kl_coef）</td><td>0.02</td><td>大了对齐没效果，小了 reward hacking 失控</td></tr>
+      <tr><td>裁剪半径 ε（clip_epsilon）</td><td>0.2</td><td>大了刹车失灵，小了学不动</td></tr>
+      <tr><td>价值损失系数（vf_coef）</td><td>0.5</td><td>critic 学不好则优势估计失真，牵连策略</td></tr>
+      <tr><td>GAE 的 γ / λ</td><td>1.0 / 0.95</td><td>直接影响优势估计的偏差与方差</td></tr>
+      <tr><td>KL 早停阈值（early_stop_kl）</td><td>0.25</td><td>兜底保险丝，阈值不当要么误停要么失控</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　以上默认值均出自 train_ppo.py 第 311–335 行。旋钮多只是一半，另一半是实现细节：新旧策略的对数概率要逐 token 对齐（序列错位一位的老坑，见 9.3 节）、回答段的掩码要精确到 eos、价值与策略各有各的裁剪与早停。任何一处差一个位置，训练曲线不会报错，只是悄悄变差——这类 bug 最难排查。RLHF 训练曲线的抖动也远比 SFT 剧烈：奖励在涨不代表回答真好，可能只是 RM 又被钻了新空子，需要同时盯 reward、KL、clipfrac、回答长度等一整组指标（minimind 的日志就同时打印这六项，train_ppo.py:279–282）。</p>
+
+<div class="highlight-box info">
+  注释：贵与脆不是 RLHF 的实现失误，而是它的结构性代价——只要路线是「训一个 RM 当裁判、再用在线强化学习追着裁判跑」，四模型同台、在线采样、超参耦合就都躲不掉。想便宜稳定，得换路线，而不是调旋钮。
+</div>
+
+<p>　　于是自然引出一个问题：能不能不训裁判、不跑强化学习循环，直接拿偏好数据调整模型？DPO 给出的回答是可以——在 KL 约束下，最优策略与奖励之间存在一个闭式的数学关系，能把「奖励」反解成「策略与参考模型的对数比」，RM 和 RL 循环被整个短路。10.4 节就讲这条捷径。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">RLHF 为什么要四个模型同台，各自什么角色？</div>
+    <div class="sc-key">策略模型 actor 生成回答、是唯一被交付的产物；参考模型 ref 冻结 SFT 权重当 KL 罚项的锚；奖励模型 RM 冻结当裁判打标量分；价值模型 critic 逐 token 估局面价值、为优势估计提供基线。actor 与 critic 被训练，ref 与 RM 只推理。四个模型同驻显存，是 RLHF 成本的第一层来源。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么不能只拿 RM 分数当奖励？</div>
+    <div class="sc-key">RM 是人类偏好的代理，代理必有漏洞；只追 RM 分会导致 reward hacking——回答变长变油、语言退化。InstructGPT 的对策是逐 token 减去 β 倍的 KL 罚项，把策略拴在 SFT 模型附近；另有 PPO-ptx 混入预训练梯度防遗忘。minimind 默认 β = 0.02。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">PPO 的 clip 是怎么稳住训练的？</div>
+    <div class="sc-key">定义新旧策略的概率比 ratio，目标取 min(ratio·A, clip(ratio, 1±ε)·A)：好动作抬过 1+ε 不给额外奖励，坏动作压过 1−ε 惩罚封顶，越界的梯度归零。由此每步更新被限制在旧策略附近的窄带内，同一批数据可以安全地多轮更新——以一行裁剪换来训练稳定，这正是它成为 RLHF 标配的原因。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Schulman et al., 2017. Proximal Policy Optimization Algorithms（PPO 原始论文，arXiv:1707.06347）：裁剪代理目标、同一批数据多轮 minibatch 更新的设计动机；已核对 arXiv 摘要页。</li>
+  <li>Ouyang et al., 2022. Training Language Models to Follow Instructions with Human Feedback（InstructGPT，arXiv:2203.02155）：「SFT → RM → PPO」流水线、逐 token KL 罚项、PPO-ptx 混入预训练梯度；1.3B 对齐模型人类偏好超过 175B GPT-3 的结论已核对 arXiv 摘要页，公式 (1)(2) 按论文式 (2) 转写。</li>
+  <li>minimind（Apache 2.0），trainer/train_ppo.py：四模型初始化（36–48 行 CriticModel、380–381 行 ref 冻结、337–338 与 388 行 RM 加载）、奖励合成（61–67 行规则整形、136–138 行末位加奖励、204–205 行 KL 估计）、GAE 与优势标准化（140–151 行）、PPO 裁剪损失（206–209 行）、KL 早停（198–199 行）、默认超参（311–335 行：lr 3e-7 / 5e-7、clip 0.2、kl_coef 0.02、γ 1.0、λ 0.95、early_stop_kl 0.25、ppo_update_iters 2、prompt 768 / 生成 1024、temperature 0.8 见 88–94 行）。</li>
+  <li>Schulman et al., 2015. High-Dimensional Continuous Control Using Generalized Advantage Estimation（GAE 原始论文，arXiv:1506.02438）：公式 (4) 的出处，指数加权优势估计（类比 TD(λ)）已核对 arXiv 摘要页。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch10_2_reward_model.html" title="10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判">← 上一节：10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a><a class="next" href="ch10_4_dpo_family.html" title="10.4 DPO 家族：绕过奖励模型的直接偏好优化">下一节：10.4 DPO 家族：绕过奖励模型的直接偏好优化 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

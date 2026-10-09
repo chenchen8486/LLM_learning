@@ -1,0 +1,742 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link active" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 10 章 后训练 II：偏好对齐</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</h1>
+<p class="subtitle">本页范围：第 10 章第 2 节　|　整理时间：2026-10-08</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>10.1 节说要让模型学「哪个回答更好」，这个偏好信号具体长什么样？谁来把主观的「谁更好」变成训练能用的数字？</td></tr>
+      <tr><td>本节主张</td><td>偏好信号的最小单元是 chosen / rejected 成对样本；Bradley-Terry 模型把成对比较转成可微分的分差；据此训出的奖励模型（RM）是 RLHF 流水线的裁判——但裁判只是人类偏好的代理，代理必有盲区。</td></tr>
+      <tr><td>一句话结论</td><td>偏好对 + Bradley-Terry + 一个输出标量分的奖励模型，构成 RLHF 的信号源；它的天花板被标注员一致率（约七成）封死，它的漏洞会在 10.3 节逼出 KL 罚项。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>chosen / rejected</span><span>Bradley-Terry</span><span>奖励模型</span><span>sigmoid</span><span>InstructGPT</span><span>reward hacking</span><span>长度偏见</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　10.1 节收尾时把对齐拆成了两条路线：经典路线先训裁判再吹比赛（RLHF），简化路线绕过裁判直接改（DPO）。无论哪条路线，原料都是同一种东西——偏好数据。本节讲经典路线的上半段：偏好数据长什么样、怎么从「谁更好」的成对比较里训出一台会打分的机器（奖励模型），以及这台机器有哪些与生俱来的盲区。10.3 节再让它上场，用 PPO 按它的打分改造模型。</p>
+
+<p>　　本节沿四个问题展开，路线图如下：</p>
+
+<ol>
+  <li><strong>偏好数据：chosen / rejected 成对样本</strong>（10.2.1）：偏好对的三要素、minimind 里的真实字段结构、一次排序怎么拆出多对训练信号；</li>
+  <li><strong>Bradley-Terry：把「谁更好」变成可微分的分数</strong>（10.2.2）：胜率公式、训练损失、一条 sigmoid 曲线建立数值直觉；</li>
+  <li><strong>奖励模型的训练实践</strong>（10.2.3）：以 InstructGPT 为参照系，看模型从哪来、数据怎么收、对子怎么喂，以及标注员一致率说明什么；</li>
+  <li><strong>奖励模型的盲区</strong>（10.2.4）：reward hacking 与分布外失效，为 10.3 的 KL 罚项和 10.5 的权衡埋伏笔。</li>
+</ol>
+
+<p>　　读完本节，应该能手写奖励模型的损失函数，说清为什么 RM 分数只有相对意义，并能预判 RLHF 会在哪里翻车。</p>
+
+<p>　　逐节展开之前，先看一眼偏好对齐在 LLM 生命周期中的位置，以及本节要造的两件东西——偏好数据与奖励模型——在这一站里如何配合。心里有图 1、图 2 这两张地图，后面每一步都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS102rewardmodel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG102rewardmodel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS102rewardmodel)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS102rewardmodel)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS102rewardmodel)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS102rewardmodel)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS102rewardmodel)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG102rewardmodel)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG102rewardmodel)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：偏好对齐在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）与中间训练（第 8 章）交出 base model，SFT（第 9 章）把它调成会对话的 instruct model；本章偏好对齐接在 SFT 之后，任务是教模型分辨回答好坏，随后接推理训练（第 11 章）与推理部署（第 12–13 章）。偏好对齐这一站内部又分两步：先造裁判（本节：偏好数据与奖励模型），再让裁判上场吹比赛（10.3 的 RLHF 与 10.4 的 DPO）。</div>
+</div>
+
+<p>　　这个紫框放大之后，偏好数据怎么流进奖励模型、分数又怎么变成损失？把「偏好对 → 奖励模型 → 成对比较」这条流水线单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 500" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrRM102p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrRM102g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <text x="30" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：偏好对齐的第一件装备——用偏好对训出会打分的奖励模型</text>
+    <!-- 输入：偏好数据对 -->
+    <rect x="30" y="46" width="200" height="172" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="130" y="70" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好数据对</text>
+    <text x="130" y="92" text-anchor="middle" font-size="11" fill="#555">输入：1 个 prompt</text>
+    <text x="130" y="110" text-anchor="middle" font-size="11" fill="#555">＋ 同一问题的 2 条回答</text>
+    <text x="130" y="132" text-anchor="middle" font-size="11" fill="#555">chosen：标注员判更好</text>
+    <text x="130" y="150" text-anchor="middle" font-size="11" fill="#555">rejected：标注员判更差</text>
+    <text x="130" y="174" text-anchor="middle" font-size="10.5" fill="#888">K 条排序可拆 C(K,2) 对</text>
+    <text x="130" y="194" text-anchor="middle" font-size="10.5" fill="#888">K=4 → 6 对；K=9 → 36 对</text>
+    <!-- 分叉箭头 -->
+    <line x1="230" y1="132" x2="274" y2="92" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrRM102p)"/>
+    <line x1="230" y1="132" x2="274" y2="184" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrRM102p)"/>
+    <!-- 上支路：chosen -->
+    <rect x="280" y="60" width="150" height="56" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="355" y="83" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">prompt + chosen</text>
+    <text x="355" y="102" text-anchor="middle" font-size="10.5" fill="#555">一次完整前向</text>
+    <line x1="430" y1="88" x2="464" y2="88" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrRM102p)"/>
+    <rect x="470" y="60" width="120" height="56" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="530" y="83" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">奖励模型 RM</text>
+    <text x="530" y="102" text-anchor="middle" font-size="10.5" fill="#ede9fe">输出 1 个标量</text>
+    <line x1="590" y1="88" x2="624" y2="88" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrRM102p)"/>
+    <rect x="630" y="68" width="100" height="40" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/>
+    <text x="680" y="92" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">r_c：标量分</text>
+    <!-- 下支路：rejected -->
+    <rect x="280" y="160" width="150" height="56" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="355" y="183" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">prompt + rejected</text>
+    <text x="355" y="202" text-anchor="middle" font-size="10.5" fill="#555">再过一遍前向</text>
+    <line x1="430" y1="188" x2="464" y2="188" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrRM102p)"/>
+    <rect x="470" y="160" width="120" height="56" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="530" y="183" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">同一个 RM</text>
+    <text x="530" y="202" text-anchor="middle" font-size="10.5" fill="#ede9fe">权重共享</text>
+    <line x1="590" y1="188" x2="624" y2="188" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrRM102p)"/>
+    <rect x="630" y="168" width="100" height="40" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/>
+    <text x="680" y="192" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">r_r：标量分</text>
+    <!-- 汇合：比较与损失 -->
+    <line x1="660" y1="108" x2="520" y2="278" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrRM102p)"/>
+    <line x1="660" y1="208" x2="560" y2="278" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrRM102p)"/>
+    <rect x="330" y="282" width="360" height="96" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="510" y="306" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">比较：只看分差 Δr = r_c − r_r</text>
+    <text x="510" y="328" text-anchor="middle" font-size="11" fill="#555">P(chosen 更好) = σ(Δr)　（公式 1）</text>
+    <text x="510" y="350" text-anchor="middle" font-size="11" fill="#555">训练损失 = −log P(chosen 更好)　（公式 2）</text>
+    <text x="510" y="370" text-anchor="middle" font-size="10.5" fill="#888">形状：1 对样本 → 1 个损失值，反向传播只更新 RM</text>
+    <!-- 下游：训完冻结 -->
+    <line x1="510" y1="378" x2="510" y2="420" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrRM102g)"/>
+    <rect x="330" y="424" width="360" height="56" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="510" y="446" text-anchor="middle" font-size="12" font-weight="bold" fill="#6b7280">训完冻结：成为 RLHF 的裁判</text>
+    <text x="510" y="466" text-anchor="middle" font-size="10.5" fill="#9ca3af">给 PPO 的每条采样回答打分（10.3 节）</text>
+  </svg>
+  <div class="diagram-caption">图 2：奖励模型打分流水线的局部放大。输入是偏好数据对（同一 prompt 的 chosen 与 rejected 两条回答；K 条回答的排序可拆成 C(K,2) 对）；两条回答分别过同一个 RM 前向，各得一个标量分；比较只看分差，分差经 sigmoid 变成「chosen 更好」的概率，负对数就是训练损失。训完之后 RM 冻结，在 10.3 节给 PPO 当裁判。</div>
+</div>
+
+<h2>10.2.1 偏好数据：chosen / rejected 成对样本</h2>
+
+<p>　　10.1 节留下结论：对齐的信号来源是偏好而非标准答案，因为「标哪个更好」比「写出满分回答」省力得多、也稳定得多。本节先把这种信号的数据形态钉死。偏好数据的最小单元是一对样本，英文写作 <strong>chosen / rejected</strong>：chosen 是被选中的、更好的那条回答，rejected 是被淘汰的、更差的那条。三要素缺一不可：同一个 prompt、两个回答、一个「谁更好」的标注。</p>
+
+<p>　　真实的偏好数据集长什么样？看 minimind 的实现最直观。它的 DPODataset 从 jsonl 文件读样本，每条样本就是两个字段：<code>chosen</code> 与 <code>rejected</code>，各自由若干条 {role, content} 消息组成一段完整对话（minimind（Apache 2.0），dataset/lm_dataset.py：第 125–141 行，含字段注释）。两段对话共享同一段用户提问，差别只在助手那一轮的回答：</p>
+
+<pre><code>{
+  "chosen":   [{"role": "user", "content": "…同一个问题…"},
+               {"role": "assistant", "content": "更好的回答"}],
+  "rejected": [{"role": "user", "content": "…同一个问题…"},
+               {"role": "assistant", "content": "更差的回答"}]
+}</code></pre>
+
+<p>　　读进来之后，两条对话各自过 chat 模板编码成 token 序列（第 142–157 行），并各配一个损失掩码，只罩住助手回答区间（<code>generate_loss_mask</code>，第 180–196 行）——思路与 9.3 节 SFT 的损失掩码一致：无论教模型写答案还是评答案，监督信号都只落在回答上，提问部分永远不参与。minimind 用这份数据直接跑 DPO（10.4 节展开），没有单独训奖励模型；但 chosen / rejected 的字段形态与工业界 RLHF 的偏好数据完全一致，拿它当样例没有失真。</p>
+
+<p>　　实际标注时，标注员往往不是只看两个回答。给一个 prompt 采样 \(K\) 个回答，标注员一次性排出名次，一次排序就能拆出 \(\binom{K}{2} = K(K-1)/2\) 个成对比较（\(\binom{K}{2}\) 是组合数：从 \(K\) 个回答里任取两个配成一对的取法数）——\(K=4\) 拆 6 对，\(K=9\) 拆 36 对，标注效率成倍提高。InstructGPT 正是按 \(K=4\) 到 \(9\) 的规模收数据，10.2.3 细讲。</p>
+
+<div class="highlight-box info">
+  拆对有个隐患：同一条回答会出现在 \(K-1\) 个对子里，对子之间高度相关。怎么处理这个相关性，是 10.2.3 里 InstructGPT 的一个关键工程决策——先记住这个伏笔。
+</div>
+
+<h2>10.2.2 Bradley-Terry：把「谁更好」变成可微分的分数</h2>
+
+<p>　　偏好对只有方向、没有刻度：「A 比 B 好」不告诉你好多少。而梯度下降需要一个连续可微的打分函数。从成对比较到连续分数，中间缺一座桥，这座桥早在 1952 年就由统计学搭好了。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Bradley-Terry 模型</span>
+    <span class="term-en">paired comparison model，配对比较模型，1952 年提出</span>
+  </div>
+  <div class="term-body">
+    <p>一个把「成对比较结果」转成「潜在分数」的概率模型：假设每个对象背后有一个看不见的分数，两者交锋的胜率只由<strong>分数差</strong>决定。它最初用于只有胜负记录、没有绝对打分的场景（如赛事排名）；2017 年 Christiano 等人把它引入「从人类偏好做深度强化学习」，2020 年 Stiennon 等人用它给文本摘要训打分器，2022 年 InstructGPT 把它搬进指令对齐，从此成为奖励模型的标准训练框架。</p>
+    <div class="term-analogy">就像只看胜负记录给球队排实力榜：没人给球队打过绝对分，但 A 队经常赢 B 队，就推断 A 的实力分比 B 高一截；赢得越稳，分差越大。</div>
+  </div>
+</div>
+
+<p>　　写成公式只有一行。设打分函数为 \(r(x, y)\)——给它一个 prompt \(x\) 和一条回答 \(y\)，它吐出一个标量分，分越高代表越好——那么「\(y_w\) 优于 \(y_l\)」的概率定义为两者分差的 sigmoid：</p>
+
+<div class="formula-card">
+  \[ P\big(y_w \succ y_l \,\big|\, x\big) \;=\; \sigma\big(r(x, y_w) - r(x, y_l)\big) \;=\; \frac{\exp\big(r(x, y_w)\big)}{\exp\big(r(x, y_w)\big) + \exp\big(r(x, y_l)\big)} \tag{1} \]
+  <div class="formula-note">公式 (1)：两个回答谁胜出，概率只由分差决定，分差越大越一边倒。符号说明：\(x\) 是 prompt；\(y_w\) 是胜出的回答（winner，即 chosen），\(y_l\) 是落败的回答（loser，即 rejected）；\(\succ\) 表示「优于」；\(r(x, y)\) 是打分函数给「prompt + 回答」的标量分；\(\sigma(z) = 1/(1 + e^{-z})\) 是 sigmoid 函数（附录 A.3），把任意分差压进 0 到 1 之间；最右侧的等号说明它与两类 softmax 完全等价——两个分数各自取指数再归一化，胜出的概率就是分子的占比，\(\exp\) 是自然指数。</div>
+</div>
+
+<p>　　这个形式有个重要性质：概率只取决于<strong>分差</strong>。给两个分数同时加上任意常数，差不变，概率也不变。奖励模型的绝对分数因此没有物理意义，有意义的只有相对高低——这一点 10.2.4 还会回来用。</p>
+
+<p>　　有了概率模型，训练目标顺理成章：让打分函数在每条偏好对上都把胜负判对。判对的概率取对数、加负号、在数据集上求平均，就是要最小化的损失。这正是 InstructGPT 论文中的奖励模型损失：</p>
+
+<div class="formula-card">
+  \[ \mathcal{L}_{\mathrm{RM}} = -\frac{1}{\binom{K}{2}}\,\mathbb{E}_{(x,\,y_w,\,y_l) \,\sim\, \mathcal{D}}\Big[\log \sigma\big(r_\theta(x, y_w) - r_\theta(x, y_l)\big)\Big] \tag{2} \]
+  <div class="formula-note">公式 (2)：对每个成对比较，判对概率越大越好；取对数加负号后变成要最小化的损失。符号说明：\(r_\theta\) 是参数为 \(\theta\) 的奖励模型；\(\mathcal{D}\) 是偏好数据集；\(\mathbb{E}\) 表示在数据集上求期望（平均）；\(\binom{K}{2}\) 是一个 prompt 的 \(K\) 个回答拆出的对子数，先对每个 prompt 内部的对子取平均，使不同 \(K\) 的 prompt 权重一致（InstructGPT 的做法）；\(\log\) 是自然对数，判对概率从 0.5 提到 0.88 时，损失从约 0.69 降到约 0.13。</div>
+</div>
+
+<p>　　三个数就能建立对这条损失的直觉：分差为 0 时 \(\sigma(0) = 0.5\)，模型等于抛硬币，损失 \(-\log 0.5 \approx 0.69\)；分差拉到 \(+2\)，判对概率升到约 0.88，损失降到约 0.13；分差 \(-2\) 意味着判反，概率只剩约 0.12，损失冲到约 2.13。训练的全过程，就是反复调整 RM 的参数，把每一对样本的分差往正方向推；而随着分差拉大，sigmoid 进入平缓区，梯度自然变小——已经判得很稳的对子，不再消耗学习容量。这条曲线的形状见图 3：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 290" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrAx102" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#374151"/>
+      </marker>
+    </defs>
+    <text x="360" y="20" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">Bradley-Terry 的打分几何：胜率是分差的 sigmoid</text>
+    <text x="96" y="36" font-size="11" fill="#555">P(chosen 更好)</text>
+    <!-- 网格线 -->
+    <line x1="90" y1="140" x2="660" y2="140" stroke="#d1d5db" stroke-width="1" stroke-dasharray="4 3"/>
+    <line x1="90" y1="40" x2="660" y2="40" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="4 3"/>
+    <!-- 坐标轴 -->
+    <line x1="90" y1="240" x2="668" y2="240" stroke="#374151" stroke-width="1.5" marker-end="url(#arrAx102)"/>
+    <line x1="90" y1="240" x2="90" y2="36" stroke="#374151" stroke-width="1.5" marker-end="url(#arrAx102)"/>
+    <!-- 轴刻度 -->
+    <text x="82" y="244" text-anchor="end" font-size="10.5" fill="#555">0</text>
+    <text x="82" y="144" text-anchor="end" font-size="10.5" fill="#555">0.5</text>
+    <text x="82" y="44" text-anchor="end" font-size="10.5" fill="#555">1.0</text>
+    <text x="90" y="258" text-anchor="middle" font-size="10.5" fill="#555">−6</text>
+    <text x="185" y="258" text-anchor="middle" font-size="10.5" fill="#555">−4</text>
+    <text x="280" y="258" text-anchor="middle" font-size="10.5" fill="#555">−2</text>
+    <text x="375" y="258" text-anchor="middle" font-size="10.5" fill="#555">0</text>
+    <text x="470" y="258" text-anchor="middle" font-size="10.5" fill="#555">2</text>
+    <text x="565" y="258" text-anchor="middle" font-size="10.5" fill="#555">4</text>
+    <text x="660" y="258" text-anchor="middle" font-size="10.5" fill="#555">6</text>
+    <text x="660" y="278" text-anchor="end" font-size="11" fill="#555">Δr = r(chosen) − r(rejected)</text>
+    <!-- sigmoid 曲线 -->
+    <polyline points="90,239.5 137.5,238.7 185,236.4 232.5,230.5 256.3,224.8 280,216.2 303.8,203.5 327.5,186.2 351.3,164.5 375,140 398.8,115.5 422.5,93.8 446.3,76.5 470,63.8 493.8,55.2 517.5,49.5 541.3,46 565,43.6 612.5,41.3 660,40.5" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- 三个标注点 -->
+    <line x1="375" y1="140" x2="375" y2="240" stroke="#d97706" stroke-width="1" stroke-dasharray="4 3"/>
+    <circle cx="280" cy="216.2" r="4.5" fill="#dc2626"/>
+    <circle cx="375" cy="140" r="4.5" fill="#d97706"/>
+    <circle cx="470" cy="63.8" r="4.5" fill="#6d28d9"/>
+    <text x="368" y="130" text-anchor="end" font-size="10.5" fill="#92400e">分差 0：P=0.5，损失≈0.69</text>
+    <text x="250" y="234" text-anchor="middle" font-size="10.5" fill="#dc2626">分差 −2（判反）：P≈0.12，损失≈2.13</text>
+    <text x="585" y="96" text-anchor="middle" font-size="10.5" fill="#4c1d95">分差 +2：P≈0.88，损失≈0.13</text>
+  </svg>
+  <div class="diagram-caption">图 3：判对概率随分差的变化（按公式 (1) 计算绘制）。分差为 0 时模型没有判断力（P=0.5）；分差为正且越大，判对概率越逼近 1，损失越小；分差为负说明 RM 把好坏判反了，损失陡增。曲线两端平缓、中间陡，所以梯度集中在「还拿不准」的对子上。</div>
+</div>
+
+<div class="highlight-box">
+  核心结论：奖励模型学的不是「这条回答值多少分」，而是「chosen 比 rejected 强多少」。公式 (1)、(2) 里分数只以差的形式出现，所以 RM 分数不能跨 prompt 横比，更不能当绝对质量分用——它只在「同一 prompt 下比较两条回答」这一个用途上可靠。
+</div>
+
+<h2>10.2.3 奖励模型的训练实践（InstructGPT 参照系）</h2>
+
+<p>　　理论有了，落地还差一串工程决策：模型从哪来、多大规模、数据怎么收、对子怎么喂。InstructGPT（2022）是这套做法的参照系，后来的 RLHF 流水线大多沿袭它的设计，逐个决策点看：</p>
+
+<p>　　<strong>模型从哪来。</strong>奖励模型不从零训练。InstructGPT 从 SFT 模型出发，砍掉最后一层 unembedding（把隐向量投回词表、产出 logits 的那层投影，第 4 章讲过），换上一个输出单个标量的打分头：输入「prompt + 回答」的 token 序列，前向一遍，取出一个分数——正是图 2 里那条支路。规模上论文只用了 6B 的 RM：不是更大做不出来，而是 175B 的 RM 训练不稳定，6B 已经够用且省算力。</p>
+
+<p>　　<strong>数据怎么收。</strong>RM 数据集覆盖 33k 个 prompt，每个 prompt 采样 \(K=4\) 到 \(9\) 个回答交标注员排序。标注由约 40 名合同标注员完成（经 Upwork 与 ScaleAI 招募，上岗前要通过一套筛选测试，考察对敏感内容的识别能力以及与研究者排序的一致程度）。论文还报告了标注员之间的一致率：参与训练数据生产的标注员互相比对，一致率 72.6±1.5%；另一组不参与标注、只做评估的留出标注员，一致率 77.3±1.3%。</p>
+
+<p>　　<strong>对子怎么喂。</strong>10.2.1 留下的隐患在这里解决：同一 prompt 拆出的 \(\binom{K}{2}\) 个对子高度相关，若打乱混进数据集按普通样本训练，同一条回答会出现在 \(K-1\) 个对子里，模型刷一遍就过拟合。InstructGPT 的对策是把同一 prompt 的全部对子打包成一个 batch 元素一起训练——既消除过拟合，又省算力：\(K\) 个回答各只需一次前向，而不是 \(\binom{K}{2}\) 次。</p>
+
+<p>　　把决策点汇总成一张表：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>决策点</th><th>InstructGPT 的做法（arXiv:2203.02155）</th></tr></thead>
+    <tbody>
+      <tr><td>RM 初始化</td><td>以 SFT 模型为底座，去掉 unembedding 层，换标量打分头</td></tr>
+      <tr><td>RM 规模</td><td>6B（175B 版本训练不稳定，未采用）</td></tr>
+      <tr><td>偏好数据规模</td><td>33k 个 prompt（对照：SFT 数据约 13k，PPO 阶段 31k）</td></tr>
+      <tr><td>每 prompt 回答数</td><td>\(K = 4\) 到 \(9\)，一次排序拆 \(\binom{K}{2}\) 对</td></tr>
+      <tr><td>批次组织</td><td>同一 prompt 的全部对子作一个 batch 元素：防过拟合、省前向</td></tr>
+      <tr><td>标注团队</td><td>约 40 名合同标注员，经筛选测试选拔</td></tr>
+      <tr><td>标注员一致率</td><td>训练标注员互比 72.6±1.5%，留出标注员 77.3±1.3%</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　表里最后一行值得停下来想一秒。一致率七成多意味着：面对同一个 prompt 的两个回答，人类标注员自己就有近三成谈不拢。「哪个更好」在相当一批样本上本就没有共识，奖励模型能学到的只是这个带噪声信号的多数派意见。这条流水线的天花板，首先被偏好数据的质量封死，其次才轮得到 RM 的规模与算法。</p>
+
+<div class="highlight-box">
+  核心结论：RM 是偏好的「多数派裁判」。标注员一致率约七成给出这条流水线的现实上限——RM 判对率不可能长期显著超过人类自己的共识度。想抬高天花板，先改数据（更清晰的标注准则、更细的维度拆分），再改模型。
+</div>
+
+<h2>10.2.4 奖励模型的盲区：reward hacking 与分布外失效</h2>
+
+<p>　　裁判造出来了，最后泼一盆冷水：RM 是人类偏好的<strong>代理</strong>（proxy），不是人类偏好本身。代理与本体之间永远有条缝，而强化学习最擅长找到这条缝。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">reward hacking 奖励破解</span>
+    <span class="term-en">hack = 钻空子：策略模型钻奖励函数的空子</span>
+  </div>
+  <div class="term-body">
+    <p>指被优化的模型不去真正提升回答质量，而是发现奖励模型的漏洞，靠「看起来好」的表面特征刷高分。根因是结构性的：RM 只是人类偏好的近似，凡是代理没覆盖到的维度，都可能成为刷分通道。这是 RLHF 的固有风险，调参消不掉，只能靠约束与监控缓解。</p>
+    <div class="term-analogy">就像按「字数」给作文打分：学生很快学会把文章写长，分数上去了，水平未必。一项指标一旦被当成目标，就不再是好指标——这就是 Goodhart 定律。</div>
+  </div>
+</div>
+
+<p>　　最经典的案例是<strong>长度偏见</strong>。Singhal 等人（2023）系统考察了 RLHF 中的长度相关性：RM 的分数与回答长度显著相关，于是 PPO 训练会把输出越拉越长——分数涨了，信息量没涨。更隐蔽的版本也被实验证实：Wen 等人（2024）发现 RLHF 能让模型更会「说服」人类评审——答案看起来更可信、更容易被认可，但任务正确率没有同步提升，评审被误导了。两类案例的共同点是：代理奖励上升，真实目标原地踏步。</p>
+
+<p>　　第二个盲区是<strong>分布外失效</strong>。RM 的训练数据全部来自 SFT 模型（及其相近版本）的输出分布；PPO 训练中策略一旦偏离这个分布，RM 面对的就是没见过的回答风格，此时的打分是外推，可信度没有保障。而 PPO 的优化压力恰恰在把策略往「RM 给高分」的方向推——分布漂移与刷分互相加速，不加约束很容易跑飞。</p>
+
+<p>　　这正是 10.3 节 KL 罚项的存在理由：在奖励里扣掉「策略偏离 SFT 参考模型」的惩罚，把策略拴在 RM 见得多的分布附近，给外推打分上保险。更彻底的另一条路——干脆不训显式的奖励模型，直接在偏好对上优化策略——是 10.4 节 DPO 家族的故事。</p>
+
+<div class="highlight-box warn">
+  RM 分数高 ≠ 回答真的好。它只保证「在 RM 见过的分布上、按标注员多数派的口味、这条比那条强」。拿 RM 分数当绝对质量分、跨 prompt 比分数、或在分布外信它，都是经典误用。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">偏好数据的最小单元是什么？K 个回答的一次排序能拆出多少训练信号？</div>
+    <div class="sc-key">最小单元是 chosen / rejected 成对样本：同一 prompt、两条回答、一个「谁更好」的标注，minimind 的 DPODataset 就是两个对话 list 字段。K 个回答的一次排序可拆 \(\binom{K}{2}\) 个对子（K=4 拆 6 对，K=9 拆 36 对）；InstructGPT 按 K=4 到 9 收数据，并把同一 prompt 的全部对子作一个 batch 元素训练，防止相关对子打乱后一遍过拟合。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Bradley-Terry 怎么把「谁更好」变成可训练的目标？</div>
+    <div class="sc-key">假设每条回答有潜在分数，胜率只由分差决定：P(chosen 胜) = σ(r_c − r_r)，与两类 softmax 等价。训练损失是判对概率的负对数 −log σ(r_c − r_r)：分差 0 时损失约 0.69，分差 +2 时降到约 0.13，判反（−2）冲到约 2.13。分数只以差的形式出现，所以 RM 的绝对分数没有意义。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">奖励模型有哪些盲区，工程上怎么补救？</div>
+    <div class="sc-key">两类盲区：reward hacking（策略钻代理漏洞刷分，长度偏见是经典案例，RLHF 还可能让模型更会误导评审而非更正确）与分布外失效（策略漂移后 RM 打分是外推）。补救：10.3 的 KL 罚项把策略拴在参考分布附近；10.4 的 DPO 家族干脆绕开显式 RM。另有一重天花板：标注员一致率约七成，偏好数据质量先于模型规模封顶整条流水线。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Bradley &amp; Terry, 1952. Rank Analysis of Incomplete Block Designs: The Method of Paired Comparisons（Biometrika 39(3/4)）：配对比较概率模型的原始出处，10.2.2 的胜率公式。</li>
+  <li>Christiano et al., 2017. Deep Reinforcement Learning from Human Preferences（arXiv:1706.03741）：把成对偏好与 Bradley-Terry 式打分引入深度强化学习。</li>
+  <li>Stiennon et al., 2020. Learning to Summarize from Human Feedback（arXiv:2009.01325）：把该框架用于文本生成（摘要）的奖励模型训练；InstructGPT 的 RM 损失沿袭其「分差即对数几率」的交叉熵形式。</li>
+  <li>Ouyang et al., 2022. Training Language Models to Follow Instructions with Human Feedback（InstructGPT，arXiv:2203.02155）：10.2.3 全部数字的出处——RM 以 SFT 模型去掉 unembedding 初始化、仅用 6B（175B 训练不稳定）、RM 数据 33k 个 prompt、K=4–9 排序拆 \(\binom{K}{2}\) 对且同 prompt 对子作一个 batch 元素、约 40 名标注员、一致率 72.6±1.5%（训练标注员）与 77.3±1.3%（留出标注员），以及公式 (2) 的原文形式。</li>
+  <li>Singhal et al., 2023. A Long Way to Go: Investigating Length Correlations in RLHF（arXiv:2310.03716）：RM 分数与回答长度显著相关，长度偏见的系统研究。</li>
+  <li>Wen et al., 2024. Language Models Learn to Mislead Humans via RLHF（arXiv:2409.12822）：RLHF 提升人类评审的认可度但未同步提升正确率。</li>
+  <li>minimind（Apache 2.0），dataset/lm_dataset.py：偏好数据字段结构——第 125–178 行（DPODataset：chosen / rejected 对话 list、chat 模板编码）、第 180–196 行（generate_loss_mask 只罩助手回答区间）。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch10_1_alignment_gap.html" title="10.1 偏好差距：为什么 SFT 之后还要对齐">← 上一节：10.1 偏好差距：为什么 SFT 之后还要对齐</a><a class="next" href="ch10_3_ppo_rlhf.html" title="10.3 RLHF：PPO 强化学习对齐">下一节：10.3 RLHF：PPO 强化学习对齐 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

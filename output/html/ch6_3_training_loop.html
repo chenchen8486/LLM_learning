@@ -1,0 +1,804 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>6.3 一次预训练长什么样：训练循环逐步走查 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link active" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 6 章 预训练</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>6.3 一次预训练长什么样：训练循环逐步走查</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>6.3 一次预训练长什么样：训练循环逐步走查</h1>
+<p class="subtitle">本页范围：第 6 章第 3 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>论文里的「预训练」只有一句话：在海量文本上做下一个 token 预测。落到代码里，一个 batch 从进来到参数更新，到底经过哪几步？</td></tr>
+      <tr><td>本节主张</td><td>预训练循环是一条七步流水线：取 batch、forward、算交叉熵损失、backward、梯度裁剪、优化器 step、周期性记录与存盘。「预测下一个 token」在代码里的形态，就是 labels 右移一位再算交叉熵。</td></tr>
+      <tr><td>一句话结论</td><td>把 minimind 的 train_pretrain.py 逐行拆开看，宏观叙事里的「预训练」就是一段几十行、可复现的循环：64M 小模型单卡一个多小时跑完一轮，GPT-3 量级则要数千卡月。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>训练循环</span><span>labels 右移</span><span>交叉熵</span><span>梯度裁剪</span><span>混合精度</span><span>梯度累积</span><span>checkpoint</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　前两节分别解决了「练什么」与「怎么调」：训练目标是下一个 token 预测，参数更新靠 AdamW 与学习率调度。本节把这两块拼起来，回答一个更具体的问题——一次真实的预训练，从启动脚本到存出权重，中间每一行代码在干什么。我们不用玩具代码，直接用本工程自带的 minimind 工程（64M 小模型，Apache 2.0 协议）做走查对象，它的 <code>train_pretrain.py</code> 与工业界大模型的训练脚本同构，只是训练算力小了约六个数量级。</p>
+
+<p>　　本节沿四条线展开，读完后你应该能打开任何一个 LLM 训练脚本，一眼认出它的骨架：</p>
+
+<ol>
+  <li><strong>训练循环七步：从取数据到存盘</strong>（6.3.1）：把 train_epoch 函数逐行对照，认清七步流水线各自的代码位置；</li>
+  <li><strong>labels 右移：「预测下一个 token」的代码形态</strong>（6.3.2）：右移发生在哪一行、为什么要右移、padding 位置怎么剔除；</li>
+  <li><strong>loss 曲线怎么读</strong>（6.3.3）：开局陡降、长尾缓降、loss spike 各说明什么，验证 loss 背离意味着什么；</li>
+  <li><strong>混合精度与梯度累积：脚本里的两道保险</strong>（6.3.4）：autocast、GradScaler、accumulation 的用法点到为止；</li>
+  <li><strong>从玩具到巨兽：规模账本</strong>（6.3.5）：同一套循环，minimind 与 GPT-3 的算力账单差几个数量级。</li>
+</ol>
+
+<p>　　本节涉及的代码都在 minimind 工程的 <code>trainer/train_pretrain.py</code> 里，读完后建议对照源码把七步循环走一遍。</p>
+
+<p>　　逐行走查之前，先看一眼预训练在 LLM 整条生命周期中的位置，以及这一站落到代码里的样子。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS63trainingloop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG63trainingloop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#6b7280">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS63trainingloop)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG63trainingloop)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：预训练在 LLM 生命周期中的位置。训练数据（第 1 章）备好后进入预训练（本章，紫框）：在海量语料上做自监督学习，把文本规律压进参数；配套的并行、精度与稳定性工程在第 7 章，之后的中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）、推理与部署（第 12–13 章）在对应章节展开。本节只需记住：目标与优化器定了之后，预训练落到代码里就是一段几十行的训练循环，七步一个来回。</div>
+</div>
+
+<p>　　图 1 里这个紫框放大之后长什么样？一个 batch 从进来到参数更新，中间要走哪几步？把训练循环单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 470" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr63z" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="30" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：训练循环——一个 batch 的七步环形之旅</text>
+    <text x="30" y="50" font-size="11" fill="#64748b">对应 minimind train_pretrain.py 第 26–47 行；每步先用 get_lr 重算学习率（cosine，5×10⁻⁴ 降到 10%）</text>
+    <!-- 环形箭头（顺时针） -->
+    <line x1="435" y1="131.7" x2="480.5" y2="144.8" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="566.5" y1="195.5" x2="592.7" y2="264.4" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="565.1" y1="322.4" x2="507.1" y2="366.1" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="393.5" y1="395.1" x2="326.5" y2="395.1" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="212.9" y1="366.1" x2="154.9" y2="322.4" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="127.3" y1="264.4" x2="153.5" y2="195.5" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <line x1="239.5" y1="144.8" x2="285" y2="131.7" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr63z)"/>
+    <!-- 中心说明 -->
+    <text x="360" y="240" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">梯度累积：攒满 8 个小 batch</text>
+    <text x="360" y="260" text-anchor="middle" font-size="11" fill="#555">才执行一次 ⑤⑥ 更新</text>
+    <text x="360" y="279" text-anchor="middle" font-size="10.5" fill="#64748b">有效批量 32 × 8 = 256 条</text>
+    <!-- 七个节点 -->
+    <rect x="285" y="84" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="360" y="107" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">① 取 batch</text>
+    <text x="360" y="125" text-anchor="middle" font-size="10.5" fill="#555">input_ids：32 × 340</text>
+    <rect x="480.5" y="140.5" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="555.5" y="163.5" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">② forward 前向</text>
+    <text x="555.5" y="181.5" text-anchor="middle" font-size="10.5" fill="#555">logits 32×340×6400</text>
+    <rect x="528.7" y="267.4" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="603.7" y="290.4" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">③ 算损失</text>
+    <text x="603.7" y="308.4" text-anchor="middle" font-size="10.5" fill="#555">交叉熵 → 标量 loss</text>
+    <rect x="393.5" y="369.1" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="468.5" y="392.1" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">④ backward</text>
+    <text x="468.5" y="410.1" text-anchor="middle" font-size="10.5" fill="#555">梯度反传回全部参数</text>
+    <rect x="176.5" y="369.1" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="251.5" y="392.1" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">⑤ 梯度裁剪</text>
+    <text x="251.5" y="410.1" text-anchor="middle" font-size="10.5" fill="#555">全局范数裁到 1.0</text>
+    <rect x="41.3" y="267.4" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="116.3" y="290.4" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">⑥ 优化器 step</text>
+    <text x="116.3" y="308.4" text-anchor="middle" font-size="10.5" fill="#555">AdamW 更新 → zero_grad</text>
+    <rect x="89.5" y="140.5" width="150" height="52" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="164.5" y="163.5" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">⑦ 日志与 checkpoint</text>
+    <text x="164.5" y="181.5" text-anchor="middle" font-size="10" fill="#555">每 100 步日志 / 1000 步存盘</text>
+    <!-- 底部说明 -->
+    <text x="360" y="450" text-anchor="middle" font-size="11" fill="#64748b">一圈又一圈直到数据跑完；⑦ 的 checkpoint 是训练中断后唯一能接着跑的存档点</text>
+  </svg>
+  <div class="diagram-caption">图 2：一个 batch 在训练循环里的七步环形路径。输入一批 32 × 340 的 token ID，前向得到 32 × 340 × 6400 的 logits，与右移一位的 labels 算交叉熵得到标量 loss，反向传播后裁剪梯度范数到 1.0，再由 AdamW 更新参数并清零梯度；日志与 checkpoint 周期性执行。梯度累积让 ⑤⑥ 每攒满 8 个小 batch 才做一次，有效批量 256 条。</div>
+</div>
+
+<h2>6.3.1 训练循环七步：从取数据到存盘</h2>
+
+<p>　　先给一个整体直觉。训练循环很像学生刷题：每轮拿一批题（取 batch），自己先做一遍（forward），对照答案算错得有多离谱（算损失），复盘错因、总结到笔记本上（backward 与优化器 step），每刷完一批就歇口气，记一笔进度、阶段性存档（日志与 checkpoint）。区别是学生靠脑子记，模型靠梯度更新参数。minimind 的 <code>trainer/train_pretrain.py</code> 里，<code>train_epoch</code> 函数（第 24 行起）就是这条流水线，核心循环只有二十来行：</p>
+
+<pre><code>for step, (input_ids, labels) in enumerate(loader, start=start_step + 1):
+    input_ids = input_ids.to(args.device)
+    labels = labels.to(args.device)
+    lr = get_lr(epoch * iters + step, args.epochs * iters, args.learning_rate)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+
+    with autocast_ctx:
+        res = model(input_ids, labels=labels)
+        loss = res.loss + res.aux_loss
+        loss = loss / args.accumulation_steps
+
+    scaler.scale(loss).backward()
+
+    if step % args.accumulation_steps == 0 or step == iters:
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+
+        scaler.step(optimizer)
+        scaler.update()
+
+        optimizer.zero_grad(set_to_none=True)</code></pre>
+
+<p>　　（节选自 <code>trainer/train_pretrain.py</code> 第 26–47 行，出处：minimind 工程，Apache 2.0 协议；行号以本工程实读版本为准，下同。）把这段代码拆开，正好是七步：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>步骤</th><th>干什么</th><th>minimind 对应位置</th></tr></thead>
+    <tbody>
+      <tr><td>① 取 batch</td><td>DataLoader 吐出一批 <code>input_ids</code> 与 <code>labels</code>，搬到 GPU。数据由 <code>PretrainDataset</code> 逐条提供（见 6.3.2）</td><td>train_pretrain.py 第 26–28 行；数据集定义在 dataset/lm_dataset.py 第 40–58 行</td></tr>
+      <tr><td>② forward 得 logits</td><td>模型前向跑一遍，得到每个位置对词表的打分（logits）</td><td>第 34 行 <code>model(input_ids, labels=labels)</code>；logits 的计算在 model/model_minimind.py 第 253 行</td></tr>
+      <tr><td>③ 算交叉熵损失</td><td>logits 与右移一位的 labels 算交叉熵，得到这一步的 loss</td><td>model_minimind.py 第 256–257 行（细节见 6.3.2）；第 35 行把 MoE 辅助损失加进来</td></tr>
+      <tr><td>④ backward 反传</td><td>对 loss 求梯度，一路反传回每个参数</td><td>第 38 行 <code>scaler.scale(loss).backward()</code></td></tr>
+      <tr><td>⑤ 梯度裁剪</td><td>梯度总范数超过阈值就整体缩放，防止个别 batch 把参数带飞</td><td>第 41–42 行，阈值 <code>grad_clip</code> 默认 1.0</td></tr>
+      <tr><td>⑥ 优化器 step</td><td>AdamW 按梯度更新参数，随后清零梯度，准备下一轮</td><td>第 44–47 行；AdamW 定义在第 130 行，初始学习率默认 5e-4</td></tr>
+      <tr><td>⑦ 周期性记录与存盘</td><td>每隔一段打印日志、保存 checkpoint，支持断点续训</td><td>日志：第 49–57 行，间隔 <code>log_interval</code>=100 步；存盘：第 59–69 行，间隔 <code>save_interval</code>=1000 步</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　几个容易看漏的细节。第 29–31 行每步都重算学习率：<code>get_lr</code>（trainer/trainer_utils.py 第 42–43 行）给出一条余弦曲线，让学习率从峰值平滑滑落到峰值的十分之一：</p>
+
+<div class="formula-card">
+  \[ \mathrm{lr}_t = \mathrm{lr}_{\max}\left[\,0.1 + 0.45\left(1 + \cos\frac{\pi t}{T}\right)\right] \tag{1} \]
+  <div class="formula-note">公式 (1)：余弦学习率调度——开局用满峰值学习率大胆走，训练后期步长越来越小，细调收敛。符号说明：\(\mathrm{lr}_t\) 是第 \(t\) 步实际使用的学习率；\(\mathrm{lr}_{\max}\) 是初始学习率（脚本默认 5e-4）；\(t\) 是全局步数（跨 epoch 累计，代码里就是 <code>epoch * iters + step</code>）；\(T\) 是计划的总步数。\(t=0\) 时括号内为 1，\(t=T\) 时 \(\cos\pi=-1\)、括号内为 0.1，正好从峰值降到十分之一。这个脚本没有单独的 warmup 预热段。</div>
+</div>
+
+<p>　　第 59–69 行的存盘动作也值得一看：每隔 1000 步把权重转成半精度（<code>v.half()</code>）存成 <code>out/pretrain_768.pth</code>，同时往 <code>checkpoints/</code> 目录写一份含优化器状态的完整检查点，训练中断后加 <code>--from_resume 1</code> 就能接着跑。一次预训练短则数小时、长则数月，checkpoint 是唯一的「存档点」，没有它，一次断电就意味着从头再来。</p>
+
+<div class="highlight-box info">
+  注意这段循环里没有「验证集」。预训练的数据量远大于模型能记住的规模，通常只训一两遍，过拟合不是主要矛盾，所以 minimind（和多数预训练脚本）不划分验证集，只用训练 loss 加周期性 checkpoint，效果交给训练后的下游评测确认。验证集的事在 6.3.3 还会回来讲。
+</div>
+
+<div class="highlight-box">
+  这七步是几乎所有 LLM 预训练脚本的共同骨架：换成 Megatron-LM 或工业界的内部代码，多的只是分布式、流水并行与容错机制，循环本身一模一样。读懂这二十行，就拿到了读一切训练脚本的钥匙。
+</div>
+
+<h2>6.3.2 labels 右移：「预测下一个 token」的代码形态</h2>
+
+<p>　　上一节说了训练目标是「预测下一个 token」：看到 <code>[x1, x2, …, xT]</code>，位置 \(t\) 要预测 \(x_{t+1}\)。这句话在代码里长什么样？答案分两半，一半在数据集，一半在模型。</p>
+
+<p>　　先看数据集。<code>PretrainDataset.__getitem__</code>（dataset/lm_dataset.py 第 50–58 行）把一条文本变成一对张量：</p>
+
+<pre><code>tokens = self.tokenizer(str(sample['text']), add_special_tokens=False, max_length=self.max_length - 2, truncation=True).input_ids
+tokens = [self.tokenizer.bos_token_id] + tokens + [self.tokenizer.eos_token_id]
+input_ids = tokens + [self.tokenizer.pad_token_id] * (self.max_length - len(tokens))
+input_ids = torch.tensor(input_ids, dtype=torch.long)
+labels = input_ids.clone()
+labels[input_ids == self.tokenizer.pad_token_id] = -100</code></pre>
+
+<p>　　（节选自 dataset/lm_dataset.py 第 52–57 行，Apache 2.0。）流程是：分词、首尾加上 BOS 与 EOS、用 PAD 补齐到固定长度。注意第 6 行：<strong>labels 就是 input_ids 的原样克隆，这里并没有右移</strong>。唯一的加工是最后一句：把 padding 位置的 label 改成 -100。</p>
+
+<p>　　右移发生在模型内部。<code>MiniMindForCausalLM.forward</code>（model/model_minimind.py）算完 logits 后，用两行代码完成对齐：</p>
+
+<pre><code>x, y = logits[..., :-1, :].contiguous(), labels[..., 1:].contiguous()
+loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)</code></pre>
+
+<p>　　（model_minimind.py 第 256–257 行，Apache 2.0。）<code>logits[..., :-1, :]</code> 切掉最后一个位置的预测，<code>labels[..., 1:]</code> 切掉第一个 token 的编号——两刀下去，位置 \(t\) 的预测正好对上位置 \(t+1\) 的真实 token。这就是「右移一位」：输入是 \([x_1, \dots, x_T]\)，标签实际上是 \([x_2, \dots, x_{T+1}]\)。</p>
+
+<p>　　用一句小例子落到纸面。假设「我爱北京」分词后是四个 token，加上首尾标记，一个样本的输入与每个位置的预测目标是这样错开一格的（token ID 为示意）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>位置</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
+    <tbody>
+      <tr><td>输入 input_ids</td><td>BOS</td><td>我</td><td>爱</td><td>北</td><td>京</td><td>EOS</td></tr>
+      <tr><td>该位置的预测目标</td><td>我</td><td>爱</td><td>北</td><td>京</td><td>EOS</td><td>—（被切掉，不参与）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　位置 0 只看到 BOS，要学会吐出「我」；位置 3 看到「BOS 我 爱 北」，要吐出「京」。一个 batch 里每个位置都是一道「接龙题」，一次 forward 就出了 \(T\) 道题，这就是语言模型训练数据利用率高的原因：一段文本不只提供一个监督信号，而是每个位置一个。</p>
+
+<p>　　这些题目的「判分标准」就是交叉熵损失：</p>
+
+<div class="formula-card">
+  \[ \mathcal{L} = -\frac{1}{T}\sum_{t=1}^{T} \log P_\theta\!\left(x_{t+1} \mid x_{\le t}\right) \tag{2} \]
+  <div class="formula-note">公式 (2)：下一个 token 预测的交叉熵——模型给正确下一个 token 的概率越高，\(\log\) 越接近 0，损失越小；整个序列取平均。符号说明：\(x_t\) 是序列第 \(t\) 个 token；\(x_{\le t}\) 表示位置 \(t\) 及其之前的全部 token（即模型能看到的历史）；\(P_\theta(x_{t+1} \mid x_{\le t})\) 是参数为 \(\theta\) 的模型在该历史下给正确 token 分配的概率，由 logits 过 softmax 得到；\(T\) 是参与计算的位置数。代码里的 <code>ignore_index=-100</code> 会把 padding 位置从求和与平均中剔除，让它们不算题、不计分。</div>
+</div>
+
+<div class="highlight-box danger">
+  两个易错点都藏在这两行代码里。其一，不要二次右移：minimind 的 labels 在数据集里不右移，右移由模型里的切片完成；如果有人在数据侧先把 labels 平移一格，模型再切一刀，预测和目标就错开两位，loss 会停在一个降不下去的高位。其二，padding 位必须置 -100：否则模型会被迫学习「句子结束后继续输出 PAD」，白白浪费容量。
+</div>
+
+<p>　　一句话总结这一节：所谓「预测下一个 token」，代码里就是 labels 克隆输入、模型里错开一格、交叉熵打分，外加用 -100 把 padding 踢出考场。</p>
+
+<h2>6.3.3 loss 曲线怎么读</h2>
+
+<p>　　训练跑起来后，屏幕上唯一持续跳动的就是 loss。它不是一串枯燥的数字，而是模型的「学习心电图」。读法有固定套路。</p>
+
+<p>　　先看起点。随机初始化的模型对词表里的 token 近乎均匀猜测，开局 loss 约等于 \(\ln V\)：minimind 词表 \(V=6400\)，所以第一步的 loss 通常在 \(\ln 6400 \approx 8.76\) 附近。如果开局远低于这个数，说明初始化或数据处理有问题；如果降不下去，先查 labels 对齐（6.3.2 的两个易错点）。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arr6r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <!-- 坐标轴 -->
+    <line x1="70" y1="300" x2="70" y2="25" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr6)"/>
+    <line x1="60" y1="300" x2="700" y2="300" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr6)"/>
+    <text x="40" y="30" font-size="12" fill="#666">loss</text>
+    <text x="700" y="322" text-anchor="end" font-size="12" fill="#666">训练步数 step</text>
+    <!-- 随机基线 -->
+    <line x1="70" y1="62" x2="690" y2="62" stroke="#0891b2" stroke-width="1" stroke-dasharray="6 4"/>
+    <text x="500" y="54" font-size="12" fill="#0891b2">随机基线 ln(6400) ≈ 8.76（均匀猜测）</text>
+    <!-- loss 曲线 -->
+    <path d="M 75,64 C 120,222 160,243 230,254 C 300,262 340,261 378,262 L 392,205 L 406,264 C 480,268 620,272 685,273" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- 开局陡降标注 -->
+    <text x="118" y="130" font-size="13" fill="#333">开局陡降</text>
+    <text x="102" y="148" font-size="11" fill="#666">先学词频与语法</text>
+    <line x1="150" y1="155" x2="138" y2="205" stroke="#999" stroke-width="1" marker-end="url(#arr6)"/>
+    <!-- 长尾缓降标注 -->
+    <text x="520" y="238" font-size="13" fill="#333">长尾缓降</text>
+    <text x="490" y="256" font-size="11" fill="#666">知识与推理模式慢慢磨合</text>
+    <!-- spike 标注 -->
+    <text x="330" y="192" font-size="13" fill="#dc2626">loss spike</text>
+    <text x="300" y="176" font-size="11" fill="#dc2626">突刺：回滚到上个 checkpoint</text>
+    <line x1="380" y1="196" x2="390" y2="204" stroke="#dc2626" stroke-width="1" marker-end="url(#arr6r)"/>
+  </svg>
+  <div class="diagram-caption">图 3：预训练 loss 曲线的典型形态——从随机基线起步，开局陡降后进入长尾缓降，中途可能出现突刺（loss spike）。曲线形状为示意，非实测数据。</div>
+</div>
+
+<p>　　曲线的主体分两段，各讲一个故事：</p>
+
+<ul>
+  <li><strong>开局陡降</strong>：最初几百到几千步，loss 断崖式下跌。这一阶段模型在学「便宜」的统计规律：哪些 token 常见（词频分布）、标点怎么用、词序大致什么样。这些规律到处都是、信号极强，所以学得飞快。</li>
+  <li><strong>长尾缓降</strong>：陡降之后进入漫长的缓降期，曲线几乎贴着地面平移。这一段学的是知识、事实关联与推理模式——它们稀疏、难学，每降 0.1 都要喂进去海量 token。本章 Scaling Law 一节会告诉你，这段长尾的下降是幂律的：想再压低一点，算力就得翻着倍地加。</li>
+</ul>
+
+<p>　　再看异常。曲线上偶尔冒出的突刺叫 <strong>loss spike</strong>：loss 突然蹿升几倍再回落。常见诱因是学习率过高、遇上一批脏数据、或底层硬件抖动。偶尔一次 spike 不必惊慌，模型通常自己能爬回来；频繁 spike 或 spike 后 loss 站上新台阶，标准处置是回滚到最近一个健康的 checkpoint、调低学习率、跳过可疑数据再续训。Meta 训练 OPT-175B 时的公开日志记录了数十次这类中断与回滚，是这套做法最透明的第一手记录（见参考来源）。</p>
+
+<p>　　最后是训练 loss 与验证 loss 的关系。验证 loss 是在模型没见过的数据上算的同一个交叉熵：训练 loss 降、验证 loss 也降，说明学到的是通用规律；<strong>训练 loss 降而验证 loss 掉头向上，就是过拟合的经典信号</strong>——模型开始背诵训练集而不是学规律。不过在预训练阶段这个剧情很少上演：数据只过一两遍，模型还没来得及背。它真正的舞台是数据要反复过多遍的微调阶段（第 9 章会再用到这条判据）。</p>
+
+<div class="highlight-box warn">
+  读 loss 曲线时警惕「只看训练 loss」。训练 loss 单调下降只能证明模型在拟合训练数据，证明不了泛化。minimind 这类预训练脚本不内置验证集，补救手段是训完用评测脚本（如 <code>eval_llm.py</code>）和下游基准兜底；工业界大训练则会全程挂一条留出集的验证 loss。
+</div>
+
+<p>　　补一个换算关系：论文里常见的<strong>困惑度</strong>（perplexity，ppl）就是 \(\mathrm{ppl} = e^{\mathcal{L}}\)，把 loss 换回「平均在每个位置上面临多少个等概率候选」的直觉尺度。loss 从 8.76 降到 3，相当于候选从 6400 个收窄到约 20 个。</p>
+
+<h2>6.3.4 混合精度与梯度累积：脚本里的两道保险</h2>
+
+<p>　　七步循环里有几行代码不属于主线逻辑，却是每个现代训练脚本的标配：混合精度与梯度累积。这里只讲清「它们在循环里干什么」，深入原理留给第 7 章预训练工程。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">混合精度 Mixed Precision</span>
+    <span class="term-en">mixed precision = 前向计算用 16 位浮点，敏感部分保留 32 位</span>
+  </div>
+  <div class="term-body">
+    <p>脚本第 114 行建了 <code>autocast_ctx</code>（默认 bfloat16），第 33 行的 <code>with autocast_ctx:</code> 让前向的矩阵乘自动落到 16 位执行：显存占用近腰斩，吞吐显著提升，而参数与梯度的主副本仍是 32 位，精度不受致命影响。</p>
+    <div class="term-analogy">就像草稿纸上用速记符号、正式答卷上用工整楷体：计算过程求快，落账求稳。</div>
+  </div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">梯度累积 Gradient Accumulation</span>
+    <span class="term-en">accumulation = 攒若干个小 batch 的梯度，再一次性更新</span>
+  </div>
+  <div class="term-body">
+    <p>第 36 行把 loss 除以 <code>accumulation_steps</code>（默认 8），第 40 行的判断让梯度裁剪与优化器 step 每 8 步才执行一次：连续 8 个小 batch 的梯度先累加，再当成一个大 batch 更新。显存只装得下 batch=32，有效批量却是 \(32 \times 8 = 256\)，大 batch 的稳定性与小 batch 的显存开销兼得。</p>
+    <div class="term-analogy">就像零钱攒够一波再存银行：跑八趟柜台只办一次手续，账上的总数和一次性存一样。</div>
+  </div>
+</div>
+
+<div class="highlight-box info">
+  第 129 行有个反直觉的细节：<code>GradScaler(enabled=(args.dtype == 'float16'))</code>——只有选 float16 时才启用梯度缩放（防止 16 位下梯度下溢成 0），默认的 bfloat16 动态范围接近 32 位，不需要 scaler，此时 <code>scaler.scale(...)</code> 与 <code>scaler.step(...)</code> 是原样透传的安全壳。
+</div>
+
+<p>　　一句话总结：混合精度省显存、提速度，梯度累积用小显存伪造大 batch，两者合起来让 64M 模型能塞进一张消费级显卡。第 7 章会把它们和分布式并行放在一起细讲。</p>
+
+<h2>6.3.5 从玩具到巨兽：规模账本</h2>
+
+<p>　　同一套七步循环，喂不同的规模，账单完全不同。先给一把估算尺子：训练一个 Transformer 的总算力约等于参数量乘训练 token 数再乘 6：</p>
+
+<div class="formula-card">
+  \[ C \approx 6\,N\,D \tag{3} \]
+  <div class="formula-note">公式 (3)：训练算力的经验估算（Kaplan et al., 2020）——每个 token 前向约花 \(2N\) 次运算，反向再花约 \(4N\)，合计 \(6N\)。符号说明：\(C\) 是训练总浮点运算量（FLOPs）；\(N\) 是模型参数量；\(D\) 是训练 token 总数；系数 6 来自前向与反向传播的运算量比值。拿 GPT-3 验证：\(N = 1.746 \times 10^{11}\)、\(D = 3 \times 10^{11}\)，得 \(C \approx 3.14 \times 10^{23}\)，与论文附录给出的数字分毫不差。</div>
+</div>
+
+<p>　　用这把尺子量一量一大一小两个极端：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>账本项</th><th>minimind-3（64M）</th><th>GPT-3（175B）</th></tr></thead>
+    <tbody>
+      <tr><td>参数量</td><td>64M（6400×768 的 Embedding 加 8 层 Transformer）</td><td>1746 亿</td></tr>
+      <tr><td>训练数据</td><td>pretrain_t2t_mini.jsonl，约 1.2GB 文本</td><td>约 3000 亿 token</td></tr>
+      <tr><td>训练算力</td><td>未公开换算；量级在 \(10^{17}\) FLOPs 上下（待查证）</td><td>\(3.14 \times 10^{23}\) FLOPs，即 3640 PF-days（论文附录 D）</td></tr>
+      <tr><td>硬件与时间</td><td>单卡 RTX 3090 约 1.2 小时跑完一轮预训练（README 实测估算）</td><td>按 2020 年 V100 云实例折算约 355 个卡年，即四千多卡月（Lambda 测算）</td></tr>
+      <tr><td>一次成本</td><td>约 1.6 元租卡费（按 1.3 元/时）</td><td>约 460 万美元（Lambda 按 2020 年云价估算）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　3640 PF-days 这个单位值得展开：1 PF-day 指「以每秒千万亿次浮点运算的速度跑满一天」所做的功，GPT-3 一次训练要做 3640 份这样的功。V100 的实际有效吞吐远低于理论峰值，折算下来就是单卡跑约 355 年；换成一千张卡的集群，也要连续跑约四个月——这还没算 loss spike 回滚、硬件故障重训的损耗。</p>
+
+<p>　　两边对照着看，结论很直白：<strong>训练循环的代码不变，变的是每一项的规模，以及规模带来的工程难题</strong>。64M 模型一张消费卡、一杯咖啡的时间就能从随机权重跑到会说简单的话；175B 模型需要千卡集群、数月时间与数百万美元，还得养一支团队专门对付 spike、断训与硬件故障。从玩具到巨兽之间没有魔法，只有公式 (3) 里冷冰冰的乘法，以及第 7 章要讲的分布式工程。</p>
+
+<div class="highlight-box">
+  亲手跑一次 minimind 预训练的价值正在于此：同样的七步循环、同样的余弦学习率、同样的 checkpoint 机制，花一块六毛钱就能把 GPT-3 级别的训练流程完整体验一遍，把纸面知识变成手感。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">minimind 的 labels 为什么不在数据集里预先右移？</div>
+    <div class="sc-key">数据集只做克隆并把 padding 置 -100（lm_dataset.py 第 56–57 行）；错位发生在模型 forward 里：<code>logits[..., :-1, :]</code> 对 <code>labels[..., 1:]</code>（model_minimind.py 第 256 行）。两边各切一刀，位置 \(t\) 的预测正好对上 \(t+1\) 的真实 token。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">预训练 loss 曲线的三个阶段各说明什么？</div>
+    <div class="sc-key">开局从 \(\ln V\)（minimind 约 8.76）陡降，是在学词频与语法；长尾缓降是在磨知识与推理，每降一点都要成倍算力；中途突刺（loss spike）多由脏数据、学习率或硬件抖动引起，标准处置是回滚到健康 checkpoint 再续训。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">梯度累积为什么能用小显存跑出大 batch 的效果？</div>
+    <div class="sc-key">把一个大 batch 拆成 8 次小 forward/backward，loss 先除以 8 再反传，梯度在参数上原地累加，攒满 8 步才裁剪、step、清零。显存只占 batch=32 的份，有效批量却是 256。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>minimind 工程（gongjy/minimind，Apache 2.0 协议）：trainer/train_pretrain.py、dataset/lm_dataset.py、model/model_minimind.py、trainer/trainer_utils.py 及 README 的「训练开销」实测表（64M 模型单卡 3090 约 1.21 小时、约 1.57 元）。本页所有行号以本工程实读版本为准。</li>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3 原始论文，arXiv:2005.14165）：附录 D 给出 175B 模型训练算力 3.14×10^23 FLOPs（3640 PF-days），正文表 2.1 给出 3000 亿训练 token。</li>
+  <li>Kaplan et al., 2020. Scaling Laws for Neural Language Models（arXiv:2001.08361）：训练算力估算规则 C ≈ 6ND 的出处。</li>
+  <li>Zhang et al., 2022. OPT: Open Pre-trained Transformer Language Models（arXiv:2205.01068）：175B 训练日志中大量 loss spike、硬件中断与 checkpoint 回滚的公开记录。</li>
+  <li>Lambda Labs（Chuan Li）, 2020. Demystifying GPT-3（https://lambdalabs.com/blog/demystifying-gpt-3/）：GPT-3 训练折合 355 个 V100 卡年、约 460 万美元的业界常用换算。</li>
+  <li>待核实事项：6.3.5 表格中 minimind 预训练总算力（约 10^17 FLOPs 量级）为按数据体积的粗略估计，未找到公开换算，已标注待查证。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch6_2_optimizer_hyperparams.html" title="6.2 优化器与超参数：万亿 token 怎么喂">← 上一节：6.2 优化器与超参数：万亿 token 怎么喂</a><a class="next" href="ch6_4_scaling_law.html" title="6.4 Scaling Law：规模是可以计算的命运">下一节：6.4 Scaling Law：规模是可以计算的命运 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

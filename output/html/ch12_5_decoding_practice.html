@@ -1,0 +1,762 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>12.5 解码实践与陷阱 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link active" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 12 章 推理机制与后处理</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>12.5 解码实践与陷阱</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>12.5 解码实践与陷阱</h1>
+<p class="subtitle">本页范围：第 12 章第 5 节　|　整理时间：2026-10-09</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>12.1 到 12.4 把解码的零件逐个拆完了：主循环、采样三件套、停止条件、结构化约束。零件装进真实任务后还会出哪些故障？重复、空转、跑题分别怎么对治，不同任务的参数档位怎么选？</td></tr>
+      <tr><td>本节主张</td><td>文本退化是模型、参数、输入三方合谋的结果，其中参数能管的那一半有成熟的对治法：重复加惩罚、空转收截断、跑题降温度。但采样参数只决定「从分布里怎么挑」，分布的形状是训练定的，能力的课还得回训练侧补。</td></tr>
+      <tr><td>一句话结论</td><td>调参的第一性问题是要确定性还是要多样性：确定性任务低温直奔分布头部，多样性任务放开温度但用 top_p 管住尾巴；烂模型调不出好回答，好模型可以被烂参数毁掉。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>神经文本退化</span><span>重复惩罚</span><span>温度</span><span>top_p</span><span>参数速查</span><span>能力边界</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　前四节把「分数变文字」的机器拆到了零件级：12.1 的主循环，12.2 的温度、top-k、top-p 三件套，12.3 的停止与流式，12.4 的结构化约束。零件齐了不等于机器不出故障。用过语言模型的人几乎都撞见过这三种回答：同一句话反复复读，绕着圈子说车轱辘话，或者写着写着跑题万里。本节给这些故障做一次集中检修：先辨认三种典型退化的形态与成因，再给一张按任务选参数的速查表，最后把一件事说透——采样参数能改变什么、改变不了什么。</p>
+
+<p>　　本节按「故障 → 档位 → 边界 → 接力」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>退化三兄弟：重复、空转、跑题</strong>（12.5.1）：三种典型故障文本长什么样，各自的成因与对策；</li>
+  <li><strong>参数速查：不同任务怎么调三件套</strong>（12.5.2）：先要确定性还是要多样性，一张表给出五类任务的推荐档位；</li>
+  <li><strong>解码与训练的关系：采样参数补不了能力的课</strong>（12.5.3）：参数管「怎么挑」，训练管「挑什么」，两者边界在哪；</li>
+  <li><strong>接力第 13 章：从解码机制到推理系统</strong>（12.5.4）：本章收束，KV Cache、量化、投机采样与应用的接力棒递向哪里。</li>
+</ol>
+
+<p>　　读完本节，应该能看着一段故障文本说出它属于哪种退化、该拧哪个旋钮，也应该能向人解释：为什么同一个模型换一组参数判若两人，而参数再调也救不了能力本身的缺口。讲解中的默认值与实现细节对照 minimind（Apache 2.0）的 generate 函数与命令行入口 eval_llm.py。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及推理与部署这一站放大之后的调参台。心里有这张地图（图 1、图 2），后面每一种陷阱都知道它发生在哪一环：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS125decodingpractice" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG125decodingpractice" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS125decodingpractice)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS125decodingpractice)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS125decodingpractice)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS125decodingpractice)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS125decodingpractice)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS125decodingpractice)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS125decodingpractice)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）与推理训练（第 11 章），交出会对话、懂分寸、会推理的模型；推理与部署（本章与第 13 章）是链路最后两站，负责把模型产出的分数变成文字并跑得快。本节是第 12 章的收束：不再引入新机制，把前四节的旋钮放到真实任务里，讲退化怎么诊断、参数怎么调、能力边界在哪里。</div>
+</div>
+
+<p>　　图 1 里「推理与部署」这个紫框放大之后，本节关注的是解码环节的调参台：三只旋钮各自拧动概率分布的哪个侧面，默认值停在什么档位？把它单独拆开看（图 2）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 624" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP125panel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：解码调参台——三只旋钮只决定「从分布里怎么挑」，分布的形状由训练决定（默认值取自 minimind）</text>
+    <!-- 顶部输入输出条 -->
+    <rect x="24" y="44" width="240" height="56" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="144" y="67" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">输入：6400 维 logits</text>
+    <text x="144" y="87" text-anchor="middle" font-size="10.5" fill="#555">当前步前向输出的最后一个位置</text>
+    <line x1="264" y1="72" x2="298" y2="72" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP125panel)"/>
+    <rect x="304" y="44" width="352" height="56" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="480" y="67" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#ffffff">逐站修正：温度 → 重复惩罚 → top-k → top-p</text>
+    <text x="480" y="87" text-anchor="middle" font-size="10.5" fill="#ede9fe">minimind generate 的顺序（272–282 行）</text>
+    <line x1="656" y1="72" x2="690" y2="72" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP125panel)"/>
+    <rect x="696" y="44" width="240" height="56" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="816" y="67" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#0e7490">输出：修正后的概率分布</text>
+    <text x="816" y="87" text-anchor="middle" font-size="10.5" fill="#555">softmax 后抽出 1 个 token ID</text>
+    <!-- 面板一：温度 -->
+    <rect x="24" y="120" width="272" height="336" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="160" y="144" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">旋钮一：温度 T</text>
+    <text x="160" y="164" text-anchor="middle" font-size="10.5" fill="#555">minimind 默认 0.85（generate 262 行）</text>
+    <line x1="58" y1="196" x2="262" y2="196" stroke="#d1d5db" stroke-width="3" stroke-linecap="round"/>
+    <text x="58" y="216" text-anchor="middle" font-size="10" fill="#888">0.1</text>
+    <text x="262" y="216" text-anchor="middle" font-size="10" fill="#888">2.0</text>
+    <circle cx="138" cy="196" r="7" fill="#6d28d9"/>
+    <text x="138" y="182" text-anchor="middle" font-size="10" font-weight="bold" fill="#6d28d9">0.85</text>
+    <line x1="60" y1="240" x2="60" y2="372" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="60" y1="372" x2="268" y2="372" stroke="#9ca3af" stroke-width="1.2"/>
+    <polyline points="72,368 94,350 108,296 116,254 124,254 132,296 146,350 168,368" fill="none" stroke="#6d28d9" stroke-width="2"/>
+    <polyline points="72,364 104,340 144,326 184,330 224,346 256,364" fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <rect x="72" y="382" width="14" height="9" rx="2" fill="#6d28d9"/>
+    <text x="92" y="391" font-size="10.5" fill="#555">低温尖锐保守</text>
+    <line x1="176" y1="386" x2="190" y2="386" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="196" y="391" font-size="10.5" fill="#555">高温平坦多样</text>
+    <text x="160" y="416" text-anchor="middle" font-size="10.5" fill="#555">T&lt;1 锐化偏保守，T&gt;1 拉平偏多样</text>
+    <text x="160" y="436" text-anchor="middle" font-size="10.5" fill="#555">T→0 时退化为 argmax（只剩最高峰）</text>
+    <!-- 面板二：top_p -->
+    <rect x="344" y="120" width="272" height="336" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="480" y="144" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">旋钮二：top_p（核采样）</text>
+    <text x="480" y="164" text-anchor="middle" font-size="10.5" fill="#555">generate 默认 0.85，命令行入口 0.95</text>
+    <line x1="378" y1="196" x2="582" y2="196" stroke="#d1d5db" stroke-width="3" stroke-linecap="round"/>
+    <text x="378" y="216" text-anchor="middle" font-size="10" fill="#888">0.5</text>
+    <text x="582" y="216" text-anchor="middle" font-size="10" fill="#888">1.0</text>
+    <circle cx="521" cy="196" r="7" fill="#6d28d9"/>
+    <text x="521" y="182" text-anchor="middle" font-size="10" font-weight="bold" fill="#6d28d9">0.85</text>
+    <circle cx="562" cy="196" r="5" fill="#0891b2"/>
+    <text x="562" y="182" text-anchor="middle" font-size="10" font-weight="bold" fill="#0891b2">0.95</text>
+    <line x1="380" y1="240" x2="380" y2="372" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="380" y1="372" x2="588" y2="372" stroke="#9ca3af" stroke-width="1.2"/>
+    <rect x="388" y="262" width="18" height="110" fill="#6d28d9"/>
+    <rect x="414" y="294" width="18" height="78" fill="#6d28d9"/>
+    <rect x="440" y="322" width="18" height="50" fill="#6d28d9"/>
+    <rect x="466" y="345" width="18" height="27" fill="#6d28d9"/>
+    <rect x="492" y="356" width="18" height="16" fill="#d1d5db"/>
+    <rect x="518" y="361" width="18" height="11" fill="#d1d5db"/>
+    <rect x="544" y="365" width="18" height="7" fill="#d1d5db"/>
+    <rect x="570" y="367" width="18" height="5" fill="#d1d5db"/>
+    <line x1="490" y1="244" x2="490" y2="372" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="414" y="254" text-anchor="middle" font-size="10" fill="#6d28d9">保留区</text>
+    <text x="540" y="254" text-anchor="middle" font-size="10" fill="#9ca3af">−∞ 区</text>
+    <text x="480" y="388" text-anchor="middle" font-size="10" fill="#888">柱高 = 排序后的概率；累计 ≥85% 处收刀</text>
+    <text x="480" y="416" text-anchor="middle" font-size="10.5" fill="#555">按累计概率动态定名额，砍掉的置 −∞</text>
+    <text x="480" y="436" text-anchor="middle" font-size="10.5" fill="#555">top_k 是它的固定名额版（默认 50）</text>
+    <!-- 面板三：重复惩罚 -->
+    <rect x="664" y="120" width="272" height="336" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="800" y="144" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">旋钮三：重复惩罚 rp</text>
+    <text x="800" y="164" text-anchor="middle" font-size="10.5" fill="#555">默认 1.0 即关闭（eval_llm 86 行）</text>
+    <line x1="698" y1="196" x2="902" y2="196" stroke="#d1d5db" stroke-width="3" stroke-linecap="round"/>
+    <text x="698" y="216" text-anchor="middle" font-size="10" fill="#888">1.0</text>
+    <text x="902" y="216" text-anchor="middle" font-size="10" fill="#888">1.3</text>
+    <circle cx="698" cy="196" r="7" fill="#6d28d9"/>
+    <text x="698" y="182" text-anchor="middle" font-size="10" font-weight="bold" fill="#6d28d9">1.0 关</text>
+    <circle cx="834" cy="196" r="5" fill="none" stroke="#d97706" stroke-width="2"/>
+    <text x="834" y="182" text-anchor="middle" font-size="10" font-weight="bold" fill="#d97706">≈1.2 CTRL</text>
+    <line x1="700" y1="240" x2="700" y2="372" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="700" y1="372" x2="908" y2="372" stroke="#9ca3af" stroke-width="1.2"/>
+    <rect x="716" y="276" width="30" height="96" fill="#6d28d9"/>
+    <rect x="752" y="314" width="30" height="58" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="788" y="300" font-size="10.5" fill="#d97706">÷θ</text>
+    <rect x="834" y="296" width="30" height="76" fill="#6d28d9"/>
+    <rect x="870" y="296" width="30" height="76" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="749" y="392" text-anchor="middle" font-size="10" fill="#555">已出现的 token</text>
+    <text x="867" y="392" text-anchor="middle" font-size="10" fill="#555">未出现的不动</text>
+    <text x="800" y="416" text-anchor="middle" font-size="10.5" fill="#555">正分除以 θ、负分乘以 θ，都往零压</text>
+    <text x="800" y="436" text-anchor="middle" font-size="10.5" fill="#555">θ=1 时什么也不会发生</text>
+    <!-- 底部任务档位带 -->
+    <text x="24" y="500" font-size="12.5" font-weight="bold" fill="#4c1d95">推荐档位速览：先问任务要确定性还是要多样性（经验取向，12.5.2 展开）</text>
+    <rect x="24" y="514" width="210" height="84" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="129" y="538" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">事实问答 / 知识提取</text>
+    <text x="129" y="560" text-anchor="middle" font-size="10" fill="#555">低温 0~0.3，直奔分布头部</text>
+    <text x="129" y="578" text-anchor="middle" font-size="10" fill="#555">确定性优先</text>
+    <rect x="258" y="514" width="210" height="84" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="363" y="538" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">代码生成</text>
+    <text x="363" y="560" text-anchor="middle" font-size="10" fill="#555">低温 0~0.2，语法容错为零</text>
+    <text x="363" y="578" text-anchor="middle" font-size="10" fill="#555">可再配硬约束（12.4 节）</text>
+    <rect x="492" y="514" width="210" height="84" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="597" y="538" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">创意写作 / 闲聊</text>
+    <text x="597" y="560" text-anchor="middle" font-size="10" fill="#555">T 0.7~1.0，top_p 0.9~0.95</text>
+    <text x="597" y="578" text-anchor="middle" font-size="10" fill="#555">可加重复惩罚防复读</text>
+    <rect x="726" y="514" width="210" height="84" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="831" y="538" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">数学 / 推理</text>
+    <text x="831" y="560" text-anchor="middle" font-size="10" fill="#555">低温求准；多采几条投票</text>
+    <text x="831" y="578" text-anchor="middle" font-size="10" fill="#555">（自一致性，第 14 章）</text>
+  </svg>
+  <div class="diagram-caption">图 2：推理部署站内，解码调参台的局部放大（默认值取自 minimind）。输入是当前步前向输出的 6400 维 logits，沿 12.1 节的顺序经温度、重复惩罚、top-k、top-p 逐站修正，softmax 后抽出 1 个 token ID 输出。三个面板分别放大三只旋钮：温度停在默认 0.85，小图里低温曲线尖锐、高温曲线平坦；top_p 停在 0.85（命令行入口默认 0.95），小图按累计概率砍掉尾巴、保住跨过阈值线的第一个；重复惩罚默认 1.0 等于关闭，小图演示已出现 token 的分数被压低（CTRL 论文常用 θ≈1.2）。底部四个胶囊是不同任务的推荐档位速览，理由在 12.5.2 展开。</div>
+</div>
+
+<h2>12.5.1 退化三兄弟：重复、空转、跑题</h2>
+
+<p>　　前四节拆完的解码机器，装进真实任务后最常出三类故障。它们有一个共同的名字：Holtzman 等人 2019 年在论文《The Curious Case of Neural Text Degeneration》里记录了一个反直觉现象——拿似然当训练目标能训出高质量模型，拿似然当解码目标（贪心、beam search 这类最大化概率的选词法）却会产出「平淡且奇怪地重复」的文本。他们还对比了人类文本与机器文本的概率分布：人写的话恰恰不是每步都挑最可能的词，尾部词汇的合理使用正是自然文本的一部分。这类由解码方式引发的文本质量崩塌，统称神经文本退化。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">神经文本退化 Neural Text Degeneration</span>
+    <span class="term-en">degeneration = 退化；生成质量配不上模型本身的能力</span>
+  </div>
+  <div class="term-body">
+    <p>指神经语言模型在生成时产出的文本明显变差的现象：复读、干瘪、前后矛盾、跑题。关键之处在于，退化很大程度是<strong>解码策略的问题</strong>，而非模型能力的问题——Holtzman 等人的实验显示，同一个模型，只换解码策略，文本质量就有戏剧性的差异。这等于给调参发了一张通行证：解码参数值得认真调，因为烂的挑法真能毁掉一个好分布。</p>
+    <div class="term-analogy">像一台好相机拍出一堆废片：镜头和传感器都没问题，是快门光圈 ISO 的搭配错了——参数不对，好器材照样出烂照片。</div>
+  </div>
+</div>
+
+<p>　　退化形态之一是<strong>重复</strong>：同一个短语、同一句话反复出现，「因为它就是它就是它就是它」。成因有两个叠加。其一，贪心或低温让模型每步直奔最高分，而生成过的内容会回到上下文里，抬高相似片段再次出现的概率，越重复越容易重复，形成自我强化的循环。其二，默认流程里没有任何机制拦它——12.2 节的三件套只管分布形状，不管「这个词刚才用没用过」。对策的第一位是重复惩罚，它是 CTRL 论文（Keskar 等人，2019）提出的解码期惩罚项：已出现过的 token，分数往零压：</p>
+
+<div class="formula-card">
+  \[ \ell'(t) = \begin{cases} \ell(t) / \theta, &amp; \ell(t) &gt; 0 \\ \ell(t) \cdot \theta, &amp; \ell(t) \le 0 \end{cases} \qquad (t \in \mathcal{S},\; \theta &gt; 1) \tag{1} \]
+  <div class="formula-note">公式 (1)：CTRL 式重复惩罚——已经登场过的 token，分数为正就除以 θ、为负就乘以 θ，两个方向的效果都是把分数往零压，让它在 softmax 里拿到的概率变小。符号说明：\(\ell(t)\) 是当前步 token \(t\) 修正前的 logit，\(\ell'(t)\) 是修正后的；\(\mathcal{S}\) 是本条序列至今已经出现过的 token 集合；\(\theta\) 是惩罚强度，CTRL 论文常用约 1.2。分正负两路处理是为了不翻转符号：负数除以 θ 反而变大（惩罚变奖励），所以要乘。minimind 在 generate 的 273–275 行逐字实现了这个公式，默认 \(\theta\) 取 1.0，即关闭。</div>
+</div>
+
+<div class="highlight-box warn">
+  重复惩罚别开太狠：θ 过大时，「的」「是」这类合法高频词以及代码里必须成对出现的关键字也会被压死，句子开始不通、代码开始缺括号。θ 的工作区间通常在 1.0 到 1.3 之间，且它与升温、top_p 截断是互补关系——惩罚管「别再用过的」，截断管「别用不靠谱的」。
+</div>
+
+<p>　　退化形态之二是<strong>空转</strong>：不复读，但意思原地打转——同一件事换着说法讲三遍，迟迟不产出 eos，直到撞上 max_new_tokens 这道硬刹车（12.3 节）。工程上的常见解释有两层：分布平坦时候选词彼此概率接近，采样近似随机游走，走不出收敛的方向；上下文一长，prompt 的主题信号被摊薄，模型越来越难判断「该收尾了」。这个成因分析来自实践经验而非某篇论文的结论，标在这里供对照。对策是收紧 top_p 或 top_k 让候选变少、检查输入是否偏离模型的训练分布、留好长度刹车兜底。退化形态之三是<strong>跑题</strong>：开头还在回答问题，写着写着漂到无关话题。成因与空转相反——温度过高时尾部低概率 token 频繁中标，自回归回路里每个 token 都会成为下一步的上下文，一个意外 token 把话题带岔，后面就顺着岔路越走越远。对策是降温、收紧 top-k 或 top_p，把尾部关小。三种形态排在一起看（图 3）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrR125degen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <text x="24" y="28" font-size="13" font-weight="bold" fill="#4c1d95">解码退化的三种典型形态（token 序列示意，成因与对策见正文）</text>
+    <!-- 面板一：重复 -->
+    <rect x="24" y="48" width="272" height="232" rx="8" fill="#ffffff" stroke="#9ca3af" stroke-width="1.5"/>
+    <text x="160" y="76" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#dc2626">① 重复：原地复读</text>
+    <g font-size="11" fill="#4c1d95" text-anchor="middle">
+      <rect x="44" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="55" y="108">的</text>
+      <rect x="70" y="92" width="22" height="24" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/><text x="81" y="108">猫</text>
+      <rect x="96" y="92" width="22" height="24" fill="#e9d5ff" stroke="#6d28d9" stroke-width="1"/><text x="107" y="108">是</text>
+      <rect x="122" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="133" y="108">的</text>
+      <rect x="148" y="92" width="22" height="24" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/><text x="159" y="108">猫</text>
+      <rect x="174" y="92" width="22" height="24" fill="#e9d5ff" stroke="#6d28d9" stroke-width="1"/><text x="185" y="108">是</text>
+      <rect x="200" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="211" y="108">的</text>
+      <rect x="226" y="92" width="22" height="24" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/><text x="237" y="108">猫</text>
+      <rect x="252" y="92" width="22" height="24" fill="#e9d5ff" stroke="#6d28d9" stroke-width="1"/><text x="263" y="108">是</text>
+    </g>
+    <path d="M263,124 C263,140 55,140 55,126" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrR125degen)"/>
+    <text x="160" y="166" text-anchor="middle" font-size="10.5" fill="#dc2626">同一片段循环出现，概率自我强化</text>
+    <text x="44" y="192" font-size="10.5" fill="#555">成因：贪心 / 低温，且没有惩罚拦它</text>
+    <text x="44" y="216" font-size="10.5" fill="#15803d">对策：重复惩罚、升温、top_p 截断</text>
+    <text x="44" y="252" font-size="10" fill="#888">CTRL 式惩罚（θ≈1.2）见公式 (1)</text>
+    <!-- 面板二：空转 -->
+    <rect x="344" y="48" width="272" height="232" rx="8" fill="#ffffff" stroke="#9ca3af" stroke-width="1.5"/>
+    <text x="480" y="76" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#dc2626">② 空转：绕圈不收尾</text>
+    <g font-size="11" fill="#4c1d95" text-anchor="middle">
+      <rect x="364" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="375" y="108">这</text>
+      <rect x="390" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="401" y="108">问</text>
+      <rect x="416" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="427" y="108">题</text>
+      <rect x="442" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="453" y="108">的</text>
+      <rect x="468" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="479" y="108">本</text>
+      <rect x="494" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="505" y="108">质</text>
+      <rect x="520" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="531" y="108">在</text>
+      <rect x="546" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="557" y="108">于</text>
+      <rect x="572" y="92" width="22" height="24" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><text x="583" y="108">…</text>
+    </g>
+    <path d="M583,124 C583,140 375,140 375,126" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrR125degen)"/>
+    <text x="480" y="166" text-anchor="middle" font-size="10.5" fill="#dc2626">词在变、意思原地打转，迟迟不收尾</text>
+    <text x="364" y="192" font-size="10.5" fill="#555">成因：分布平坦 + 长上下文稀释主题</text>
+    <text x="364" y="216" font-size="10.5" fill="#15803d">对策：收紧 top_p，max_new_tokens 兜底</text>
+    <text x="364" y="252" font-size="10" fill="#888">eos 一直等不到，最后撞长度刹车（12.3）</text>
+    <!-- 面板三：跑题 -->
+    <rect x="664" y="48" width="272" height="232" rx="8" fill="#ffffff" stroke="#9ca3af" stroke-width="1.5"/>
+    <text x="800" y="76" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#dc2626">③ 跑题：话题漂移</text>
+    <line x1="688" y1="110" x2="772" y2="110" stroke="#6d28d9" stroke-width="2.5"/>
+    <path d="M772,110 C830,110 860,126 904,146" fill="none" stroke="#dc2626" stroke-width="2.5" marker-end="url(#arrR125degen)"/>
+    <text x="716" y="98" text-anchor="middle" font-size="10" fill="#6d28d9">在主题上</text>
+    <text x="800" y="166" text-anchor="middle" font-size="10.5" fill="#dc2626">意外 token 带岔上下文，越写越偏</text>
+    <text x="684" y="192" font-size="10.5" fill="#555">成因：温度过高，尾部 token 频繁中标</text>
+    <text x="684" y="216" font-size="10.5" fill="#15803d">对策：降温、收紧 top_k / top_p</text>
+    <text x="684" y="252" font-size="10" fill="#888">自回归回路会把每个 token 接回输入</text>
+  </svg>
+  <div class="diagram-caption">图 3：三种退化的形态对照。重复是同一片段循环出现，生成内容回到上下文后自我强化；空转是词句在变而意思原地打转，迟迟等不到 eos；跑题是高温下意外 token 把上下文带岔，沿岔路越走越远。红色虚线回环与红色轨迹标出故障发生在「接回输入」这一自回归环节，对策行给出第一处置方案。</div>
+</div>
+
+<div class="highlight-box">
+  退化是模型、参数、输入三方合谋的结果，但参数能管的那一半有现成治法：重复先加惩罚、空转先收截断、跑题先降温。nucleus 论文更深一层的启示是：文本质量不是模型的固定属性——同一个模型，换一种解码策略，就是两种文本。
+</div>
+
+<h2>12.5.2 参数速查：不同任务怎么调三件套</h2>
+
+<p>　　调参的第一个问题不是「什么参数最好」，是「这个任务要确定性还是要多样性」。要确定性的任务（查事实、写代码、算数学），答案集中在分布头部，随机性只会带来出错的机会，压到最低；要多样性的任务（创意、闲聊、头脑风暴），分布头部恰恰是最平庸的部分，放开温度去中部和尾部找新意，但要用 top_p 管住尾巴，别放进不靠谱的词。拿 minimind 的两套默认值对照，能看出「均衡取向」长什么样：generate 签名默认 temperature 0.85、top_p 0.85、top_k 50（model_minimind.py:262），命令行入口 eval_llm.py 默认 temperature 0.85、top_p 0.95、重复惩罚关闭（42–44、86 行）——温度中等、截断偏松、不开惩罚，这是一套开放对话的折中档位，放到事实问答上就嫌太随机。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>任务类型</th><th>temperature</th><th>top_p / top_k</th><th>重复惩罚</th><th>为什么</th></tr></thead>
+    <tbody>
+      <tr><td>事实问答、知识提取</td><td>低，0~0.3，或直接贪心</td><td>top_p 可放宽到 0.9~1.0</td><td>一般不开</td><td>答案在分布头部，随机性只带来出错机会</td></tr>
+      <tr><td>代码生成</td><td>低，0~0.2</td><td>低温为主，截断次之</td><td>不开</td><td>语法容错为零；格式严的场景再配 12.4 节的硬约束</td></tr>
+      <tr><td>数学与推理</td><td>低，求单次准</td><td>top_p 0.9 左右</td><td>不开</td><td>单次要准；多采几条投票的自一致性是应用层技巧，第 14 章讲</td></tr>
+      <tr><td>创意写作、头脑风暴</td><td>中高，0.7~1.0</td><td>top_p 0.9~0.95</td><td>可加 1.05~1.2</td><td>要的就是多样性，顺手防复读</td></tr>
+      <tr><td>开放闲聊</td><td>中，0.8~0.9</td><td>top_p 0.85~0.95（minimind 默认档）</td><td>视复读情况开</td><td>均衡：既不僵化，也不乱跑</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box info">
+  注释：表中档位是经验取向，不是标准答案。同一任务换不同模型，脾气也不同——模型越大、对齐越好，同样的温度往往越稳。正确姿势是从推荐档出发小范围试：先动温度，再动截断，重复惩罚留到最后。
+</div>
+
+<p>　　还有一条容易被忽略的纪律：改一个旋钮前先想清楚它管什么。温度管分布的锐度，top-k 与 top-p 管候选的范围，重复惩罚管历史出现过的词，三者正交，叠在一起用才是完整的策略。只拧温度不收截断，高温时尾部照样放进垃圾词；只收截断不降温，头部几个词里照样随机乱跳。12.2 节讲的联合顺序（温度 → 重复惩罚 → top-k → top-p）在这里依然成立。</p>
+
+<h2>12.5.3 解码与训练的关系：采样参数补不了能力的课</h2>
+
+<p>　　讲完了怎么调，必须补一个边界：采样参数只改变「从分布里怎么挑」，不改变分布本身。每一步的 6400 维概率分布——哪些词概率高、哪些知识存在、推理链稳不稳——是训练定的：预训练决定知识与语感（第 6 章），SFT 决定对话格式（第 9 章），偏好对齐决定分寸（第 10 章），推理训练决定思维链的可靠性（第 11 章）。调参台再精致，也只作用在最后一步的挑选环节。</p>
+
+<p>　　这个边界有两面。一面是参数值得认真调：nucleus 论文的实验明确指出，解码策略单独就能显著影响机器文本的质量，哪怕模型完全相同——好模型配烂参数，照样产出退化文本。另一面是参数救不了能力缺口：分布里没有的东西挑不出来。模型不知道的事实，降温只是让它更稳定地说错（幻觉问题第 15 章细讲）；没经过推理训练的模型，top_p 调不出可靠的长思维链。把 12.5.1 的相机类比补全：参数是快门光圈，决定能不能发挥出镜头的素质；镜头本身不行，参数调得再细也拍不出好照片。</p>
+
+<p>　　能力问题只能回训练侧解决：知识不够回数据与预训练（第 1、6 章），不会对话回 SFT（第 9 章），不懂分寸回偏好对齐（第 10 章），推理不稳回 RLVR（第 11 章）。推理侧能做的是把已有能力可靠地取出来。「多采几条再投票」「让模型多想一会儿」这类取法确实存在，它们分别在第 14 章（应用范式）与第 13 章（推理时扩展）展开，共同前提仍然是：分布里得先有这个能力。</p>
+
+<div class="highlight-box">
+  一句话记住本节：参数决定「怎么挑」，训练决定「挑什么」。烂模型调不出好回答，好模型可以被烂参数毁掉——所以先确认能力到位，再认真调参。
+</div>
+
+<h2>12.5.4 接力第 13 章：从解码机制到推理系统</h2>
+
+<p>　　本章至此走完「把分数变成文字」的全过程：主循环（12.1）、采样三件套（12.2）、停止与流式（12.3）、结构化约束（12.4）、调参与陷阱（本节）。「能跑」讲完了，「跑得快、跑得省」还有一整座工程山：12.1 见过的 KV Cache 只是教学版，它真实的显存账与收益、权重量化与知识蒸馏、投机采样、连续批处理与吞吐优化，都属于推理系统的范畴，第 13 章集中展开。</p>
+
+<p>　　另一根接力棒递向第 14 章。解码参数是单次生成的旋钮，真实应用里模型很少只生成一次：思维链让模型先想后答，自一致性对同一题多采几条投票，RAG 先检索再生成，Function Calling 与 Agent 把多次生成串成任务链。这些范式都踩在本章的解码机制之上——理解了单步怎么挑词，才谈得上把许多步组织成系统。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">重复、空转、跑题三种退化各怎么辨认，第一处置方案是什么？</div>
+    <div class="sc-key">重复是同一片段循环出现（生成内容回到上下文自我强化），先加重复惩罚、升温、top_p 截断；空转是意思原地打转、迟迟不产出 eos，先收紧 top_p/top_k 并留好 max_new_tokens 兜底；跑题是话题被意外 token 带岔，先降温、收紧截断。三者都发生在自回归的「接回输入」环节，但成因方向不同：重复偏低温无惩罚，空转偏分布平坦，跑题偏高温放纵尾部。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">给一个新任务调参，第一个要回答的问题是什么？</div>
+    <div class="sc-key">这个任务要确定性还是要多样性。确定性任务（事实、代码、数学）把温度压到 0~0.3 直奔分布头部；多样性任务（创意、闲聊）放开温度到 0.7~1.0，同时用 top_p 0.9~0.95 管住尾巴，复读明显再开 1.05~1.2 的重复惩罚。三个旋钮正交：温度管锐度、截断管候选范围、惩罚管历史，联合使用才完整。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么说采样参数补不了能力的课？</div>
+    <div class="sc-key">参数只作用在「从分布里怎么挑」这一步，分布的形状是训练定的。分布里没有的知识与能力，任何调参都挑不出来——降温只是让模型更稳定地说错。nucleus 论文的提醒是双向的：同一模型换解码策略质量差异巨大（参数值得调），但能力提升只能回训练侧（数据、SFT、对齐、推理训练）。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Holtzman et al., 2019. The Curious Case of Neural Text Degeneration（nucleus sampling 原始论文，arXiv:1904.09751）：最大化概率解码产出「平淡且奇怪地重复」的文本、人类与机器文本的分布差异、「解码策略单独就能显著影响文本质量」的核心结论。已核对 arXiv 摘要页。</li>
+  <li>Keskar et al., 2019. CTRL: A Conditional Transformer Language Model for Controllable Generation（arXiv:1909.05858）：重复惩罚（penalized sampling：折扣已出现 token 的分数，常用 θ≈1.2）的出处。摘要页已核对（1.63B 条件 Transformer、control codes）；惩罚机制出自论文正文，摘要未直接提及，经二级来源（Lil'Log 可控文本生成综述、Hugging Face transformers 实现注释）交叉确认。</li>
+  <li>minimind（Apache 2.0）：model/model_minimind.py 的 generate（261–293 行）——默认值（262 行：temperature 0.85、top_p 0.85、top_k 50、max_new_tokens 8192、eos 2）、重复惩罚正除负乘（273–275 行）、修正链顺序温度 → 惩罚 → top-k → top-p（272–282 行）；eval_llm.py 命令行默认（42–44 行：temperature 0.85、top_p 0.95、max_new_tokens 8192）与 generate 调用默认 repetition_penalty=1 即不开惩罚（86 行）。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch12_4_structured_output.html" title="12.4 结构化输出：让模型按格式说话">← 上一节：12.4 结构化输出：让模型按格式说话</a><a class="next" href="ch90_1_vectors_rotation.html" title="A.1 向量、矩阵与旋转：RoPE 的数学底座">下一节：A.1 向量、矩阵与旋转：RoPE 的数学底座 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

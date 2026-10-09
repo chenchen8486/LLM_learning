@@ -1,0 +1,931 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>7.2 数据并行与 ZeRO：把模型状态拆开装 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link active" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 7 章 预训练工程</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>7.2 数据并行与 ZeRO：把模型状态拆开装</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>7.2 数据并行与 ZeRO：把模型状态拆开装</h1>
+<p class="subtitle">本页范围：第 7 章第 2 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>70B 模型光模型状态就要 1120 GB 显存，单卡装不下；把成百上千张卡组织起来训练，数据怎么分、梯度怎么合、显存怎么省？</td></tr>
+      <tr><td>本节主张</td><td>数据并行（DDP）让每张卡装一份完整模型、各算各的数据、反向后把梯度跨卡求平均，用通信换算力扩展，但它不省显存；ZeRO 把模型状态（优化器状态、梯度、参数）逐级切分到各卡，用少量通信换显存随卡数线性下降；梯度累积沿时间轴摊大 batch，三根支柱彼此正交、可以叠加。</td></tr>
+      <tr><td>一句话结论</td><td>DDP 解决「算得过来」，ZeRO 解决「装得下去」，梯度累积解决「batch 够大」——70B 模型 64 卡训练，每卡模型状态从 DDP 的 1120 GB 一路压到 ZeRO-3 的 17.5 GB。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>数据并行</span><span>DDP</span><span>all-reduce</span><span>ring all-reduce</span><span>模型状态</span><span>ZeRO</span><span>梯度累积</span><span>显存冗余</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　7.1 节把单卡内的账算清了：混合精度加 Adam，每个参数要占 16 字节的模型状态（fp16 参数、fp16 梯度各 2 字节，fp32 主参数、动量、方差共 12 字节）。把这个账乘上模型规模，矛盾立刻尖锐起来：70B 模型仅模型状态就要 1120 GB，没有任何一张显卡装得下；就算装得下，单卡算几千亿 token 也要算到猴年马月。预训练要真正落地，必须把成百上千张卡组织成一台「大机器」。</p>
+
+<p>　　组织多卡有三根最基础的支柱：把数据摊到多卡（数据并行）、把模型状态切到多卡（ZeRO）、把 batch 摊到时间轴（梯度累积）。本节沿这条线展开，路线图如下：</p>
+
+<ol>
+  <li><strong>从 DP 到 DDP：各算各的 batch，梯度跨卡求平均</strong>（7.2.1）：数据并行的工作机制，ring all-reduce 如何让通信量与卡数近似无关，通信又怎样藏进计算里；</li>
+  <li><strong>显存冗余：N 张卡存 N 份相同的家当</strong>（7.2.2）：DDP 的显存账——算力摊开了，模型状态却一份没省，模型一大 DP 自己先装不下；</li>
+  <li><strong>ZeRO 三级切分：不复制，改分管</strong>（7.2.3）：优化器状态、梯度、参数逐级切开，每级省多少、通信涨多少，70B 模型 64 卡算一笔对比总账；</li>
+  <li><strong>梯度累积：把大 batch 摊到时间轴上</strong>（7.2.4）：小显存装大 batch 的标准手法，loss 为什么要除以累积步数，minimind 里的真实默认配置。</li>
+</ol>
+
+<p>　　读完本节，你应该能看懂任何一份大模型训练方案里「ZeRO-2 + 梯度累积」这类配置的含义，并估算出每张卡的显存大头花在了哪。</p>
+
+<p>　　三根支柱展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及这个位置放大之后的内部结构。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS72dataparallelzero" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG72dataparallelzero" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS72dataparallelzero)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS72dataparallelzero)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG72dataparallelzero)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG72dataparallelzero)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG72dataparallelzero)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG72dataparallelzero)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG72dataparallelzero)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：训练工程在 LLM 生命周期中的位置。数据（第 1 章）与预训练目标（第 6 章）就位后，这一站要把训练分摊到成百上千张卡上真正跑起来，随后才轮到中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章）。本节是这一站的第一块拼图：只管多卡之间「数据怎么分、模型状态怎么装」。</div>
+</div>
+
+<p>　　图 1 里这个紫框放大之后长什么样？同一个模型、同一批卡，「复制」与「分管」两种装法各是什么形状？把 DDP 与 ZeRO 并排拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 560" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrZero72" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="24" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：DDP 复制 vs ZeRO-3 分片（4 卡示意）</text>
+    <text x="24" y="50" font-size="10.5" fill="#64748b">输入：模型状态 16Ψ（三件套）→ 输出：每卡显存占用；配色与本页图 4 一致</text>
+    <!-- 上半：DDP -->
+    <text x="24" y="80" font-size="12.5" font-weight="bold" fill="#6d28d9">DDP：4 卡各存一份完整模型状态</text>
+    <g>
+      <rect x="30" y="92" width="160" height="136" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+      <text x="110" y="112" text-anchor="middle" font-size="12" fill="#333">GPU 0</text>
+      <rect x="65" y="120" width="90" height="56" fill="#6d28d9" opacity="0.88"/>
+      <rect x="65" y="176" width="90" height="16" fill="#0891b2" opacity="0.9"/>
+      <rect x="65" y="192" width="90" height="16" fill="#f59e0b" opacity="0.92"/>
+      <text x="110" y="222" text-anchor="middle" font-size="10.5" fill="#555">= 16Ψ</text>
+      <rect x="210" y="92" width="160" height="136" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+      <text x="290" y="112" text-anchor="middle" font-size="12" fill="#333">GPU 1</text>
+      <rect x="245" y="120" width="90" height="56" fill="#6d28d9" opacity="0.88"/>
+      <rect x="245" y="176" width="90" height="16" fill="#0891b2" opacity="0.9"/>
+      <rect x="245" y="192" width="90" height="16" fill="#f59e0b" opacity="0.92"/>
+      <text x="290" y="222" text-anchor="middle" font-size="10.5" fill="#555">= 16Ψ</text>
+      <rect x="390" y="92" width="160" height="136" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+      <text x="470" y="112" text-anchor="middle" font-size="12" fill="#333">GPU 2</text>
+      <rect x="425" y="120" width="90" height="56" fill="#6d28d9" opacity="0.88"/>
+      <rect x="425" y="176" width="90" height="16" fill="#0891b2" opacity="0.9"/>
+      <rect x="425" y="192" width="90" height="16" fill="#f59e0b" opacity="0.92"/>
+      <text x="470" y="222" text-anchor="middle" font-size="10.5" fill="#555">= 16Ψ</text>
+      <rect x="570" y="92" width="160" height="136" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+      <text x="650" y="112" text-anchor="middle" font-size="12" fill="#333">GPU 3</text>
+      <rect x="605" y="120" width="90" height="56" fill="#6d28d9" opacity="0.88"/>
+      <rect x="605" y="176" width="90" height="16" fill="#0891b2" opacity="0.9"/>
+      <rect x="605" y="192" width="90" height="16" fill="#f59e0b" opacity="0.92"/>
+      <text x="650" y="222" text-anchor="middle" font-size="10.5" fill="#555">= 16Ψ</text>
+    </g>
+    <text x="380" y="252" text-anchor="middle" font-size="11.5" fill="#dc2626">每卡 16Ψ · 4 卡合计 64Ψ，其中 48Ψ 是内容完全相同的复制税</text>
+    <!-- 中间箭头 -->
+    <line x1="380" y1="266" x2="380" y2="298" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZero72)"/>
+    <text x="368" y="286" text-anchor="end" font-size="11.5" fill="#4c1d95">ZeRO-3：不复制，改分管</text>
+    <!-- 下半：ZeRO-3 -->
+    <text x="24" y="326" font-size="12.5" font-weight="bold" fill="#4c1d95">三件套各切 4 片，GPU i 只保管第 i 片</text>
+    <text x="30" y="352" font-size="11" fill="#333">优化器状态 12Ψ → 切 4 片</text>
+    <rect x="30" y="358" width="180" height="22" fill="#6d28d9" opacity="0.88"/>
+    <line x1="75" y1="358" x2="75" y2="380" stroke="#fff" stroke-width="1.2"/>
+    <line x1="120" y1="358" x2="120" y2="380" stroke="#fff" stroke-width="1.2"/>
+    <line x1="165" y1="358" x2="165" y2="380" stroke="#fff" stroke-width="1.2"/>
+    <text x="120" y="374" text-anchor="middle" font-size="10.5" fill="#fff">每片 3Ψ</text>
+    <text x="30" y="408" font-size="11" fill="#333">梯度 2Ψ → 切 4 片</text>
+    <rect x="30" y="414" width="180" height="22" fill="#0891b2" opacity="0.9"/>
+    <line x1="75" y1="414" x2="75" y2="436" stroke="#fff" stroke-width="1.2"/>
+    <line x1="120" y1="414" x2="120" y2="436" stroke="#fff" stroke-width="1.2"/>
+    <line x1="165" y1="414" x2="165" y2="436" stroke="#fff" stroke-width="1.2"/>
+    <text x="120" y="430" text-anchor="middle" font-size="10.5" fill="#fff">每片 0.5Ψ</text>
+    <text x="30" y="464" font-size="11" fill="#333">参数 2Ψ → 切 4 片</text>
+    <rect x="30" y="470" width="180" height="22" fill="#f59e0b" opacity="0.92"/>
+    <line x1="75" y1="470" x2="75" y2="492" stroke="#fff" stroke-width="1.2"/>
+    <line x1="120" y1="470" x2="120" y2="492" stroke="#fff" stroke-width="1.2"/>
+    <line x1="165" y1="470" x2="165" y2="492" stroke="#fff" stroke-width="1.2"/>
+    <text x="120" y="486" text-anchor="middle" font-size="10.5" fill="#fff">每片 0.5Ψ</text>
+    <line x1="214" y1="369" x2="252" y2="369" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrZero72)"/>
+    <line x1="214" y1="425" x2="252" y2="425" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrZero72)"/>
+    <line x1="214" y1="481" x2="252" y2="481" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrZero72)"/>
+    <g>
+      <rect x="260" y="344" width="108" height="152" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+      <text x="314" y="364" text-anchor="middle" font-size="11.5" fill="#333">GPU 0</text>
+      <rect x="276" y="374" width="76" height="16" fill="#6d28d9" opacity="0.88"/>
+      <rect x="276" y="396" width="76" height="16" fill="#0891b2" opacity="0.9"/>
+      <rect x="276" y="418" width="76" height="16" fill="#f59e0b" opacity="0.92"/>
+      <text x="314" y="456" text-anchor="middle" font-size="10.5" fill="#555">各 1/4 片</text>
+      <text x="314" y="476" text-anchor="middle" font-size="10.5" fill="#555">= 4Ψ</text>
+      <rect x="384" y="344" width="108" height="152" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+      <text x="438" y="364" text-anchor="middle" font-size="11.5" fill="#333">GPU 1</text>
+      <rect x="400" y="374" width="76" height="16" fill="#6d28d9" opacity="0.88"/>
+      <rect x="400" y="396" width="76" height="16" fill="#0891b2" opacity="0.9"/>
+      <rect x="400" y="418" width="76" height="16" fill="#f59e0b" opacity="0.92"/>
+      <text x="438" y="456" text-anchor="middle" font-size="10.5" fill="#555">各 1/4 片</text>
+      <text x="438" y="476" text-anchor="middle" font-size="10.5" fill="#555">= 4Ψ</text>
+      <rect x="508" y="344" width="108" height="152" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+      <text x="562" y="364" text-anchor="middle" font-size="11.5" fill="#333">GPU 2</text>
+      <rect x="524" y="374" width="76" height="16" fill="#6d28d9" opacity="0.88"/>
+      <rect x="524" y="396" width="76" height="16" fill="#0891b2" opacity="0.9"/>
+      <rect x="524" y="418" width="76" height="16" fill="#f59e0b" opacity="0.92"/>
+      <text x="562" y="456" text-anchor="middle" font-size="10.5" fill="#555">各 1/4 片</text>
+      <text x="562" y="476" text-anchor="middle" font-size="10.5" fill="#555">= 4Ψ</text>
+      <rect x="632" y="344" width="108" height="152" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+      <text x="686" y="364" text-anchor="middle" font-size="11.5" fill="#333">GPU 3</text>
+      <rect x="648" y="374" width="76" height="16" fill="#6d28d9" opacity="0.88"/>
+      <rect x="648" y="396" width="76" height="16" fill="#0891b2" opacity="0.9"/>
+      <rect x="648" y="418" width="76" height="16" fill="#f59e0b" opacity="0.92"/>
+      <text x="686" y="456" text-anchor="middle" font-size="10.5" fill="#555">各 1/4 片</text>
+      <text x="686" y="476" text-anchor="middle" font-size="10.5" fill="#555">= 4Ψ</text>
+    </g>
+    <text x="500" y="516" text-anchor="middle" font-size="11.5" fill="#555">每卡 4Ψ · 4 卡合计 16Ψ，零冗余；要用整份时靠通信临时拼回（all-gather）</text>
+    <!-- 图例 -->
+    <rect x="140" y="530" width="12" height="12" fill="#6d28d9" opacity="0.88"/>
+    <text x="158" y="540" font-size="10.5" fill="#555">优化器状态（fp32，12Ψ）</text>
+    <rect x="330" y="530" width="12" height="12" fill="#0891b2" opacity="0.9"/>
+    <text x="348" y="540" font-size="10.5" fill="#555">梯度（fp16，2Ψ）</text>
+    <rect x="480" y="530" width="12" height="12" fill="#f59e0b" opacity="0.92"/>
+    <text x="498" y="540" font-size="10.5" fill="#555">参数（fp16，2Ψ）</text>
+  </svg>
+  <div class="diagram-caption">图 2：同一个 16Ψ 的模型状态，两种装法。上：DDP 让 4 张卡各存一份完整副本，集群合计 64Ψ，其中 48Ψ 是复制税；下：ZeRO-3 把优化器状态、梯度、参数各切 4 片，每卡只保管 1/4（合计仍 16Ψ，零冗余），代价是需要整份时靠通信临时拼回。代入正文 7.2.3 的账：70B 模型 64 卡，DDP 每卡 1120 GB，ZeRO-3 每卡 17.5 GB。</div>
+</div>
+
+<h2>7.2.1 从 DP 到 DDP：各算各的 batch，梯度跨卡求平均</h2>
+
+<p>　　数据并行（Data Parallelism, DP）的思想朴素得可爱：模型复制 N 份，N 张卡各拿一份；训练数据切成 N 份，各卡吃各的；唯一需要商量的事发生在反向传播之后——各卡把算出的梯度拿出来求平均，再各自用平均梯度更新参数。好比一个班分头做同一套卷子的不同页，交卷前把错题汇总对一遍答案，每人按汇总结果订正：大家起点相同、订正内容也相同，下一轮的「水平」自然仍然一致。</p>
+
+<p>　　把一个训练步拆开看，DP 的标准动作是五步：</p>
+
+<ol>
+  <li><strong>一致初始化</strong>：N 张卡从同一份参数出发（同一种子或广播同一份权重）；</li>
+  <li><strong>数据切分</strong>：采样器把数据集切成互不重叠的 N 份，各卡只读自己那片（PyTorch 里叫 <code>DistributedSampler</code>）；</li>
+  <li><strong>各卡独立前向、反向</strong>：全程零通信，各算各的 loss 和梯度；</li>
+  <li><strong>梯度跨卡求平均</strong>：一次集合通信，让所有卡拿到相同的平均梯度；</li>
+  <li><strong>各卡本地更新</strong>：用平均梯度跑自己的优化器 step。</li>
+</ol>
+
+<p>　　为什么第 5 步之后各卡参数还严格一致？因为更新所需的全部输入都一致：参数一致（第 1 步保证）、梯度一致（第 4 步保证）、优化器状态一致（各卡从相同初始状态出发、历史更新完全相同）。三个一致推出下一个训练步的参数还是一致——这个「一致性不变式」是 DP 正确性的全部秘密。</p>
+
+<p>　　梯度求平均还有一个漂亮的数学性质：它让 N 卡训练严格等效于一个大 batch 的单卡训练。设每张卡的 batch 大小为 \(B\)，第 \(i\) 张卡在自己的数据上算出梯度 \(g_i\)，则平均梯度恰好等于把 \(N \times B\) 条样本拼成一个大 batch 算出的梯度：</p>
+
+<div class="formula-card">
+  \[ \bar{g} \;=\; \frac{1}{N}\sum_{i=1}^{N} g_i \;=\; \nabla \mathcal{L}_{\text{batch}=N \times B} \tag{1} \]
+  <div class="formula-note">公式 (1)：各卡局部梯度的平均，就是全局大 batch 的梯度——因为全局 batch 的均值损失，正是各卡局部均值损失再取平均（各卡 batch 相同时成立）。符号说明：\(\bar{g}\) 是平均梯度；\(N\) 是卡数；\(g_i\) 是第 \(i\) 张卡在本地 batch 上算出的梯度；\(\mathcal{L}_{\text{batch}=N \times B}\) 是把 N 份数据拼成大 batch 后的均值损失；\(\nabla\) 表示对全部参数求梯度。</div>
+</div>
+
+<p>　　换句话说，DP 不只是「能跑」，在数学上它就是大 batch 训练本体，只是把计算摊到了 N 张卡上。这也让 DP 下的全局 batch 直接乘上卡数：单卡 batch 32、64 卡，全局 batch 就是 2048 条。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">all-reduce 全归约</span>
+    <span class="term-en">all-reduce = 全员各自出一份数据，归约（求和/平均等）后全员各拿一份相同结果</span>
+  </div>
+  <div class="term-body">
+    <p>all-reduce 是一种集合通信原语：N 个参与者各贡献一个张量，按某种运算（求和、平均、取最大）归约成一份结果，再让<strong>每个人都拿到这份结果</strong>。DP 的第 4 步就是一次梯度 all-reduce。它不是某个框架的发明，而是高性能计算领域几十年的标准原语，NCCL、MPI 都提供实现。</p>
+    <div class="term-analogy">就像 N 个人各自统计了班里一部分同学的分数，开会时把数字加总再当众宣布平均分——散会时每个人手里的平均分都一样。</div>
+  </div>
+</div>
+
+<p>　　all-reduce 怎么实现，直接决定 DP 能扩到多少卡。最朴素的方案是选一张主卡：大家把梯度发给它，它求平均后广播回去。梯度和参数一样大，70B 模型就是 140 GB（fp16），主卡的网口瞬间被打爆，卡数越多堵得越死——通信量随 N 线性增长，这条路走不远。</p>
+
+<p>　　工业界通用的答案是 <strong>ring all-reduce</strong>：把 N 张卡排成一个环，每张卡只和左右两个邻居通信。算法分两阶段：先做 reduce-scatter，绕环 N−1 步，每步每张卡只传梯度总量的 \(1/N\)，走完每卡手里攒出「全局已求和」的 \(1/N\) 切片；再做 all-gather，同样绕环 N−1 步，把这些切片分发给全员。合起来，每张卡的总发送量为：</p>
+
+<div class="formula-card">
+  \[ \text{每卡通信量} \;=\; 2\cdot\frac{N-1}{N}\cdot M \;\approx\; 2M \tag{2} \]
+  <div class="formula-note">公式 (2)：ring all-reduce 的每卡通信量——两个阶段各传 \((N-1)/N \cdot M\)，合起来约等于两倍梯度大小，与卡数基本无关。符号说明：\(M\) 是待同步的梯度总大小（等于参数量乘以每参数字节数）；\(N\) 是卡数；因子 \((N-1)/N\) 在 N 较大时趋近 1，比如 64 卡时约 0.984。卡数翻十倍，每卡通信量几乎不变——这正是 DP 能铺到上万卡的关键。</div>
+</div>
+
+<p>　　还有一个工程细节让 DP 的实际开销比纸面更小：<strong>通信与计算重叠</strong>。反向传播是从后往前逐层算的，最后一层的梯度最早算好。PyTorch DDP 把梯度分成若干桶（bucket），某桶的梯度一齐就立即发起该桶的 all-reduce，同时继续算前面层的梯度——通信藏在计算背后，理想情况下一步训练只多出「最后一个桶」的等待时间（Li et al., 2020）。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-dp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arr-dp-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <!-- 数据集 -->
+    <rect x="235" y="10" width="250" height="30" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="360" y="29" text-anchor="middle" font-size="13" fill="#6d28d9">完整训练数据集</text>
+    <line x1="360" y1="40" x2="360" y2="50" stroke="#6d28d9" stroke-width="1.2"/>
+    <line x1="115" y1="50" x2="595" y2="50" stroke="#6d28d9" stroke-width="1.2"/>
+    <line x1="115" y1="50" x2="115" y2="62" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr-dp)"/>
+    <line x1="275" y1="50" x2="275" y2="62" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr-dp)"/>
+    <line x1="435" y1="50" x2="435" y2="62" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr-dp)"/>
+    <line x1="595" y1="50" x2="595" y2="62" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr-dp)"/>
+    <!-- 数据分片 -->
+    <rect x="50" y="64" width="130" height="26" rx="5" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="210" y="64" width="130" height="26" rx="5" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="370" y="64" width="130" height="26" rx="5" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="530" y="64" width="130" height="26" rx="5" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="115" y="81" text-anchor="middle" font-size="12" fill="#0891b2">数据分片 0</text>
+    <text x="275" y="81" text-anchor="middle" font-size="12" fill="#0891b2">数据分片 1</text>
+    <text x="435" y="81" text-anchor="middle" font-size="12" fill="#0891b2">数据分片 2</text>
+    <text x="595" y="81" text-anchor="middle" font-size="12" fill="#0891b2">数据分片 3</text>
+    <line x1="115" y1="90" x2="115" y2="100" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr-dp)"/>
+    <line x1="275" y1="90" x2="275" y2="100" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr-dp)"/>
+    <line x1="435" y1="90" x2="435" y2="100" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr-dp)"/>
+    <line x1="595" y1="90" x2="595" y2="100" stroke="#6d28d9" stroke-width="1.2" marker-end="url(#arr-dp)"/>
+    <!-- GPU 框 -->
+    <rect x="40" y="102" width="150" height="152" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="200" y="102" width="150" height="152" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="360" y="102" width="150" height="152" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="520" y="102" width="150" height="152" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="115" y="124" text-anchor="middle" font-size="13" fill="#6d28d9">GPU 0</text>
+    <text x="275" y="124" text-anchor="middle" font-size="13" fill="#6d28d9">GPU 1</text>
+    <text x="435" y="124" text-anchor="middle" font-size="13" fill="#6d28d9">GPU 2</text>
+    <text x="595" y="124" text-anchor="middle" font-size="13" fill="#6d28d9">GPU 3</text>
+    <text x="115" y="150" text-anchor="middle" font-size="12" fill="#333">完整模型副本</text>
+    <text x="275" y="150" text-anchor="middle" font-size="12" fill="#333">完整模型副本</text>
+    <text x="435" y="150" text-anchor="middle" font-size="12" fill="#333">完整模型副本</text>
+    <text x="595" y="150" text-anchor="middle" font-size="12" fill="#333">完整模型副本</text>
+    <text x="115" y="176" text-anchor="middle" font-size="12" fill="#333">前向 + 反向</text>
+    <text x="275" y="176" text-anchor="middle" font-size="12" fill="#333">前向 + 反向</text>
+    <text x="435" y="176" text-anchor="middle" font-size="12" fill="#333">前向 + 反向</text>
+    <text x="595" y="176" text-anchor="middle" font-size="12" fill="#333">前向 + 反向</text>
+    <text x="115" y="208" text-anchor="middle" font-size="12" fill="#0891b2">本地梯度 g₀</text>
+    <text x="275" y="208" text-anchor="middle" font-size="12" fill="#0891b2">本地梯度 g₁</text>
+    <text x="435" y="208" text-anchor="middle" font-size="12" fill="#0891b2">本地梯度 g₂</text>
+    <text x="595" y="208" text-anchor="middle" font-size="12" fill="#0891b2">本地梯度 g₃</text>
+    <text x="115" y="234" text-anchor="middle" font-size="11" fill="#666">（此阶段零通信）</text>
+    <text x="275" y="234" text-anchor="middle" font-size="11" fill="#666">（此阶段零通信）</text>
+    <text x="435" y="234" text-anchor="middle" font-size="11" fill="#666">（此阶段零通信）</text>
+    <text x="595" y="234" text-anchor="middle" font-size="11" fill="#666">（此阶段零通信）</text>
+    <!-- 汇入 all-reduce -->
+    <line x1="115" y1="254" x2="115" y2="272" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-dp-red)"/>
+    <line x1="275" y1="254" x2="275" y2="272" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-dp-red)"/>
+    <line x1="435" y1="254" x2="435" y2="272" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-dp-red)"/>
+    <line x1="595" y1="254" x2="595" y2="272" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-dp-red)"/>
+    <rect x="60" y="274" width="600" height="34" rx="17" fill="#6d28d9"/>
+    <text x="360" y="296" text-anchor="middle" font-size="13" fill="#ffffff">梯度 all-reduce（跨卡求平均）：ḡ = (g₀+g₁+g₂+g₃)/4</text>
+    <!-- 发散到 step -->
+    <line x1="115" y1="308" x2="115" y2="326" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-dp)"/>
+    <line x1="275" y1="308" x2="275" y2="326" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-dp)"/>
+    <line x1="435" y1="308" x2="435" y2="326" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-dp)"/>
+    <line x1="595" y1="308" x2="595" y2="326" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-dp)"/>
+    <rect x="40" y="328" width="150" height="46" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <rect x="200" y="328" width="150" height="46" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <rect x="360" y="328" width="150" height="46" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <rect x="520" y="328" width="150" height="46" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="115" y="348" text-anchor="middle" font-size="12" fill="#333">各自 step 更新</text>
+    <text x="275" y="348" text-anchor="middle" font-size="12" fill="#333">各自 step 更新</text>
+    <text x="435" y="348" text-anchor="middle" font-size="12" fill="#333">各自 step 更新</text>
+    <text x="595" y="348" text-anchor="middle" font-size="12" fill="#333">各自 step 更新</text>
+    <text x="115" y="366" text-anchor="middle" font-size="11" fill="#666">θ ← θ − η·ḡ</text>
+    <text x="275" y="366" text-anchor="middle" font-size="11" fill="#666">θ ← θ − η·ḡ</text>
+    <text x="435" y="366" text-anchor="middle" font-size="11" fill="#666">θ ← θ − η·ḡ</text>
+    <text x="595" y="366" text-anchor="middle" font-size="11" fill="#666">θ ← θ − η·ḡ</text>
+    <text x="360" y="394" text-anchor="middle" font-size="12" fill="#666">一步只同步一次梯度；初始一致 + 梯度一致 ⇒ 各卡参数始终一致，等效全局 batch = 单卡 batch × 4</text>
+  </svg>
+  <div class="diagram-caption">图 3：DDP 一个训练步的完整流程。数据被切成互不重叠的分片，各卡持完整模型副本独立前向反向，梯度经 all-reduce 求平均后各自更新，参数保持一致。</div>
+</div>
+
+<div class="highlight-box">
+  DDP 的通信节奏：前向、反向各算各的，零通信；一步训练只在反向时同步一次梯度，通信量约两倍梯度大小，且与卡数近似无关。这就是它能从 8 卡一路扩到上万卡的原因。
+</div>
+
+<h2>7.2.2 显存冗余：N 张卡存 N 份相同的家当</h2>
+
+<p>　　DDP 把算力和数据摊开了，显存却一份没省。回头清点每张卡必须常驻的<strong>模型状态</strong>（model states），按 7.1 节的 16 字节账，它们分三件套：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型状态</th><th>内容</th><th>精度</th><th>每参数显存</th></tr></thead>
+    <tbody>
+      <tr><td>参数</td><td>前向反向计算用的权重</td><td>fp16</td><td>2 字节</td></tr>
+      <tr><td>梯度</td><td>反向算出的参数梯度</td><td>fp16</td><td>2 字节</td></tr>
+      <tr><td>优化器状态</td><td>fp32 主参数 + 一阶动量 + 二阶动量</td><td>fp32</td><td>12 字节</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　三样合计每参数 16 字节。关键问题是：<strong>DDP 里这 16 字节在每张卡上各存一份，且内容完全相同</strong>。N 张卡的集群，模型状态总占用是 \(16\Psi N\) 字节（\(\Psi\) 是参数量），其中真正互不相同的有效信息只有 \(1/N\)——其余全是为维持「一致性不变式」付出的复制税。拿 70B 模型、64 卡算账：每卡 1120 GB，集群合计约 71.7 TB，其中 70.6 TB 是冗余。</p>
+
+<div class="highlight-box warn">
+  DP 的扩展瓶颈是显存而不是算力。ZeRO 论文给过一个直观的观察：混合精度训练下，超过约 1.4B 参数的模型（16 字节账约 22.4 GB），在 32 GB 显卡上用基本 DP 就已经装不下了——这还没算激活值。模型越大，DDP 越先被自己的冗余卡死。
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">模型状态 Model States</span>
+    <span class="term-en">model states = 训练全程必须常驻的「模型本体」数据</span>
+  </div>
+  <div class="term-body">
+    <p>ZeRO 论文把训练显存切成两大块：模型状态（优化器状态、梯度、参数）与剩余状态（residual states：激活值、临时缓冲、显存碎片）。大模型场景下模型状态是显存大头，且它在 N 卡之间完全复制，是 ZeRO 的主攻目标；激活值等剩余状态靠激活重计算等手段处理，属于另一条战线。</p>
+    <div class="term-analogy">模型状态像搬家时必须随身带的全套家当，激活值像做饭时临时摆在台面上的菜——前者长期占地，后者随做随收。</div>
+  </div>
+</div>
+
+<p>　　矛盾清楚了：数据并行天然地复制模型状态，而复制在单卡装不下时毫无意义——64 张「各自装不下」的卡拼起来，还是 64 张各自装不下的卡。要破局，就得动「人人一份完整副本」这个前提。</p>
+
+<h2>7.2.3 ZeRO 三级切分：不复制，改分管</h2>
+
+<p>　　2020 年微软提出的 ZeRO（Zero Redundancy Optimizer，零冗余优化器）给出了系统的解法：模型状态不再复制，而是<strong>切分</strong>（partition）到 N 张卡上，每张卡只保管 \(1/N\)，需要用到不在自己手里的部分时，再临时通过通信取来。好比 64 个人合租一套 64 卷的百科全书：与其每人买一套，不如每人只保管一卷，要写论文时互相借——书架压力降 64 倍，代价是多跑几趟腿（通信）。</p>
+
+<p>　　模型状态有三件套，切分也就按三步走，逐级加码：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>Stage 1：切优化器状态</h4><p>12Ψ 的大头先切。每卡只存 1/N 的优化器状态，只负责更新 1/N 的参数，更新完互相广播。</p></div>
+  <div class="concept-card"><h4>Stage 2：加切梯度</h4><p>梯度跟着参数走。每卡只保留自己负责那 1/N 参数的梯度，反向结束时跨卡归约并各取所属切片。</p></div>
+  <div class="concept-card"><h4>Stage 3：连参数也切</h4><p>每卡只存 1/N 参数，前向反向算到哪层，临时收集哪层的完整参数，用完即弃。</p></div>
+</div>
+
+<p>　　<strong>Stage 1（优化器状态切分）</strong>。三件套里优化器状态占 12 字节，是最大的那块，先拿它开刀。切完后每卡只保管 \(1/N\) 的 fp32 主参数、动量、方差，step 时只更新这 \(1/N\) 参数，再通过一次 all-gather 把各卡更新好的参数切片拼回全员。参数（2Ψ）和梯度（2Ψ）暂时还是全量，每卡占用变为 \(4\Psi + 12\Psi/N\)。</p>
+
+<p>　　<strong>Stage 2（再加梯度切分）</strong>。既然每卡只更新 \(1/N\) 的参数，它只需要这 \(1/N\) 参数的梯度——反向结束时，原来的梯度 all-reduce 退化成一次 reduce-scatter：梯度跨卡求和的同时，每卡只收下自己负责的那段切片，其余直接丢弃。每卡占用进一步降到 \(2\Psi + 14\Psi/N\)。</p>
+
+<p>　　<strong>Stage 3（连参数也切）</strong>。最激进的一步：参数本身也切开，每卡只存 \(1/N\)。前向算到某层时，先用 all-gather 临时收集该层完整参数，算完立刻释放；反向同理。每卡占用压到 \(16\Psi/N\)——模型状态显存随卡数线性下降。把三级合写在一起：</p>
+
+<div class="formula-card">
+  \[ \text{Stage 1：}\; 4\Psi + \frac{12\Psi}{N}, \qquad \text{Stage 2：}\; 2\Psi + \frac{14\Psi}{N}, \qquad \text{Stage 3：}\; \frac{16\Psi}{N} \tag{3} \]
+  <div class="formula-note">公式 (3)：ZeRO 三级切分下每卡的模型状态显存（对照 DDP 基线的 \(16\Psi\)）。白话解读：Stage 1 只把 12Ψ 的优化器状态摊到 N 卡；Stage 2 把 2Ψ 的梯度也摊掉；Stage 3 连 2Ψ 的参数都摊掉，全部模型状态都只剩 \(1/N\)。符号说明：\(\Psi\) 是模型参数量（个）；\(N\) 是数据并行卡数（ZeRO 论文记作 \(N_d\)）；系数 16 = 2（fp16 参数）+ 2（fp16 梯度）+ 12（fp32 优化器状态，论文记作 \(K=12\)）。卡数较大时，三级分别接近 4 倍、8 倍、N 倍节省。</div>
+</div>
+
+<p>　　把 70B 模型、64 卡（十进制 GB，1 GB = \(10^9\) 字节）代入，算一笔完整对比账：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>方案</th><th>每卡优化器状态</th><th>每卡梯度</th><th>每卡参数</th><th>每卡合计</th><th>相对 DDP</th></tr></thead>
+    <tbody>
+      <tr><td>DDP（基线）</td><td>840 GB</td><td>140 GB</td><td>140 GB</td><td>1120 GB</td><td>1×</td></tr>
+      <tr><td>ZeRO Stage 1</td><td>13.1 GB</td><td>140 GB</td><td>140 GB</td><td>293.1 GB</td><td>≈3.8×</td></tr>
+      <tr><td>ZeRO Stage 2</td><td>13.1 GB</td><td>2.2 GB</td><td>140 GB</td><td>155.3 GB</td><td>≈7.2×</td></tr>
+      <tr><td>ZeRO Stage 3</td><td>13.1 GB</td><td>2.2 GB</td><td>2.2 GB</td><td>17.5 GB</td><td>64×</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　DDP 下 1120 GB 没有任何单卡装得下，ZeRO-3 的 17.5 GB 一张 32 GB 卡就能扛——从「64 张卡各自装不下」到「64 张卡合力轻松装下」，同一批硬件的能耐天差地别。ZeRO 论文算过更大的账：1T 参数模型、16 字节账共约 16 TB，1024 张卡切分后每卡 16 GB，落在常规显卡容量之内。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <!-- 顶部说明与图例 -->
+    <text x="60" y="24" font-size="13" fill="#333">每卡模型状态显存（70B · 64 卡 · 不含激活值）</text>
+    <rect x="430" y="12" width="14" height="14" fill="#6d28d9"/>
+    <text x="450" y="24" font-size="12" fill="#333">优化器状态（fp32 主参数+动量+方差，12Ψ）</text>
+    <rect x="430" y="34" width="14" height="14" fill="#0891b2"/>
+    <text x="450" y="46" font-size="12" fill="#333">梯度（fp16，2Ψ）</text>
+    <rect x="430" y="56" width="14" height="14" fill="#f59e0b"/>
+    <text x="450" y="68" font-size="12" fill="#333">参数（fp16，2Ψ）</text>
+    <!-- DDP 柱：总 280px，基线 330 -->
+    <rect x="70" y="120" width="110" height="210" fill="#6d28d9" opacity="0.88"/>
+    <rect x="70" y="85" width="110" height="35" fill="#0891b2" opacity="0.9"/>
+    <rect x="70" y="50" width="110" height="35" fill="#f59e0b" opacity="0.92"/>
+    <text x="125" y="232" text-anchor="middle" font-size="12" fill="#ffffff">优化器状态 840</text>
+    <text x="125" y="106" text-anchor="middle" font-size="11" fill="#ffffff">梯度 140</text>
+    <text x="125" y="71" text-anchor="middle" font-size="11" fill="#ffffff">参数 140</text>
+    <text x="125" y="40" text-anchor="middle" font-size="13" fill="#dc2626">1120 GB · 1×</text>
+    <text x="125" y="352" text-anchor="middle" font-size="13" fill="#333">DDP（基线）</text>
+    <!-- Stage 1 柱：总 73.3px -->
+    <rect x="240" y="326.7" width="110" height="3.3" fill="#6d28d9" opacity="0.88"/>
+    <rect x="240" y="291.7" width="110" height="35" fill="#0891b2" opacity="0.9"/>
+    <rect x="240" y="256.7" width="110" height="35" fill="#f59e0b" opacity="0.92"/>
+    <text x="295" y="313" text-anchor="middle" font-size="11" fill="#ffffff">梯度 140</text>
+    <text x="295" y="278" text-anchor="middle" font-size="11" fill="#ffffff">参数 140</text>
+    <text x="295" y="246" text-anchor="middle" font-size="13" fill="#333">293 GB · ≈3.8×</text>
+    <text x="295" y="352" text-anchor="middle" font-size="13" fill="#333">Stage 1</text>
+    <!-- Stage 2 柱：总 38.8px -->
+    <rect x="410" y="326.7" width="110" height="3.3" fill="#6d28d9" opacity="0.88"/>
+    <rect x="410" y="326.2" width="110" height="0.5" fill="#0891b2" opacity="0.9"/>
+    <rect x="410" y="291.2" width="110" height="35" fill="#f59e0b" opacity="0.92"/>
+    <text x="465" y="313" text-anchor="middle" font-size="11" fill="#ffffff">参数 140</text>
+    <text x="465" y="281" text-anchor="middle" font-size="13" fill="#333">155 GB · ≈7.2×</text>
+    <text x="465" y="352" text-anchor="middle" font-size="13" fill="#333">Stage 2</text>
+    <!-- Stage 3 柱：总 4.4px -->
+    <rect x="580" y="325.6" width="110" height="4.4" fill="#6d28d9" opacity="0.88"/>
+    <text x="635" y="315" text-anchor="middle" font-size="13" fill="#333">17.5 GB · 64×</text>
+    <text x="635" y="352" text-anchor="middle" font-size="13" fill="#333">Stage 3</text>
+    <!-- 基线 -->
+    <line x1="50" y1="330" x2="690" y2="330" stroke="#333" stroke-width="1.2"/>
+    <text x="360" y="374" text-anchor="middle" font-size="11" fill="#666">被切分的段每卡只留 1/64：柱高按真实比例绘制，Stage 3 仅剩一条细线——这就是「随卡数线性下降」的形状</text>
+  </svg>
+  <div class="diagram-caption">图 4：DDP 与 ZeRO 三级的每卡模型状态显存对比（70B · 64 卡）。紫色优化器状态先被切掉，青色梯度随后，最后琥珀色参数也被切开，柱高从 1120 GB 压到 17.5 GB。</div>
+</div>
+
+<p>　　显存省得漂亮，通信代价呢？这正是 ZeRO 设计最巧妙的地方。回忆 ring all-reduce 的两个阶段：reduce-scatter 加 all-gather。DDP 的梯度 all-reduce 本来就是这两步的组合，通信量 \(2\Psi\)。Stage 1 和 Stage 2 只是把这两步拆开重新点名——梯度用 reduce-scatter 各取所属切片（\(\Psi\)），参数更新后用 all-gather 拼回全员（\(\Psi\)），总量仍是 \(2\Psi\)，<strong>与 DDP 一字不差</strong>。Stage 3 因为参数不在手边，前向、反向各要多做一次参数 all-gather，总量升到 \(3\Psi\)，即多花 50% 通信。</p>
+
+<div class="highlight-box">
+  ZeRO 的账本：Stage 1、Stage 2 的显存节省（最高约 8 倍）是白赚的，通信量与 DDP 完全相同；只有 Stage 3 才付通信税（+50%），换来显存随卡数线性下降。工程上 DeepSpeed 把三级做成配置开关，按显存缺口逐级加码即可。
+</div>
+
+<div class="highlight-box info">
+  切分还能再往外卸。ZeRO-Offload（Ren et al., 2021）把优化器状态和梯度卸到 CPU 内存、参数更新放在 CPU 上算；ZeRO-Infinity（Rajbhandari et al., 2021）基于 Stage 3 进一步把状态卸到 NVMe 硬盘，打通 GPU—CPU—NVMe 三级存储，让单台机器也能撬动超大模型的微调。它们换的是更便宜的容量，付的是更慢的带宽。
+</div>
+
+<div class="highlight-box info">
+  本页显存数字用十进制 GB（1 GB = \(10^9\) 字节），与 ZeRO 论文口径一致；若按二进制 GiB（\(2^{30}\) 字节）计，1120 GB 约等于 1043 GiB。另外所有对比只算模型状态，激活值显存另计——长序列、大 batch 时激活同样可观，由激活重计算等技术负责。
+</div>
+
+<h2>7.2.4 梯度累积：把大 batch 摊到时间轴上</h2>
+
+<p>　　还有一根支柱，与「卡」无关，与「时间」有关。6.2 节讲过，大模型配大 batch：batch 越大梯度估计越准。可 batch 一大，激活值显存先爆——前向每一层的中间结果都要留着等反向。梯度累积（gradient accumulation）的思路是：不一次喂大 batch，把它切成 \(k\) 个 micro-batch 分 \(k\) 步喂，每步只反向不更新，梯度在参数的 <code>.grad</code> 里自然累加，第 \(k\) 步才做一次优化器更新、清零重来。总算力并没有多花——同一份 batch 分 \(k\) 次算完，只是参数更新要等满 \(k\) 步——激活显存却只占 micro-batch 那一份。</p>
+
+<p>　　这里有一个必须小心的细节：PyTorch 的损失默认对 batch 内样本取均值，而 <code>.grad</code> 是累加不是覆盖。如果不加处理，\(k\) 步累积得到的是各 micro-batch 梯度之和，比大 batch 的梯度大了 \(k\) 倍。所以每步的 loss 要先除以 \(k\) 再反向：</p>
+
+<div class="formula-card">
+  \[ \nabla \mathcal{L}_{\text{大 batch}} \;=\; \frac{1}{k}\sum_{i=1}^{k} \nabla \mathcal{L}_{i} \qquad\Longleftrightarrow\qquad \texttt{loss\_i / k} \;\text{再 backward} \tag{4} \]
+  <div class="formula-note">公式 (4)：大 batch 的均值损失梯度，等于各 micro-batch 均值损失梯度的平均——所以累积时每步 loss 先除 k，k 步累加出来的梯度才与大 batch 严格一致。符号说明：\(\mathcal{L}_{i}\) 是第 \(i\) 个 micro-batch 的均值损失；\(k\) 是累积步数；\(\nabla \mathcal{L}_{\text{大 batch}}\) 是把 k 份数据合成一个大 batch 算出的梯度；⇔ 右边是工程实现写法，两边数学等价。</div>
+</div>
+
+<div class="highlight-box danger">
+  梯度累积忘了给 loss 除以 k，是真实高发的静默错误：不报错、loss 曲线照降，但每步实际梯度大了 k 倍。对 SGD 这类直接拿梯度乘学习率的优化器，这等效于学习率偷偷放大 k 倍，轻则收敛变差，重则训练发散；Adam 家族按梯度量级做归一化，对这种整体缩放近似免疫，但工程上没人会把训练押在「近似免疫」上。检查清单里永远要有这一项。
+</div>
+
+<p>　　叠上 DDP，等效全局 batch 的完整公式是三个数的连乘：</p>
+
+<div class="formula-card">
+  \[ B_{\text{global}} \;=\; B_{\text{micro}} \times k \times N \tag{5} \]
+  <div class="formula-note">公式 (5)：全局等效 batch = 单卡 micro-batch × 梯度累积步数 × 数据并行卡数。三个因子分别对应三根支柱的分工：\(B_{\text{micro}}\) 由单卡激活显存决定，\(k\) 用时间换空间，\(N\) 用卡数换吞吐。符号说明：\(B_{\text{micro}}\) 是每步每卡实际喂入的样本数；\(k\) 是累积步数；\(N\) 是卡数。</div>
+</div>
+
+<p>　　以 minimind 的预训练默认配置为例：单卡 batch 32、累积 8 步，单卡等效 batch 就是 256 条；若铺到 64 卡 DDP，全局等效 batch 达 16384 条——而每张卡任一时刻只需为 32 条样本存激活值。要特别提醒一句边界：梯度累积省的是<strong>激活</strong>显存，模型状态（参数、梯度、优化器状态）一分不少，那块要找 ZeRO；两者解决的显存互不重叠，所以总是搭配使用。</p>
+
+<div class="highlight-box info">
+  工程细节：梯度累积的中间 k−1 步，梯度只在本地攒着，并不需要跨卡同步，PyTorch 提供 <code>model.no_sync()</code> 上下文关掉这些步的 all-reduce，省下一截通信。minimind 没有做这层优化——它的每次 backward 都会触发 DDP 同步，结果完全正确，只是多通信了几趟，小模型上无伤大雅。
+</div>
+
+<div class="highlight-box">
+  三根支柱各管一摊、彼此正交：DDP 把数据摊到多卡（算力），ZeRO 把模型状态切到多卡（状态显存），梯度累积把 batch 摊到时间轴（激活显存）。真实的大模型训练永远是三者的组合，再叠上 7.1 的混合精度——比如「ZeRO-2 + bf16 + 累积 8 步 + 64 卡」。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">DDP 各卡吃不同的数据，为什么参数能始终保持一致？</div>
+    <div class="sc-key">初始参数一致，反向后梯度经 all-reduce 求平均变得一致，优化器状态历史也一致——三者一致推出更新后参数仍一致。数学上，平均梯度恰好等于 N 份数据拼成大 batch 的梯度，所以 DDP 就是大 batch 训练本体。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">ZeRO 三级各切什么？通信代价分别是多少？</div>
+    <div class="sc-key">Stage 1 切优化器状态（12Ψ）、Stage 2 加切梯度（2Ψ）、Stage 3 连参数（2Ψ）也切，每卡模型状态从 16Ψ 降到 16Ψ/N；前两级的通信量与 DDP 相同（2Ψ，白赚），第三级升到 3Ψ（+50%）。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">梯度累积为什么必须给 loss 除以 k？它省的是什么显存？</div>
+    <div class="sc-key">PyTorch 的梯度默认累加，k 步后 .grad 里是各 micro-batch 梯度之和，而大 batch 要的是平均，所以每步 loss 先除 k；它省的是激活显存（只占 micro-batch 一份），不省模型状态——等效全局 batch = micro-batch × k × 卡数。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Rajbhandari, Rasley, Ruwase &amp; He, 2020. ZeRO: Memory Optimizations Toward Training Trillion Parameter Models（ZeRO 原始论文，arXiv:1910.02054，SC20；三级切分、16Ψ 显存账与通信量分析的出处）。</li>
+  <li>Li et al., 2020. PyTorch Distributed: Experiences on Accelerating Data Parallel Training（PyTorch DDP 设计与梯度分桶、计算通信重叠，arXiv:2006.15704，VLDB 2020）。</li>
+  <li>Gibiansky, 2017. Bringing HPC Techniques to Deep Learning（ring all-reduce 引入深度学习，arXiv:1702.08723）。</li>
+  <li>Sergeev &amp; Del Balso, 2018. Horovod: fast and easy distributed deep learning in TensorFlow（ring all-reduce 的工程化普及，arXiv:1802.05799）。</li>
+  <li>Ren et al., 2021. ZeRO-Offload: Democratizing Billion-Scale Model Training（优化器状态与梯度卸载 CPU，arXiv:2101.06840）。</li>
+  <li>Rajbhandari et al., 2021. ZeRO-Infinity: Breaking the GPU Memory Wall for Extreme Scale Deep Learning（卸载延伸至 NVMe，arXiv:2104.07857）。</li>
+  <li>minimind 工程代码：<code>trainer/train_pretrain.py</code>（Apache 2.0 协议）。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch7_1_scaling_wall.html" title="7.1 显存墙与算力墙：为什么单卡训不动大模型">← 上一节：7.1 显存墙与算力墙：为什么单卡训不动大模型</a><a class="next" href="ch7_3_tensor_pipeline_parallel.html" title="7.3 张量并行与流水线并行：把模型本身切开">下一节：7.3 张量并行与流水线并行：把模型本身切开 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

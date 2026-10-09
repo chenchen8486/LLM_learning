@@ -1,0 +1,829 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>7.4 混合精度与训练稳定性：快而不炸 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link active" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 7 章 预训练工程</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>7.4 混合精度与训练稳定性：快而不炸</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>7.4 混合精度与训练稳定性：快而不炸</h1>
+<p class="subtitle">本页范围：第 7 章第 4 节　|　整理时间：2026-09-30</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>训练要提速、显存要减半，能不能全程用 16 位甚至 8 位浮点？为什么把模型直接转成半精度训练很容易翻车？大模型训练中途 loss 突然蹿升（loss spike），又该怎么救？</td></tr>
+      <tr><td>本节主张</td><td>混合精度的核心是一笔「分工账」：矩阵乘用半精度求快，参数、归一化、softmax 留 FP32 求稳；训练稳定性则靠事前保险（初始化、warmup、梯度裁剪）与事后急救（回滚跳批）双管齐下。</td></tr>
+      <tr><td>一句话结论</td><td>FP32 主权重 + BF16 autocast + 算子黑白名单是当前 LLM 预训练的默认配置，FP8 正在超大规模模型上落地；面对 loss spike，业界最成熟的急救方案是 PaLM 式「回到健康 checkpoint、跳过可疑数据」。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>FP16</span><span>BF16</span><span>FP8</span><span>混合精度</span><span>loss scaling</span><span>autocast</span><span>loss spike</span><span>checkpoint 回滚</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　6.3.4 走查训练循环时见过 autocast 和 GradScaler 这两道保险，当时只讲了它们在循环里干什么，原理留到本节；6.2 末尾还埋了个伏笔：大模型训练常见 loss spike，急救三招只给了清单没给细节。本节把两笔账一起结掉。先从一个更根本的问题切入：训练为什么不干脆全程用 16 位浮点，要快到底？答案藏在浮点数的位宽分配里。</p>
+
+<p>　　本节沿三个问题展开，路线图如下：</p>
+
+<ol>
+  <li><strong>浮点格式对比：FP32 / TF32 / FP16 / BF16 / FP8</strong>（7.4.1）：指数位管范围、尾数位管精度，五种格式各自怎么分配手里的比特，配原创位宽布局示意图（图 3）；</li>
+  <li><strong>混合精度三件套：主权重、损失缩放、黑白名单</strong>（7.4.2）：全 FP16 训练的三个坑，以及 2017 年那篇经典论文给出的三个补丁；</li>
+  <li><strong>训练稳定性实战：loss spike 与急救手册</strong>（7.4.3）：PaLM 约 20 次 spike 的回滚跳批策略、OPT-175B 的 35 次手动重启，外加初始化、warmup、梯度裁剪三道事前保险。</li>
+</ol>
+
+<p>　　读完本节，你应该能解释：为什么 minimind 默认用 bfloat16，而 GradScaler 对它完全关闭。</p>
+
+<p>　　三个问题展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及这个位置放大之后的内部结构。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS74mixedprecisionstability" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG74mixedprecisionstability" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#ede9fe">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#6b7280">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#9ca3af">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#6b7280">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#6b7280">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12–13 章）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS74mixedprecisionstability)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS74mixedprecisionstability)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG74mixedprecisionstability)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG74mixedprecisionstability)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG74mixedprecisionstability)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG74mixedprecisionstability)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG74mixedprecisionstability)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：训练工程在 LLM 生命周期中的位置。数据（第 1 章）与预训练目标（第 6 章）就位后，这一站把训练摊到集群上跑起来，随后交给中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章）。本节管这一站的「数值纪律」：16 位浮点怎么用得又快又不炸，loss spike 来了怎么救。</div>
+</div>
+
+<p>　　图 1 里这个紫框放大之后长什么样？一步训练里，数据在 32 位与 16 位之间怎么流动？把 minimind 训练循环里的一步单独拆开看：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 510" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrMp74" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrMp74g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+      </marker>
+    </defs>
+    <text x="24" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：一步混合精度训练的数值流</text>
+    <text x="24" y="50" font-size="10.5" fill="#64748b">输入：一个 micro-batch → 输出：更新后的 FP32 主权重；步骤对应 minimind trainer/train_pretrain.py 第 33–47 行</text>
+    <!-- 两个分区 -->
+    <rect x="24" y="66" width="320" height="370" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="6 4"/>
+    <text x="184" y="90" text-anchor="middle" font-size="12" font-weight="bold" fill="#475569">FP32 区：落账求稳</text>
+    <rect x="380" y="66" width="356" height="370" rx="10" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="6 4"/>
+    <text x="558" y="90" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">BF16 区：autocast 内计算求快</text>
+    <!-- FP32 区节点 -->
+    <rect x="54" y="106" width="260" height="58" rx="8" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+    <text x="184" y="130" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">FP32 主权重 θ</text>
+    <text x="184" y="150" text-anchor="middle" font-size="10.5" fill="#666">更新落账的唯一真身，常驻</text>
+    <rect x="54" y="196" width="260" height="58" rx="8" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+    <text x="184" y="220" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">scaler.unscale_：梯度 ÷S 还原</text>
+    <text x="184" y="240" text-anchor="middle" font-size="10.5" fill="#666">并转回 FP32</text>
+    <rect x="54" y="282" width="260" height="50" rx="8" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+    <text x="184" y="304" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">clip_grad_norm_：梯度裁剪</text>
+    <text x="184" y="322" text-anchor="middle" font-size="10.5" fill="#666">个别爆梯度不至于带飞参数</text>
+    <rect x="54" y="352" width="260" height="58" rx="8" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+    <text x="184" y="376" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">scaler.step：更新 θ</text>
+    <text x="184" y="396" text-anchor="middle" font-size="10.5" fill="#666">scaler.update：调整 S（溢出减半）</text>
+    <!-- BF16 区节点 -->
+    <rect x="418" y="106" width="280" height="58" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="558" y="130" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">autocast：权重临时转 BF16</text>
+    <text x="558" y="150" text-anchor="middle" font-size="10.5" fill="#666">不改动 FP32 主副本</text>
+    <rect x="418" y="196" width="280" height="70" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="558" y="218" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">前向 + loss</text>
+    <text x="558" y="238" text-anchor="middle" font-size="10.5" fill="#666">matmul / linear → BF16</text>
+    <text x="558" y="255" text-anchor="middle" font-size="10.5" fill="#666">softmax · RMSNorm · CE → 留 FP32</text>
+    <rect x="418" y="286" width="280" height="50" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="558" y="308" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">scaler.scale(loss)：×S</text>
+    <text x="558" y="326" text-anchor="middle" font-size="10.5" fill="#666">链式法则：梯度自动跟着放大 S 倍</text>
+    <rect x="418" y="356" width="280" height="54" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="558" y="380" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">backward：得 BF16 梯度</text>
+    <text x="558" y="398" text-anchor="middle" font-size="10.5" fill="#666">小梯度靠 ×S 躲开下溢</text>
+    <!-- 箭头 -->
+    <line x1="314" y1="135" x2="414" y2="135" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMp74)"/>
+    <text x="366" y="124" text-anchor="middle" font-size="10" fill="#6d28d9">临时转换</text>
+    <line x1="558" y1="164" x2="558" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMp74)"/>
+    <line x1="558" y1="266" x2="558" y2="282" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMp74)"/>
+    <line x1="558" y1="336" x2="558" y2="352" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMp74)"/>
+    <path d="M 418 383 L 366 383 L 366 225 L 318 225" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrMp74g)"/>
+    <text x="370" y="374" text-anchor="middle" font-size="10" fill="#475569">梯度回 FP32</text>
+    <line x1="184" y1="254" x2="184" y2="278" stroke="#475569" stroke-width="2" marker-end="url(#arrMp74g)"/>
+    <line x1="184" y1="332" x2="184" y2="348" stroke="#475569" stroke-width="2" marker-end="url(#arrMp74g)"/>
+    <path d="M 54 385 L 16 385 L 16 135 L 50 135" fill="none" stroke="#475569" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrMp74g)"/>
+    <text x="36" y="428" font-size="10" fill="#475569">落回主副本，进入下一 micro-batch</text>
+    <!-- 底部提示 -->
+    <rect x="24" y="448" width="712" height="52" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="380" y="470" text-anchor="middle" font-size="11.5" fill="#dc2626">FP16 必须 ×S 防梯度下溢（S 初始 65536，溢出就减半并跳过本步）</text>
+    <text x="380" y="488" text-anchor="middle" font-size="11.5" fill="#dc2626">BF16 范围与 FP32 相同 → minimind 默认 dtype=bfloat16，GradScaler 直接关闭（enabled=False）</text>
+  </svg>
+  <div class="diagram-caption">图 2：一步训练在两种精度之间的往返（对应 minimind trainer/train_pretrain.py 第 33–47 行）。FP32 主权重是唯一真身；autocast 区域内权重与激活临时转 BF16 做矩阵乘求快，softmax、RMSNorm、cross_entropy 由框架按黑白名单留在 FP32 求稳；loss 乘 S 再反向，梯度 ÷S 还原并转回 FP32，裁剪后 step 更新主副本。注意 minimind 默认 bf16，GradScaler 关闭，图中 ×S、÷S 对它是恒等操作，FP16 模式下才真正生效。</div>
+</div>
+
+<h2>7.4.1 浮点格式对比：FP32 / TF32 / FP16 / BF16 / FP8</h2>
+
+<p>　　先补一点浮点数基础。不管哪种格式，计算机里的浮点数都由同一个公式描述：</p>
+
+<div class="formula-card">
+  \[ x = (-1)^{s} \times 1.f \times 2^{\,e - b} \tag{1} \]
+  <div class="formula-note">公式 (1)：浮点数 = 符号 × 尾数 × 2 的指数次幂，是科学计数法的二进制版。符号说明：\(s\) 是符号位（1 比特，0 正 1 负）；\(f\) 是尾数域，占 \(M\) 个比特，正规数默认前面隐含一个 1，即有效数字共 \(M+1\) 位；\(e\) 是指数域，占 \(E\) 个比特的无符号整数；\(b\) 是偏置常数，让指数域能同时表达正、负指数（FP16 取 15，FP8 E4M3 取 7）。\(E\) 越大，2 的幂次覆盖越宽，能表示的数范围越大；\(M\) 越大，同一指数档位内相邻两数的间隔 \(2^{-M}\) 越小，精度越高。</div>
+</div>
+
+<p>　　一句话记住：<strong>指数位管「能表示多大、多小的数」（范围），尾数位管「相邻两个数差多少」（精度）</strong>。比特总数固定时，两者是零和博弈：多给指数一位，尾数就少一位。下面五种格式的全部差异，就是这道分配题的不同答案：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <!-- 表头 -->
+    <text x="120" y="20" font-size="11" fill="#666">位宽布局（格宽与比特数成正比，格内数字为比特数）</text>
+    <text x="585" y="20" font-size="11" fill="#666">关键数值</text>
+    <!-- FP32 -->
+    <text x="8" y="46" font-size="12" font-weight="bold" fill="#333">FP32</text>
+    <text x="8" y="59" font-size="9.5" fill="#999">E8M23 · 32 位</text>
+    <rect x="120" y="34" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="51" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="34" width="112" height="26" fill="#6d28d9"/>
+    <text x="190" y="51" text-anchor="middle" font-size="11" fill="#fff">8</text>
+    <rect x="246" y="34" width="322" height="26" fill="#0891b2"/>
+    <text x="407" y="51" text-anchor="middle" font-size="11" fill="#fff">23</text>
+    <text x="585" y="45" font-size="10" fill="#555">上限 ≈3.4×10³⁸</text>
+    <text x="585" y="58" font-size="10" fill="#555">老牌基准格式</text>
+    <!-- TF32 -->
+    <text x="8" y="90" font-size="12" font-weight="bold" fill="#333">TF32</text>
+    <text x="8" y="103" font-size="9.5" fill="#999">E8M10 · 19 位</text>
+    <rect x="120" y="78" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="95" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="78" width="112" height="26" fill="#6d28d9"/>
+    <text x="190" y="95" text-anchor="middle" font-size="11" fill="#fff">8</text>
+    <rect x="246" y="78" width="140" height="26" fill="#0891b2"/>
+    <text x="316" y="95" text-anchor="middle" font-size="11" fill="#fff">10</text>
+    <text x="585" y="89" font-size="10" fill="#555">仅内部计算使用</text>
+    <text x="585" y="102" font-size="10" fill="#555">存储仍为 FP32</text>
+    <!-- FP16 -->
+    <text x="8" y="134" font-size="12" font-weight="bold" fill="#333">FP16</text>
+    <text x="8" y="147" font-size="9.5" fill="#999">E5M10 · 16 位</text>
+    <rect x="120" y="122" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="139" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="122" width="70" height="26" fill="#6d28d9"/>
+    <text x="169" y="139" text-anchor="middle" font-size="11" fill="#fff">5</text>
+    <rect x="204" y="122" width="140" height="26" fill="#0891b2"/>
+    <text x="274" y="139" text-anchor="middle" font-size="11" fill="#fff">10</text>
+    <text x="585" y="133" font-size="10" fill="#555">上限 65504</text>
+    <text x="585" y="146" font-size="10" fill="#555">最小正规数 ≈6×10⁻⁵</text>
+    <!-- BF16 -->
+    <text x="8" y="178" font-size="12" font-weight="bold" fill="#333">BF16</text>
+    <text x="8" y="191" font-size="9.5" fill="#999">E8M7 · 16 位</text>
+    <rect x="120" y="166" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="183" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="166" width="112" height="26" fill="#6d28d9"/>
+    <text x="190" y="183" text-anchor="middle" font-size="11" fill="#fff">8</text>
+    <rect x="246" y="166" width="98" height="26" fill="#0891b2"/>
+    <text x="295" y="183" text-anchor="middle" font-size="11" fill="#fff">7</text>
+    <text x="585" y="177" font-size="10" fill="#555">范围同 FP32</text>
+    <text x="585" y="190" font-size="10" fill="#555">精度只剩约 2 位</text>
+    <!-- E4M3 -->
+    <text x="8" y="222" font-size="12" font-weight="bold" fill="#333">E4M3</text>
+    <text x="8" y="235" font-size="9.5" fill="#999">FP8 · 8 位</text>
+    <rect x="120" y="210" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="227" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="210" width="56" height="26" fill="#6d28d9"/>
+    <text x="162" y="227" text-anchor="middle" font-size="11" fill="#fff">4</text>
+    <rect x="190" y="210" width="42" height="26" fill="#0891b2"/>
+    <text x="211" y="227" text-anchor="middle" font-size="11" fill="#fff">3</text>
+    <text x="585" y="221" font-size="10" fill="#555">上限 448</text>
+    <text x="585" y="234" font-size="10" fill="#555">用于权重·激活</text>
+    <!-- E5M2 -->
+    <text x="8" y="266" font-size="12" font-weight="bold" fill="#333">E5M2</text>
+    <text x="8" y="279" font-size="9.5" fill="#999">FP8 · 8 位</text>
+    <rect x="120" y="254" width="14" height="26" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="127" y="271" text-anchor="middle" font-size="9" fill="#b45309">S</text>
+    <rect x="134" y="254" width="70" height="26" fill="#6d28d9"/>
+    <text x="169" y="271" text-anchor="middle" font-size="11" fill="#fff">5</text>
+    <rect x="204" y="254" width="28" height="26" fill="#0891b2"/>
+    <text x="218" y="271" text-anchor="middle" font-size="11" fill="#fff">2</text>
+    <text x="585" y="265" font-size="10" fill="#555">上限 57344</text>
+    <text x="585" y="278" font-size="10" fill="#555">用于梯度</text>
+    <!-- 图例 -->
+    <rect x="120" y="306" width="12" height="12" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="138" y="316" font-size="10" fill="#555">符号位：正负</text>
+    <rect x="252" y="306" width="12" height="12" fill="#6d28d9"/>
+    <text x="270" y="316" font-size="10" fill="#555">指数位：决定范围</text>
+    <rect x="404" y="306" width="12" height="12" fill="#0891b2"/>
+    <text x="422" y="316" font-size="10" fill="#555">尾数位：决定精度</text>
+  </svg>
+  <div class="diagram-caption">图 3：六种浮点格式的位宽分配。从 FP32 到 FP8，省位主要砍在尾数上；BF16 与 E5M2 保住了指数位（范围），FP16 与 E4M3 则偏向尾数位（精度）。</div>
+</div>
+
+<p>　　把五种格式摆进同一张表，各自的角色就清楚了：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>格式</th><th>位宽（符号+指数+尾数）</th><th>动态范围</th><th>相邻数间隔 \(2^{-M}\)</th><th>训练中的角色</th></tr></thead>
+    <tbody>
+      <tr><td>FP32（E8M23）</td><td>1 + 8 + 23 = 32</td><td>上限 ≈3.4×10³⁸</td><td>≈1.2×10⁻⁷（约 7 位十进制）</td><td>老牌基准：主权重与敏感算子的落账格式</td></tr>
+      <tr><td>TF32（E8M10）</td><td>1 + 8 + 10 = 19</td><td>同 FP32</td><td>≈1×10⁻³（约 3 位）</td><td>NVIDIA Ampere 起 FP32 矩阵乘的内部计算格式，用户无感提速</td></tr>
+      <tr><td>FP16（E5M10）</td><td>1 + 5 + 10 = 16</td><td>上限 65504；最小正规数 ≈6×10⁻⁵</td><td>≈1×10⁻³（约 3 位）</td><td>混合精度初代主角，必须配 loss scaling 使用</td></tr>
+      <tr><td>BF16（E8M7）</td><td>1 + 8 + 7 = 16</td><td>同 FP32</td><td>≈7.8×10⁻³（约 2 位）</td><td>Google 为 TPU 设计，LLM 预训练当前默认</td></tr>
+      <tr><td>FP8 E4M3</td><td>1 + 4 + 3 = 8</td><td>上限 448</td><td>0.125（不足 1 位）</td><td>权重与激活（2022 年 NVIDIA/Arm/Intel 联合提案）</td></tr>
+      <tr><td>FP8 E5M2</td><td>1 + 5 + 2 = 8</td><td>上限 57344</td><td>0.25（不足 1 位）</td><td>梯度</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　逐个看几个关键取舍。<strong>FP16</strong> 是 IEEE 754 标准半精度：10 位尾数给出约三位十进制精度，对深度学习其实够用，软肋在范围——最大 65504，比它大的数直接变 inf（上溢）；最小正规数约 \(6 \times 10^{-5}\)，次正规数也只能撑到约 \(6 \times 10^{-8}\)，训练中大量梯度比这还小，直接被压成 0（下溢）。</p>
+
+<p>　　<strong>BF16</strong>（bfloat16，brain floating point）是 Google 为 TPU 设计的「截短版 FP32」：指数与 FP32 同为 8 位，动态范围原样保留，代价是尾数从 23 位砍到 7 位，精度只剩约两位十进制。它赌的是一个深度学习数值格式的核心经验——网络对尾数噪声的忍耐力，远强于对范围溢出的忍耐力。这个赌赢了：BF16 成了当前 LLM 预训练的主流 16 位格式。</p>
+
+<p>　　<strong>TF32</strong> 是 NVIDIA 在 Ampere 架构（A100）引入的内部计算格式：张量仍按 FP32 存储，矩阵乘进入 Tensor Core 时内部舍成 19 位 TF32 计算、FP32 累加。范围同 FP32、精度同 FP16，不用改一行代码就能加速 FP32 训练。</p>
+
+<p>　　<strong>FP8</strong> 把 8 个比特掰成两份用（Micikevicius et al., 2022，arXiv:2209.05433）：E4M3 精度优先，给权重与激活；E5M2 范围优先，给梯度。E4M3 还做了个小手术：不表示无穷大、NaN 只留一个编码，把省下的位型换成正常数值，上限从 240 抬到 448。2024 年底的 DeepSeek-V3 首次在 671B 的超大规模 MoE 模型上验证了 FP8 混合精度训练：全程统一用 E4M3，靠细粒度缩放（激活按 1×128 小块、权重按 128×128 方块各自配缩放因子）和更高精度的累加弥补范围不足，敏感算子（Embedding、输出头、归一化）则保留高精度。</p>
+
+<div class="highlight-box info">
+  为什么范围比精度更「要命」？精度不足只是每个数带一点噪声，网络对噪声有免疫力；范围不足是灾难性的——大数变 inf、小数变 0，信息直接清零。这就是 BF16 敢把尾数砍到 7 位、却不敢动指数位的原因。
+</div>
+
+<h2>7.4.2 混合精度三件套：主权重、损失缩放、黑白名单</h2>
+
+<p>　　知道了 FP16 的短板，2017 年 NVIDIA 与百度的联合论文《Mixed Precision Training》（Micikevicius et al., arXiv:1710.03740）给出了系统解法。当时的痛点很具体：Volta 架构 Tensor Core 的 FP16 矩阵乘吞吐数倍于 FP32，显存还省一半，但直接全 FP16 训练，精度会掉。论文的做法不是单点修补，而是一套三件套，每件堵一个坑：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>① 主权重 master weights</h4><p>参数始终保存一份 FP32 主副本，堵「更新量被舍入吞掉」。</p></div>
+  <div class="concept-card"><h4>② 损失缩放 loss scaling</h4><p>反传前把 loss 乘一个大常数，堵「梯度下溢成 0」。</p></div>
+  <div class="concept-card"><h4>③ 算子黑白名单</h4><p>矩阵乘走半精度、敏感算子留 FP32，堵「算子数值失真」。</p></div>
+</div>
+
+<p>　　<strong>坑一：参数更新量太小，半精度存不住。</strong>AdamW 一步的更新量（学习率乘梯度）往往比参数本身小几个数量级；FP16 的相邻数间隔约 \(10^{-3}\)，一个取值为 1 的参数，小于 \(10^{-3}\) 的更新直接被舍入吞掉——参数原地踏步，白算一步。解法是让参数始终保存一份 FP32 主副本（master weights）：前向反向时临时转成 FP16 参与计算，梯度转回 FP32 后才落到主副本上。显存多一份参数副本，换来更新不丢。</p>
+
+<p>　　<strong>坑二：梯度下溢。</strong>FP16 能表示的最小正数（次正规）约 \(6 \times 10^{-8}\)，训练中后期大量梯度比这还小，反传回来一片 0，对应参数永远学不到东西。解法出奇地便宜：反传之前，把 loss 先乘一个大常数 \(S\)：</p>
+
+<div class="formula-card">
+  \[ g_{\mathrm{scaled}} = \frac{\partial (S\,\mathcal{L})}{\partial \theta} = S \cdot \frac{\partial \mathcal{L}}{\partial \theta} = S \cdot g \tag{2} \]
+  <div class="formula-note">公式 (2)：链式法则是线性的——loss 放大 \(S\) 倍，所有梯度自动跟着放大 \(S\) 倍，不用碰任何网络结构。符号说明：\(\mathcal{L}\) 是原始损失；\(S\) 是缩放因子（常取 2 的幂，如 \(2^{16} = 65536\)，乘 2 的幂在二进制浮点下不产生舍入误差）；\(\theta\) 是模型参数；\(g\) 是原始梯度；\(g_{\mathrm{scaled}}\) 是放大后的梯度。反传完成后、更新参数前，再把梯度除以 \(S\) 原样还回，数学上与从未缩放完全等价。</div>
+</div>
+
+<p>　　\(S\) 取多大没有先验答案：取小了救不回下溢，取大了反而制造溢出。实践用<strong>动态损失缩放</strong>，规则一句话——宁大勿小、出事就退：</p>
+
+<div class="formula-card">
+  \[ S_{t+1} = \begin{cases} S_t / 2, &amp; \text{本步梯度出现 inf/NaN（并跳过本次更新）} \\[4pt] 2\,S_t, &amp; \text{连续 } N \text{ 步无溢出} \\[4pt] S_t, &amp; \text{其余情况} \end{cases} \tag{3} \]
+  <div class="formula-note">公式 (3)：动态缩放让 \(S\) 贴着「够用且不溢出」的水位自动巡航。符号说明：\(S_t\) 是第 \(t\) 步的缩放因子；\(N\) 是连续无溢出步数的阈值（PyTorch 默认 2000 步，初始 \(S\) 默认 65536）。「跳过本次更新」不是浪费：溢出说明这一步的梯度已经不可信，硬更新反而把参数带飞。</div>
+</div>
+
+<div class="highlight-box info">
+  PyTorch 的 <code>GradScaler</code> 就是这套算法的现成实现：<code>scale</code> → <code>unscale_</code> → <code>step</code> → <code>update</code> 四连调用，溢出检测、减半、翻倍全自动。minimind 里的具体用法见 <code>trainer/train_pretrain.py</code>。
+</div>
+
+<p>　　<strong>坑三：不是所有算子都适合半精度。</strong>矩阵乘是吞吐大头、对输入精度不敏感，而且乘加可以用 FP32 累加，适合半精度；softmax、LayerNorm 这类含指数、开方、大归约的算子数值敏感，保留 FP32 才稳。这就是<strong>算子黑白名单</strong>：论文时代要手工指定，今天 PyTorch 的 <code>autocast</code> 内置了名单——<code>with autocast_ctx:</code> 包住的区域里，matmul/conv/linear 自动落到半精度，softmax、layer_norm、cross_entropy 等自动留在 FP32，分流由框架完成。</p>
+
+<div class="highlight-box danger">
+  易错：不要把 <code>model.half()</code> 当混合精度。把整个模型直接转半精度，等于三件套全丢——参数没了 FP32 主副本，敏感算子也掉进半精度，轻则精度掉点，重则 loss 起飞。正确姿势是模型保持 FP32，只用 autocast 包住 forward，让框架按黑白名单自动分流。
+</div>
+
+<div class="highlight-box">
+  混合精度的哲学是一笔分工账：计算过程（矩阵乘）用半精度求快求省，落账环节（参数、归一化、概率归一）用 FP32 求稳。算得快与训得稳不矛盾，前提是别让 16 位浮点去碰它处理不了的数值。
+</div>
+
+<h2>7.4.3 训练稳定性实战：loss spike 与急救手册</h2>
+
+<p>　　数值精度只是稳定性的一半战场。就算混合精度配得天衣无缝，大模型训练中途仍可能出事：平稳下降的 loss 曲线突然蹿起一根尖刺，有时自己回落，有时一路发散到 NaN。这就是 6.2、6.3 都点到过的 <strong>loss spike</strong>。模型越大越常见：PaLM 训练 540B 时，即使开着梯度裁剪，仍观察到约 20 次 spike，时间点毫无规律，训练后期也会冒出来。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">loss spike 损失尖刺</span>
+    <span class="term-en">spike = 尖刺，loss 曲线上的突然蹿升</span>
+  </div>
+  <div class="term-body">
+    <p>训练 loss 在个别 step 突然放大几倍、甚至变成 NaN 的现象。诱因通常不是单一的：异常数据、学习率与参数状态的共振、底层硬件抖动都可能有份，很难提前预测。</p>
+    <div class="term-analogy">就像长跑时突然崴了一下脚：多数时候缓两步能继续跑，但崴狠了（loss 站上新高位甚至 NaN）就得退回去，从上一个状态完好的位置重跑这一段。</div>
+  </div>
+</div>
+
+<p>　　spike 怎么救？PaLM 论文给出的答案朴素得出人意料，却已是业界事实标准——不治本，先绕过：发现 spike 后，从 spike 开始前约 100 步的 checkpoint 重启训练，并跳过约 200–500 个覆盖事故现场的 batch。处理过的 spike 没有在同一位置复发。</p>
+
+<p>　　为什么跳过数据有用？PaLM 团队做过关键消融：把 spike 现场附近的那批数据，换一个更早的 checkpoint 重新喂进去，结果不再 spike。这说明 spike 并不是「这批数据有毒」，而是<strong>特定的数据 batch 撞上特定的参数状态</strong>才会引爆——就像同一级台阶，只有脚步落在某个特定角度才会崴脚。所以回滚加跳批有效：换一批数据，等于换一种脚步落点。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 370" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arr-sp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arr-rb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <!-- 跳过区域底色 -->
+    <rect x="372" y="30" width="98" height="270" fill="#fef3c7" fill-opacity="0.65"/>
+    <!-- 坐标轴 -->
+    <line x1="70" y1="300" x2="70" y2="22" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-sp)"/>
+    <line x1="60" y1="300" x2="700" y2="300" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arr-sp)"/>
+    <text x="42" y="28" font-size="11" fill="#666">loss</text>
+    <text x="700" y="322" text-anchor="end" font-size="11" fill="#666">训练步数 step</text>
+    <!-- 健康段曲线 -->
+    <path d="M 78,80 C 150,192 240,216 330,228 L 372,234" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <!-- checkpoint 点 -->
+    <circle cx="300" cy="224" r="5" fill="#0891b2"/>
+    <text x="148" y="150" font-size="11.5" fill="#0891b2">① 健康 checkpoint</text>
+    <text x="148" y="165" font-size="10" fill="#0891b2">spike 前约 100 步</text>
+    <line x1="232" y1="168" x2="294" y2="218" stroke="#0891b2" stroke-width="1"/>
+    <!-- spike -->
+    <polyline points="372,234 384,96 396,238" fill="none" stroke="#dc2626" stroke-width="2.5"/>
+    <text x="400" y="92" font-size="12" fill="#dc2626">② loss spike 突刺</text>
+    <!-- 回滚虚线箭头 -->
+    <path d="M 384,98 C 340,92 302,140 302,216" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-rb)"/>
+    <text x="322" y="122" font-size="10.5" fill="#dc2626">回滚</text>
+    <!-- 跳过区域标注 -->
+    <text x="421" y="146" text-anchor="middle" font-size="10.5" fill="#b45309">③ 跳过可疑</text>
+    <text x="421" y="160" text-anchor="middle" font-size="10.5" fill="#b45309">batch 约</text>
+    <text x="421" y="174" text-anchor="middle" font-size="10.5" fill="#b45309">200–500 个</text>
+    <!-- 恢复曲线 -->
+    <circle cx="470" cy="240" r="4" fill="#6d28d9"/>
+    <path d="M 470,240 C 535,244 600,251 666,258" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <text x="440" y="286" font-size="11" fill="#333">④ 换一段数据续训，回到下降轨道</text>
+  </svg>
+  <div class="diagram-caption">图 4：PaLM 式 spike 处置流程——发现 loss 突刺后，回到 spike 前约 100 步的健康 checkpoint，跳过覆盖事故现场的 200–500 个 batch，换一段数据继续训练。</div>
+</div>
+
+<p>　　如果说 PaLM 的记录是「成功处置案例」，Meta 的 OPT-175B 就是一份「事故现场全记录」。论文连同 100 余页训练日志（logbook）一起公开：992 块 A100 上约两个月的训练里，硬件故障贡献了至少 35 次手动重启、轮换超过 100 台主机；loss spike、梯度爆炸、中途调整优化方案，全都记在日志里。这份日志至今是理解大规模训练工程现实的最佳一手材料：大模型训练不是按下回车等结果，而是一场需要全天候值班的持久战。</p>
+
+<p>　　急救之外，更重要的是事前少出事。三道保险的前两道在 6.2 已经细讲过，这里只点出它们与稳定性的关系：</p>
+
+<ul>
+  <li><strong>梯度裁剪</strong>：把全局梯度范数压回阈值内（惯例 1.0），个别 batch 的异常大梯度不至于一步把参数带飞，是 spike 的第一道防线。注意 PaLM 开着它仍出了约 20 次 spike，可见它只是减伤，不是免疫。</li>
+  <li><strong>LR warmup</strong>：开局几百到几千步学习率从 0 线性爬升，避开参数随机、Adam 统计量未攒够时大步乱走的危险期（细节见 6.2.2）。</li>
+  <li><strong>初始化尺度</strong>：权重初始方差要随层宽缩放，惯例是 fan-in 初始化 \(W \sim \mathcal{N}(0, 1/\sqrt{n_{\mathrm{in}}})\)（\(n_{\mathrm{in}}\) 是该层的输入维度），让前向激活与反向梯度的方差在各层保持稳定。初始方差过大，激活逐层膨胀，训练开局就炸，warmup 也救不回来。</li>
+</ul>
+
+<div class="highlight-box info">
+  PaLM 还用了几个架构级的稳定化手段：所有线性层与 LayerNorm 不用偏置（no biases）；\(\beta_2\) 不取常数 0.99，而是按 \(1 - k^{-0.8}\) 随步数 \(k\) 逐渐变大；外加一项 z_loss 辅助损失（\(10^{-4} \cdot \log^2 Z\)，\(Z\) 是 softmax 的归一化常数），把 logits 的整体尺度往 0 拉，抑制其无节制膨胀。这些细节说明：稳定性是初始化、优化器、架构、数值格式一起凑出来的系统工程。
+</div>
+
+<div class="highlight-box">
+  大模型训练的稳定性没有银弹：事前靠初始化尺度、warmup、梯度裁剪压低出事概率，事中靠混合精度的数值纪律不添乱，事后靠勤存 checkpoint 加回滚跳批快速复活。三层合起来，才把「万亿 token 不翻车」从运气变成工程。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">FP16 和 BF16 同为 16 位，为什么 LLM 预训练默认 BF16？</div>
+    <div class="sc-key">FP16 尾数多 3 位，但指数只有 5 位：上限 65504、最小约 \(6 \times 10^{-8}\)，训练中上溢下溢都常见，必须配 loss scaling。BF16 指数与 FP32 同为 8 位，范围原样保留；精度虽只剩约两位十进制，但网络对尾数噪声远比对溢出宽容，连 scaler 都可以省掉。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">混合精度三件套各自堵的是哪个坑？</div>
+    <div class="sc-key">主权重 FP32 堵「参数更新量太小被舍入吞掉」；loss scaling 堵「梯度下溢成 0」（loss 乘 \(S\)、反传后除以 \(S\) 还原，溢出就减半跳过）；黑白名单堵「敏感算子失真」——矩阵乘走半精度，softmax、LayerNorm 留 FP32。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">训练中遇到 loss spike 的标准处置流程是什么？</div>
+    <div class="sc-key">从 spike 前约 100 步的健康 checkpoint 重启，跳过覆盖事故现场的 200–500 个 batch 再续训（PaLM 方案）。消融表明 spike 是特定数据撞上特定参数状态的组合事故，换批数据即可避开；同时检查学习率，必要时调低。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Micikevicius et al., 2017. Mixed Precision Training（混合精度训练原始论文，arXiv:1710.03740，ICLR 2018）：FP32 主权重、损失缩放、FP32 累加三件套的出处。</li>
+  <li>Micikevicius et al., 2022. FP8 Formats for Deep Learning（arXiv:2209.05433，NVIDIA/Arm/Intel 联合提案）：E4M3/E5M2 编码设计、各自适用范围（E4M3 给权重与激活、E5M2 给梯度）与 per-tensor 缩放；E4M3 上限 448、E5M2 上限 57344 出自该文 Table 1。</li>
+  <li>Kalamkar et al., 2019. A Study of BFLOAT16 for Deep Learning（arXiv:1905.12322）：BF16 训练精度的系统研究。</li>
+  <li>NVIDIA, 2020. Accelerating AI Training with NVIDIA TF32 Tensor Cores（NVIDIA 开发者博客）：TF32 格式与 Ampere Tensor Core 的官方说明。</li>
+  <li>Chowdhery et al., 2022. PaLM: Scaling Language Modeling with Pathways（arXiv:2204.02311）：§5.1 约 20 次 loss spike 与「回滚约 100 步、跳过 200–500 个 batch」策略及消融结论；§5 的 fan-in 初始化、z_loss、无偏置、\(\beta_2\) 调度等稳定化手段。</li>
+  <li>Zhang et al., 2022. OPT: Open Pre-trained Transformer Language Models（arXiv:2205.01068）及随附 100 余页训练 logbook：992 块 A100、约两个月内至少 35 次手动重启、轮换超 100 台主机的硬件故障记录。</li>
+  <li>DeepSeek-AI, 2024. DeepSeek-V3 Technical Report（arXiv:2412.19437）：§3.3 FP8 混合精度训练——全程 E4M3、细粒度缩放（激活 1×128 tile、权重 128×128 block）与高精度累加。</li>
+  <li>PyTorch 官方文档：torch.cuda.amp（autocast 算子黑白名单；GradScaler 默认参数 init_scale=65536、growth_interval=2000、growth/backoff 为 2.0/0.5）。</li>
+  <li>minimind 工程（Apache 2.0 协议）：trainer/train_pretrain.py，行号以本工程实读版本为准。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch7_3_tensor_pipeline_parallel.html" title="7.3 张量并行与流水线并行：把模型本身切开">← 上一节：7.3 张量并行与流水线并行：把模型本身切开</a><a class="next" href="ch7_5_compute_cost.html" title="7.5 算力估算与成本核算：6ND 法则">下一节：7.5 算力估算与成本核算：6ND 法则 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

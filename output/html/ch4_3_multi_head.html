@@ -1,0 +1,922 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>4.3 多头注意力与掩码：八个视角看同一句 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link active" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 4 章 Transformer 架构精讲</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>4.3 多头注意力与掩码：八个视角看同一句</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>4.3 多头注意力与掩码：八个视角看同一句</h1>
+<p class="subtitle">本页范围：第 4 章第 3 节　|　整理时间：2026-09-29</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>一个注意力头只能给出一种加权平均，一句话里同时存在的多种关系（长距离搭配、指代、语法结构）会不会被互相糊掉？自回归生成时，又怎么保证模型看不到还没写出来的未来？</td></tr>
+      <tr><td>本节主张</td><td>多头注意力把 Q、K、V 分别投影到 8 个低维子空间，并行算出 8 份注意力再拼接混合，算力开销与单头全维相当；掩码在 softmax 之前把未来位置的分数置为 −∞，从数学上封死信息从右向左流动。</td></tr>
+      <tr><td>一句话结论</td><td>8 个头是 8 个声部各听一种关系，掩码是给未来位置贴的封条：前者解决"看得全"，后者保证"不作弊"。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>多头注意力</span><span>表示子空间</span><span>因果掩码</span><span>自回归</span><span>交叉注意力</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　上一节讲透了单头注意力的原理，但原论文实际用的是 8 个头，生成场景还离不开掩码。本节解决两个接踵而来的问题：一个头为什么不够，以及自回归生成时怎么封死通往未来的信息通道。两个主题一前一后：</p>
+
+<ol>
+  <li><strong>一个头为什么不够：平均会糊掉多种关系</strong>（4.3.1）：单头只端得出一份"什锦菜"，消融实验与注意力可视化两条证据都站在多头一边；</li>
+  <li><strong>多头机制：投影、分头、拼接、再投影</strong>（4.3.2）：512 维拆成 8 个 64 维子空间并行计算，参数量与算力却不增加；</li>
+  <li><strong>掩码：给未来的卷子贴上封条</strong>（4.3.3）：在 softmax 之前给未来位置加 −∞，权重精确归零，整句并行训练与逐词生成由此等价；</li>
+  <li><strong>一份注意力，三种岗位</strong>（4.3.4）：同一模块靠切换 Q、K、V 的来源和可见范围，分别干"读原文""写译文""边写边查原文"三件事。</li>
+</ol>
+
+<p>　　读完本节，你应该能说清两件事：8 个头为什么不花 8 倍的钱，以及"不许看未来"这条纪律是靠什么数学手段焊死的。</p>
+
+<p>　　多头注意力就在 4.2 节那台机器的原地：同一个 Transformer 层，同一个位置，只是把单机换成了机群。先看它在链路中的站位：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="loc43P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="loc43G" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555">「我爱中国」</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888">（输入起点）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555">切成 token ID 序列</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888">（第 2 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555">查表：ID → 词向量</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888">（3.1 节）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555">注入“第几格”</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888">（3.2–3.5 节）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc43P)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc43P)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc43P)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#loc43P)"/>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">本节主角：多头注意力</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（第 4 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（4.6 节）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc43G)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#loc43G)"/>
+    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#loc43G)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
+    <rect x="120" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="146" y="302" font-size="10.5" fill="#555">浅色实线框：已讲章节</text>
+    <rect x="330" y="292" width="18" height="11" rx="2" fill="#6d28d9"/>
+    <text x="356" y="302" font-size="10.5" fill="#555">紫底框：本节主角</text>
+    <rect x="510" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="536" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：多头注意力在前向链路中的位置。它与 4.2 节共享同一个紫框——多头不是新部件，而是把注意力机制原样复制多份、并行执行的组织方式。</div>
+</div>
+
+<p>　　所谓机群，就是把 4.2 节那台注意力机器原样复制 8 份并行：4.2 节图 2 的最终输出（3 × 96），就是下面图 2 里每个头框装的内容。用 minimind 的真实尺寸（8 个头、每头 96 维）把这台机群画出来：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 650" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="mh43P" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="40" y="30" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：多头注意力——X 复制 8 份、8 头并行、按列拼接、W_O 混合</text>
+    <text x="40" y="52" font-size="11" fill="#64748b">每个头框 = 把 4.2 节图 2 的流程完整跑一遍，它的最终输出（3 × 96）就是头框的内容；本图只看 8 个头怎么组织、怎么汇总</text>
+    <text x="196" y="90" font-size="11" fill="#64748b">X 复制 8 份，每个头拿一份完整副本，各配一套投影矩阵</text>
+
+    <!-- 输入 X：3 行 token × 768 列，扁长条画法与 8 份副本一致 -->
+    <rect x="20" y="204" width="140" height="70" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="20" y1="227" x2="160" y2="227" stroke="#ddd6fe"/>
+    <line x1="20" y1="251" x2="160" y2="251" stroke="#ddd6fe"/>
+    <line x1="48" y1="204" x2="48" y2="274" stroke="#ddd6fe"/>
+    <line x1="76" y1="204" x2="76" y2="274" stroke="#ddd6fe"/>
+    <line x1="104" y1="204" x2="104" y2="274" stroke="#ddd6fe"/>
+    <text x="146" y="243" text-anchor="middle" font-size="14" fill="#94a3b8">…</text>
+    <text x="90" y="292" text-anchor="middle" font-size="11" fill="#6d28d9">X：3 × 768</text>
+    <line x1="160" y1="239" x2="168" y2="239" stroke="#6d28d9" stroke-width="2" marker-end="url(#mh43P)"/>
+
+    <!-- 分发总线 -->
+    <line x1="170" y1="113" x2="170" y2="365" stroke="#6d28d9" stroke-width="2"/>
+
+    <!-- 8 份 X 副本（迷你矩阵，与母版同为 3 行 4 列画法） -->
+    <rect x="196" y="100" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="100" x2="212" y2="126" stroke="#c4b5fd"/><line x1="228" y1="100" x2="228" y2="126" stroke="#c4b5fd"/><line x1="244" y1="100" x2="244" y2="126" stroke="#c4b5fd"/>
+    <line x1="196" y1="109" x2="260" y2="109" stroke="#c4b5fd"/><line x1="196" y1="117" x2="260" y2="117" stroke="#c4b5fd"/>
+    <rect x="196" y="136" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="136" x2="212" y2="162" stroke="#c4b5fd"/><line x1="228" y1="136" x2="228" y2="162" stroke="#c4b5fd"/><line x1="244" y1="136" x2="244" y2="162" stroke="#c4b5fd"/>
+    <line x1="196" y1="145" x2="260" y2="145" stroke="#c4b5fd"/><line x1="196" y1="153" x2="260" y2="153" stroke="#c4b5fd"/>
+    <rect x="196" y="172" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="172" x2="212" y2="198" stroke="#c4b5fd"/><line x1="228" y1="172" x2="228" y2="198" stroke="#c4b5fd"/><line x1="244" y1="172" x2="244" y2="198" stroke="#c4b5fd"/>
+    <line x1="196" y1="181" x2="260" y2="181" stroke="#c4b5fd"/><line x1="196" y1="189" x2="260" y2="189" stroke="#c4b5fd"/>
+    <rect x="196" y="208" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="208" x2="212" y2="234" stroke="#c4b5fd"/><line x1="228" y1="208" x2="228" y2="234" stroke="#c4b5fd"/><line x1="244" y1="208" x2="244" y2="234" stroke="#c4b5fd"/>
+    <line x1="196" y1="217" x2="260" y2="217" stroke="#c4b5fd"/><line x1="196" y1="225" x2="260" y2="225" stroke="#c4b5fd"/>
+    <rect x="196" y="244" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="244" x2="212" y2="270" stroke="#c4b5fd"/><line x1="228" y1="244" x2="228" y2="270" stroke="#c4b5fd"/><line x1="244" y1="244" x2="244" y2="270" stroke="#c4b5fd"/>
+    <line x1="196" y1="253" x2="260" y2="253" stroke="#c4b5fd"/><line x1="196" y1="261" x2="260" y2="261" stroke="#c4b5fd"/>
+    <rect x="196" y="280" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="280" x2="212" y2="306" stroke="#c4b5fd"/><line x1="228" y1="280" x2="228" y2="306" stroke="#c4b5fd"/><line x1="244" y1="280" x2="244" y2="306" stroke="#c4b5fd"/>
+    <line x1="196" y1="289" x2="260" y2="289" stroke="#c4b5fd"/><line x1="196" y1="297" x2="260" y2="297" stroke="#c4b5fd"/>
+    <rect x="196" y="316" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="316" x2="212" y2="342" stroke="#c4b5fd"/><line x1="228" y1="316" x2="228" y2="342" stroke="#c4b5fd"/><line x1="244" y1="316" x2="244" y2="342" stroke="#c4b5fd"/>
+    <line x1="196" y1="325" x2="260" y2="325" stroke="#c4b5fd"/><line x1="196" y1="333" x2="260" y2="333" stroke="#c4b5fd"/>
+    <rect x="196" y="352" width="64" height="26" fill="#ede9fe" stroke="#6d28d9"/>
+    <line x1="212" y1="352" x2="212" y2="378" stroke="#c4b5fd"/><line x1="228" y1="352" x2="228" y2="378" stroke="#c4b5fd"/><line x1="244" y1="352" x2="244" y2="378" stroke="#c4b5fd"/>
+    <line x1="196" y1="361" x2="260" y2="361" stroke="#c4b5fd"/><line x1="196" y1="369" x2="260" y2="369" stroke="#c4b5fd"/>
+
+    <!-- 分发支路 -->
+    <line x1="170" y1="113" x2="192" y2="113" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="149" x2="192" y2="149" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="185" x2="192" y2="185" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="221" x2="192" y2="221" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="257" x2="192" y2="257" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="293" x2="192" y2="293" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="329" x2="192" y2="329" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="170" y1="365" x2="192" y2="365" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+
+    <!-- 副本 → 头 -->
+    <line x1="262" y1="113" x2="278" y2="113" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="149" x2="278" y2="149" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="185" x2="278" y2="185" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="221" x2="278" y2="221" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="257" x2="278" y2="257" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="293" x2="278" y2="293" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="329" x2="278" y2="329" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="262" y1="365" x2="278" y2="365" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+
+    <!-- 8 个头框 -->
+    <rect x="280" y="100" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="117" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 1：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="136" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="153" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 2：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="172" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="189" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 3：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="208" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="225" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 4：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="244" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="261" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 5：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="280" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="297" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 6：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="316" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="333" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 7：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+    <rect x="280" y="352" width="280" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9"/>
+    <text x="420" y="369" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">头 8：投影 → 注意力（4.2 图 2 全程）→ 3 × 96</text>
+
+    <!-- 汇集支路与总线 -->
+    <line x1="560" y1="113" x2="586" y2="113" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="149" x2="586" y2="149" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="185" x2="586" y2="185" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="221" x2="586" y2="221" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="257" x2="586" y2="257" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="293" x2="586" y2="293" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="329" x2="586" y2="329" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="560" y1="365" x2="586" y2="365" stroke="#6d28d9" stroke-width="1.4" marker-end="url(#mh43P)"/>
+    <line x1="590" y1="113" x2="590" y2="365" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="594" y1="239" x2="618" y2="239" stroke="#6d28d9" stroke-width="2" marker-end="url(#mh43P)"/>
+
+    <!-- 按列拼接 -->
+    <text x="704" y="190" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">按列拼接 Concat</text>
+    <rect x="620" y="199" width="168" height="80" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <line x1="641" y1="199" x2="641" y2="279" stroke="#ddd6fe"/>
+    <line x1="662" y1="199" x2="662" y2="279" stroke="#ddd6fe"/>
+    <line x1="683" y1="199" x2="683" y2="279" stroke="#ddd6fe"/>
+    <line x1="704" y1="199" x2="704" y2="279" stroke="#ddd6fe"/>
+    <line x1="725" y1="199" x2="725" y2="279" stroke="#ddd6fe"/>
+    <line x1="746" y1="199" x2="746" y2="279" stroke="#ddd6fe"/>
+    <line x1="767" y1="199" x2="767" y2="279" stroke="#ddd6fe"/>
+    <text x="630" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头1</text>
+    <text x="651" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头2</text>
+    <text x="672" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头3</text>
+    <text x="693" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头4</text>
+    <text x="714" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头5</text>
+    <text x="735" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头6</text>
+    <text x="756" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头7</text>
+    <text x="777" y="243" text-anchor="middle" font-size="9" fill="#4c1d95">头8</text>
+    <text x="798" y="245" font-size="10" fill="#6d28d9">8 段 × 96 = 768 列（3 × 768）</text>
+
+    <!-- W_O -->
+    <line x1="704" y1="281" x2="704" y2="312" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#mh43P)"/>
+    <rect x="620" y="314" width="168" height="64" rx="6" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="704" y="336" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">输出投影 W_O</text>
+    <text x="704" y="356" text-anchor="middle" font-size="10.5" fill="#6d28d9">768 × 768 全连接（下方栏详解）</text>
+
+    <!-- 输出 -->
+    <line x1="704" y1="378" x2="704" y2="404" stroke="#6d28d9" stroke-width="1.8" marker-end="url(#mh43P)"/>
+    <rect x="620" y="406" width="168" height="56" fill="#6d28d9" opacity="0.85"/>
+    <text x="704" y="430" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">输出</text>
+    <text x="704" y="450" text-anchor="middle" font-size="11" fill="#ede9fe">3 × 768（与输入同形）</text>
+
+    <!-- 左下注释 -->
+    <text x="40" y="412" font-size="11" fill="#64748b">8 头为什么不花 8 倍算力：每头只占 96 维，合计仍是 768</text>
+    <text x="40" y="432" font-size="11" fill="#64748b">每个头框装的 = 4.2 节图 2 的最终输出（3 × 96）</text>
+
+    <!-- 底部横栏：W_O 详解 -->
+    <rect x="40" y="490" width="880" height="150" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="60" y="514" font-size="12.5" font-weight="bold" fill="#4c1d95">W_O 在干嘛：混合 + 调配 + 对口</text>
+    <text x="60" y="540" font-size="11.5" font-weight="bold" fill="#333">① 拼接只是摞起来</text>
+    <text x="60" y="560" font-size="11" fill="#475569">拼完后第 0–95 列是头 1 的、第 96–191 列是</text>
+    <text x="60" y="578" font-size="11" fill="#475569">头 2 的……各头的发现还分着家</text>
+    <text x="350" y="540" font-size="11.5" font-weight="bold" fill="#333">② W_O 是可学习的调配配方</text>
+    <text x="350" y="560" font-size="11" fill="#475569">输出的每一维 = 拼接向量 768 个分量的加权和，</text>
+    <text x="350" y="578" font-size="11" fill="#475569">权重训练得来，模型自己学会往哪写、写多少</text>
+    <text x="690" y="540" font-size="11.5" font-weight="bold" fill="#333">③ 输入输出都是 768 维</text>
+    <text x="690" y="560" font-size="11" fill="#475569">形状与输入 X 严丝合缝，才能过残差</text>
+    <text x="690" y="578" font-size="11" fill="#475569">连接、进下一层（4.4 节）</text>
+    <!-- 迷你示意：拼接行 × W_O = 输出行 -->
+    <rect x="60" y="606" width="120" height="16" fill="#c4b5fd" stroke="#6d28d9"/>
+    <line x1="75" y1="606" x2="75" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="90" y1="606" x2="90" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="105" y1="606" x2="105" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="120" y1="606" x2="120" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="135" y1="606" x2="135" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="150" y1="606" x2="150" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="165" y1="606" x2="165" y2="622" stroke="#6d28d9" stroke-width="0.8"/>
+    <text x="190" y="619" font-size="14" fill="#333">×</text>
+    <rect x="205" y="600" width="32" height="32" fill="#ffffff" stroke="#6d28d9"/>
+    <line x1="221" y1="600" x2="221" y2="632" stroke="#ddd6fe"/>
+    <line x1="205" y1="616" x2="237" y2="616" stroke="#ddd6fe"/>
+    <text x="247" y="619" font-size="14" fill="#333">=</text>
+    <rect x="260" y="606" width="60" height="16" fill="#6d28d9"/>
+    <text x="335" y="614" font-size="10.5" fill="#475569">一个 token 的拼接行（1 × 768）× W_O（768 × 768）= 输出行（1 × 768），</text>
+    <text x="335" y="630" font-size="10.5" fill="#475569">每维都是全部 8 个头的加权和；3 个 token 各行算各的</text>
+    <text x="735" y="622" font-size="10.5" fill="#64748b">口诀：Concat 放在一起，W_O 融为一体</text>
+  </svg>
+  <div class="diagram-caption">图 2：多头注意力的并行结构与汇总。输入 X（3 × 768）复制 8 份，每个头拿一份完整副本、用自己的投影矩阵把 4.2 节图 2 的流程完整跑一遍，得到 3 × 96 的输出；8 段按列拼回 3 × 768，再乘输出投影 W_O（768 × 768）把各头的信息融合成最终输出，底部横栏详解 W_O 的三件事。8 头合计维度仍为 768，所以算力开销与单头相当。</div>
+</div>
+
+<h2>4.3.1 一个头为什么不够：平均会糊掉多种关系</h2>
+
+<p>　　上一节的缩放点积注意力只有一套打分体系：每个位置对所有位置算一组分数，softmax 之后做一份加权平均。一份平均意味着每个位置最终只端得出一盘"什锦菜"：主谓搭配、指代关系、修饰关系全被搅进同一个向量里，谁也说不清这盘菜到底是什么味。原论文在 3.2.2 节直接点破了这个问题：</p>
+
+<blockquote>多头注意力允许模型在不同位置共同关注来自不同表示子空间的信息。使用单个注意力头时，平均操作会抑制这种能力。（3.2.2 节）</blockquote>
+
+<p>　　换成机制语言来说：单个注意力头只有一套投影，一句话里的语法、指代、长距离搭配等多种关系只能挤在同一份注意力分布里，细节难免被平均掉。多头注意力把表示拆成多路并行，让不同的头各自捕捉不同类型的依赖关系，最后把各路结果拼接汇总，表示就完整得多。这就是多头注意力的直觉。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">表示子空间 Representation Subspace</span>
+    <span class="term-en">subspace = 高维向量空间里划出的一块低维专区</span>
+  </div>
+  <div class="term-body">
+    <p>512 维的向量可以切成 8 段 64 维的小空间，每段就是原空间的一个<strong>子空间</strong>。模型可以让不同子空间专门编码不同性质的关系：一段管语法搭配，一段管指代，互不干扰。多头机制里的"投影到低维"，就是把每个头送进各自的子空间工作。</p>
+  </div>
+</div>
+
+<p>　　这个直觉有两条硬证据。一条来自消融实验：原论文 6.2 节表 3 的 (A) 组在保持总计算量不变的前提下改变头数，结果是单头（\(h=1\)）比最佳设置低 0.9 个 BLEU，头数过多时质量同样下降，基准设置 \(h=8\) 在英德开发集上取得 25.8 的 BLEU。另一条来自可视化：论文附录把训练好的注意力权重画了出来，不同的头确实在干不同的活。</p>
+
+<div class="img-row">
+  <div class="img-block">
+    <img src="images/ch4/57e3ad00e7c57fe0dc66b468b013f2fcf447ef78a7d2ee01be8b434fe6ef0669.jpg" alt="原论文图3：多个注意力头关注长距离依赖">
+    <div class="img-caption">图 3：编码器第 5 层中，多个注意力头（不同颜色）共同关注动词 making 的远距离搭配，完成 "making...more difficult" 这一短语（来源：Attention Is All You Need 原论文图 3）。</div>
+  </div>
+  <div class="img-block">
+    <img src="images/ch4/b616696f63c30ad27de5f095b0cac5975742209d1231c70057510010187c1512.jpg" alt="原论文图5：不同注意力头表现出不同行为">
+    <div class="img-caption">图 4：同一层的两个注意力头表现出与句子结构相关的不同行为，论文评价它们"显然学会了执行不同的任务"（来源：Attention Is All You Need 原论文图 5）。</div>
+  </div>
+</div>
+
+<p>　　<strong>所以这一步在干嘛：</strong>单头是一个人包办所有关系，多头是把评审团拆开，让每个头在自己的子空间里专盯一类模式，免得所有线索被一锅平均成糊。</p>
+
+<h2>4.3.2 多头机制：投影、分头、拼接、再投影</h2>
+
+<p>　　多头的做法分四步：把 Q、K、V 投影到低维，分成 8 个头，8 个头并行各自算注意力，把 8 份输出拼接后再投影一次。每一步都是矩阵运算，可以完全并行。原论文 3.2.2 节的定义：</p>
+
+<div class="formula-card">
+  \[ \mathrm{MultiHead}(Q,K,V)=\mathrm{Concat}(\mathrm{head}_1,\dots,\mathrm{head}_h)\,W^O \tag{1} \]
+  \[ \text{其中 }\ \mathrm{head}_i=\mathrm{Attention}(QW_i^Q,\ KW_i^K,\ VW_i^V) \tag{2} \]
+  <div class="formula-note">公式 (1)(2)：每个头先用自己的投影矩阵把 Q、K、V 压到低维，独立算注意力；8 份输出拼接后过一层 \(W^O\)，混合各头的信息。符号说明：\(\mathrm{Attention}\) 即上一节公式 (1) 的缩放点积注意力；\(W_i^Q,W_i^K,W_i^V\) 是第 \(i\) 个头专属的三套投影矩阵，形状与取值见下文表格；\(\mathrm{head}_i\) 是第 \(i\) 个头的输出；\(h=8\) 是头数；\(\mathrm{Concat}\) 表示把 \(h\) 份输出按列拼接；\(W^O\) 是输出投影矩阵，把拼接结果混合回 \(d_{\mathrm{model}}\) 维。</div>
+</div>
+
+<p>　　式中各投影矩阵的形状为 \(W_i^Q\in\mathbb{R}^{d_{\mathrm{model}}\times d_k}\)、\(W_i^K\in\mathbb{R}^{d_{\mathrm{model}}\times d_k}\)、\(W_i^V\in\mathbb{R}^{d_{\mathrm{model}}\times d_v}\)、\(W^O\in\mathbb{R}^{hd_v\times d_{\mathrm{model}}}\)。原论文的具体设置：\(d_{\mathrm{model}}=512\)，\(h=8\)，每个头 \(d_k=d_v=d_{\mathrm{model}}/h=64\)。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>量</th><th>符号</th><th>原论文取值</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><td>模型主维度</td><td>\(d_{\mathrm{model}}\)</td><td>512</td><td>残差流的宽度，每层输入输出都是这个维度</td></tr>
+      <tr><td>注意力头数</td><td>\(h\)</td><td>8</td><td>并行计算的子空间份数</td></tr>
+      <tr><td>每头键/查询维度</td><td>\(d_k\)</td><td>64</td><td>每个头用来算分数的向量长度</td></tr>
+      <tr><td>每头值维度</td><td>\(d_v\)</td><td>64</td><td>每个头输出的向量长度</td></tr>
+      <tr><td>拼接后维度</td><td>\(h\cdot d_v\)</td><td>512</td><td>恰好等于 \(d_{\mathrm{model}}\)，无缝接回主干</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　把张量形状走一遍。假设一句话有 \(n=10\) 个 token，输入是 \(10\times 512\) 的矩阵。第 \(i\) 个头用自己的三套投影矩阵（各 \(512\times 64\)）把它压成 \(10\times 64\) 的 \(Q_i\)、\(K_i\)、\(V_i\)，按上一节的缩放点积算出 \(10\times 64\) 的输出。8 个头各产出一份 \(10\times 64\)，按列拼起来是 \(10\times 512\)，最后乘 \(W^O\)（\(512\times 512\)）得到 \(10\times 512\)，维度与输入完全一致，可以直接交给残差连接和下一层。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrMh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <!-- 输入 -->
+    <rect x="10" y="100" width="105" height="76" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="62" y="132" text-anchor="middle" font-size="14" fill="#333">输入 X</text>
+    <text x="62" y="154" text-anchor="middle" font-size="12" fill="#666">n×512</text>
+    <line x1="115" y1="138" x2="140" y2="138" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMh)"/>
+    <!-- 投影 -->
+    <rect x="140" y="100" width="150" height="76" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="215" y="126" text-anchor="middle" font-size="14" fill="#333">Q/K/V 线性投影</text>
+    <text x="215" y="148" text-anchor="middle" font-size="12" fill="#666">每头一套矩阵</text>
+    <text x="215" y="166" text-anchor="middle" font-size="12" fill="#666">512 → 64</text>
+    <line x1="290" y1="138" x2="318" y2="138" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMh)"/>
+    <!-- 8 头并行（叠放效果） -->
+    <rect x="330" y="86" width="150" height="76" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1" opacity="0.45"/>
+    <rect x="325" y="93" width="150" height="76" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1" opacity="0.7"/>
+    <rect x="320" y="100" width="150" height="76" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="395" y="126" text-anchor="middle" font-size="14" fill="#333">8 个头并行算注意力</text>
+    <text x="395" y="148" text-anchor="middle" font-size="12" fill="#666">各自独立，互不通信</text>
+    <text x="395" y="166" text-anchor="middle" font-size="12" fill="#666">各输出 n×64</text>
+    <line x1="478" y1="138" x2="505" y2="138" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMh)"/>
+    <!-- 拼接 -->
+    <rect x="505" y="100" width="95" height="76" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="552" y="132" text-anchor="middle" font-size="14" fill="#333">Concat</text>
+    <text x="552" y="154" text-anchor="middle" font-size="12" fill="#666">8×64=512</text>
+    <line x1="600" y1="138" x2="622" y2="138" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrMh)"/>
+    <!-- W^O -->
+    <rect x="622" y="100" width="90" height="76" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="667" y="126" text-anchor="middle" font-size="14" fill="#333">W^O 投影</text>
+    <text x="667" y="148" text-anchor="middle" font-size="12" fill="#666">混合 8 头信息</text>
+    <text x="667" y="166" text-anchor="middle" font-size="12" fill="#666">输出 n×512</text>
+    <!-- 底部说明 -->
+    <text x="360" y="235" text-anchor="middle" font-size="13" fill="#555">8 个头各自在 64 维子空间里工作，拼回 512 维后由 W^O 汇总，维度与输入一致。</text>
+  </svg>
+  <div class="diagram-caption">图 5：多头注意力的数据流，投影、分头、并行注意力、拼接、再投影五步，括号外维度始终对齐 \(d_{\mathrm{model}}\)。</div>
+</div>
+
+<p>　　8 个头会不会把算力翻 8 倍？不会，账很好算。以 Q 投影为例：单头全维方案需要一套 \(512\times 512\) 的投影矩阵；多头方案是 8 套 \(512\times 64\)，总参数量 \(8\times 512\times 64=512\times 512\)，一模一样。注意力打分的计算量同理。原论文因此写明："由于每个头的维度降低，总计算成本与使用全维度的单头注意力相似。"</p>
+
+<div class="highlight-box">
+  多头是用同一份预算买 8 个视角：总参数量、总计算量与单头全维注意力基本相当，换来的是 8 个表示子空间各自学习不同关系模式的能力。
+</div>
+
+<p>　　<strong>所以这一步在干嘛：</strong>把 512 维的大会议室隔成 8 间 64 维的小会议室，8 场讨论同时开，最后把 8 份纪要钉成一份，交给下一层。</p>
+
+<h2>4.3.3 掩码：给未来的卷子贴上封条</h2>
+
+<p>　　多头解决的是"看得全"，掩码解决的是"不许看"。语言模型生成是一个词一个词往外写的：写出第 3 个词时，第 4 个词还不存在。可训练时句子的所有位置是同时送进模型的，如果不加限制，模型预测每个词时都能直接看到答案，那就什么也学不到。这条"只许依赖已经写出来的内容"的纪律，叫做自回归。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">自回归 Autoregressive</span>
+    <span class="term-en">auto（自己）+ regressive（回归）= 用自己已有的输出预测下一个输出</span>
+  </div>
+  <div class="term-body">
+    <p>自回归模型每生成一步，只能把已经生成的内容当作已知条件。写出第 \(i\) 个词时，能用的信息只有第 1 到第 \(i-1\) 个词。Transformer 不靠外部规则维持这条纪律，而是用掩码把它直接焊死在注意力计算里。</p>
+  </div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">因果掩码 Causal Mask</span>
+    <span class="term-en">causal = 保证因果方向：现在的输出只由过去决定</span>
+  </div>
+  <div class="term-body">
+    <p>一个下三角形状的开关：位置 \(i\) 允许看 \(j\leq i\) 的位置（包括自己），\(j&gt;i\) 的位置一律封死。实现上不动 softmax 本身，而是在 softmax 之前把非法位置的注意力分数改成 \(-\infty\)，让 softmax 替你把它们的权重清零。</p>
+  </div>
+</div>
+
+<p>　　具体做法极简。在 \(QK^\top/\sqrt{d_k}\) 算出的分数矩阵上，给所有"看向未来"的格子加 \(-\infty\)（工程里也常用一个很大的负数，比如 \(-10^9\)）。softmax 对 \(-\infty\) 的处理是 \(e^{-\infty}=0\)，这些位置的权重被压成精确的 0。工程上常把这件事写成给分数矩阵加一个掩码矩阵 \(M\)：</p>
+
+<div class="formula-card">
+  \[ \mathrm{Attention}(Q,K,V)=\mathrm{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}+M\right)V,\qquad M_{ij}=\begin{cases}0, &amp; j\leq i\\ -\infty, &amp; j&gt;i\end{cases} \tag{3} \]
+  \[ \mathrm{softmax}\big([\,2.0,\ 1.5,\ -\infty,\ -\infty,\ -\infty\,]\big)= [\,0.62,\ 0.38,\ 0,\ 0,\ 0\,] \tag{4} \]
+  <div class="formula-note">公式 (3)：掩码作为加法项进入 softmax 之前。公式 (4)：一行具体数字，位置 2 的分数被掩码截断后，权重只落在位置 1、2 上，未来位置精确为 0，不是约等于。符号说明：\(M\) 是掩码矩阵，与分数矩阵同形；\(M_{ij}\) 是它第 \(i\) 行第 \(j\) 列的元素——\(j\le i\)（允许回看的位置）取 0，加等于不加；\(j&gt;i\)（未来位置）取 \(-\infty\)，softmax 后权重归零；其余符号同上一节公式 (1)。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <!-- 列头 -->
+    <text x="134" y="68" text-anchor="middle" font-size="14" fill="#333">我</text>
+    <text x="182" y="68" text-anchor="middle" font-size="14" fill="#333">爱</text>
+    <text x="230" y="68" text-anchor="middle" font-size="14" fill="#333">大</text>
+    <text x="278" y="68" text-anchor="middle" font-size="14" fill="#333">语</text>
+    <text x="326" y="68" text-anchor="middle" font-size="14" fill="#333">言</text>
+    <!-- 行头 -->
+    <text x="100" y="109" text-anchor="end" font-size="14" fill="#333">我</text>
+    <text x="100" y="157" text-anchor="end" font-size="14" fill="#333">爱</text>
+    <text x="100" y="205" text-anchor="end" font-size="14" fill="#333">大</text>
+    <text x="100" y="253" text-anchor="end" font-size="14" fill="#333">语</text>
+    <text x="100" y="301" text-anchor="end" font-size="14" fill="#333">言</text>
+    <!-- 第 1 行（我） -->
+    <rect x="110" y="80" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="134" y="110" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="158" y="80" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="182" y="110" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="206" y="80" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="230" y="110" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="254" y="80" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="278" y="110" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="302" y="80" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="326" y="110" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <!-- 第 2 行（爱） -->
+    <rect x="110" y="128" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="134" y="158" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="158" y="128" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="182" y="158" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="206" y="128" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="230" y="158" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="254" y="128" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="278" y="158" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="302" y="128" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="326" y="158" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <!-- 第 3 行（大） -->
+    <rect x="110" y="176" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="134" y="206" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="158" y="176" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="182" y="206" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="206" y="176" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="230" y="206" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="254" y="176" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="278" y="206" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <rect x="302" y="176" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="326" y="206" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <!-- 第 4 行（语） -->
+    <rect x="110" y="224" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="134" y="254" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="158" y="224" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="182" y="254" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="206" y="224" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="230" y="254" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="254" y="224" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="278" y="254" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="302" y="224" width="48" height="48" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/><text x="326" y="254" text-anchor="middle" font-size="14" fill="#dc2626">✗</text>
+    <!-- 第 5 行（言） -->
+    <rect x="110" y="272" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="134" y="302" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="158" y="272" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="182" y="302" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="206" y="272" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="230" y="302" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="254" y="272" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="278" y="302" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <rect x="302" y="272" width="48" height="48" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/><text x="326" y="302" text-anchor="middle" font-size="16" fill="#6d28d9">✓</text>
+    <!-- 高亮第 2 行 -->
+    <rect x="110" y="128" width="240" height="48" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="6 4"/>
+    <!-- 右侧说明 -->
+    <text x="392" y="95" font-size="14" fill="#333">以第 2 行（位置"爱"）为例：</text>
+    <text x="392" y="125" font-size="13" fill="#555">softmax 前的分数（掩码已生效）</text>
+    <text x="392" y="148" font-size="13" font-family="Consolas, monospace" fill="#6d28d9">[2.0, 1.5, −∞, −∞, −∞]</text>
+    <text x="392" y="178" font-size="13" fill="#555">softmax 后的注意力权重</text>
+    <text x="392" y="201" font-size="13" font-family="Consolas, monospace" fill="#0891b2">[0.62, 0.38, 0, 0, 0]</text>
+    <rect x="392" y="226" width="16" height="16" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="416" y="239" font-size="12" fill="#333">允许关注（j ≤ i）</text>
+    <rect x="392" y="254" width="16" height="16" fill="#f3f4f6" stroke="#d1d5db"/>
+    <text x="416" y="267" font-size="12" fill="#333">封住未来（分数置 −∞，权重为 0）</text>
+    <!-- 底部说明 -->
+    <text x="360" y="352" text-anchor="middle" font-size="13" fill="#555">行 i 是当前生成位置，列 j 是想回看的位置：生成第 i 个词时只允许看 j ≤ i 的格子。</text>
+  </svg>
+  <div class="diagram-caption">图 6：因果掩码是一个下三角开关矩阵，紫格可见、灰格被封，被封的格子的注意力权重精确为 0。</div>
+</div>
+
+<div class="highlight-box danger">
+  两个高频误解。其一：掩码加在 softmax 之前的分数上，不是 softmax 之后把权重改成 0；先归一化再清零会破坏权重总和为 1 的性质。其二：位置 i 能看到位置 i 自己（\(j\leq i\) 含等号），配合解码器输入整体右移一位，位置 i 的预测恰好只依赖前 \(i-1\) 个已知输出（原论文 3.1 与 3.2.3 节），训练与推理因此严格对齐。
+</div>
+
+<div class="highlight-box info">
+  补充：有了掩码，训练时可以把完整句子一次性送进解码器，并行计算所有位置的损失，而不必像 RNN 那样逐词串行等待。封条让"整句并行训练"与"逐词自回归生成"在数学上完全等价，这是 Transformer 训练快的重要原因之一。
+</div>
+
+<p>　　<strong>所以这一步在干嘛：</strong>在打分表上给每个未来位置盖 \(-\infty\) 的章，softmax 一过滤，这些位置的权重变成 0，模型写每个词时眼里真的只有过去。</p>
+
+<h2>4.3.4 一份注意力，三种岗位</h2>
+
+<p>　　同一个 MultiHead 模块，在编码器-解码器架构里被安排到三个岗位，区别只在两件事：Q、K、V 分别从哪儿来，谁能看谁。原论文 3.2.3 节的划分：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>岗位</th><th>Q 来自</th><th>K、V 来自</th><th>每个位置能看谁</th><th>掩码</th></tr></thead>
+    <tbody>
+      <tr><td>编码器自注意力</td><td>编码器前一层输出</td><td>编码器前一层输出</td><td>输入序列全部位置</td><td>无</td></tr>
+      <tr><td>解码器掩码自注意力</td><td>解码器前一层输出</td><td>解码器前一层输出</td><td>自己及左边（\(j\leq i\)）</td><td>因果掩码</td></tr>
+      <tr><td>编码器-解码器注意力</td><td>解码器前一层输出</td><td>编码器输出</td><td>输入序列全部位置</td><td>无</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　前两种是自注意力，Q、K、V 同源，区别只在有没有封条：编码器读原文时全句可见，解码器写译文时只许回看。第三种常叫<strong>交叉注意力</strong>（cross-attention）：Q 是解码器当前的状态，相当于"我现在想知道什么"；K、V 是编码器读完原文后留下的全套笔记，相当于"原文哪里写着答案"。翻译时每写一个词，解码器都拿着自己的问题去原文里检索一遍最相关的段落。</p>
+
+<p>　　值得一提的是，今天主流的 GPT 系模型只保留了第二种岗位：它们是纯解码器（decoder-only）架构，没有编码器，交叉注意力整层取消，只剩掩码自注意力一路堆叠。掩码因此从"三种用法之一"变成现代 LLM 的默认设定，第 12 章讲解码策略时还会反复用到它。配套小工程 minimind 正是这样一个纯解码器模型。</p>
+
+<p>　　<strong>所以这一步在干嘛：</strong>同一台发动机装在三个工位上，靠切换 Q、K、V 的来源和可见范围，分别干"读原文""写译文（不偷看）""边写边查原文"三件事。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么单个注意力头不够用？</div>
+    <div class="sc-key">单头只能输出一份加权平均，多种关系被搅在一起互相抑制。原论文消融显示单头比最佳设置低 0.9 个 BLEU，可视化则直接看到不同的头分工关注不同的句子结构。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">8 个头会不会让计算量翻 8 倍？</div>
+    <div class="sc-key">不会。每个头的维度从 512 降到 64，以 Q 投影为例，总参数量 \(8\times 512\times 64=512\times 512\)，与单头全维方案完全相同，计算量也相当，这是原论文 3.2.2 的明确设定。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">掩码是怎么保证模型看不到未来的？</div>
+    <div class="sc-key">在 softmax 之前把 \(j&gt;i\) 的分数置为 \(-\infty\)，softmax 后这些位置的权重精确为 0。位置 i 只能看 \(j\leq i\)，再配合解码器输入右移一位，预测第 i 个词时只依赖前 \(i-1\) 个已知输出。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：多头公式与 \(h=8\)、\(d_k=d_v=64\) 的设定出自 3.2.2 节；掩码机制与输出嵌入右移出自 3.1 与 3.2.3 节；三种注意力岗位出自 3.2.3 节；头数消融（单头低 0.9 个 BLEU、\(h=8\) 基准 25.8）出自 6.2 节表 3；注意力头分工的可视化证据出自附录图 3 与图 5。</li>
+  <li>minimind 工程源码（Apache 2.0 协议）：<code>model/model_minimind.py</code> 中 <code>Attention</code> 类的多头与因果掩码实现。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch4_2_attention.html" title="4.2 注意力机制：Query、Key、Value 的分工">← 上一节：4.2 注意力机制：Query、Key、Value 的分工</a><a class="next" href="ch4_4_ffn_residual_norm.html" title="4.4 前馈网络、残差连接与层归一化：注意力的三位搭档">下一节：4.4 前馈网络、残差连接与层归一化：注意力的三位搭档 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>
