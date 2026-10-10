@@ -492,7 +492,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 780 590" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+  <svg viewBox="0 0 780 614" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
     <defs>
       <marker id="arrT44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
@@ -617,7 +617,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="diagram-caption">图 2：Transformer 两塔流水线（与 4.1 节图 3 为同一张图，转引至此作为本节的架构地图）。数据自下而上流动：编码器读源句，解码器逐词写译文，塔中每个白框是一个完整子层（先变换、后残差归一化）。两塔的子层组是同构的：图 3 放大左侧编码塔紫色边框圈出的两个子层组（自注意力 + FFN）按原论文 Post-LN 顺序的完整数据流；图 4 放大右侧解码塔橙色边框圈出的两个子层组（子层 1 掩码自注意力 + 子层 3 FFN）在现代 decoder-only 模型里的形态（Pre-Norm）。今天的 LLM 相当于只保留解码塔、去掉编码器-解码器注意力子层。本节讲的 FFN、残差、归一化三件套对两塔一视同仁，差别只在顺序与掩码。</div>
 </div>
 
-<p>　　三张图的分工先立清楚：图 2 是两塔总览（数据自下而上），紫框圈出编码塔一层的两个子层组，橙框圈出解码塔一层的三个子层组（其中子层 2「编码器-解码器注意力」在 decoder-only 模型里没有对应物，后面不再出现）。本节讲到 4.4.4 拼装时，再把这两个框各自放大一层：图 3 放大编码塔（原论文的顺序），图 4 放大解码塔（今天模型的做法）。先把三件套逐件讲透，拼装留到最后。
+<p>　　三张图的分工先立清楚：图 2 是两塔总览（数据自下而上），紫框圈出编码塔一层的两个子层组，橙框圈出解码塔一层的三个子层组（其中子层 2「编码器-解码器注意力」（交叉注意力）在 decoder-only 模型里没有对应物，后面不再出现）。本节讲到 4.4.4 拼装时，再把这两个框各自放大一层：图 3 放大编码塔（原论文的顺序），图 4 放大解码塔（今天模型的做法）。先把三件套逐件讲透，拼装留到最后。
 
 <h2>4.4.1 FFN：每个位置的独立思考</h2>
 
@@ -719,7 +719,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 760 660" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+  <svg viewBox="0 0 760 674" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
     <defs>
       <marker id="arrE44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>

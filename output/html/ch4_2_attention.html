@@ -886,7 +886,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 <div class="concept-grid">
   <div class="concept-card"><h4>编码器自注意力</h4><p>Q、K、V 全部来自编码器前一层的输出。每个 token 都能看到同句所有 token，没有任何限制。</p></div>
   <div class="concept-card"><h4>解码器自注意力（带掩码）</h4><p>Q、K、V 来自解码器前一层，但每个位置只允许看自己及之前的位置。做法是把 softmax 输入中所有对应非法连接的分数设为 \(-\infty\)，softmax 之后这些位置的权重变成 0。</p></div>
-  <div class="concept-card"><h4>编码器-解码器注意力</h4><p>Q 来自解码器前一层，K、V 来自编码器的输出。解码器借此回头查输入句子的每一个位置。</p></div>
+  <div class="concept-card"><h4>编码器-解码器注意力（交叉注意力）</h4><p>Q 来自解码器前一层，K、V 来自编码器的输出。解码器借此回头查输入句子的每一个位置。</p></div>
 </div>
 
 <p>　　前两种用法的 Q、K、V 同源，所以叫自注意力（self-attention）；第三种的 Q 与 K、V 不同源，常叫交叉注意力（cross-attention），主要服务机器翻译这类输入一种语言、输出另一种语言的场景。今天主流的 GPT 类模型只保留解码器，只用带掩码的自注意力这一种用法：生成第 \(n\) 个词时看不到第 \(n\) 个词之后的内容，这就是模型不能剧透未来的原因。掩码的实现细节与因果生成的关系，本章后续小节还会展开。</p>
