@@ -1,0 +1,64 @@
+<meta charset="utf-8"><body style="margin:0"><svg viewBox="0 0 760 660" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrE44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrEC44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <text x="40" y="30" font-size="13.5" font-weight="bold" fill="#4c1d95">局部放大：编码塔一层（原论文 Post-LN 顺序，512 维）</text>
+    <text x="40" y="50" font-size="11" fill="#64748b">来自图 2 左侧紫色边框；数据自下而上，每个子层被 dropout、残差相加、层归一化依次包裹</text>
+
+    <rect x="270" y="64" width="220" height="42" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="380" y="82" text-anchor="middle" font-size="14" fill="#333">输出</text>
+    <text x="380" y="99" text-anchor="middle" font-size="11" fill="#666">形状不变：(n, 512)</text>
+    <line x1="380" y1="124" x2="380" y2="108" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="124" width="220" height="42" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="143" text-anchor="middle" font-size="13.5" fill="#155e75">层归一化 LayerNorm</text>
+    <text x="380" y="159" text-anchor="middle" font-size="10.5" fill="#666">标准化 + 缩放平移</text>
+    <line x1="380" y1="184" x2="380" y2="168" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <circle cx="380" cy="199" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="380" y="205" text-anchor="middle" font-size="18" fill="#92400e">+</text>
+    <line x1="380" y1="232" x2="380" y2="216" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="232" width="220" height="34" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <text x="380" y="253" text-anchor="middle" font-size="12.5" fill="#555">Dropout 随机丢弃（p=0.1）</text>
+    <line x1="380" y1="284" x2="380" y2="268" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="284" width="220" height="44" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="303" text-anchor="middle" font-size="14" fill="#333">FFN 前馈网络</text>
+    <text x="380" y="320" text-anchor="middle" font-size="10.5" fill="#666">512 → 2048 → 512，逐位置加工</text>
+    <line x1="380" y1="346" x2="380" y2="330" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="346" width="220" height="42" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="365" text-anchor="middle" font-size="13.5" fill="#155e75">层归一化 LayerNorm</text>
+    <text x="380" y="381" text-anchor="middle" font-size="10.5" fill="#666">标准化 + 缩放平移</text>
+    <line x1="380" y1="406" x2="380" y2="390" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <circle cx="380" cy="421" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="380" y="427" text-anchor="middle" font-size="18" fill="#92400e">+</text>
+    <line x1="380" y1="454" x2="380" y2="438" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="454" width="220" height="34" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <text x="380" y="475" text-anchor="middle" font-size="12.5" fill="#555">Dropout 随机丢弃（p=0.1）</text>
+    <line x1="380" y1="506" x2="380" y2="490" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="506" width="220" height="44" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="525" text-anchor="middle" font-size="14" fill="#333">多头自注意力</text>
+    <text x="380" y="542" text-anchor="middle" font-size="10.5" fill="#666">token 间交流（4.2 节）</text>
+    <line x1="380" y1="568" x2="380" y2="552" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="568" width="220" height="46" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="380" y="588" text-anchor="middle" font-size="14" fill="#333">输入 x</text>
+    <text x="380" y="605" text-anchor="middle" font-size="11" fill="#666">n 个 token，各 512 维</text>
+
+    <path d="M490,586 H585 V421 H397" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrEC44)"/>
+    <text x="498" y="578" text-anchor="start" font-size="11.5" fill="#0891b2">残差旁路：输入直达</text>
+    <path d="M270,360 H175 V199 H363" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrEC44)"/>
+    <text x="182" y="352" text-anchor="start" font-size="11.5" fill="#0891b2">残差旁路</text>
+
+    <text x="380" y="642" text-anchor="middle" font-size="12.5" fill="#666">每个子层都被同一套流程包裹：计算 → dropout → 残差相加 → 层归一化</text>
+  </svg>

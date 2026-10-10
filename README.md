@@ -48,9 +48,9 @@ LLM_learning/
 第 10 章 后训练 II：偏好对齐（RLHF / PPO / DPO 家族 / 安全对齐）
 第 11 章 后训练 III：推理能力训练（RLVR / GRPO / 长思维链）
 第 12 章 推理机制与后处理：解码策略、停止条件、结构化输出
-第 13 章 推理系统与部署（KV Cache、量化、蒸馏、投机采样，规划中）
-第 14 章 应用范式（Prompt / CoT / RAG / Function Calling / Agent，规划中）
-第 15 章 多模态扩展（视觉编码器 ViT、模态对齐 CLIP、VLM 训练流水线，规划中）
+第 13 章 推理系统与部署（KV Cache、量化、蒸馏、投机采样、推理时扩展）
+第 14 章 应用范式（Prompt / CoT / RAG / Function Calling / Agent）
+第 15 章 多模态扩展（ViT、CLIP、连接器、VLM 训练流水线、统一架构）
 附录     数学与深度学习基础速览（A.1–A.13）
 ```
 
@@ -60,6 +60,10 @@ LLM_learning/
 - 正文中的代码对照引用自 minimind（Apache 2.0），引用处均注明文件与行号。
 - 其余章节内容以原始论文（arXiv）与官方技术报告为依据，每页末尾附参考来源。
 
+## 鸣谢
+
+　　本手册的代码对照离不开开源项目 [minimind](https://github.com/jingyaogong/minimind)（作者 jingyaogong，Apache 2.0 许可证）。minimind 用极简代码完整实现了从分词、RoPE、RMSNorm、SwiGLU、GQA 到预训练与微调的全流程，本手册多章以其源码作为机制描述的工程印证，引用处均在页面内注明出处文件。`minimind-master/` 目录为其上游仓库的只读副本，保留原始 `LICENSE`，一切权利归原作者所有。在此向作者及项目贡献者致谢。
+
 ## 许可证
 
-　　手册正文为个人学习笔记。`minimind-master/` 目录遵循其原有 Apache 2.0 许可证。
+　　手册正文为个人学习笔记。`minimind-master/` 目录遵循其原有 Apache 2.0 许可证（详见该目录下的 `LICENSE` 文件）。

@@ -1,0 +1,209 @@
+<article class="content">
+<h1>15.3 模态对齐 I：CLIP 用对比学习打通图文</h1>
+<p class="subtitle">本页范围：第 15 章第 3 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>15.2 节的 ViT 能把图像变成特征向量，但它是在「图 → 类别标签」的闭环里训练的：特征空间只对分类负责，与语言毫不相干。怎样让视觉特征与语言特征<strong>说同一种话</strong>——同一片语义，落在两个模态里的向量彼此靠近？</td></tr>
+      <tr><td>本节主张</td><td>CLIP 的答案是换监督信号：不用人工标注的类别，改用互联网上天然成对的（图像， 描述文本），做大规模<strong>对比学习</strong>——一个 batch 内，配对的图文向量互相拉近，不配对的互相推远。两个编码器就此被压进同一个嵌入空间，语义对齐在训练中自动完成。</td></tr>
+      <tr><td>一句话结论</td><td>CLIP = 图文双塔 ＋ 对称 InfoNCE 对比损失 ＋ 4 亿图文对；副产品是惊人的 zero-shot 分类能力（不训练直接拿 76.2% ImageNet 准确率，匹敌全监督 ResNet-50），而它对后世的主业是为 VLM 提供「已经与语言对齐」的视觉特征——LLaVA、BLIP-2 的视觉塔都是 CLIP。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>CLIP</span><span>对比学习</span><span>InfoNCE</span><span>双塔架构</span><span>温度系数</span><span>zero-shot</span><span>WIT-400M</span><span>嵌入空间对齐</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　15.2 节末尾留下了一道裂缝：ViT 的特征向量再结构清晰，说的也是「视觉方言」，LLM 的词嵌入说的是「语言官话」，两者数值空间互不相通。把 ViT 特征直接拼进 LLM 上下文，效果可想而知——模型只能把它当噪声。本节的主角 CLIP（Contrastive Language-Image Pre-training）就是来弥合这道裂缝的：它不改变 ViT 的架构，而是改变它的<strong>老师</strong>——让图像编码器从训练第一天起就对着文本学，学出来的视觉特征天然与语言同处一室。</p>
+
+<p>　　本节按「监督信号 → 训练机制 → 推理魔法 → 历史定位」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>监督信号的升级：从类别标签到 4 亿条自然语言描述</strong>（15.3.1）：为什么「图配文字」比「图配标签」信息量大得多；</li>
+  <li><strong>双塔架构与对称 InfoNCE 损失</strong>（15.3.2）：对比学习的完整公式拆解，一个 batch 如何同时提供正样本与全部负样本；</li>
+  <li><strong>zero-shot 分类：把类别名写成 prompt 的推理魔法</strong>（15.3.3）：不训练任何参数如何做图像分类，76.2% 意味着什么；</li>
+  <li><strong>CLIP 的遗产：VLM 时代的事实标准视觉编码器</strong>（15.3.4）：为什么后来的 VLM 几乎人手一座 CLIP 视觉塔。</li>
+</ol>
+
+<p>　　本节用到的数学工具都是老熟人：余弦相似度（附录 A.2）、softmax 与温度（附录 A.3）、交叉熵（附录 A.4）——CLIP 的损失函数就是这三者的拼装。</p>
+
+<h2>15.3.1 监督信号的升级：从类别标签到 4 亿条自然语言描述</h2>
+
+<p>　　传统视觉训练的监督信号是类别标签：ImageNet 给每张图盖一个章——「虎斑猫」「灯塔」「沙锤」。这种信号有两个硬伤。一是<strong>信息量薄</strong>：一张内容丰富的生活照被压缩成千类之一的编号，图里还有什么、它们什么关系，标签一概不说。二是<strong>词汇封闭</strong>：模型只认识训练时那 1000 个类，换个类别体系（比如换成「室内/室外」）就得重新标注、重新训头。</p>
+
+<p>　　CLIP 换了一个几乎免费的信号源：<strong>互联网上图片自带的文字</strong>——网页里图片旁边的 alt 文本、说明、标题。这些文字是人为描述图片写的，天然就是「这张图在讲什么」的句子级标注。OpenAI 从网上收集了 <strong>4 亿对</strong>这样的（图像， 文本），构成 WIT 数据集（WebImageText）。与 ImageNet 的 1.3M 张图、1000 个封闭类别相比，这是数量与开放度的双重升维：文本里出现的概念不受类别表限制，「一只戴着派对帽的柯基」也能成为学习信号。</p>
+
+<p>　　更妙的是监督的「用法」也变了。标签路线的训练目标是「分出哪一类」，文本路线没有类别可分——CLIP 选择的任务是<strong>匹配</strong>：给定一张图，从一堆文本里挑出真正描述它的那一句；反过来，给定一句话，挑出它描述的那张图。这个任务不要求模型背任何类别表，却逼它把图和文的<strong>语义内容</strong>对齐起来。下一小节看它如何用数学实现。</p>
+
+<h2>15.3.2 双塔架构与对称 InfoNCE 损失</h2>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">对比学习 Contrastive Learning</span>
+    <span class="term-en">contrast = 对比——靠「比较异同」而非「背答案」来学习</span>
+  </div>
+  <div class="term-body">
+    <p>对比学习是一类自监督范式：不直接教模型「正确答案是什么」，而是教它「谁和谁是一对、谁和谁不是」。模型把样本映射成向量，训练目标让<strong>正样本对</strong>（语义匹配）的向量靠近、<strong>负样本对</strong>（不匹配）的向量远离。嵌入空间的结构——什么跟什么算「近」——就是在无数次比较中塑形的。</p>
+    <div class="term-analogy">像玩「找朋友」游戏：满屋子人，每人一句话自我介绍，规则只有一条——聊得来的站近点，聊不来的站远点。玩上亿万轮之后，屋子里的站位自然按「志趣」分成了区：没人被告知自己属于哪区，但空间结构已经把类别说清了。</div>
+  </div>
+</div>
+
+<p>　　CLIP 的架构是标准的<strong>双塔</strong>：一座图像编码器（ResNet 或 15.2 节的 ViT），一座文本编码器（GPT 风格的 Transformer）。图像过图像塔得向量 \(u\)，文本过文本塔得向量 \(v\)，两塔输出各自投影到同一维度并做 L2 归一化（把向量长度都缩成 1，于是点积等于余弦相似度，附录 A.2）。两塔之间没有任何直接连接，唯一的交流发生在损失函数里。</p>
+
+<p>　　训练时取一个含 \(N\) 对图文的大 batch（CLIP 用到了 \(N=32768\)）。每对 \((u_i, v_i)\) 是正样本，而 batch 内所有「张冠李戴」的组合 \((u_i, v_j)\)（\(i\neq j\)）自动成为负样本——一个 batch 就同时提供 \(N\) 个正例与 \(N^2-N\) 个负例，这是对比学习高效的关键。先定义温度缩放后的相似度：</p>
+
+<div class="formula-card">
+  \[ s_{ij}=\frac{u_i\cdot v_j}{\tau} \tag{1} \]
+  <div class="formula-note">公式 (1)：第 \(i\) 张图与第 \(j\) 段文本的匹配分数。符号说明：\(u_i\) 是图像 \(i\) 的归一化特征向量；\(v_j\) 是文本 \(j\) 的归一化特征向量；点积在归一化后就是余弦相似度（附录 A.2），取值越大越匹配；\(\tau\) 是<strong>温度系数</strong>（附录 A.3），在 CLIP 中它不是手调超参，而是一个随训练一起学习的参数（初始化约 0.07），自动调节相似度分布的「尖锐」程度。</div>
+</div>
+
+<p>　　以第 \(i\) 张图为锚点，在全部 \(N\) 段文本中「认出」它的真配 \(v_i\)，就是一个 \(N\) 分类问题，用交叉熵（附录 A.4）写出损失；对称地，每段文本也要在全部图中认出真配。两个方向平均，就是完整的对称 InfoNCE 损失：</p>
+
+<div class="formula-card">
+  \[ \mathcal{L}_{i\to t}=-\frac{1}{N}\sum_{i=1}^{N}\log\frac{\exp(s_{ii})}{\sum_{j=1}^{N}\exp(s_{ij})},\qquad \mathcal{L}_{t\to i}=-\frac{1}{N}\sum_{j=1}^{N}\log\frac{\exp(s_{jj})}{\sum_{i=1}^{N}\exp(s_{ij})} \tag{2} \]
+  \[ \mathcal{L}=\frac{1}{2}\left(\mathcal{L}_{i\to t}+\mathcal{L}_{t\to i}\right) \tag{3} \]
+  <div class="formula-note">公式 (2)：两个方向的对比损失。左式以图为锚：分子是真配的分数，分母是该图与全部 \(N\) 段文本的分数之和——标准的 softmax 形式（附录 A.3），真配占比越高损失越小；右式以文为锚，完全对称。符号说明：\(s_{ij}\) 来自公式 (1)；\(\exp\) 把分数变正并拉开差距；\(\log\) 与负号组合成交叉熵（附录 A.4）。公式 (3) 取两个方向的平均，让两座塔「你向我靠近、我也向你靠近」，在同一点会师。把 \(N\) 个 \(s_{ij}\) 排成矩阵看更直观（图 1）：那是一个 \(N\times N\) 的相似度方阵，训练的全部目标就是<strong>把对角线（真配）刷亮、把其余位置按下去</strong>。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 980 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrC153" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13.5" font-weight="bold" fill="#4c1d95">CLIP 对比学习：双塔编码 + N×N 相似度矩阵，目标是把对角线刷亮（示意 N=4，实际 N=32768）</text>
+    <!-- 图像列 -->
+    <rect x="30" y="56" width="52" height="40" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="56" y="81" text-anchor="middle" font-size="11" fill="#4c1d95">图1</text>
+    <rect x="30" y="106" width="52" height="40" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="56" y="131" text-anchor="middle" font-size="11" fill="#4c1d95">图2</text>
+    <rect x="30" y="156" width="52" height="40" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="56" y="181" text-anchor="middle" font-size="11" fill="#4c1d95">图3</text>
+    <rect x="30" y="206" width="52" height="40" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="56" y="231" text-anchor="middle" font-size="11" fill="#4c1d95">图4</text>
+    <line x1="88" y1="146" x2="126" y2="146" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC153)"/>
+    <!-- 图像塔 -->
+    <rect x="132" y="90" width="120" height="112" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="192" y="124" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">图像编码器</text>
+    <text x="192" y="146" text-anchor="middle" font-size="11" fill="#555555">ViT（15.2 节）</text>
+    <text x="192" y="166" text-anchor="middle" font-size="10" fill="#888888">投影 + L2 归一化</text>
+    <text x="192" y="186" text-anchor="middle" font-size="10.5" fill="#555555">→ 向量 u₁…u₄</text>
+    <line x1="258" y1="146" x2="296" y2="146" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC153)"/>
+    <!-- 相似度矩阵 -->
+    <g>
+      <!-- 对角线 -->
+      <rect x="302" y="60" width="56" height="56" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+      <rect x="358" y="116" width="56" height="56" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+      <rect x="414" y="172" width="56" height="56" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+      <rect x="470" y="228" width="56" height="56" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+      <!-- 非对角线 -->
+      <rect x="358" y="60" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <rect x="414" y="60" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <rect x="470" y="60" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <rect x="302" y="116" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <rect x="414" y="116" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <rect x="470" y="116" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <rect x="302" y="172" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <rect x="358" y="172" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <rect x="470" y="172" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <rect x="302" y="228" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <rect x="358" y="228" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <rect x="414" y="228" width="56" height="56" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+      <text x="330" y="95" text-anchor="middle" font-size="12" fill="#ffffff">✓</text>
+      <text x="386" y="151" text-anchor="middle" font-size="12" fill="#ffffff">✓</text>
+      <text x="442" y="207" text-anchor="middle" font-size="12" fill="#ffffff">✓</text>
+      <text x="498" y="263" text-anchor="middle" font-size="12" fill="#ffffff">✓</text>
+      <text x="386" y="95" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+      <text x="442" y="95" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+      <text x="498" y="95" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+      <text x="330" y="151" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+      <text x="442" y="151" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+      <text x="498" y="151" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+      <text x="330" y="207" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+      <text x="386" y="207" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+      <text x="498" y="207" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+      <text x="330" y="263" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+      <text x="386" y="263" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+      <text x="442" y="263" text-anchor="middle" font-size="12" fill="#b91c1c">✗</text>
+    </g>
+    <text x="414" y="50" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">相似度矩阵 s_ij（行：图，列：文）</text>
+    <text x="414" y="310" text-anchor="middle" font-size="11" fill="#555555">紫色对角线 = 真配（拉近）；浅色其余 = 错配（推远）</text>
+    <!-- 文本塔 -->
+    <line x1="640" y1="146" x2="602" y2="146" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC153)"/>
+    <rect x="646" y="90" width="120" height="112" rx="8" fill="#cffafe" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="706" y="124" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#155e75">文本编码器</text>
+    <text x="706" y="146" text-anchor="middle" font-size="11" fill="#155e75">Transformer</text>
+    <text x="706" y="166" text-anchor="middle" font-size="10" fill="#0e7490">投影 + L2 归一化</text>
+    <text x="706" y="186" text-anchor="middle" font-size="10.5" fill="#155e75">→ 向量 v₁…v₄</text>
+    <line x1="830" y1="146" x2="792" y2="146" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC153)"/>
+    <!-- 文本列 -->
+    <rect x="836" y="56" width="104" height="40" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="888" y="81" text-anchor="middle" font-size="11" fill="#155e75">文1「一只猫」</text>
+    <rect x="836" y="106" width="104" height="40" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="888" y="131" text-anchor="middle" font-size="11" fill="#155e75">文2「日落」</text>
+    <rect x="836" y="156" width="104" height="40" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="888" y="181" text-anchor="middle" font-size="11" fill="#155e75">文3「一张课桌」</text>
+    <rect x="836" y="206" width="104" height="40" rx="4" fill="#cffafe" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="888" y="231" text-anchor="middle" font-size="11" fill="#155e75">文4「跑步的人」</text>
+    <!-- 底部结论条 -->
+    <rect x="30" y="330" width="910" height="36" rx="8" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+    <text x="485" y="353" text-anchor="middle" font-size="12" fill="#4c1d95">训练结束后，两座塔的输出落在同一个嵌入空间：语义相同 ⇒ 向量相近，与「它来自图像还是文本」无关</text>
+  </svg>
+  <div class="diagram-caption">图 1：CLIP 的双塔对比学习。batch 内 N 对图文分别过两座塔得到归一化向量，两两点积构成 N×N 相似度矩阵；对称 InfoNCE 损失（公式 2、3）要求对角线元素（真配）在各自行与列上都最大。图中 N=4 仅为示意，实际 batch 达 32768，提供超过 10 亿个负样本组合。</div>
+</div>
+
+<div class="highlight-box danger">
+  易错点：CLIP 训练的是「整图 ↔ 整段话」的<strong>全局对齐</strong>，两座塔各自只产出一个向量。它不知道「猫」这个词对应图的哪块区域，也不做逐图块与逐词的细粒度匹配。这个特性决定了它的长处（全局语义判别极强）与短板（空间定位弱），15.4 节讲 VLM 为什么仍敢用它、以及要为此补什么课。
+</div>
+
+<h2>15.3.3 zero-shot 分类：把类别名写成 prompt 的推理魔法</h2>
+
+<p>　　CLIP 训练完没有一个分类头，怎么拿去做图像分类？答案是它独有的 <strong>zero-shot</strong> 推理法：把候选类别名填进一句模板，变成文本，比相似度。以 1000 类 ImageNet 为例：</p>
+
+<ol>
+  <li>把 1000 个类别名分别套进模板 <code>"a photo of a {label}"</code>，得到 1000 句话，过文本塔缓存成 1000 个向量；</li>
+  <li>待分类图片过图像塔得到一个向量；</li>
+  <li>算它与 1000 个文本向量的余弦相似度，取最大者——类别名即预测结果。</li>
+</ol>
+
+<p>　　整个流程<strong>没有为 ImageNet 训练过一个参数</strong>：没有微调、没有新层，连那 130 万张标注训练图都没看过。分类的「标准」完全由自然语言临时声明——这就是 14.1 节 prompt 思想在视觉端的镜像：任务是用语言「说」出来的，不是用梯度「训」出来的。更换类别体系只需换一批类别名重算文本向量，几分钟完成。</p>
+
+<p>　　效果是这个魔术真正惊人的部分：最强的 CLIP 模型（ViT-L/14，336 像素输入）zero-shot 拿下 ImageNet <strong>76.2%</strong> 的 top-1 准确率——与在全量标注数据上训练的原版 ResNet-50 打平，而它一票标注都没用过。此前的零样本最好成绩只有 11.5%。同期 Google 的 ALIGN 用更大但更嘈杂的 18 亿对图文复现了这一路线（76.4%），坐实了「自然语言监督 + 对比学习」的普适性。CLIP 还展示了超常的分布偏移鲁棒性：面对素描、渲染图等风格变化的同类测试集，其精度下滑通常不到 10 个百分点，而同等 ImageNet 精度的监督模型能掉 40 个——语言监督教出的是更「语义」、更不挑表面风格的特征。</p>
+
+<h2>15.3.4 CLIP 的遗产：VLM 时代的事实标准视觉编码器</h2>
+
+<p>　　zero-shot 分类是 CLIP 论文的主角，但从本章的视角看，它更重要的遗产在别处——<strong>CLIP 的视觉塔成了 VLM 时代的事实标准视觉编码器</strong>。原因正是 15.3.2 强调的：经对比学习塑形后，CLIP 视觉特征所在的空间是<strong>按语言语义组织</strong>的。「两张图像不像」在 CLIP 空间里等价于「它们的描述像不像」，这与 LLM 词嵌入空间的组织原则（第 3.1 节：语义相近的词向量相近）天然同构。两种特征说同一种「语义度量」，后续再贵的翻译都好做。</p>
+
+<p>　　15.4 节将会看到，LLaVA 直接用冻结的 CLIP ViT-L/14 当视觉编码器，BLIP-2 同样在冻结的 CLIP（或其后继 EVA-CLIP）之上搭桥——它们敢于「冻结视觉塔」的底气，全部来自 CLIP 空间已经与语言预对齐这一事实。可以这么说：ViT 证明了图像可以走 Transformer 这条路（15.2 节），CLIP 则让这条路修到了语言的家门口。</p>
+
+<div class="highlight-box">
+  本节核心：模态对齐的最小可行方案 = 双塔 + 成对数据 + 对比损失。不用改架构、不用造标签，只要把「谁和谁是一对」告诉模型 4 亿次，两个模态的嵌入空间会自动长成同一个形状。CLIP 之后，「先对齐、再接驳」成为多模态的标准工序。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">CLIP 用什么替代人工类别标签做监督？</div>
+    <div class="sc-key">互联网天然的（图像， 描述文本）配对，共 4 亿对（WIT）。任务从「分类」换成「匹配」：给定图挑真配文本、给定文本挑真配图。信息量更大（句子级描述）、词汇开放（不受类别表限制）。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">对称 InfoNCE 损失在优化什么？</div>
+    <div class="sc-key">batch 内 N 对图文构成 N×N 相似度矩阵 \(s_{ij}=u_i\cdot v_j/\tau\)，损失要求真配（对角线）在「以图为锚选文本」和「以文为锚选图」两个方向的 softmax 中都胜出，两向平均。batch 内全部错配自动充当负样本（32768 的 batch 提供超 10 亿负例组合）；温度 \(\tau\) 可学习。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">CLIP 对 VLM 的主要贡献是 zero-shot 分类吗？</div>
+    <div class="sc-key">不是主业。76.2% 的 zero-shot ImageNet 准确率是轰动性的副产品；主业是产出与语言预对齐的视觉特征空间——LLaVA、BLIP-2 敢于冻结 CLIP 视觉塔直接使用，底气正来自此。其短板是只做整图级对齐，空间定位能力弱。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Radford et al., 2021. Learning Transferable Visual Models From Natural Language Supervision（CLIP 原论文，ICML 2021，arXiv:2103.00020；双塔架构、InfoNCE 损失、WIT-400M、zero-shot 数字均出自此文）。</li>
+  <li>Jia et al., 2021. Scaling Up Visual and Vision-Language Representation Learning With Noisy Text Supervision（ALIGN，ICML 2021，arXiv:2102.05918；18 亿对图文独立验证同一路线）。</li>
+  <li>Oord et al., 2018. Representation Learning with Contrastive Predictive Coding（InfoNCE 损失的源头，arXiv:1807.03748）。</li>
+</ul>
+</article>

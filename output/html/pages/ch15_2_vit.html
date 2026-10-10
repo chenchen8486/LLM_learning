@@ -1,0 +1,243 @@
+<article class="content">
+<h1>15.2 视觉编码器：ViT 把图像切成 Token</h1>
+<p class="subtitle">本页范围：第 15 章第 2 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>15.1 节给出了三段式配方，第一步就是把像素网格变成向量序列。图像是二维的、连续的、没有现成「词」的——这一刀切在哪，才能切出 Transformer 能吃的输入？</td></tr>
+      <tr><td>本节主张</td><td>ViT（Vision Transformer）的答案朴素到惊人：把图像切成固定大小的方块，每块展平后做一次线性投影，得到一串「图块嵌入」；再按 NLP 的老配方加上 [CLS] 标记与位置嵌入，原封不动送进标准 Transformer 编码器。几乎不引入任何图像专属先验，空缺的部分用数据规模补上。</td></tr>
+      <tr><td>一句话结论</td><td>ViT = 分块 ＋ 线性投影 ＋ [CLS] token ＋ 可学习一维位置嵌入 ＋ 标准 Transformer 编码器；它用实验证明了「统一架构」可行——同一套 Transformer 既能处理词也能处理图块，这为后来一切 VLM 提供了视觉编码器。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>ViT</span><span>patch embedding</span><span>[CLS] token</span><span>归纳偏置</span><span>位置嵌入</span><span>JFT-300M</span><span>缩放研究</span><span>预训练-微调</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　15.1 节把多模态的全部困难归结为模态鸿沟，并预告了填平它的第一道工序：视觉编码器。本节就拆解这道工序里最经典的设计——2020 年的 Vision Transformer（ViT）。它的历史意义不在于某个精巧模块，而在于一个<strong>反直觉的克制</strong>：面对与文本形态迥异的图像，作者选择几乎什么都不改，把「图像 → 序列」这一步做到最薄，然后把第 4 章讲过的 Transformer 整个搬过来。这个「能不改就不改」的思路后来被证明极其成功，今天的 VLM 视觉编码器几乎都是它的直系后代。</p>
+
+<p>　　本节按「输入怎么造 → 模型怎么走 → 凭什么敢这么做 → 效果如何 → 对多模态意味着什么」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>从词到图块：patch embedding 就是视觉版的分词加嵌入</strong>（15.2.1）：一张 224×224 的照片如何变成 197×768 的序列；</li>
+  <li><strong>模型全貌：公式 (1)–(4) 逐项拆解</strong>（15.2.2）：[CLS] token、位置嵌入、编码器主循环，对照论文原图；</li>
+  <li><strong>归纳偏置的取舍：CNN 先验 vs 数据规模</strong>（15.2.3）：ViT 为什么敢「裸奔」，又在什么条件下会输；</li>
+  <li><strong>实验与内部表征：缩放研究与三项体检</strong>（15.2.4）：2–4 倍算力优势，以及模型内部到底学到了什么；</li>
+  <li><strong>从 ViT 到 VLM：视觉编码器在多模态中的角色</strong>（15.2.5）：分类头被扔掉之后，ViT 如何变身 VLM 的眼睛。</li>
+</ol>
+
+<p>　　本节公式与数字全部出自 ViT 原论文，阅读时建议随时对照第 3 章（嵌入与位置编码）与第 4 章（Transformer 编码器）——ViT 里没有新零件，只有新组合。</p>
+
+<h2>15.2.1 从词到图块：patch embedding 就是视觉版的分词加嵌入</h2>
+
+<p>　　第 2 章讲过，文本进模型前要先分词：把字符串切成词表里的离散单位，再查嵌入表变成向量。ViT 对图像做的事在结构上一模一样，只是「分词器」换成了一把刀——<strong>把图像切成固定大小的方块（patch）</strong>。</p>
+
+<p>　　以最常见的配置 ViT-B/16 处理 224×224 彩色照片为例。原论文把图像记作 \(\mathbf{x}\in\mathbb{R}^{H\times W\times C}\)，其中 \(H,W\) 是分辨率、\(C\) 是通道数；每块大小为 \(P\times P\)，则块数为 \(N=HW/P^{2}\)。代入 \(H=W=224\)、\(C=3\)、\(P=16\)：块数 \(N=224\times224/16^{2}=196\)，每块展平后是 \(16\times16\times3=768\) 维的向量。这 196 个「图块 token」，就相当于一句话里的 196 个词。</p>
+
+<p>　　分词之后是查嵌入表；图块没有词表可查，替代方案同样朴素——<strong>一次可学习的线性投影</strong>：用一个 \(768\times768\) 的矩阵 \(\mathbf{E}\)（一般情形是 \((P^{2}\cdot C)\times D\)）把每个展平图块映射到 Transformer 的工作维度 \(D\)（ViT-B 为 768）。这步投影称为 patch embedding，它就是视觉版的「嵌入层」：把每块原始像素翻译成 \(D\) 维语义向量的初始版本，投影矩阵随训练一起学习。整个形状流变如图 1：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 980 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS152" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="28" font-size="13.5" font-weight="bold" fill="#4c1d95">ViT-B/16 的输入制造流水线：224×224×3 → 196 个图块 → 各展平成 768 维 → 投影成 196×768</text>
+    <!-- 原图 -->
+    <rect x="20" y="60" width="140" height="140" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <g stroke="#c4b5fd" stroke-width="1">
+      <line x1="55" y1="60" x2="55" y2="200"/><line x1="90" y1="60" x2="90" y2="200"/><line x1="125" y1="60" x2="125" y2="200"/>
+      <line x1="20" y1="95" x2="160" y2="95"/><line x1="20" y1="130" x2="160" y2="130"/><line x1="20" y1="165" x2="160" y2="165"/>
+    </g>
+    <rect x="90" y="95" width="35" height="35" fill="#6d28d9" opacity="0.4"/>
+    <text x="90" y="222" text-anchor="middle" font-size="11.5" fill="#555555">输入图像 224×224×3</text>
+    <text x="90" y="240" text-anchor="middle" font-size="10.5" fill="#888888">切成 14×14 网格（示意画 4×4）</text>
+    <line x1="166" y1="130" x2="204" y2="130" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS152)"/>
+    <text x="185" y="118" text-anchor="middle" font-size="10.5" fill="#6d28d9">切块</text>
+    <!-- patch 序列 -->
+    <g>
+      <rect x="210" y="72" width="34" height="116" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+      <rect x="248" y="72" width="34" height="116" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+      <rect x="286" y="72" width="34" height="116" rx="4" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.2"/>
+      <rect x="324" y="72" width="34" height="116" rx="4" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+      <text x="227" y="134" text-anchor="middle" font-size="10" fill="#4c1d95" transform="rotate(-90 227 134)">块 1</text>
+      <text x="265" y="134" text-anchor="middle" font-size="10" fill="#4c1d95" transform="rotate(-90 265 134)">块 2</text>
+      <text x="303" y="134" text-anchor="middle" font-size="10" fill="#ffffff" transform="rotate(-90 303 134)">块 k</text>
+      <text x="341" y="134" text-anchor="middle" font-size="10" fill="#4c1d95" transform="rotate(-90 341 134)">块 196</text>
+    </g>
+    <text x="284" y="222" text-anchor="middle" font-size="11.5" fill="#555555">196 个图块，各展平为 768 维</text>
+    <text x="284" y="240" text-anchor="middle" font-size="10.5" fill="#888888">紫色块对应左图高亮位置</text>
+    <line x1="364" y1="130" x2="402" y2="130" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS152)"/>
+    <text x="383" y="118" text-anchor="middle" font-size="10.5" fill="#6d28d9">展平</text>
+    <!-- 展平向量 -->
+    <g>
+      <rect x="408" y="72" width="24" height="116" fill="#c4b5fd"/>
+      <rect x="438" y="72" width="24" height="116" fill="#c4b5fd"/>
+      <rect x="468" y="72" width="24" height="116" fill="#c4b5fd"/>
+      <text x="456" y="134" text-anchor="middle" font-size="11" fill="#4c1d95" transform="rotate(-90 456 134)">…</text>
+    </g>
+    <text x="450" y="222" text-anchor="middle" font-size="11.5" fill="#555555">矩阵 196 × 768</text>
+    <text x="450" y="240" text-anchor="middle" font-size="10.5" fill="#888888">每行一个展平图块</text>
+    <line x1="500" y1="130" x2="538" y2="130" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS152)"/>
+    <text x="519" y="118" text-anchor="middle" font-size="10.5" fill="#6d28d9">× E</text>
+    <!-- 投影矩阵 -->
+    <rect x="544" y="72" width="110" height="116" rx="6" fill="#cffafe" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="599" y="122" text-anchor="middle" font-size="12" font-weight="bold" fill="#155e75">线性投影 E</text>
+    <text x="599" y="144" text-anchor="middle" font-size="11" fill="#155e75">768 × 768</text>
+    <text x="599" y="164" text-anchor="middle" font-size="10" fill="#0e7490">可学习，随训练更新</text>
+    <text x="599" y="222" text-anchor="middle" font-size="11.5" fill="#555555">视觉版「嵌入表」</text>
+    <line x1="660" y1="130" x2="698" y2="130" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS152)"/>
+    <!-- patch embedding -->
+    <g>
+      <rect x="704" y="72" width="26" height="116" fill="#6d28d9" rx="3"/>
+      <rect x="736" y="72" width="26" height="116" fill="#6d28d9" rx="3" opacity="0.8"/>
+      <rect x="768" y="72" width="26" height="116" fill="#6d28d9" rx="3" opacity="0.6"/>
+      <rect x="800" y="72" width="26" height="116" fill="#6d28d9" rx="3" opacity="0.4"/>
+      <text x="765" y="134" text-anchor="middle" font-size="11" fill="#ffffff" transform="rotate(-90 765 134)">…</text>
+    </g>
+    <text x="765" y="222" text-anchor="middle" font-size="11.5" fill="#555555">patch embedding：196 × 768</text>
+    <text x="765" y="240" text-anchor="middle" font-size="10.5" fill="#888888">每行是 \(D\) 维语义向量（初始版）</text>
+    <!-- 底部类比 -->
+    <rect x="20" y="270" width="940" height="44" rx="8" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+    <text x="490" y="297" text-anchor="middle" font-size="12" fill="#4c1d95">与文本对仗：切块 ≈ 分词（第 2 章），线性投影 ≈ 查嵌入表（第 3.1 节）——出来的东西在形态上已经无法区分</text>
+  </svg>
+  <div class="diagram-caption">图 1：ViT-B/16 的输入制造流水线。图像被切成 14×14=196 个 16×16 的图块，每块展平成 768 维后经可学习线性投影 E 映射为 768 维向量，得到 196×768 的矩阵——形态上与一句话的嵌入序列完全同构。后续还要加上 [CLS] 与位置嵌入（图 2、公式 (1)），序列长度变为 197。</div>
+</div>
+
+<div class="highlight-box info">
+  切块是 ViT 唯一「手工」的地方。选 16×16 而非更小，是精度与算力的折中：序列长度与块边长的平方成反比（块边长减半，序列长度变 4 倍），而自注意力成本随序列长度平方增长（第 4 章），小块会让计算量陡增。ViT-B/16 的「/16」就是指块边长 16 像素。
+</div>
+
+<h2>15.2.2 模型全貌：公式 (1)–(4) 逐项拆解</h2>
+
+<p>　　输入序列造好之后，剩下的就是标准动作。原论文用四个公式写完整模型，对照论文的模型概览图（图 2）逐项拆解：</p>
+
+<div class="img-block">
+  <img src="images/ch15/bbaa7504e90317a9372c5ddc1fb5dc34a968046b8feccd8215093988388dc42a.jpg" alt="ViT 模型概览图">
+  <div class="img-caption">图 2：ViT 模型概览——图像切块、线性嵌入、加位置嵌入后与可学习 [class] 标记拼接，送入标准 Transformer 编码器，取 [class] 位置的输出做分类（来源：ViT 原论文图 1）。</div>
+</div>
+
+<div class="formula-card">
+  \[ \mathbf{z}_{0}=\left[\mathbf{x}_{\text{class}};\ \mathbf{x}_{p}^{1}\mathbf{E};\ \mathbf{x}_{p}^{2}\mathbf{E};\ \cdots;\ \mathbf{x}_{p}^{N}\mathbf{E}\right]+\mathbf{E}_{pos},\quad \mathbf{E}\in\mathbb{R}^{(P^{2}\cdot C)\times D},\ \mathbf{E}_{pos}\in\mathbb{R}^{(N+1)\times D} \tag{1} \]
+  <div class="formula-note">公式 (1)：输入序列的装配。把可学习的 [class] 标记放在队首，后面接 \(N\) 个图块的投影向量，整体再加上位置嵌入——对应图 1 流水线的收尾两步。符号说明：\(\mathbf{x}_{\text{class}}\) 是可学习的「分类标记」向量（借用 BERT 的 [CLS] 设计，不对应任何图块，专职汇总全图信息）；\(\mathbf{x}_{p}^{i}\) 是第 \(i\) 个展平图块；\(\mathbf{E}\) 是线性投影矩阵（图 1 的青色块）；\(\mathbf{E}_{pos}\) 是可学习的一维位置嵌入，共 \(N+1\) 行（含 [CLS] 位），告诉模型每个位置在网格中的「座位号」；\(\mathbf{z}_{0}\) 是编码器的输入序列，形状 \((N+1)\times D\)（ViT-B/16 下为 197×768）。</div>
+</div>
+
+<div class="formula-card">
+  \[ \mathbf{z}'_{\ell}=\mathrm{MSA}\!\left(\mathrm{LN}(\mathbf{z}_{\ell-1})\right)+\mathbf{z}_{\ell-1},\qquad \ell=1\ldots L \tag{2} \]
+  \[ \mathbf{z}_{\ell}=\mathrm{MLP}\!\left(\mathrm{LN}(\mathbf{z}'_{\ell})\right)+\mathbf{z}'_{\ell},\qquad \ell=1\ldots L \tag{3} \]
+  <div class="formula-note">公式 (2)(3)：编码器主循环，重复 \(L\) 层（ViT-B 为 12 层）。每层两个子层：多头自注意力（MSA）负责图块间的全局信息交换，两层 GELU 前馈网络（MLP，隐层维度 3072）负责逐位置的非线性变换。符号说明：\(\mathrm{LN}\) 是层归一化，注意它放在每个子层<strong>之前</strong>（Pre-Norm，第 5.1 节讲过的现代稳定配方）；\(\ell\) 是层号；两个「\(+\,\mathbf{z}\)」是残差连接（附录 A.8）。这套写法与第 4 章的编码器逐字对应——ViT 没有为图像改动任何一处。</div>
+</div>
+
+<div class="formula-card">
+  \[ \mathbf{y}=\mathrm{LN}(\mathbf{z}_{L}^{0}) \tag{4} \]
+  <div class="formula-note">公式 (4)：读出答案。编码器跑完后，只取队首 [class] 位置的最终状态 \(\mathbf{z}_{L}^{0}\)，过一层 LN 即得整图表示 \(\mathbf{y}\)，分类头就接在它上面（预训练时是带单隐层的 MLP，微调时换成单线性层）。符号说明：上标 \(0\) 指序列第 0 位（[class] 位）；\(L\) 是总层数。为什么单靠一个位置就能代表全图？因为自注意力是全局的——每一层里 [class] 位置都能与全部 196 个图块直接交换信息，12 层之后它已「看过」整幅图像。</div>
+</div>
+
+<p>　　模型规模沿三个档位缩放，配置直接沿用 BERT 的 Base/Large 并外加更大的 Huge（表 1）：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>模型</th><th>层数 \(L\)</th><th>隐藏维度 \(D\)</th><th>MLP 隐层</th><th>注意力头数</th><th>参数量</th></tr></thead>
+    <tbody>
+      <tr><td>ViT-Base</td><td>12</td><td>768</td><td>3072</td><td>12</td><td>86M</td></tr>
+      <tr><td>ViT-Large</td><td>24</td><td>1024</td><td>4096</td><td>16</td><td>307M</td></tr>
+      <tr><td>ViT-Huge</td><td>32</td><td>1280</td><td>5120</td><td>16</td><td>632M</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　命名规则是「尺寸/块边长」：ViT-L/16 即 Large 变体配 16×16 图块。微调时的技巧也与文本一脉相承：换更高分辨率输入时保持块大小不变（序列变长），把预训练的位置嵌入做二维插值拉伸到新网格——这是除切图外，模型里唯一注入「图像本是二维」这一知识的手工环节。</p>
+
+<h2>15.2.3 归纳偏置的取舍：CNN 先验 vs 数据规模</h2>
+
+<p>　　ViT 敢把图像当普通序列处理，等于放弃了卷积网络（CNN）几十年积累的先验知识。这个赌注值得展开讲，因为它解释了 ViT 全部的行为特征，也预告了它在多模态时代的命运。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">归纳偏置 Inductive Bias</span>
+    <span class="term-en">induce = 归纳；bias = 偏好——架构与生俱来的「解题习惯」</span>
+  </div>
+  <div class="term-body">
+    <p>归纳偏置是模型结构在见到数据之前就内建的<strong>假设偏好</strong>。CNN 内建了两个强假设：<strong>局部性</strong>（相邻像素才相关，所以用滑动小卷积核）与<strong>平移等变性</strong>（猫出现在左上还是右下是同一只猫，所以全图共享同一套卷积核权重）。这些假设与图像的真实结构吻合，让 CNN 用小数据也能学得好。ViT 几乎不设这类假设：自注意力是全局的，位置嵌入初始时不含任何二维结构信息，图块间的空间关系全靠从数据里现学。</p>
+    <div class="term-analogy">CNN 像带着解题模板进考场的学生：题型套路预先背好，练习量小也能上手；ViT 像什么模板都不带、纯靠刷题悟套路的学生——题少时吃亏，题管够之后反而可能悟出比模板更贴合题目的解法。</div>
+  </div>
+</div>
+
+<p>　　原论文用一组实验把这个取舍摆成了明牌：分别在 ImageNet（1.3M 图）、ImageNet-21k（14M 图）、JFT-300M（303M 图）三个量级上预训练，再迁移到下游任务。结论干净利落：</p>
+
+<ul>
+  <li><strong>小数据时 CNN 赢</strong>：在最小量级（ImageNet）上预训练，ViT-Large 甚至打不过更小的 ViT-Base（过拟合），同量级下均逊于 CNN 系的 BiT 模型——没有归纳偏置护航，数据不够就是学不动；</li>
+  <li><strong>大数据时 ViT 反超</strong>：在 JFT-300M 量级，更大的 ViT 变体全面胜出，且「尚未饱和」——继续加数据加模型仍在涨；</li>
+  <li><strong>混合架构只是过渡</strong>：把 CNN 特征图（而非原图）切块喂给 Transformer 的混合方案，在小算力区间略优于纯 ViT，但模型一大差距就消失——手工先验的价值终将被规模稀释。</li>
+</ul>
+
+<p>　　这组结果与第 6 章 Scaling Law 的精神完全一致：<strong>当数据与算力管够时，更少先验、更通用的架构上限更高</strong>。视觉领域此后十年的走向（CLIP、DINO、MAE、SAM，再到 VLM 的视觉塔）反复验证了这一点，而 ViT 是这场「先验撤退」的起点。</p>
+
+<h2>15.2.4 实验与内部表征：缩放研究与三项体检</h2>
+
+<p>　　性能层面，ViT-H/14 在 JFT-300M 预训练后交出 ImageNet 88.55%、CIFAR-100 94.55%、VTAB 套件 77.63% 的成绩，全面超过当时最优 CNN。更有说服力的是成本：同一篇论文的受控缩放研究（图 3）表明，<strong>达到同等迁移性能，ViT 所需的预训练算力约为 ResNet 的 1/2 到 1/4</strong>——ViT-H/14 用 2.5k TPUv3 核心天，而 BiT-L 要 9.9k、Noisy Student 要 12.3k。</p>
+
+<div class="img-block">
+  <img src="images/ch15/257112c5932a09f1752f7481c7610d4a0923404ea45b7c699d75db2c694519de.jpg" alt="不同架构的性能与预训练算力关系">
+  <div class="img-caption">图 3：性能与总预训练算力的关系。相同算力预算下 ViT 普遍优于 ResNet；混合模型（虚线）只在小预算区间略占优（来源：ViT 原论文图 5）。</div>
+</div>
+
+<p>　　机制层面，论文对训练好的 ViT 做了三项「体检」（图 4–图 6），每一项都回应了 15.2.3 的担心——不带先验的模型到底有没有学会图像的结构：</p>
+
+<div class="img-row cols-3">
+  <div class="img-block">
+    <img src="images/ch15/4ba621c4569ddb4416763006738e0f024644753daf4366458616c9ecdb5dc5d0.jpg" alt="嵌入滤波器主成分">
+    <div class="img-caption">图 4：线性投影学到的滤波器主成分，形似边缘与颜色的基函数（来源：ViT 原论文图 7 左）。</div>
+  </div>
+  <div class="img-block">
+    <img src="images/ch15/e11222de913f5e2569cceb4e2c9f5000794175467b015a8c36c0bc4b9d7ef1bc.jpg" alt="位置嵌入相似度">
+    <div class="img-caption">图 5：位置嵌入的余弦相似度呈现清晰的网格结构——模型自己学会了「谁与谁是邻居」（来源：ViT 原论文图 7 中）。</div>
+  </div>
+  <div class="img-block">
+    <img src="images/ch15/1701202b5518590b5ee6bf30aa03ef9f5c6c53b61fdd3727cb237defed781c44.jpg" alt="注意力距离">
+    <div class="img-caption">图 6：各层各头的平均注意力距离。浅层既有局部头也有全局头，深层趋向全局（来源：ViT 原论文图 7 右）。</div>
+  </div>
+</div>
+
+<p>　　图 4：投影矩阵 \(\mathbf{E}\) 学到的滤波器主成分，酷似 CNN 第一层会学到的边缘、颜色基函数——没人教它，它自己长出了「卷积核」。图 5 最精彩：位置嵌入两两求余弦相似度（附录 A.2），竟然自发排出了与真实网格一致的行列结构——<strong>初始化时不含任何二维信息的位置嵌入，硬是从分类信号里反推出了图块的邻里关系</strong>，这也是手工设计的二维位置嵌入没能带来提升的原因（论文附录 D.4）。图 6：按注意力权重加权的「注意力距离」（类比 CNN 的感受野）显示，有的头在最浅层就已关注全图，也有头始终保持局部——全局与局部分工自发涌现，且随层数加深整体走向全局。</p>
+
+<p>　　一句话总结体检报告：<strong>CNN 靠结构内建的东西，ViT 靠数据全都学了回来，还学得更灵活</strong>。这正是「先验撤退」在机制层面的证据。</p>
+
+<h2>15.2.5 从 ViT 到 VLM：视觉编码器在多模态中的角色</h2>
+
+<p>　　回到本章主线。ViT 论文的终点是图像分类：[class] 位置输出接一个分类头，任务完成。但 VLM 要的不是「这张图是猫」这样一个标签，而是能支撑描述、问答、推理的<strong>整幅图的结构化理解</strong>。因此 VLM 对 ViT 的用法有两处关键改造：</p>
+
+<ul>
+  <li><strong>扔掉分类头，保留网格特征</strong>：不再只取 [class] 一位，而是把全部图块位置的输出特征（例如 256 个 1024 维向量）整体取出——分类头与 [class] 的「汇总」角色被弃用，每个图块位置的局部语义都要保留下来，供语言模型按需取用；</li>
+  <li><strong>不再单独训练，而是与「对齐」绑定</strong>：裸 ViT 的特征空间与 LLM 的词嵌入空间互不相通，直接喂给 LLM 如同鸡同鸭讲。VLM 要么直接采用经图文对比学习对齐过的 ViT（CLIP 的视觉塔，15.3 节），要么在 ViT 之后加一个可训练的连接器做二次翻译（15.4 节）。</li>
+</ul>
+
+<p>　　换句话说，ViT 在 VLM 里的定位是<strong>感知前端</strong>：把像素变成结构化特征序列，职责类似第 2 章分词器加第 3 章嵌入层在文本链路上的合体，而「理解」的重头戏仍由 LLM 完成。下一节要回答的就是：这个前端的特征，怎样才能与语言说同一种话。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">ViT 怎样把图像变成 Transformer 能吃的序列？</div>
+    <div class="sc-key">三步：切成 \(P\times P\) 图块（224×224 图配 16×16 块得 \(N=196\) 块）→ 每块展平成 \(P^{2}\cdot C=768\) 维 → 经可学习线性投影 \(\mathbf{E}\) 映射到 \(D\) 维。切块对位第 2 章分词，投影对位第 3 章嵌入，产物与文本嵌入序列形态完全同构。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">ViT 相比 CNN 少了什么，又靠什么补回来？</div>
+    <div class="sc-key">少了图像专属的归纳偏置（局部性、平移等变性），自注意力全局、位置嵌入初始无二维结构。补法是大规模数据：小数据预训练时 ViT 逊于 CNN，JFT-300M 量级反超，且同等性能算力仅需 ResNet 的 1/2–1/4。位置嵌入相似度图证明它能自学出网格结构。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">ViT 进入 VLM 时做了哪两处改造？</div>
+    <div class="sc-key">扔掉分类头、保留全部图块位置的网格特征（而非只取 [class]）；不再孤立训练，而是与对齐绑定——要么直接用作 CLIP 式对比学习的视觉塔（15.3 节），要么后接可训练连接器翻译成 LLM 的词嵌入（15.4 节）。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Dosovitskiy et al., 2021. An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale（ViT 原论文，ICLR 2021，arXiv:2010.11929；本节公式 (1)–(4)、表 1 配置、缩放结论与图 2–4 均出自此文及本工程 ref_paper 译文）。</li>
+  <li>Vaswani et al., 2017. Attention Is All You Need（Transformer 编码器出处，本手册第 4 章）。</li>
+  <li>Devlin et al., 2019. BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding（[CLS] 标记与 Base/Large 配置的源头）。</li>
+</ul>
+</article>

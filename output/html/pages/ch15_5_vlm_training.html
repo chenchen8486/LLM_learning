@@ -1,0 +1,174 @@
+<article class="content">
+<h1>15.5 VLM 训练流水线：分阶段放权与数据配方</h1>
+<p class="subtitle">本页范围：第 15 章第 5 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>15.2–15.4 节备齐了全部零件：视觉编码器、连接器、LLM。但三个预训练零件摆在一起不等于一台会看图对话的机器——先训什么、冻结什么、每个阶段喂什么数据，直接决定系统是「协同工作」还是「互相拖累」。</td></tr>
+      <tr><td>本节主张</td><td>VLM 训练是「<strong>分阶段、控冻结</strong>」的艺术：第一阶段只训连接器做特征对齐，第二阶段才放开 LLM 做视觉指令微调。逐步放权的逻辑与第 9 章 SFT 一脉相承——先让新部件学会「说话」，再让老部件在不被带崩的前提下学会「配合」。</td></tr>
+      <tr><td>一句话结论</td><td>LLaVA 的两阶段配方（595K 图文对只训投影层 → 158K GPT-4 合成指令数据微调投影层＋LLM）以极低成本成为事实标准；这条流水线上最贵的不是算力而是数据——指令数据由 GPT-4 批量合成，而幻觉（对着图说瞎话）是评测暴露出的最顽固失败模式。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>两阶段训练</span><span>冻结策略</span><span>特征对齐</span><span>视觉指令微调</span><span>GPT-4 数据合成</span><span>幻觉</span><span>POPE</span><span>MME</span><span>ScienceQA</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　15.4 节对比连接器时反复出现一个词——「冻结」。LLaVA 冻结视觉塔、BLIP-2 连 LLM 都冻结、Flamingo 冻结两端只训新插入层。为什么要冻结？又为什么各家冻的位置不一样？这些问题的答案不在架构图里，而在训练流水线上：VLM 的训练不是一步到位，而是一场精心编排的「放权仪式」——什么阶段放开哪些参数、喂什么数据，就是本节的主题。</p>
+
+<p>　　本节按「训练阶段 → 数据配方 → 失败模式与评测 → 现代演进」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>训练总览：阶段化放权</strong>（15.5.1）：两阶段各自的目标、冻结清单与背后的稳定性逻辑；</li>
+  <li><strong>数据配方：从图文对到视觉指令数据</strong>（15.5.2）：595K 对齐数据怎么来，158K 指令数据如何用纯文本 GPT-4 批量合成；</li>
+  <li><strong>失败模式与评测：幻觉、POPE 与综合基准</strong>（15.5.3）：VLM 最顽固的翻车方式，以及如何量化它；</li>
+  <li><strong>现代配方演进：LLaVA-1.5 的启示</strong>（15.5.4）：几处小改动带来的大提升，「数据质量＞数量」的共识形成。</li>
+</ol>
+
+<p>　　读完本节，应该能对照第 9 章的 SFT 流水线讲出视觉指令微调的异同，并能解释为什么「幻觉」在 VLM 时代比纯文本时代更难根除。</p>
+
+<h2>15.5.1 训练总览：阶段化放权</h2>
+
+<p>　　以 LLaVA 为代表的标准配方把训练分成两个阶段，每个阶段有明确的目标、数据与冻结清单（图 1）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 980 400" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrT155" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13.5" font-weight="bold" fill="#4c1d95">LLaVA 两阶段训练流水线：灰锁 = 冻结，紫 = 可训练（数据规模以原论文为准）</text>
+    <!-- 阶段一 -->
+    <rect x="20" y="44" width="450" height="300" rx="10" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1.5"/>
+    <text x="245" y="74" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">阶段一：特征对齐预训练</text>
+    <text x="245" y="96" text-anchor="middle" font-size="11" fill="#555555">目标：让投影层学会把 CLIP 特征「直译」成词嵌入</text>
+    <rect x="50" y="116" width="120" height="52" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="110" y="138" text-anchor="middle" font-size="11" fill="#6b7280">CLIP ViT-L/14 🔒</text>
+    <text x="110" y="156" text-anchor="middle" font-size="10" fill="#9ca3af">冻结</text>
+    <line x1="174" y1="142" x2="200" y2="142" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT155)"/>
+    <rect x="204" y="116" width="100" height="52" rx="6" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="254" y="138" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">投影层</text>
+    <text x="254" y="156" text-anchor="middle" font-size="10" fill="#ede9fe">唯一可训练 ✓</text>
+    <line x1="308" y1="142" x2="334" y2="142" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT155)"/>
+    <rect x="338" y="116" width="104" height="52" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="390" y="138" text-anchor="middle" font-size="11" fill="#6b7280">Vicuna 🔒</text>
+    <text x="390" y="156" text-anchor="middle" font-size="10" fill="#9ca3af">冻结</text>
+    <rect x="50" y="192" width="392" height="60" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/>
+    <text x="246" y="216" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">数据：595K 过滤后的 CC3M 图文对</text>
+    <text x="246" y="236" text-anchor="middle" font-size="10.5" fill="#92400e">任务：看图预测其描述文字（自回归，第 6 章目标）</text>
+    <text x="245" y="282" text-anchor="middle" font-size="11" fill="#555555">只训 1 个 epoch；此时模型只会「描述」不会「对话」</text>
+    <text x="245" y="304" text-anchor="middle" font-size="11" fill="#555555">——但投影层已校准，视觉 token 进了 LLM 的词表空间</text>
+    <!-- 箭头 -->
+    <line x1="480" y1="194" x2="516" y2="194" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#arrT155)"/>
+    <!-- 阶段二 -->
+    <rect x="522" y="44" width="440" height="300" rx="10" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1.5"/>
+    <text x="742" y="74" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">阶段二：视觉指令微调（端到端）</text>
+    <text x="742" y="96" text-anchor="middle" font-size="11" fill="#555555">目标：学会按指令看图回答问题、展开多轮对话</text>
+    <rect x="552" y="116" width="110" height="52" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="607" y="138" text-anchor="middle" font-size="11" fill="#6b7280">CLIP ViT 🔒</text>
+    <text x="607" y="156" text-anchor="middle" font-size="10" fill="#9ca3af">仍冻结</text>
+    <line x1="666" y1="142" x2="692" y2="142" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT155)"/>
+    <rect x="696" y="116" width="100" height="52" rx="6" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="746" y="138" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">投影层</text>
+    <text x="746" y="156" text-anchor="middle" font-size="10" fill="#ede9fe">继续训练 ✓</text>
+    <line x1="800" y1="142" x2="826" y2="142" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT155)"/>
+    <rect x="830" y="116" width="104" height="52" rx="6" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="882" y="138" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">Vicuna</text>
+    <text x="882" y="156" text-anchor="middle" font-size="10" fill="#ede9fe">解冻训练 ✓</text>
+    <rect x="552" y="192" width="382" height="60" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/>
+    <text x="743" y="216" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">数据：158K GPT-4 合成视觉指令数据</text>
+    <text x="743" y="236" text-anchor="middle" font-size="10.5" fill="#92400e">58K 对话 + 23K 详细描述 + 77K 复杂推理</text>
+    <text x="742" y="282" text-anchor="middle" font-size="11" fill="#555555">训练 3 个 epoch；视觉编码器全程不动</text>
+    <text x="742" y="304" text-anchor="middle" font-size="11" fill="#555555">——至此 LLM 学会「围绕图像内容说话」</text>
+    <!-- 底部 -->
+    <text x="490" y="378" text-anchor="middle" font-size="12" fill="#4c1d95" font-weight="bold">放权顺序不能反：先校准翻译官，再动 LLM——否则未对齐的随机投影会把乱码梯度灌进 LLM</text>
+  </svg>
+  <div class="diagram-caption">图 1：LLaVA 两阶段训练流水线。阶段一只训投影层（视觉塔与 LLM 冻结），用 595K 图文对完成特征对齐；阶段二放开 LLM 与投影层，用 158K 指令数据做端到端视觉指令微调，视觉塔全程冻结。BLIP-2 与 Flamingo 的阶段设计不同（正文对比），但「先对齐、后教学」的顺序是共识。</div>
+</div>
+
+<p>　　<strong>阶段一：特征对齐预训练。</strong>唯一可训练的是投影层，数据是 595K 过滤后的 CC3M 图文对，任务是自回归地根据图像预测其描述文字——与第 6 章的语言建模范式完全一致，只是上下文里多了视觉 token。这一步只让投影层学会「直译」，不改变 LLM 的任何行为。</p>
+
+<p>　　<strong>阶段二：视觉指令微调。</strong>投影层与 LLM 一起解冻（视觉塔仍冻结），数据换成 158K 指令样本，任务升级为按指令回答图像相关问题、进行多轮对话。这一步就是第 9 章 SFT 的多模态版：让模型从「会描述」变成「会按人的要求看图说话」。</p>
+
+<div class="highlight-box danger">
+  放权顺序为什么不能反？若一开始就端到端训练，随机初始化的投影层输出的是「乱码视觉 token」，错误的梯度会顺着上下文灌进 LLM，把预训练好的语言能力带崩（灾难性遗忘的视觉版，参第 9 章）。先冻结 LLM、单独校准投影层，等于先把翻译官培训合格再放他进会议室——这正是阶段化放权的稳定性逻辑。Flamingo 的零初始化门控（15.4 节）是同一种担忧的另一种解法。
+</div>
+
+<p>　　三家的阶段与冻结策略对比，能看出同一条原则的不同取舍：BLIP-2 把「冻结」推到极致——两个阶段全程冻结 LLM，只训约 188M 的 Q-Former，靠三目标（ITC/ITM/ITG）在冻结骨架上做对齐与生成适配，成本最低但 LLM 行为完全不可塑；Flamingo 冻结视觉塔与 LM，但新插入的门控交叉注意力层（约 10B）从零训练，投入最大以换取交错图文能力；LLaVA 居中——阶段二解冻 LLM，用最小的数据成本换取「会对话」的行为塑造。今天的共识落在 LLaVA 一侧：指令微调阶段放开 LLM 是「会聊天」的必要条件，但视觉塔通常继续冻结（它已是 CLIP 对齐过的成品）。</p>
+
+<h2>15.5.2 数据配方：从图文对到视觉指令数据</h2>
+
+<p>　　阶段一的 595K 图文对好理解——爬来的（图， 描述）天然数据过滤即成。真正的创新在阶段二的 <strong>158K 视觉指令数据</strong>：它要教模型「针对这张图回答这个问题」，而这种（图， 问题， 答案）三元组在自然界几乎不存在，人工标注又慢又贵。LLaVA 的解法是把数据生产也外包给 LLM：</p>
+
+<ol>
+  <li>取 COCO 数据集的图像，把人工标注<strong>符号化</strong>成文本：5 句人工描述 + 目标检测框（类别与位置坐标）；</li>
+  <li>把这些符号化标注喂给<strong>纯文本版 GPT-4</strong>（它看不到图，只能读标注）；</li>
+  <li>指示 GPT-4 基于标注内容生成三类样本：<strong>对话</strong>（围绕图中目标的问答，58K）、<strong>详细描述</strong>（一段内容丰富的图说，23K）、<strong>复杂推理</strong>（需要结合常识与逻辑的问题，77K）；</li>
+  <li>配上真实图像，即得（图， 指令， 回答）三元组，共 158K。</li>
+</ol>
+
+<p>　　这套「以文生数」的合成法是第 1.5 节合成数据思想在多模态的延伸：用强模型（GPT-4）当教师，把廉价的结构化标注升级成昂贵的指令数据。符号化标注充当了「图像的文字替身」——GPT-4 虽看不见图，但描述加检测框已足以让它推断图里有什么、在哪、什么关系，由此造出的问答大概率与图像内容吻合。成本由此从「逐条人工标注」降为「一次 API 调用」，VLM 研究的数据门槛被直接踏平，此后开源社区的海量指令数据多沿此思路滚动扩充。</p>
+
+<h2>15.5.3 失败模式与评测：幻觉、POPE 与综合基准</h2>
+
+<p>　　训练完成的 VLM 会以一种特有的方式翻车：<strong>幻觉</strong>（hallucination）——回答里出现图中根本不存在的物体或属性。问「图里有几只斑马」，图里明明没有斑马，模型却答「三只」。纯文本 LLM 也会幻觉（第 10、13 章均提及），但 VLM 的幻觉更难根除，因为它有两个文本没有的病根：一是<strong>视觉信息经过压缩与翻译必有损耗</strong>（15.4 节的瓶颈），模型拿到的本就是残缺的「视力」；二是<strong>语言先验过强</strong>——LLM 读过亿万句「草原上有斑马」，当视觉证据模糊时，它倾向按语料统计「脑补」最可能的场景，而非忠实于眼前这张图。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>评测</th><th>测什么</th><th>怎么测</th></tr></thead>
+    <tbody>
+      <tr><td>POPE</td><td>物体幻觉</td><td>轮询式提问「图中有 X 吗？」（X 为图中存在/不存在/易混淆的物体），统计判断准确率，专盯「无中生有」</td></tr>
+      <tr><td>MME</td><td>综合能力</td><td>14 个子任务分感知（存在性、计数、颜色、OCR 等）与认知（常识、数值计算、文本翻译等）两层，是非题计分</td></tr>
+      <tr><td>ScienceQA</td><td>学科推理</td><td>带图解的理科选择题；LLaVA 自身约 90.4%，配合 GPT-4 作为答案裁判/协同者达 92.53%（当时的 SOTA）</td></tr>
+      <tr><td>GPT-4 相对评分</td><td>开放式回答质量</td><td>让 GPT-4 对比 VLM 回答与其自己基于标注的回答打分；LLaVA 达 GPT-4 水平的 85.1%（LLM-as-judge 范式，呼应 10.2 节）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　这组评测各管一面：POPE 盯幻觉的底线，MME 摸感知的广度，ScienceQA 与 GPT-4 相对评分探推理与表达的上限。15.1.3 节的能力层级在这里落地成了可量化的指标——而 POPE 类评测中「易混淆物体」一项长期是各家模型的失分重灾区，直接印证了「语言先验盖过视觉证据」这一病根。</p>
+
+<h2>15.5.4 现代配方演进：LLaVA-1.5 的启示</h2>
+
+<p>　　LLaVA 发布半年后，同一团队推出 LLaVA-1.5，改动清单短得惊人：连接器由单层线性换成<strong>两层 MLP</strong>、输入分辨率 224→336（视觉 token 256→576）、指令数据中混入一批学术任务数据（VQA、OCR、区域级标注等）。结果是十余个基准全面大涨，反超一众使用更大模型、更多数据的同期工作。</p>
+
+<p>　　这次升级的启示有三，且都已成为后续 VLM 的标准做法：</p>
+
+<ul>
+  <li><strong>翻译层值得一点表达力</strong>：线性投影换成两层 MLP 是全部改动中收益最稳的一项——连接器不必极简到底，多一点非线性，视觉到语言的翻译就准一分（15.4 节的权衡）；</li>
+  <li><strong>分辨率就是视力</strong>：576 个 token 对 256 个的提升主要来自小字与小物体——OCR、文档理解类任务受益最大，此后高分辨率（乃至动态切块）成为军备竞赛的主战场；</li>
+  <li><strong>数据质量与配比大于数量</strong>：158K 精选数据足以训练出强 VLM，堆量不如精选与混配——与第 1.4 节文本配比、第 9 章指令数据一章的结论如出一辙。</li>
+</ul>
+
+<div class="highlight-box">
+  本节核心：VLM 训练没有新的学习范式，全是旧配方的迁移与组合——自回归语言建模（阶段一）+ 指令微调（阶段二）+ 合成数据（GPT-4 生产）+ LLM-as-judge（评测）。真正的工程智慧在「分阶段放权」的次序与数据配方的精选，幻觉则是这套流水线至今未能根治的副产品。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么 VLM 训练要分两阶段、逐步放开参数？</div>
+    <div class="sc-key">阶段一只训投影层（冻结视觉塔与 LLM），先把「翻译官」校准；阶段二才放开 LLM 做指令微调。若一开始就端到端，随机投影层的乱码输出会把错误梯度灌进 LLM，带崩其预训练语言能力——与 Flamingo 的零初始化门控是同一种稳定性考量。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">158K 视觉指令数据是如何低成本制造的？</div>
+    <div class="sc-key">把 COCO 图像的人工标注（5 句描述 + 检测框坐标）符号化成文本，喂给纯文本 GPT-4，让它基于标注生成对话（58K）、详细描述（23K）、复杂推理（77K）三类问答，再配回原图。符号化标注充当图像的文字替身，用 API 调用替代人工标注。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">VLM 的幻觉为什么比纯文本 LLM 更难根除？</div>
+    <div class="sc-key">两个特有病根：视觉信息经连接器压缩翻译必有损耗（模型拿到的是残缺视力）；语言先验过强，视觉证据模糊时模型按语料统计「脑补」最可能场景。POPE 用轮询提问专门量化它，「易混淆物体」项至今是失分重灾区。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Liu et al., 2023. Visual Instruction Tuning（LLaVA，NeurIPS 2023 Oral，arXiv:2304.08485；两阶段配方、595K/158K 数据、GPT-4 合成法、相对评分与 ScienceQA 数字出自此文）。</li>
+  <li>Liu et al., 2023. Improved Baselines with Visual Instruction Tuning（LLaVA-1.5，arXiv:2310.03744；MLP 投影、336 分辨率、数据混合的收益）。</li>
+  <li>Li et al., 2023. Evaluating Object Hallucination in Large Vision-Language Models（POPE，EMNLP 2023，arXiv:2305.10355）。</li>
+  <li>Fu et al., 2023. MME: A Comprehensive Evaluation Benchmark for Multimodal Large Language Models（arXiv:2306.13394）。</li>
+  <li>Li et al., 2023. BLIP-2（arXiv:2301.12597）与 Alayrac et al., 2022. Flamingo（arXiv:2204.14198）——冻结策略对照（详见 15.4 节）。</li>
+</ul>
+</article>

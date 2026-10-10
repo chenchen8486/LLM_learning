@@ -1,0 +1,629 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>15.4 模态对齐 II：连接器三世代——投影、查询与注入 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 13 章 推理系统与部署</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch13_1_inference_cost.html">13.1 推理的成本结构：显存、算力、带宽谁先成为瓶颈</a>
+<a class="nav-link" href="ch13_2_kv_cache.html">13.2 KV Cache：用显存换速度的核心缓存</a>
+<a class="nav-link" href="ch13_3_serving_systems.html">13.3 服务化：连续批处理与 PagedAttention</a>
+<a class="nav-link" href="ch13_4_quantization.html">13.4 量化：FP16 到 INT4 的压缩术</a>
+<a class="nav-link" href="ch13_5_distillation.html">13.5 蒸馏：大模型教小模型</a>
+<a class="nav-link" href="ch13_6_speculative_scaling.html">13.6 投机采样与推理时扩展：无损加速与多花计算的两端</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 14 章 应用范式</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch14_1_prompt_engineering.html">14.1 Prompt 工程：不改权重的编程方式</a>
+<a class="nav-link" href="ch14_2_cot.html">14.2 思维链：让模型把中间步骤写出来</a>
+<a class="nav-link" href="ch14_3_rag.html">14.3 RAG：给模型外挂一个资料库</a>
+<a class="nav-link" href="ch14_4_function_calling.html">14.4 Function Calling：让模型学会「打电话」</a>
+<a class="nav-link" href="ch14_5_agent.html">14.5 Agent：规划、工具与多步执行循环</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 15 章 多模态扩展</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch15_1_why_multimodal.html">15.1 为什么需要多模态：给 LLM 装上眼睛</a>
+<a class="nav-link" href="ch15_2_vit.html">15.2 视觉编码器：ViT 把图像切成 Token</a>
+<a class="nav-link" href="ch15_3_clip.html">15.3 模态对齐 I：CLIP 用对比学习打通图文</a>
+<a class="nav-link active" href="ch15_4_connector.html">15.4 模态对齐 II：连接器三世代——投影、查询与注入</a>
+<a class="nav-link" href="ch15_5_vlm_training.html">15.5 VLM 训练流水线：分阶段放权与数据配方</a>
+<a class="nav-link" href="ch15_6_unified.html">15.6 统一架构趋势：一切皆是 Token</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 15 章 多模态扩展</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>15.4 模态对齐 II：连接器三世代——投影、查询与注入</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>15.4 模态对齐 II：连接器三世代——投影、查询与注入</h1>
+<p class="subtitle">本页范围：第 15 章第 4 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>15.3 节的 CLIP 对齐的是「整图 ↔ 整段话」的一个全局向量；而 LLM 的上下文需要的是一串能逐个位置读入的视觉 token，维度还得与词嵌入一致。从「对齐过的视觉特征」到「LLM 上下文里的一段特殊词」，这最后一厘米怎么接？</td></tr>
+      <tr><td>本节主张</td><td>连接器（connector）是 VLM 中最轻量却最关键的部件：视觉编码器与 LLM 双双冻结，只训练中间这层「翻译官」。三代设计回答同一个问题的三种方式——LLaVA 用一层线性投影直通（能留全留），BLIP-2 用 32 个可学习查询把视觉信息压成精华（能压则压），Flamingo 把视觉特征经门控交叉注意力直接注入 LLM 层间（改道输送）。</td></tr>
+      <tr><td>一句话结论</td><td>连接器的核心权衡是<strong>视觉 token 的数量与保真度</strong>：LLaVA 全量保留 256 个 token，简单而强大；Q-Former 压到 32 个换取训练与推理效率；Flamingo 固定 64 个 latent 并以门控保证注入不破坏原 LM——三代方案没有绝对优劣，只有算力预算与任务需求的不同。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>连接器</span><span>线性投影</span><span>LLaVA</span><span>Q-Former</span><span>BLIP-2</span><span>Perceiver Resampler</span><span>门控交叉注意力</span><span>Flamingo</span><span>视觉 token 数</span><span>冻结策略</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　前两节备齐了两位主角：会说「视觉方言」的编码器（ViT，15.2 节），以及把方言校准成「语言官话」的对齐训练（CLIP，15.3 节）。但 CLIP 只保证整图向量与整句向量靠近，VLM 的 LLM 却要在上下文里逐 token 地「读图」：256 个 1024 维的图块特征，怎样变成 LLM 词表空间里一段可读的序列？这就是连接器要解决的最后接驳问题。它是全章的枢纽——前面是感知，后面是语言，它负责让两边握手。</p>
+
+<p>　　本节按连接器设计的三代演进展开，每家都是一篇里程碑论文，路线图如下：</p>
+
+<ol>
+  <li><strong>线性投影：LLaVA 的极简答案</strong>（15.4.1）：一层全连接就够用，简单为什么反而成了主流；</li>
+  <li><strong>可学习查询压缩：BLIP-2 的 Q-Former</strong>（15.4.2）：32 个「进修过的查询」把 257 个图块特征榨成 32 个精华 token；</li>
+  <li><strong>交叉注意力注入：Flamingo 的 Perceiver Resampler 与门控 XATTN</strong>（15.4.3）：不改输入序列，改在 LLM 层间开「侧门」输送视觉信息；</li>
+  <li><strong>横向对比：视觉 token 数 × 训练成本 × 表达能力</strong>（15.4.4）：三代表格式对照与选型逻辑。</li>
+</ol>
+
+<p>　　读完本节，应该能画出三种接法的结构图，说清「视觉 token 数量」为什么是连接器设计的第一变量，并理解 15.5 节的训练流水线为什么敢放心冻结大部分参数。</p>
+
+<h2>15.4.1 线性投影：LLaVA 的极简答案</h2>
+
+<p>　　LLaVA（Large Language and Vision Assistant，2023）给出的连接器简单到令人怀疑：视觉编码器与 LLM 全部冻结，中间只插<strong>一层可训练的线性投影</strong> \(\mathbf{W}\)。</p>
+
+<p>　　具体链路：图像过冻结的 CLIP ViT-L/14（224 像素输入，14×14 像素一块，得 16×16=256 个图块），取出编码器<strong>倒数第二层</strong>的网格特征（避免最后一层过度向 CLS 汇总），每个图块一个 1024 维向量；线性层把这 256 个向量逐一从 1024 维映射到 LLM（Vicuna，LLaMA 系指令模型，7B/13B）的词嵌入维度；得到的 256 个「视觉 token」与文本 token 的嵌入拼接，一起送入 LLM。对 LLM 而言，上下文就是「一段读得懂的前缀 + 用户的文字问题」。</p>
+
+<div class="formula-card">
+  \[ \mathbf{h}_{v}^{i}=\mathbf{W}\,\mathbf{z}_{v}^{i}+\mathbf{b},\qquad i=1,\dots,256 \tag{1} \]
+  <div class="formula-note">公式 (1)：LLaVA 连接器的全部内容。符号说明：\(\mathbf{z}_{v}^{i}\) 是冻结 CLIP 视觉塔给出的第 \(i\) 个图块特征（1024 维）；\(\mathbf{W}\)、\(\mathbf{b}\) 是可学习的投影矩阵与偏置，把特征变到 LLM 的词嵌入维度（如 Vicuna-7B 为 4096 维）；\(\mathbf{h}_{v}^{i}\) 是最终的视觉 token，与文本 token 的嵌入（第 3.1 节）处于同一空间，可直接拼接。每个图块独立过同一个投影——没有跨图块的信息交换，「翻译」是逐词直译，不打乱次序。</div>
+</div>
+
+<p>　　为什么敢这么简单？底气来自 15.3 节的结论：CLIP 特征空间已经按语言语义组织，与词嵌入空间「度量同构」，剩下的差异大概率只是一个线性变换能弥合的。LLaVA 的成功（15.5 节给出训练配方与成绩）证明了这个判断，也立下了此后两年开源 VLM 的默认骨架。后续 LLaVA-1.5 只做了两处保守升级：线性层换成<strong>两层 MLP</strong>（翻译表达力更强），输入分辨率从 224 提到 336（视觉 token 变为 24×24=576 个，细节更多）——主干思路一字未改。</p>
+
+<div class="highlight-box info">
+  为什么取「倒数第二层」的特征？Transformer 最后一层的表示会高度向 [CLS] 位置的全局任务目标收束，逐图块的局部细节反而在倒数第二层保留得更完整。VLM 要的是整幅图的结构化理解而非一个全局判断，所以多数实现取中间偏末层的网格特征。这属于经验做法，非定理。
+</div>
+
+<h2>15.4.2 可学习查询压缩：BLIP-2 的 Q-Former</h2>
+
+<p>　　LLaVA 把 256 个视觉 token 全量塞给 LLM，上下文开销随图像数量与分辨率线性上涨。BLIP-2（2023）走了相反的极端：<strong>不管原图有多少图块，最终只给 LLM 32 个视觉 token</strong>。完成这次极限压缩的部件叫 Q-Former（Querying Transformer）。</p>
+
+<p>　　Q-Former 是一个小型 Transformer（约 188M 参数，从 BERT-base 初始化），它的输入不是图块特征本身，而是 <strong>32 个可学习的查询向量</strong>（各 768 维，作为模型参数直接训练）。这些查询在层内先做自注意力相互交流，再<strong>每隔一个块</strong>通过交叉注意力（第 4 章的注意力变体：查询来自 Q-Former，键与值来自冻结视觉塔的输出）向 257 个图块特征「提问」。形象地说，32 个查询像 32 名记者，围着整张图的特征开新闻发布会，各自就关心的方面提问，散会时每人带走一份 768 维的纪要——最终输出 32×768，而输入是 257×1024。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">信息瓶颈 Information Bottleneck</span>
+    <span class="term-en">bottleneck = 瓶颈——故意收窄通道，逼信息去芜存菁</span>
+  </div>
+  <div class="term-body">
+    <p>信息瓶颈是一种设计策略：在网络中间故意设置一个容量远小于输入的通道（如把 257×1024 压成 32×768），迫使模型只保留对任务最有用的信息，滤掉冗余细节。压缩带来效率，也充当正则——但压掉的细节一旦是任务所需，就会成为能力天花板。</p>
+    <div class="term-analogy">像把一整本现场笔录压缩成一页简报：读简报很快，但简报写什么、漏什么，取决于记录者对「什么重要」的判断——32 个查询就是在亿万次训练中学会「什么值得问」的。</div>
+  </div>
+</div>
+
+<p>　　Q-Former 的训练分两阶段（对应 15.5 节的流水线思想）：先接在冻结图像编码器之后，用三个目标同时训练——图文对比（ITC，与 CLIP 同族）、图文匹配二分类（ITM，判断一对图文是否相配）、图文生成（ITG，以图为条件生成描述文字）；再接上冻结 LLM，把 32 个查询输出经一层全连接投影到 LLM 嵌入维度，以文本生成目标继续训。全程视觉塔与 LLM 都冻结，可训练的只有 Q-Former 与投影层。凭借这套设计，BLIP-2 在 zero-shot VQAv2 上比 Flamingo-80B 高出 8.7%，而<strong>可训练参数少了 54 倍</strong>——连接器的精巧设计实实在在换来了数量级的效率。</p>
+
+<h2>15.4.3 交叉注意力注入：Flamingo 的 Perceiver Resampler 与门控 XATTN</h2>
+
+<p>　　DeepMind 的 Flamingo（2022）提出了第三种接法：视觉信息不进输入序列，而是<strong>在 LLM 层间开侧门</strong>。它由两个新部件配合完成：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>Perceiver Resampler</h4><p>与 Q-Former 同族的压缩器：用一组可学习 latent 查询（每张图/视频固定 64 个）对冻结视觉编码器（对比训练的 NFNet-F6）的变长特征做交叉注意力，无论输入分辨率多大、视频多长，都压成 64 个视觉 token。约 200M 参数。</p></div>
+  <div class="concept-card"><h4>GATED XATTN-DENSE</h4><p>在冻结 LLM 的每若干层之间，插入新初始化的「交叉注意力 + 前馈」层：查询来自文本，键与值来自 64 个视觉 token。关键在门控——每层输出乘一个 tanh 门，门参数<strong>初始化为零</strong>。</p></div>
+</div>
+
+<p>　　零初始化门控是个值得细品的工程巧思：训练起点处 tanh(0)=0，所有插入层输出为零，整个网络在数学上严格等于原来的冻结 LM——视觉通路从「关闭」状态开始，随训练逐步「拧开阀门」。这保证了强大的预训练 LM 不会在训练初期被随机初始化的视觉侧路带崩。论文的消融显示，拿掉这个门控，基准成绩直接掉 4.2 个百分点。</p>
+
+<p>　　Flamingo 的另一项设计是为<strong>交错图文</strong>而生：网页、对话里图与文天然混排（「先看这张图：……再看那张：……它们有何不同？」）。Flamingo 给交叉注意力配了 per-image 掩码（附录 A.11 的掩码思想）：每个文本 token 只允许「看见」它前面最近的一张图。这样模型天然支持多图上下文与 few-shot 提示——给几组（图+问答）示例再问新图，模型照猫画虎，这正是它拿下 16 个多模态基准 few-shot SOTA 的机制基础。最大的 Flamingo-80B 由 70B 的冻结 LM（Chinchilla 系）加上约 10B 的新训练参数（Resampler 与插入层）构成。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 980 420" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrX154" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13.5" font-weight="bold" fill="#4c1d95">连接器三世代：同一个「视觉特征 → LLM」问题，三种接法（灰锁 = 冻结，紫 = 可训练）</text>
+    <!-- 世代一 LLaVA -->
+    <text x="30" y="64" font-size="12.5" font-weight="bold" fill="#4c1d95">① 线性投影（LLaVA）：视觉 token 直接进输入序列</text>
+    <rect x="30" y="78" width="96" height="54" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="78" y="100" text-anchor="middle" font-size="11" fill="#6b7280">CLIP ViT 🔒</text>
+    <text x="78" y="118" text-anchor="middle" font-size="10" fill="#9ca3af">256×1024</text>
+    <line x1="130" y1="105" x2="158" y2="105" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrX154)"/>
+    <rect x="162" y="78" width="96" height="54" rx="6" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="210" y="100" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">线性投影 W</text>
+    <text x="210" y="118" text-anchor="middle" font-size="10" fill="#ede9fe">唯一可训练件</text>
+    <line x1="262" y1="105" x2="290" y2="105" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrX154)"/>
+    <rect x="294" y="78" width="150" height="54" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="369" y="100" text-anchor="middle" font-size="11" fill="#6b7280">LLM 输入序列 🔒</text>
+    <text x="369" y="118" text-anchor="middle" font-size="10" fill="#9ca3af">[256 视觉 token] + [文本]</text>
+    <!-- 世代二 BLIP-2 -->
+    <text x="500" y="64" font-size="12.5" font-weight="bold" fill="#4c1d95">② 查询压缩（BLIP-2）：32 个 token 进输入序列</text>
+    <rect x="500" y="78" width="96" height="54" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="548" y="100" text-anchor="middle" font-size="11" fill="#6b7280">CLIP ViT 🔒</text>
+    <text x="548" y="118" text-anchor="middle" font-size="10" fill="#9ca3af">257×1024</text>
+    <line x1="600" y1="105" x2="628" y2="105" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrX154)"/>
+    <rect x="632" y="78" width="120" height="54" rx="6" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="692" y="100" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">Q-Former</text>
+    <text x="692" y="118" text-anchor="middle" font-size="10" fill="#ede9fe">32 查询 · 188M</text>
+    <line x1="756" y1="105" x2="784" y2="105" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrX154)"/>
+    <rect x="788" y="78" width="162" height="54" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="869" y="100" text-anchor="middle" font-size="11" fill="#6b7280">LLM 输入序列 🔒</text>
+    <text x="869" y="118" text-anchor="middle" font-size="10" fill="#9ca3af">[32 视觉 token] + [文本]</text>
+    <!-- 世代三 Flamingo -->
+    <text x="30" y="186" font-size="12.5" font-weight="bold" fill="#4c1d95">③ 层间注入（Flamingo）：视觉 token 不进序列，走层间侧门</text>
+    <rect x="30" y="200" width="96" height="54" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="78" y="222" text-anchor="middle" font-size="11" fill="#6b7280">NFNet-F6 🔒</text>
+    <text x="78" y="240" text-anchor="middle" font-size="10" fill="#9ca3af">变长特征</text>
+    <line x1="130" y1="227" x2="158" y2="227" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrX154)"/>
+    <rect x="162" y="200" width="140" height="54" rx="6" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="232" y="222" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">Perceiver Resampler</text>
+    <text x="232" y="240" text-anchor="middle" font-size="10" fill="#ede9fe">64 latent · ~200M</text>
+    <!-- LLM 层堆叠 -->
+    <rect x="370" y="196" width="120" height="40" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="430" y="221" text-anchor="middle" font-size="11" fill="#6b7280">冻结 LM 层 🔒</text>
+    <rect x="370" y="244" width="120" height="40" rx="6" fill="#0891b2" stroke="#155e75" stroke-width="1.5"/>
+    <text x="430" y="269" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">门控 XATTN（新）</text>
+    <rect x="370" y="292" width="120" height="40" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="430" y="317" text-anchor="middle" font-size="11" fill="#6b7280">冻结 LM 层 🔒</text>
+    <rect x="370" y="340" width="120" height="40" rx="6" fill="#0891b2" stroke="#155e75" stroke-width="1.5"/>
+    <text x="430" y="365" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffffff">门控 XATTN（新）</text>
+    <path d="M 302 227 C 340 227 330 264 366 264" stroke="#6d28d9" stroke-width="2" fill="none" marker-end="url(#arrX154)"/>
+    <path d="M 302 227 C 330 227 320 360 366 360" stroke="#6d28d9" stroke-width="2" fill="none" marker-end="url(#arrX154)"/>
+    <text x="560" y="240" font-size="11" fill="#555555">门控 tanh 门零初始化：</text>
+    <text x="560" y="260" font-size="11" fill="#555555">起点处插入层输出为 0，</text>
+    <text x="560" y="280" font-size="11" fill="#555555">整体严格等于原冻结 LM，</text>
+    <text x="560" y="300" font-size="11" fill="#555555">训练再逐步「拧开阀门」。</text>
+    <text x="560" y="332" font-size="11" fill="#555555">每个文本 token 仅可见</text>
+    <text x="560" y="352" font-size="11" fill="#555555">其前方最近一张图</text>
+    <text x="560" y="372" font-size="11" fill="#555555">（per-image 掩码）。</text>
+    <!-- 底部总结条 -->
+    <rect x="30" y="392" width="920" height="0" fill="none"/>
+  </svg>
+  <div class="diagram-caption">图 1：连接器三世代结构对比。① LLaVA：冻结视觉塔的 256 个图块特征经唯一可训练的线性层投影，作为视觉 token 直接拼进 LLM 输入序列；② BLIP-2：Q-Former 用 32 个可学习查询经交叉注意力把 257 个图块特征压缩成 32 个 token 再进序列；③ Flamingo：视觉信息不进输入序列，Perceiver Resampler 压成 64 个 latent 后，由交错插入冻结 LM 层间的门控交叉注意力层输送，门初始为零保证训练稳定。</div>
+</div>
+
+<h2>15.4.4 横向对比：视觉 token 数 × 训练成本 × 表达能力</h2>
+
+<p>　　三代连接器摆在一张表里，设计空间的三个坐标立刻清晰——给 LLM 多少视觉 token、愿意训练多少参数、要不要动 LLM 本体：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>LLaVA（①投影）</th><th>BLIP-2（②查询压缩）</th><th>Flamingo（③层间注入）</th></tr></thead>
+    <tbody>
+      <tr><td>视觉编码器</td><td>CLIP ViT-L/14 🔒</td><td>CLIP / EVA-CLIP ViT 🔒</td><td>NFNet-F6（对比训练）🔒</td></tr>
+      <tr><td>LLM</td><td>Vicuna 7B/13B（阶段二解冻）</td><td>OPT 2.7B/6.7B、FlanT5 🔒</td><td>Chinchilla 系，最大 70B 🔒</td></tr>
+      <tr><td>连接器</td><td>单层线性（1.5 版为两层 MLP）</td><td>Q-Former，约 188M</td><td>Resampler 约 200M + 插入层</td></tr>
+      <tr><td>视觉 token 数</td><td>256（1.5 版 576）</td><td>32</td><td>64（每图/视频固定）</td></tr>
+      <tr><td>视觉进何处</td><td>输入序列前缀</td><td>输入序列前缀</td><td>LLM 层间交叉注意力</td></tr>
+      <tr><td>可训练参数</td><td>极小（投影层；阶段二含 LLM）</td><td>约 188M + 投影</td><td>约 10B（80B 版）</td></tr>
+      <tr><td>招牌能力</td><td>极简、易复现、细节全保留</td><td>极致效率（超 Flamingo-80B 8.7%，参数少 54×）</td><td>交错图文、多图 few-shot</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　怎么选？回到 token 数量这个第一变量：<strong>视觉 token 是 LLM 的「视力分辨率」</strong>——给得越多，细节（小字、小物体、空间关系）保留越全，但上下文成本与训练开销同步上涨；压得越少，效率越高，但细节在经过瓶颈时被强制丢弃，且丢什么由连接器学出来的「提问策略」决定，不可控。LLaVA 路线赌「LLM 足够强，信息全给它自己挑」，Q-Former 路线赌「32 个学出来的问题足以覆盖大部分任务」，Flamingo 路线则为多图交错与稳定注入付出了最大训练成本。今天开源社区的主流选择是 LLaVA 式的投影直通（细节时代分辨率水涨船高，token 数从 256 涨到 576 乃至上千），而 Q-Former 的思想仍在视频、多图等「token 预算紧张」的场景延续。</p>
+
+<div class="highlight-box">
+  本节核心：连接器是 VLM 的咽喉——视觉编码器与 LLM 都可以冻结现成，真正决定系统能力边界的，是中间这层「给多少 token、怎么给」的设计。三世代不是替代关系，而是「保真度—效率—侵入性」三角上的三个顶点。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">LLaVA 的连接器简单到只有一层线性投影，为什么可行？</div>
+    <div class="sc-key">CLIP 已把视觉特征空间按语言语义预对齐，与词嵌入空间度量同构，剩余差异一个线性变换即可弥合。投影逐图块独立进行、不打乱次序，256 个视觉 token 全量进上下文，细节保留最完整，代价是上下文开销大。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Q-Former 如何把 257 个图块特征压成 32 个 token？</div>
+    <div class="sc-key">32 个可学习查询向量在 Q-Former 内自注意力交流，并隔块经交叉注意力向冻结视觉特征「提问」，输出 32×768。信息瓶颈迫使模型只保留任务相关信息，换来 zero-shot VQAv2 超 Flamingo-80B 8.7%、可训练参数少 54 倍的极致效率，但压掉的细节不可恢复。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Flamingo 的门控交叉注意力解决了什么独有的难题？</div>
+    <div class="sc-key">两个问题：一是不污染预训练 LM——tanh 门零初始化使训练起点严格等于原冻结 LM（去掉门控掉 4.2 分）；二是支持交错图文——per-image 掩码让每个文本 token 只看其前方最近一张图，多图 few-shot 上下文由此成立。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Liu et al., 2023. Visual Instruction Tuning（LLaVA 原论文，NeurIPS 2023 Oral，arXiv:2304.08485；线性投影、256 视觉 token、倒数第二层网格特征出自此文）。</li>
+  <li>Liu et al., 2023. Improved Baselines with Visual Instruction Tuning（LLaVA-1.5，arXiv:2310.03744；两层 MLP 与 336 像素/576 token 升级）。</li>
+  <li>Li et al., 2023. BLIP-2: Bootstrapping Language-Image Pre-training with Frozen Image Encoders and Large Language Models（ICML 2023，arXiv:2301.12597；Q-Former、32 查询、三目标两阶段、效率对比数字出自此文）。</li>
+  <li>Alayrac et al., 2022. Flamingo: a Visual Language Model for Few-Shot Learning（NeurIPS 2022，arXiv:2204.14198；Perceiver Resampler、门控 XATTN-DENSE、per-image 掩码与模型规模出自此文）。</li>
+</ul>
+</article>
+      <div class="footer-nav"><a class="prev" href="ch15_3_clip.html" title="15.3 模态对齐 I：CLIP 用对比学习打通图文">← 上一节：15.3 模态对齐 I：CLIP 用对比学习打通图文</a><a class="next" href="ch15_5_vlm_training.html" title="15.5 VLM 训练流水线：分阶段放权与数据配方">下一节：15.5 VLM 训练流水线：分阶段放权与数据配方 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

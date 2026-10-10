@@ -1,0 +1,215 @@
+<article class="content">
+<h1>15.6 统一架构趋势：一切皆是 Token</h1>
+<p class="subtitle">本页范围：第 15 章第 6 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>15.1–15.5 节的 VLM 都是「拼接式」：视觉编码器是外挂的独立模型，模态鸿沟靠后天的连接器桥接。这套范式会不会只是过渡形态——能不能让图像和文本从输入端就是同一种数据，由同一个模型统一处理？</td></tr>
+      <tr><td>本节主张</td><td>统一架构的关键一跃，是把图像也<strong>离散化成 token</strong>：用一个图像分词器（VQ 系列）把每块图映射为码本中的一个编号，与文本 token 混排进同一个词表、同一条序列，由同一个 Transformer 按同一个自回归目标建模。理解与生成的界限随之消失——「看图说话」与「按话画图」不过是序列方向的区别。</td></tr>
+      <tr><td>一句话结论</td><td>从「编码器＋连接器」的外挂范式，到 Chameleon 式「统一词表、早期融合」的原生范式，多模态正在重演 NLP 的历史——<strong>一切皆是 token</strong>；这条暗线从第 2 章贯穿至今，本节用它收束全章，也收束全手册正文。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>VQ-VAE</span><span>图像分词器</span><span>码本</span><span>早期融合</span><span>统一词表</span><span>Chameleon</span><span>原生多模态</span><span>理解与生成统一</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　前5节走完了一条完整的工程路线：ViT 切图（15.2）、CLIP 对齐（15.3）、连接器接驳（15.4）、流水线训练（15.5），拼出了一台会看图的 LLM。本节站在终点回望，问一个更根本的问题：这套「拼接式」方案是终局吗？如果模态鸿沟只是被桥接而没有被消除，那么最彻底的解法是什么？答案藏在全手册最古老的一个概念里——token。本节是全章也是全手册正文的收官，路线图如下：</p>
+
+<ol>
+  <li><strong>拼接式 VLM 的天花板</strong>（15.6.1）：外挂范式与生俱来的四道天花板；</li>
+  <li><strong>图像的离散化：VQ-VAE 与图像分词器</strong>（15.6.2）：与 BPE 对仗的另一种「造词表」；</li>
+  <li><strong>Chameleon：早期融合的统一建模</strong>（15.6.3）：统一词表、混合序列、一个目标；</li>
+  <li><strong>代价与折中</strong>（15.6.4）：统一范式的训练稳定性难题，以及生成方向的边界（点到为止）；</li>
+  <li><strong>全章收束：多模态在 LLM 生命周期中的位置</strong>（15.6.5）：从第 2 章到第 15 章的暗线合拢。</li>
+</ol>
+
+<h2>15.6.1 拼接式 VLM 的天花板</h2>
+
+<p>　　外挂范式（编码器＋连接器＋LLM）的成功毋庸置疑，但它的结构决定了四道绕不开的天花板：</p>
+
+<ul>
+  <li><strong>视觉编码器成为能力瓶颈</strong>：冻结的 CLIP 塔是「出厂视力」，分辨率上限、细节保留在接驳前就已定死，后续训练无法让它再进化；</li>
+  <li><strong>信息在翻译中必损</strong>：无论 256 个 token 还是 32 个（15.4 节），从像素到 token 的压缩都是有损的，压掉的小字与小物体永远到不了 LLM；</li>
+  <li><strong>只能理解、不能生成</strong>：视觉通路是单向的（图进文出），模型读得懂图却画不出图——理解与生成被架构劈成两个系统；</li>
+  <li><strong>模态是「二等公民」</strong>：图像要先被另一个模型加工、再作为「前缀」借宿进 LLM 的上下文，图文交互的深度受限于「拼接」这一浅层接口。</li>
+</ul>
+
+<p>　　四道天花板指向同一个根因：<strong>图像自始至终不是 token</strong>，它只是在连接器的翻译下「伪装」成 token。要拆掉天花板，就得让图像在输入端就是 token——这正是离散化的思路。</p>
+
+<h2>15.6.2 图像的离散化：VQ-VAE 与图像分词器</h2>
+
+<p>　　第 2 章讲过，文本之所以是 token，是因为存在词表与分词器。图像要获得同等地位，也需要这两样东西：<strong>码本</strong>（codebook，视觉版词表）与<strong>图像分词器</strong>（视觉版 BPE）。提供它们的经典模型是 VQ-VAE（Vector Quantized Variational Autoencoder，2017）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 980 360" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrV156" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13.5" font-weight="bold" fill="#4c1d95">VQ 图像分词器：图像 ⇄ 离散 token 的双向翻译（训练完成后，编码侧即「图像分词器」）</text>
+    <!-- 输入图 -->
+    <rect x="20" y="70" width="110" height="110" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <g stroke="#c4b5fd" stroke-width="1">
+      <line x1="56" y1="70" x2="56" y2="180"/><line x1="93" y1="70" x2="93" y2="180"/>
+      <line x1="20" y1="106" x2="130" y2="106"/><line x1="20" y1="143" x2="130" y2="143"/>
+    </g>
+    <text x="75" y="204" text-anchor="middle" font-size="11.5" fill="#555555">输入图像</text>
+    <text x="75" y="222" text-anchor="middle" font-size="10.5" fill="#888888">512 × 512 × 3</text>
+    <line x1="136" y1="125" x2="172" y2="125" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrV156)"/>
+    <!-- 编码器 -->
+    <rect x="178" y="82" width="130" height="86" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="243" y="114" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">编码器（CNN）</text>
+    <text x="243" y="136" text-anchor="middle" font-size="10.5" fill="#555555">逐网格提取特征</text>
+    <text x="243" y="154" text-anchor="middle" font-size="10.5" fill="#555555">→ 32×32 特征图</text>
+    <line x1="314" y1="125" x2="350" y2="125" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrV156)"/>
+    <!-- 最近邻 -->
+    <rect x="356" y="82" width="150" height="86" rx="8" fill="#cffafe" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="431" y="110" text-anchor="middle" font-size="12" font-weight="bold" fill="#155e75">码本最近邻查找</text>
+    <text x="431" y="132" text-anchor="middle" font-size="10.5" fill="#155e75">每格特征 → 最近的码字</text>
+    <text x="431" y="150" text-anchor="middle" font-size="10" fill="#0e7490">码本 = 8192 个可学习向量</text>
+    <line x1="512" y1="125" x2="548" y2="125" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrV156)"/>
+    <!-- token 网格 -->
+    <g>
+      <rect x="554" y="82" width="120" height="86" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+      <text x="566" y="102" font-size="10.5" fill="#4c1d95">312  47  908 …</text>
+      <text x="566" y="122" font-size="10.5" fill="#4c1d95">65  1024  3 …</text>
+      <text x="566" y="142" font-size="10.5" fill="#4c1d95">777  88  240 …</text>
+      <text x="566" y="162" font-size="10.5" fill="#4c1d95">…   …   …</text>
+    </g>
+    <text x="614" y="204" text-anchor="middle" font-size="11.5" fill="#555555">离散 token 网格</text>
+    <text x="614" y="222" text-anchor="middle" font-size="10.5" fill="#888888">32×32 = 1024 个码（0–8191）</text>
+    <line x1="680" y1="125" x2="716" y2="125" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrV156)"/>
+    <!-- 解码器 -->
+    <rect x="722" y="82" width="120" height="86" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="782" y="114" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">解码器（CNN）</text>
+    <text x="782" y="136" text-anchor="middle" font-size="10.5" fill="#555555">按码字查码本向量</text>
+    <text x="782" y="154" text-anchor="middle" font-size="10.5" fill="#555555">→ 重建图像</text>
+    <line x1="848" y1="125" x2="884" y2="125" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrV156)"/>
+    <rect x="890" y="70" width="70" height="110" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="925" y="130" text-anchor="middle" font-size="11" fill="#555555">重建</text>
+    <text x="925" y="148" text-anchor="middle" font-size="11" fill="#555555">图像</text>
+    <!-- 底部对仗条 -->
+    <rect x="20" y="256" width="940" height="76" rx="8" fill="#f5f3fe" stroke="#c4b5fd" stroke-width="1"/>
+    <text x="490" y="286" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">与第 2 章对仗：BPE 从字节出发按统计合并造出文本词表；VQ 从像素出发按重建目标学出视觉码本</text>
+    <text x="490" y="312" text-anchor="middle" font-size="12" fill="#4c1d95">训练目标是最小化重建误差——能让解码器还原图像的离散化，就是好的「视觉分词」</text>
+  </svg>
+  <div class="diagram-caption">图 1：VQ 图像分词器的工作原理。编码器把图像变成特征图，每个网格位置的特征在码本（如 8192 个可学习向量）中找最近邻，替换为该码字的编号——图像就此变成一张离散 token 网格（如 32×32=1024 个码）；解码器凭编号查回码字向量并重建图像。整套系统按「重建误差最小」端到端训练。训练完成后取编码侧，即得一台「图像分词器」。</div>
+</div>
+
+<p>　　注意码本与 BPE 词表的本质差异：BPE 的词表是<strong>统计合并</strong>出来的（第 2.2 节），码本的码字是<strong>梯度下降学</strong>出来的——学得好不好的标准只有一个：离散化之后还能不能把图像重建回来。能，说明编号保留了图的内容；不能，码本就失职。这个「以重建论英雄」的目标让码本自动覆盖视觉世界的高频模式：边缘、纹理、局部形状，乃至语义部件。</p>
+
+<p>　　一旦有了图像分词器，「一张图」与「一段话」在数据形态上就再无区别——都是一列离散编号。15.1.2 节模态鸿沟的三重差异，在输入端被一次性填平：连续变离散（码编号）、二维网格展平成序列（按光栅顺序排开）、信息密度由码本的表达能力压缩提炼。剩下的，就是把这些 token 交给 LLM 的主场。</p>
+
+<h2>15.6.3 Chameleon：早期融合的统一建模</h2>
+
+<p>　　Meta 的 Chameleon（2024）把这条思路做成了完整系统，代表了「原生多模态」的当前形态：</p>
+
+<ul>
+  <li><strong>统一词表</strong>：文本经 BPE 分词、图像经 VQ 图像分词器（8192 码本），两类 token 共用一个词表、共享一张嵌入表——模型视角里没有任何「模态」标识位，只有编号；</li>
+  <li><strong>混合序列</strong>：训练数据是任意交错的图文序列（「文本 … <图像 token×1024> … 文本 …」），按光栅顺序拉成一维；</li>
+  <li><strong>单一目标</strong>：标准的下一 token 预测（第 6 章），不加任何模态专属损失——「预测下一个词」与「预测下一个图像 token」是同一个任务；</li>
+  <li><strong>早期融合</strong>：所有模态从第一层起就在同一个 Transformer 内交互，不存在外挂塔与连接器，这被称为 early-fusion（对比之下，15.1–15.5 的拼接式属于 late-fusion）。</li>
+</ul>
+
+<p>　　这套结构带来两个拼接式给不了的能力。其一，<strong>理解与生成同体</strong>：模型读得懂图（图像 token 在上下文里），也画得出图（自回归地逐个吐出图像 token，交给图像分词器的解码侧还原成像素）——「看图说话」与「按话画图」共享同一组权重，只是序列方向不同。其二，<strong>图文推理深度交互</strong>：没有「先翻译后理解」的接口损耗，图像 token 从第一层起就参与注意力计算，模型对图文关系的利用是全深度的。Chameleon 以 7B 与 34B 两个规模发布，在纯文本任务上保持了与同级别文本模型相当的水平——统一建模没有以牺牲语言能力为代价。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 980 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrU156" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13.5" font-weight="bold" fill="#4c1d95">早期融合：文本与图像 token 混排进同一条序列，同一个 Transformer、同一个预测目标</text>
+    <!-- 混合序列 -->
+    <rect x="30" y="60" width="70" height="44" rx="5" fill="#6d28d9"/>
+    <text x="65" y="87" text-anchor="middle" font-size="11" fill="#ffffff">「描述」</text>
+    <rect x="106" y="60" width="70" height="44" rx="5" fill="#6d28d9" opacity="0.85"/>
+    <text x="141" y="87" text-anchor="middle" font-size="11" fill="#ffffff">「一下」</text>
+    <rect x="182" y="60" width="70" height="44" rx="5" fill="#6d28d9" opacity="0.7"/>
+    <text x="217" y="87" text-anchor="middle" font-size="11" fill="#ffffff">「这幅」</text>
+    <rect x="258" y="60" width="70" height="44" rx="5" fill="#6d28d9" opacity="0.55"/>
+    <text x="293" y="87" text-anchor="middle" font-size="11" fill="#ffffff">「图：」</text>
+    <rect x="334" y="60" width="52" height="44" rx="5" fill="#0891b2"/>
+    <text x="360" y="87" text-anchor="middle" font-size="11" fill="#ffffff">312</text>
+    <rect x="392" y="60" width="52" height="44" rx="5" fill="#0891b2" opacity="0.85"/>
+    <text x="418" y="87" text-anchor="middle" font-size="11" fill="#ffffff">47</text>
+    <rect x="450" y="60" width="52" height="44" rx="5" fill="#0891b2" opacity="0.7"/>
+    <text x="476" y="87" text-anchor="middle" font-size="11" fill="#ffffff">908</text>
+    <rect x="508" y="60" width="52" height="44" rx="5" fill="#0891b2" opacity="0.55"/>
+    <text x="534" y="87" text-anchor="middle" font-size="11" fill="#ffffff">…</text>
+    <text x="614" y="87" text-anchor="middle" font-size="11" fill="#555555">（1024 个图像 token）</text>
+    <rect x="730" y="60" width="90" height="44" rx="5" fill="#6d28d9" opacity="0.7"/>
+    <text x="775" y="87" text-anchor="middle" font-size="11" fill="#ffffff">「图中是」</text>
+    <rect x="826" y="60" width="52" height="44" rx="5" fill="#6d28d9" opacity="0.55"/>
+    <text x="852" y="87" text-anchor="middle" font-size="11" fill="#ffffff">…</text>
+    <text x="480" y="134" text-anchor="middle" font-size="11" fill="#555555">紫 = 文本 token（BPE）　青 = 图像 token（VQ 码本）　同一词表、同一嵌入表</text>
+    <line x1="480" y1="152" x2="480" y2="186" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrU156)"/>
+    <!-- Transformer -->
+    <rect x="280" y="192" width="400" height="60" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="480" y="218" text-anchor="middle" font-size="13" font-weight="bold" fill="#ffffff">同一个 Transformer（第 4–5 章）</text>
+    <text x="480" y="240" text-anchor="middle" font-size="11" fill="#ede9fe">唯一训练目标：下一 token 预测（第 6 章）——不分模态</text>
+    <text x="480" y="282" text-anchor="middle" font-size="11.5" fill="#555555">输出继续是混合序列：吐文本 token 即「说」，吐图像 token 即「画」</text>
+  </svg>
+  <div class="diagram-caption">图 2：Chameleon 式早期融合。文本与图像 token 混排成一条序列（示意），共享词表与嵌入表，由同一个 Transformer 按下一 token 预测统一建模；生成图像就是自回归地吐出图像 token，再经图 1 的解码侧还原为像素。</div>
+</div>
+
+<h2>15.6.4 代价与折中</h2>
+
+<p>　　统一范式不是免费的午餐，它的代价同样结构性地存在：</p>
+
+<ul>
+  <li><strong>训练稳定性难</strong>：两种来源、统计特性迥异的 token 在同一损失下竞争梯度，训练极易失衡；Chameleon 为此在归一化与损失设计上引入了一系列专门的稳定技巧，这类「驯化成本」是统一路线的公开痛点；</li>
+  <li><strong>视觉表示受码本所限</strong>：图像 token 的信息量上限由码本大小与重建质量决定——码本是另一个「出厂视力」，只是这次它与模型同训、可共同进化；</li>
+  <li><strong>序列长度膨胀</strong>：一幅图动辄上千 token（图 1 的 1024 格），长上下文技术（第 8 章）从「加分项」变成「必需品」；</li>
+  <li><strong>生成质量另有强敌</strong>：自回归逐 token 画图在像素保真上仍难敌扩散模型——图像生成是另一条浩瀚的技术线，本手册守住「LLM 机制」主线，此处点到为止。</li>
+</ul>
+
+<p>　　产业界的旗舰系统（如 GPT-4o、Gemini 系列）已把「原生多模态」作为公开宣称的方向——从头就以多模态混合数据训练，而非先文后图拼接——尽管其架构细节未公开。可以确认的是方向本身：<strong>统一是不可逆的演进趋势</strong>，拼接式与统一式将在相当长的时期内按「改造存量」与「原生设计」分工并存。</p>
+
+<h2>15.6.5 全章收束：多模态在 LLM 生命周期中的位置</h2>
+
+<p>　　回到全手册的地图。第 0 章曾把 LLM 的生命周期画成一条流水线：数据 → 分词 → 嵌入 → 架构 → 预训练 → 中间训练 → 后训练 → 推理部署 → 应用。第 15 章在这条流水线上加了什么？严格地说——<strong>什么都没改动，只做了扩展</strong>：</p>
+
+<ul>
+  <li>多模态没有发明新的训练范式：对比学习（15.3）是自监督的一种，视觉指令微调（15.5）是第 9 章 SFT 的换数据重演，统一建模（15.6）干脆就是第 6 章目标的直接套用；</li>
+  <li>多模态没有改动核心架构：Transformer 还是那个 Transformer（第 4–5 章），变的只是「什么被当作 token」；</li>
+  <li>多模态真正扩展的，是<strong>感知层</strong>：第 2 章的分词器从「只认文本」升级为「认文本也认图像」，模型的世界从纯文字变成了图文混排的序列。</li>
+</ul>
+
+<p>　　这也是为什么本章值得作为正文收官：它把全手册最底层的概念——token——推到了最远的地方。从第 2 章第一次把字符串切成 token，到第 15 章把像素也变成 token，「一切皆是 token」这条暗线至此合拢。往后的故事（音频、视频、动作、传感器数据）都只是同一逻辑的再次上演：找到那个模态的「分词器」，剩下的交给 Transformer。</p>
+
+<div class="highlight-box">
+  全章核心：多模态扩展的机制创新，全部浓缩在「如何把非文本数据变成 token」这一件事上——外挂范式用编码器＋连接器翻译（15.2–15.5），统一范式用分词器直接生成（15.6）。LLM 的核心机制分毫未动，动的是「token」这个词的外延。读懂了这一章，回头看第 2 章，会读出不一样的深意。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">拼接式 VLM 的四道天花板是什么，共同根因又是什么？</div>
+    <div class="sc-key">视觉编码器出厂即定死、翻译必有信息损耗、只能理解不能生成、模态交互限于浅层拼接。共同根因：图像始终不是 token，只是伪装成 token——解法是让图像在输入端就是离散 token。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">VQ 图像分词器与 BPE 分词器有何异同？</div>
+    <div class="sc-key">产物相同：都把连续输入变成离散编号序列。造法不同：BPE 词表靠统计合并规则生成，VQ 码本靠梯度下降以「重建误差最小」为目标学出；图像经编码器提特征后逐网格做码本最近邻查找，即得离散 token 网格（如 1024 个码、码本 8192）。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Chameleon 的早期融合相对拼接式多出了什么能力，代价是什么？</div>
+    <div class="sc-key">多出理解与生成同体（自回归吐图像 token 即生成）、图文全深度交互（无翻译接口损耗）。代价：异源 token 竞争梯度导致训练稳定性难（需专门稳定技巧）、视觉表示受码本上限约束、序列长度膨胀。方向已不可逆，与拼接式按「原生设计 vs 改造存量」并存。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Oord et al., 2017. Neural Discrete Representation Learning（VQ-VAE 原论文，NeurIPS 2017，arXiv:1711.00937；码本、最近邻量化、重建目标出自此文）。</li>
+  <li>Chameleon Team, 2024. Chameleon: Mixed-Modal Early-Fusion Foundation Models（arXiv:2405.09818；统一词表、8192 图像码本、混合序列自回归、7B/34B 规模与训练稳定化讨论出自此文）。</li>
+  <li>OpenAI, 2024. GPT-4o System Card 与 Google DeepMind, 2023. Gemini Technical Report——「原生多模态」产业方向的公开宣称（架构细节未公开，本节仅引其方向性结论）。</li>
+  <li>对照阅读：本手册 2.2 节（BPE）、第 4 章（Transformer）、6.1 节（下一 token 预测目标）——统一范式三要素的手册内出处。</li>
+</ul>
+</article>

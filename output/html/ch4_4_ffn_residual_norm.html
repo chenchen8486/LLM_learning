@@ -345,6 +345,17 @@ tr:last-child td{border-bottom:none}
   </div>
 </div>
 <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 15 章 多模态扩展</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch15_1_why_multimodal.html">15.1 为什么需要多模态：给 LLM 装上眼睛</a>
+<a class="nav-link" href="ch15_2_vit.html">15.2 视觉编码器：ViT 把图像切成 Token</a>
+<a class="nav-link" href="ch15_3_clip.html">15.3 模态对齐 I：CLIP 用对比学习打通图文</a>
+<a class="nav-link" href="ch15_4_connector.html">15.4 模态对齐 II：连接器三世代——投影、查询与注入</a>
+<a class="nav-link" href="ch15_5_vlm_training.html">15.5 VLM 训练流水线：分阶段放权与数据配方</a>
+<a class="nav-link" href="ch15_6_unified.html">15.6 统一架构趋势：一切皆是 Token</a>
+  </div>
+</div>
+<div class="nav-group">
   <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
   <div class="nav-children collapsed">
     <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
@@ -491,7 +502,7 @@ tr:last-child td{border-bottom:none}
     <rect x="55" y="130" width="250" height="220" rx="12" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
     <text x="180" y="150" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">编码器层 ×6（两个子层，自下而上）</text>
 
-    <!-- 编码器 子层 2 组（紫色粗边框 = 图 4 展开范围） -->
+    <!-- 编码器 子层 2 组（紫色粗边框 = 图 3 展开范围） -->
     <rect x="70" y="158" width="220" height="94" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
     <rect x="80" y="166" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
     <text x="180" y="181" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
@@ -502,7 +513,7 @@ tr:last-child td{border-bottom:none}
 
     <line x1="180" y1="262" x2="180" y2="255" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT44)"/>
 
-    <!-- 编码器 子层 1 组（紫色粗边框 = 图 4 展开范围） -->
+    <!-- 编码器 子层 1 组（紫色粗边框 = 图 3 展开范围） -->
     <rect x="70" y="262" width="220" height="82" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
     <rect x="80" y="270" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
     <text x="180" y="285" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
@@ -533,7 +544,7 @@ tr:last-child td{border-bottom:none}
     <rect x="415" y="130" width="250" height="300" rx="12" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
     <text x="540" y="150" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">解码器层 ×6（三个子层，自下而上）</text>
 
-    <!-- 解码器 子层 3 组（橙色边框 = 图 3 展开范围） -->
+    <!-- 解码器 子层 3 组（橙色边框 = 图 4 展开范围） -->
     <rect x="430" y="158" width="220" height="82" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="2"/>
     <rect x="440" y="166" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
     <text x="540" y="181" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
@@ -553,7 +564,7 @@ tr:last-child td{border-bottom:none}
 
     <line x1="540" y1="342" x2="540" y2="335" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT44)"/>
 
-    <!-- 解码器 子层 1 组（橙色边框 = 图 3 展开范围） -->
+    <!-- 解码器 子层 1 组（橙色边框 = 图 4 展开范围） -->
     <rect x="430" y="342" width="220" height="82" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="2"/>
     <rect x="440" y="350" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
     <text x="540" y="365" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
@@ -579,74 +590,23 @@ tr:last-child td{border-bottom:none}
     <text x="368" y="58" text-anchor="middle" font-size="12" fill="#0891b2">K、V 来自编码器</text>
 
     <!-- 展开范围图例 -->
-    <text x="180" y="581" text-anchor="middle" font-size="11.5" fill="#6d28d9">紫色边框的两个子层组（自注意力 + FFN）= 图 4 展开范围（4.4.4）</text>
-    <text x="540" y="581" text-anchor="middle" font-size="11.5" fill="#d97706">橙色边框的两个子层组（子层 1 + 子层 3）= 图 3 展开的范围</text>
+    <text x="180" y="581" text-anchor="middle" font-size="11.5" fill="#6d28d9">紫色边框的两个子层组（自注意力 + FFN）= 图 3 展开范围（4.4.4）</text>
+    <text x="540" y="581" text-anchor="middle" font-size="11.5" fill="#d97706">橙色边框的两个子层组（子层 1 + 子层 3）= 图 4 展开的范围</text>
 
     <!-- 自回归循环 -->
     <path d="M 660 72 L 740 72 L 740 542 L 664 542" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrTR44)"/>
     <text x="752" y="307" text-anchor="middle" font-size="12" fill="#dc2626" transform="rotate(90 752 307)">输出接回输入，逐词循环</text>
   </svg>
-  <div class="diagram-caption">图 2：Transformer 两塔流水线（与 4.1 节图 3 为同一张图，转引至此作为本节的架构地图）。数据自下而上流动：编码器读源句，解码器逐词写译文，塔中每个白框是一个完整子层（先变换、后残差归一化）。两塔的子层组是同构的——编码塔的子层组（自注意力 + FFN，紫色边框）由图 4 按原论文 Post-LN 顺序展开；今天的 decoder-only LLM 相当于只保留解码塔、去掉编码器-解码器注意力子层，图 3 展开的就是解码塔中橙色边框圈出的两个子层组（子层 1 掩码自注意力 + 子层 3 FFN）的现代形态。本节讲的 FFN、残差、归一化三件套对两塔一视同仁，差别只在顺序与掩码。</div>
+  <div class="diagram-caption">图 2：Transformer 两塔流水线（与 4.1 节图 3 为同一张图，转引至此作为本节的架构地图）。数据自下而上流动：编码器读源句，解码器逐词写译文，塔中每个白框是一个完整子层（先变换、后残差归一化）。两塔的子层组是同构的：图 3 放大左侧编码塔紫色边框圈出的两个子层组（自注意力 + FFN）按原论文 Post-LN 顺序的完整数据流；图 4 放大右侧解码塔橙色边框圈出的两个子层组（子层 1 掩码自注意力 + 子层 3 FFN）在现代 decoder-only 模型里的形态（Pre-Norm）。今天的 LLM 相当于只保留解码塔、去掉编码器-解码器注意力子层。本节讲的 FFN、残差、归一化三件套对两塔一视同仁，差别只在顺序与掩码。</div>
 </div>
 
-<p>　　对应关系先立清楚：图 3 展开的是图 2 解码塔（右塔）一层中的两个白框——子层 1「掩码多头自注意力」组和子层 3「前馈网络 FFN」组，图 2 已用橙色边框把它们圈出；夹在中间的子层 2「编码器-解码器注意力」在 decoder-only 模型里没有对应物，直接去掉。取出这两个子层组后，按今天模型的做法重新组装——归一化挪到子层之前、LN 换成 RMSNorm、FFN 换成 SwiGLU——就得到图 3：</p>
-
-<div class="diagram">
-  <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 760 590" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
-    <defs>
-      <marker id="arrZ44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
-      </marker>
-      <marker id="arrCZ44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
-      </marker>
-    </defs>
-    <text x="40" y="32" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：现代 LLM 的一层 Block（Pre-Norm 顺序，minimind 数字）</text>
-    <text x="40" y="54" font-size="11" fill="#64748b">对照 4.4.4 的原论文 Post-LN 顺序：现代模型把归一化挪到子层之前，LN 换成 RMSNorm（第 5 章细讲）</text>
-    <rect x="270" y="70" width="220" height="46" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="380" y="90" text-anchor="middle" font-size="14" fill="#333">输入 x</text>
-    <text x="380" y="107" text-anchor="middle" font-size="11.5" fill="#666">3 个 token × 768 维</text>
-    <line x1="380" y1="116" x2="380" y2="132" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
-    <rect x="270" y="132" width="220" height="44" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-    <text x="380" y="150" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#155e75">RMSNorm</text>
-    <text x="380" y="167" text-anchor="middle" font-size="11" fill="#666">3 × 768 → 3 × 768</text>
-    <line x1="380" y1="176" x2="380" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
-    <rect x="270" y="192" width="220" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="380" y="213" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">掩码多头自注意力</text>
-    <text x="380" y="232" text-anchor="middle" font-size="10.5" fill="#666">GQA：8 个 Q 头 / 4 组 K/V（5.2 节）</text>
-    <line x1="380" y1="244" x2="380" y2="258" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
-    <circle cx="380" cy="273" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
-    <text x="380" y="279" text-anchor="middle" font-size="18" fill="#92400e">+</text>
-    <line x1="380" y1="288" x2="380" y2="304" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
-    <rect x="270" y="304" width="220" height="44" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-    <text x="380" y="322" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#155e75">RMSNorm</text>
-    <text x="380" y="339" text-anchor="middle" font-size="11" fill="#666">3 × 768 → 3 × 768</text>
-    <line x1="380" y1="348" x2="380" y2="364" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
-    <rect x="270" y="364" width="220" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="380" y="385" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">FFN（SwiGLU 门控）</text>
-    <text x="380" y="404" text-anchor="middle" font-size="11" fill="#666">768 → 2432 → 768，逐位置（5.1 节）</text>
-    <line x1="380" y1="416" x2="380" y2="430" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
-    <circle cx="380" cy="445" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
-    <text x="380" y="451" text-anchor="middle" font-size="18" fill="#92400e">+</text>
-    <line x1="380" y1="460" x2="380" y2="476" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrZ44)"/>
-    <rect x="270" y="476" width="220" height="46" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="380" y="496" text-anchor="middle" font-size="14" fill="#333">输出</text>
-    <text x="380" y="513" text-anchor="middle" font-size="11.5" fill="#666">3 × 768：形状与输入完全相同</text>
-    <path d="M490,93 H585 V273 H397" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrCZ44)"/>
-    <text x="500" y="86" font-size="11.5" fill="#0891b2">残差旁路：x 原样直达</text>
-    <path d="M365,273 H175 V445 H363" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrCZ44)"/>
-    <text x="182" y="265" font-size="11.5" fill="#0891b2">残差旁路</text>
-    <text x="380" y="562" text-anchor="middle" font-size="12.5" fill="#666">每个子层都是「先 RMSNorm、再计算、最后残差相加」；形状全程 3 × 768，×8 层堆叠（minimind）</text>
-  </svg>
-  <div class="diagram-caption">图 3：图 2 解码塔中橙色边框的两个子层组（子层 1 掩码自注意力 + 子层 3 FFN）在现代 decoder-only 模型里的展开形态（Pre-Norm 顺序，数字取自 minimind：768 维主干、FFN 中间层 2432、GQA 8 头 Q / 4 组 KV）。两个子层各自先过 RMSNorm 再计算，输入沿残差旁路原样直达加法点；张量形状从头到尾是 3 × 768，所以 8 层可以逐层接续。与图 4（4.4.4 节原论文 Post-LN 数据流）对照看：顺序从「相加后归一化」变成「归一化后计算再相加」，LN 换成 RMSNorm，原因在第 5 章。</div>
-</div>
+<p>　　三张图的分工先立清楚：图 2 是两塔总览（数据自下而上），紫框圈出编码塔一层的两个子层组，橙框圈出解码塔一层的三个子层组（其中子层 2「编码器-解码器注意力」在 decoder-only 模型里没有对应物，后面不再出现）。本节讲到 4.4.4 拼装时，再把这两个框各自放大一层：图 3 放大编码塔（原论文的顺序），图 4 放大解码塔（今天模型的做法）。先把三件套逐件讲透，拼装留到最后。
 
 <h2>4.4.1 FFN：每个位置的独立思考</h2>
 
-<p>　　前两节的多头注意力解决的是 token 之间的信息交换：每个位置看看别的位置，把有用的信息加权搬回来。但搬回来的只是原料，还需要一道加工工序，这就是每层第二个子层——逐位置前馈网络（Position-wise Feed-Forward Network，FFN）要干的活。</p>
+<p>　　FFN 的输入，是多头注意力做完残差相加与层归一化之后的结果：每个位置的 512 维向量里，已经拌好了从其他位置借来的信息，数值也被重新校准过。但注意力的加权求和本质上是线性操作——它只把已有信息按比例混合搬运，不产生新特征。对这份混合物进行深度加工的，是每层第二个子层：逐位置前馈网络（Position-wise Feed-Forward Network，FFN）。</p>
 
-<p>　　把一层 Transformer 想象成一次部门例会。注意力阶段是开会：每个人（token）听别人发言，把和自己相关的要点记下来。FFN 阶段是散会后各自回工位：每个人关起门来，把记下的笔记独立整理消化，形成自己的新认识。下一层再开一次会、再整理一次，如此往复六轮（原论文 \(N=6\)）。</p>
+<p>　　它的作用可以概括成两点。第一，<strong>非线性提炼</strong>：把每个位置的向量放大到 2048 维的「大工作台」，用 ReLU 闸门筛掉无用分量、放行被激活的特征，再压回 512 维精华——没有这一步，注意力加线性变换叠多少层都等价于一次线性变换，深度就失去意义。第二，<strong>逐位置独立</strong>：每个 token 关起门来消化自己刚收集的信息，不看任何邻居，同一组 \(W_{1},W_{2}\) 对所有位置共享。注意力管「位置之间的交流」，FFN 管「位置内部的思考」，两者交替就是一层 Transformer 的完整节奏。</p>
 
 <div class="formula-card">
   \[ \mathrm{FFN}(x)=\max(0,\,xW_{1}+b_{1})\,W_{2}+b_{2} \tag{1} \]
@@ -661,21 +621,7 @@ tr:last-child td{border-bottom:none}
   <li>\(\cdot\,W_{2}+b_{2}\)：把 2048 维压回 512 维（\(W_{2}\) 形状 \(2048\times512\)），保证输出还能接回主干。</li>
 </ul>
 
-<p>　　落到具体数字。设一句话有 \(n=10\) 个 token，整个 FFN 的形状变化是：</p>
-
-<div class="table-wrap">
-  <table>
-    <thead><tr><th>步骤</th><th>运算</th><th>张量形状</th></tr></thead>
-    <tbody>
-      <tr><td>输入</td><td>\(x\)</td><td>\((10,\ 512)\)</td></tr>
-      <tr><td>放大 4 倍</td><td>\(xW_{1}+b_{1}\)</td><td>\((10,\ 2048)\)</td></tr>
-      <tr><td>闸门筛选</td><td>\(\max(0,\cdot)\)</td><td>\((10,\ 2048)\)</td></tr>
-      <tr><td>压回原宽</td><td>\(\cdot\,W_{2}+b_{2}\)</td><td>\((10,\ 512)\)</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<p>　　参数量也能算出来：\(W_{1}\) 与 \(W_{2}\) 各有 \(512\times2048\approx105\) 万个权重，连偏置合计约 210 万个参数。作为对比，4.2 节多头注意力子层的四个投影矩阵合计约 105 万个参数——一层里约三分之二的参数在 FFN 里。说 FFN 是模型的「知识仓库」并不夸张：有研究把 FFN 的神经元解释为一条条 key-value 记忆，认为模型记住的事实知识主要存在这里（Geva et al., 2021）。</p>
+<p>　　参数量顺带一提：\(W_{1}\) 与 \(W_{2}\) 各有 \(512\times2048\approx105\) 万个权重，合计约 210 万，占一层参数的约三分之二（对比：4.2 节多头注意力的四个投影矩阵合计约 105 万）。参数多意味着容量大——有研究把 FFN 的神经元解释为一条条 key-value 记忆，认为模型记住的事实知识主要存在这里（Geva et al., 2021），FFN 因此常被称为模型的「知识仓库」。</p>
 
 <div class="term-card">
   <div class="term-name">
@@ -683,7 +629,7 @@ tr:last-child td{border-bottom:none}
     <span class="term-en">position-wise = 对序列中每个位置分别施加同一个网络</span>
   </div>
   <div class="term-body">
-    <p>原论文说 FFN「分别且相同地应用于每个位置」：10 个 token 就是 10 次独立计算，用的是同一组 \(W_{1},W_{2}\)（层与层之间参数不同）。它不看任何别的位置，只处理当前位置自己的 512 维向量。原论文还给出一种等效看法：两个核大小为 1 的卷积。</p>
+    <p>原论文说 FFN「分别且相同地应用于每个位置」：序列有 \(n\) 个 token 就是 \(n\) 次独立计算，用的是同一组 \(W_{1},W_{2}\)（层与层之间参数不同）。它不看任何别的位置，只处理当前位置自己的 512 维向量。原论文还给出一种等效看法：两个核大小为 1 的卷积。</p>
   </div>
 </div>
 
@@ -691,11 +637,7 @@ tr:last-child td{border-bottom:none}
   为什么偏偏膨胀 4 倍（\(2048/512\)）？原论文没有解释，这是工程经验的选择，但影响深远：后来的 GPT 系模型大多沿用 4 倍膨胀这个比例。
 </div>
 
-<div class="highlight-box">
-  注意力负责搬运，FFN 负责加工。注意力的输出是每个位置从各处借来的信息的混合物，FFN 对这份混合物做非线性变换，提炼出新特征。两个子层交替，就是「交流一次、思考一次」。
-</div>
-
-<p>　　<strong>所以这步在干嘛：</strong>把每个 token 刚收集来的信息，先摊到 2048 维的大工作台上筛选（ReLU 闸门），再压回 512 维的精华——每个位置被独立消化了一遍。</p>
+<p>　　<strong>所以这步在干嘛：</strong>每个 token 把刚从别处借来的信息独立消化一遍——升维筛选、压回精华，输出仍是 512 维，接回主干交给残差与归一化。</p>
 
 <h2>4.4.2 残差连接：梯度的高速公路</h2>
 
@@ -768,71 +710,145 @@ tr:last-child td{border-bottom:none}
   </div>
 </div>
 
+<p>　　把套路画出来。图 3 是图 2 左侧编码塔一层的放大，自下而上读：每个子层先计算（注意力或 FFN），再被 dropout、残差相加、层归一化依次包裹，数据流方向与图 2 一致：</p>
+
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 760 640" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+  <svg viewBox="0 0 760 660" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
     <defs>
-      <marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <marker id="arrE44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
       </marker>
-      <marker id="arrC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <marker id="arrEC44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
       </marker>
     </defs>
-    <!-- 主干节点 -->
-    <rect x="270" y="8" width="220" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="380" y="27" text-anchor="middle" font-size="15" fill="#333">输入 x</text>
-    <text x="380" y="44" text-anchor="middle" font-size="12" fill="#666">n 个 token，各 512 维</text>
-    <line x1="380" y1="52" x2="380" y2="66" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
-    <rect x="270" y="66" width="220" height="48" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="380" y="86" text-anchor="middle" font-size="15" fill="#333">多头自注意力</text>
-    <text x="380" y="104" text-anchor="middle" font-size="12" fill="#666">token 间交流（4.2 节）</text>
-    <line x1="380" y1="114" x2="380" y2="128" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
-    <rect x="270" y="128" width="220" height="40" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
-    <text x="380" y="145" text-anchor="middle" font-size="14" fill="#555">Dropout 随机丢弃</text>
-    <text x="380" y="161" text-anchor="middle" font-size="12" fill="#888">训练时随机置零（p=0.1）</text>
-    <line x1="380" y1="168" x2="380" y2="182" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
-    <circle cx="380" cy="197" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
-    <text x="380" y="203" text-anchor="middle" font-size="18" fill="#92400e">+</text>
-    <line x1="380" y1="212" x2="380" y2="226" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
-    <rect x="270" y="226" width="220" height="44" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-    <text x="380" y="245" text-anchor="middle" font-size="15" fill="#333">LayerNorm 层归一化</text>
-    <text x="380" y="262" text-anchor="middle" font-size="12" fill="#666">标准化 + 缩放平移</text>
-    <line x1="380" y1="270" x2="380" y2="284" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
-    <rect x="270" y="284" width="220" height="48" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="380" y="304" text-anchor="middle" font-size="15" fill="#333">FFN 前馈网络</text>
-    <text x="380" y="322" text-anchor="middle" font-size="12" fill="#666">512 → 2048 → 512，逐位置加工</text>
-    <line x1="380" y1="332" x2="380" y2="346" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
-    <rect x="270" y="346" width="220" height="40" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
-    <text x="380" y="363" text-anchor="middle" font-size="14" fill="#555">Dropout 随机丢弃</text>
-    <text x="380" y="379" text-anchor="middle" font-size="12" fill="#888">训练时随机置零（p=0.1）</text>
-    <line x1="380" y1="386" x2="380" y2="400" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
-    <circle cx="380" cy="415" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
-    <text x="380" y="421" text-anchor="middle" font-size="18" fill="#92400e">+</text>
-    <line x1="380" y1="430" x2="380" y2="444" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
-    <rect x="270" y="444" width="220" height="44" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-    <text x="380" y="463" text-anchor="middle" font-size="15" fill="#333">LayerNorm 层归一化</text>
-    <text x="380" y="480" text-anchor="middle" font-size="12" fill="#666">标准化 + 缩放平移</text>
-    <line x1="380" y1="488" x2="380" y2="502" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
-    <rect x="270" y="502" width="220" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="380" y="521" text-anchor="middle" font-size="15" fill="#333">输出</text>
-    <text x="380" y="538" text-anchor="middle" font-size="12" fill="#666">形状不变：(n, 512)</text>
-    <!-- 残差旁路 1（右侧）：输入 x 直达第一个加法点 -->
-    <path d="M490,30 H585 V197 H397" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
-    <text x="498" y="22" text-anchor="start" font-size="12" fill="#0891b2">残差旁路</text>
-    <!-- 残差旁路 2（左侧）：LN1 输出直达第二个加法点 -->
-    <path d="M270,248 H175 V415 H363" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
-    <text x="182" y="240" text-anchor="start" font-size="12" fill="#0891b2">残差旁路</text>
-    <!-- 底部说明 -->
-    <text x="380" y="600" text-anchor="middle" font-size="13" fill="#666">每个子层都被同一套流程包裹：dropout → 残差相加 → 层归一化</text>
+    <text x="40" y="30" font-size="13.5" font-weight="bold" fill="#4c1d95">局部放大：编码塔一层（原论文 Post-LN 顺序，512 维）</text>
+    <text x="40" y="50" font-size="11" fill="#64748b">来自图 2 左侧紫色边框；数据自下而上，每个子层被 dropout、残差相加、层归一化依次包裹</text>
+
+    <rect x="270" y="64" width="220" height="42" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="380" y="82" text-anchor="middle" font-size="14" fill="#333">输出</text>
+    <text x="380" y="99" text-anchor="middle" font-size="11" fill="#666">形状不变：(n, 512)</text>
+    <line x1="380" y1="124" x2="380" y2="108" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="124" width="220" height="42" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="143" text-anchor="middle" font-size="13.5" fill="#155e75">层归一化 LayerNorm</text>
+    <text x="380" y="159" text-anchor="middle" font-size="10.5" fill="#666">标准化 + 缩放平移</text>
+    <line x1="380" y1="184" x2="380" y2="168" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <circle cx="380" cy="199" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="380" y="205" text-anchor="middle" font-size="18" fill="#92400e">+</text>
+    <line x1="380" y1="232" x2="380" y2="216" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="232" width="220" height="34" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <text x="380" y="253" text-anchor="middle" font-size="12.5" fill="#555">Dropout 随机丢弃（p=0.1）</text>
+    <line x1="380" y1="284" x2="380" y2="268" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="284" width="220" height="44" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="303" text-anchor="middle" font-size="14" fill="#333">FFN 前馈网络</text>
+    <text x="380" y="320" text-anchor="middle" font-size="10.5" fill="#666">512 → 2048 → 512，逐位置加工</text>
+    <line x1="380" y1="346" x2="380" y2="330" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="346" width="220" height="42" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="365" text-anchor="middle" font-size="13.5" fill="#155e75">层归一化 LayerNorm</text>
+    <text x="380" y="381" text-anchor="middle" font-size="10.5" fill="#666">标准化 + 缩放平移</text>
+    <line x1="380" y1="406" x2="380" y2="390" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <circle cx="380" cy="421" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="380" y="427" text-anchor="middle" font-size="18" fill="#92400e">+</text>
+    <line x1="380" y1="454" x2="380" y2="438" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="454" width="220" height="34" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <text x="380" y="475" text-anchor="middle" font-size="12.5" fill="#555">Dropout 随机丢弃（p=0.1）</text>
+    <line x1="380" y1="506" x2="380" y2="490" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="506" width="220" height="44" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="525" text-anchor="middle" font-size="14" fill="#333">多头自注意力</text>
+    <text x="380" y="542" text-anchor="middle" font-size="10.5" fill="#666">token 间交流（4.2 节）</text>
+    <line x1="380" y1="568" x2="380" y2="552" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE44)"/>
+
+    <rect x="270" y="568" width="220" height="46" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="380" y="588" text-anchor="middle" font-size="14" fill="#333">输入 x</text>
+    <text x="380" y="605" text-anchor="middle" font-size="11" fill="#666">n 个 token，各 512 维</text>
+
+    <path d="M490,586 H585 V421 H397" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrEC44)"/>
+    <text x="498" y="578" text-anchor="start" font-size="11.5" fill="#0891b2">残差旁路</text>
+    <path d="M270,360 H175 V199 H363" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrEC44)"/>
+    <text x="182" y="352" text-anchor="start" font-size="11.5" fill="#0891b2">残差旁路</text>
+
+    <text x="380" y="642" text-anchor="middle" font-size="12.5" fill="#666">每个子层都被同一套流程包裹：计算 → dropout → 残差相加 → 层归一化</text>
   </svg>
-  <div class="diagram-caption">图 4：原论文 Post-LN 顺序下，一层编码器的完整数据流。两个子层各自被三件套包裹，张量形状全程 (n, 512) 不变。它就是本页图 2 两塔中编码器层按原论文顺序的精确展开（与图 3 的现代 Pre-Norm 版本对照）。</div>
+  <div class="diagram-caption">图 3：原论文 Post-LN 顺序下，一层编码器的完整数据流（图 2 左侧紫色边框的放大，方向与图 2 一致：自下而上）。两个子层各自被三件套包裹，张量形状全程 (n, 512) 不变。与图 4（解码塔现代 Pre-Norm 形态）对照看：这里是「相加后归一化」，图 4 是「归一化后计算再相加」。</div>
 </div>
 
-<p>　　注意图 4 里一个贯穿始终的事实：从输入到输出，张量形状始终是 \((n,512)\)。残差相加能成立靠它（形状一致才能相加），层与层之间能无限堆叠也靠它——这一层的输出形状和输入一样，下一层原样接上即可。</p>
+<p>　　注意图 3 里一个贯穿始终的事实：从输入到输出，张量形状始终是 \((n,512)\)。残差相加能成立靠它（形状一致才能相加），层与层之间能无限堆叠也靠它——这一层的输出形状和输入一样，下一层原样接上即可。</p>
 
 <div class="highlight-box info">
   演进预告：原论文这种「先相加、后归一化」的顺序叫 Post-LN。后来的研究发现，把归一化挪到子层输入侧（Pre-LN，即 \(x+\mathrm{Sublayer}(\mathrm{LN}(x))\)）在深层模型中训练更稳定，甚至不必依赖学习率预热（Xiong et al., 2020）；LN 本身被简化成 RMSNorm，FFN 的 ReLU 也被 SwiGLU 取代。这些现代变体是第 5 章的主题，5.1 节细讲。
+</div>
+
+<p>　　现代模型对图 3 这套流程做了三处改动：归一化挪到子层之前、LN 换成 RMSNorm、FFN 换成 SwiGLU。图 4 是图 2 右侧解码塔一层的放大，用的就是改动后的现代形态，与图 3 对照着看，改动位置一清二楚：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 620" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrD44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrDC44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <text x="40" y="30" font-size="13.5" font-weight="bold" fill="#4c1d95">局部放大：解码塔一层（现代 Pre-Norm 顺序，minimind 数字）</text>
+    <text x="40" y="50" font-size="11" fill="#64748b">来自图 2 右侧橙色边框；对照图 3 的原论文顺序——归一化挪到子层之前，LN 换成 RMSNorm（第 5 章细讲）</text>
+
+    <rect x="270" y="64" width="220" height="46" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="380" y="84" text-anchor="middle" font-size="14" fill="#333">输出</text>
+    <text x="380" y="101" text-anchor="middle" font-size="11" fill="#666">3 × 768：形状与输入完全相同</text>
+    <line x1="380" y1="128" x2="380" y2="112" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrD44)"/>
+
+    <circle cx="380" cy="143" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="380" y="149" text-anchor="middle" font-size="18" fill="#92400e">+</text>
+    <line x1="380" y1="176" x2="380" y2="160" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrD44)"/>
+
+    <rect x="270" y="176" width="220" height="48" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="196" text-anchor="middle" font-size="14" fill="#333">FFN（SwiGLU 门控）</text>
+    <text x="380" y="215" text-anchor="middle" font-size="10.5" fill="#666">768 → 2432 → 768，逐位置（5.1 节）</text>
+    <line x1="380" y1="242" x2="380" y2="226" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrD44)"/>
+
+    <rect x="270" y="242" width="220" height="42" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="261" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#155e75">RMSNorm</text>
+    <text x="380" y="277" text-anchor="middle" font-size="10.5" fill="#666">3 × 768 → 3 × 768</text>
+    <line x1="380" y1="302" x2="380" y2="286" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrD44)"/>
+
+    <circle cx="380" cy="317" r="15" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="380" y="323" text-anchor="middle" font-size="18" fill="#92400e">+</text>
+    <line x1="380" y1="350" x2="380" y2="334" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrD44)"/>
+
+    <rect x="270" y="350" width="220" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="371" text-anchor="middle" font-size="14" fill="#333">掩码多头自注意力</text>
+    <text x="380" y="390" text-anchor="middle" font-size="10.5" fill="#666">GQA：8 个 Q 头 / 4 组 K/V（5.2 节）</text>
+    <line x1="380" y1="420" x2="380" y2="404" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrD44)"/>
+
+    <rect x="270" y="420" width="220" height="42" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="380" y="439" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#155e75">RMSNorm</text>
+    <text x="380" y="455" text-anchor="middle" font-size="10.5" fill="#666">3 × 768 → 3 × 768</text>
+    <line x1="380" y1="480" x2="380" y2="464" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrD44)"/>
+
+    <rect x="270" y="480" width="220" height="46" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="380" y="500" text-anchor="middle" font-size="14" fill="#333">输入 x</text>
+    <text x="380" y="517" text-anchor="middle" font-size="11" fill="#666">3 个 token × 768 维</text>
+
+    <path d="M490,498 H585 V317 H397" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrDC44)"/>
+    <text x="498" y="490" text-anchor="start" font-size="11.5" fill="#0891b2">残差旁路</text>
+    <path d="M270,434 H175 V143 H363" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrDC44)"/>
+    <text x="182" y="426" text-anchor="start" font-size="11.5" fill="#0891b2">残差旁路</text>
+
+    <text x="380" y="556" text-anchor="middle" font-size="12.5" fill="#666">每个子层都是「先 RMSNorm、再计算、最后残差相加」；形状全程 3 × 768</text>
+    <text x="380" y="580" text-anchor="middle" font-size="12.5" fill="#666">同样的 Block 叠 8 层（minimind）</text>
+  </svg>
+  <div class="diagram-caption">图 4：图 2 右侧解码塔中橙色边框圈出的两个子层组（子层 1 掩码自注意力 + 子层 3 FFN）在现代 decoder-only 模型里的展开形态（Pre-Norm 顺序，数字取自 minimind：768 维主干、FFN 中间层 2432、GQA 8 头 Q / 4 组 KV），方向与图 2、图 3 一致：自下而上。两个子层各自先过 RMSNorm 再计算，输入沿残差旁路原样直达加法点；张量形状从头到尾是 3 × 768，所以 8 层可以逐层接续。与图 3（原论文 Post-LN）对照：顺序从「相加后归一化」变成「归一化后计算再相加」，LN 换成 RMSNorm，FFN 换成 SwiGLU，原因在第 5 章。</div>
 </div>
 
 <p>　　<strong>所以这一层在干嘛：</strong>token 们先开会交换信息（注意力），散会后各自整理消化（FFN）；残差旁路保证信息与梯度畅通，LN 与 dropout 把数值和训练都约束在稳定轨道上。六层叠加，就是「交流—思考—再交流—再思考」的六轮循环。</p>

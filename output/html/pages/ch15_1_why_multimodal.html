@@ -1,0 +1,191 @@
+<article class="content">
+<h1>15.1 为什么需要多模态：给 LLM 装上眼睛</h1>
+<p class="subtitle">本页范围：第 15 章第 1 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>前 14 章讲的模型只吃一种饲料——文本 token。但人类的知识与沟通大量以图像、图表、视频的形态存在。一个只识字的模型，怎样才能看懂照片、读懂截图里的表格、回答「这张图里有什么」？</td></tr>
+      <tr><td>本节主张</td><td>多模态扩展的总动机是<strong>模态鸿沟</strong>：图像是连续取值的二维像素网格，LLM 消化的是一维离散 token 序列，两者的「数据形态」根本不兼容。本章全部技术——视觉编码器、模态对齐、连接器、训练流水线、统一分词——都是围绕「把图像翻译成 LLM 能消化的形式」这一件事展开的。</td></tr>
+      <tr><td>一句话结论</td><td>给 LLM 装眼睛的标准配方是三件套：视觉编码器（把图像切成块、变成向量序列）＋ 对齐模块（把视觉向量翻译成 LLM 的词嵌入语言）＋ 训练流水线（让两者学会协同工作）；更激进的路线则把图像也离散化成 token，与文本共享同一个词表。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>多模态</span><span>VLM</span><span>模态鸿沟</span><span>视觉编码器</span><span>模态对齐</span><span>连接器</span><span>视觉指令微调</span><span>统一分词</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　第 14 章结束时，手册已经把「一个训练好的纯文本 LLM 能怎么用」讲完了：写 prompt、给思维链、挂检索库、调外部工具、组装 Agent。但那是在模型<strong>能力边界之内</strong>做文章——无论脚手架搭得多巧，模型输入的起点始终是一段文本。本章换一个问题：如果输入本身不是文本呢？用户拍了一张药品说明书想问剂量，截了一张财报图表想问趋势，发了一张冰箱内部的照片想问能做什么菜——这些请求里根本没有现成的文字可供模型下嘴。</p>
+
+<p>　　这正是多模态（multimodal）扩展要解决的问题，也是本手册正文收官的一章。本节先把「为什么难」讲透，再给出全章的技术地图。路线图如下：</p>
+
+<ol>
+  <li><strong>文本之外的世界：LLM 的感知盲区</strong>（15.1.1）：纯文本模型缺了哪块感知拼图；</li>
+  <li><strong>模态鸿沟：像素与 token 的三重差异</strong>（15.1.2）：为什么不能把图像直接「喂」给 LLM，难处的根源在哪；</li>
+  <li><strong>VLM 能做什么：从看图说话到视觉推理</strong>（15.1.3）：装上眼睛之后解锁的四个能力层级；</li>
+  <li><strong>三条技术路线与全章地图</strong>（15.1.4）：编码器对接、原生统一、工具调用——本章各节的分工预告。</li>
+</ol>
+
+<p>　　读完本节，应该能说清模态鸿沟的三重差异各是什么，并对着全章地图讲出每个部件（编码器、连接器、训练流水线）各自抹平了鸿沟的哪一段。</p>
+
+<h2>15.1.1 文本之外的世界：LLM 的感知盲区</h2>
+
+<p>　　回顾一下前 14 章画出的能力边界：从第 2 章分词开始，模型的整个世界就是 token 序列。语料是 token 序列（第 1、6 章），输入是 token 序列（第 14 章的 prompt），输出还是 token 序列（第 12 章的解码）。即便第 14.4 节的 Function Calling 让模型「够得着」外部世界，那也是把外部信息<strong>先转成文本</strong>再送回上下文——模型自己始终是个只读写的「文字动物」。</p>
+
+<p>　　问题在于，人类知识有相当大的一部分天然不是文字形态的。一张肺部 CT 的病灶纹理、一张折线图的走势、一张数学几何题的图形、一份 PDF 扫描件的版式——这些信息可以<strong>被描述成</strong>文字，但描述本身就会丢失大量细节。「图上一只三条腿的猫」这句话传得再多，也不如直接看一眼照片。把 LLM 比作一位博学的读者：他读完了图书馆里所有的书，却从没睁开过眼睛——学问再大，也是个盲人。</p>
+
+<p>　　让模型「睁眼」的价值不只是多一类输入。第 11 章讲过推理能力，第 14 章讲过工具使用，而这些能力一旦延伸到视觉领域，就会组合出全新的形态：看着几何图形做证明、对着实验记录图表找异常、对照说明书照片一步步指导操作。视觉不是给模型「多一个功能」，而是给已有全部能力<strong>换一片更大的用武之地</strong>。</p>
+
+<div class="highlight-box info">
+  本手册的「多模态」以视觉为主线：视觉-语言模型（VLM）是目前技术最成熟、资料最充分的方向，其机制（编码、对齐、分词化）同样适用于音频等其他模态，只是视觉领域的论文与工程实践最完整。为守住「LLM 机制」这条主线，本章只讲<strong>理解</strong>（图像进、文本出），图像<strong>生成</strong>只在 15.6 节点到为止。
+</div>
+
+<h2>15.1.2 模态鸿沟：像素与 token 的三重差异</h2>
+
+<p>　　为什么不能把图像文件直接拼进 prompt？因为图像与文本之间隔着一道<strong>模态鸿沟</strong>（modality gap），它由三重差异叠成，本章后面每一节都在填其中的一段。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">模态 Modality</span>
+    <span class="term-en">mode = 形态、方式；信息呈现与感知的通道</span>
+  </div>
+  <div class="term-body">
+    <p>模态指信息存在的<strong>感知形态</strong>：文本、图像、语音、视频各是一种模态。不同模态的数据在数学形态、结构组织、语义密度上差异巨大，无法直接互换。「多模态模型」就是能同时消化两种以上模态的模型。</p>
+    <div class="term-analogy">就像人类的感官：眼睛看画、耳朵听歌、舌头尝味，是三条互不相通的输入通道——大脑的本事在于把它们汇成同一个「意思」。多模态模型要做的，就是给 LLM 补上「大脑汇流」这一步。</div>
+  </div>
+</div>
+
+<p>　　<strong>第一重差异：连续信号对离散符号。</strong>文本经过第 2 章的分词后，每个 token 都是词表里的一个离散编号，模型通过查嵌入表（第 3.1 节）得到一个语义向量。而图像是一个实数网格：每个像素是若干通道的强度值，相邻像素的微小变化在数学上连续。词表里没有「像素」这个单位——图像根本没有现成的、带语义的「词」可供查表。</p>
+
+<p>　　<strong>第二重差异：二维结构对一维序列。</strong>文本的语序天然是一维的（从左到右），Transformer 的序列建模为此而生。图像的意义却编码在二维空间关系里：猫的眼睛在鼻子上方、车轮在车身下方，把像素按行拉成一维长条后，「上下相邻」这个结构就被拉断了。第 3 章的位置编码为一维序列设计，如何表达二维位置本身就是个问题。</p>
+
+<p>　　<strong>第三重差异：信息密度悬殊。</strong>一句话不过十几个 token，一张普通照片却有几十万乃至上百万个像素，而其中绝大多数像素（天空、背景、噪点）不含读者关心的语义。直接把像素当 token 用，序列长度会爆炸（第 4 章讲过自注意力随序列长度平方增长），且模型会被海量低信息密度的输入淹没。图像必须先经过一道「压缩与提炼」，才能与文本平起平坐。</p>
+
+<p>　　把三重差异摆在一起，多模态扩展的任务就清晰了：<strong>把连续的、二维的、高密度的像素，加工成离散的、序列化的、高语义密度的表示</strong>——最好加工完之后，看起来就跟普通 token 的嵌入向量一个样。这正是图 1 所示的标准三段式配方：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 980 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrM151" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="28" font-size="13.5" font-weight="bold" fill="#4c1d95">VLM 标准三段式：图像如何变成 LLM 上下文里的 token（数字以 LLaVA 式配置为例）</text>
+    <!-- 输入图像 -->
+    <rect x="20" y="60" width="120" height="120" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <g stroke="#c4b5fd" stroke-width="1">
+      <line x1="50" y1="60" x2="50" y2="180"/><line x1="80" y1="60" x2="80" y2="180"/><line x1="110" y1="60" x2="110" y2="180"/>
+      <line x1="20" y1="90" x2="140" y2="90"/><line x1="20" y1="120" x2="140" y2="120"/><line x1="20" y1="150" x2="140" y2="150"/>
+    </g>
+    <rect x="20" y="60" width="30" height="30" fill="#6d28d9" opacity="0.35"/>
+    <text x="80" y="200" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">输入图像</text>
+    <text x="80" y="220" text-anchor="middle" font-size="11" fill="#555555">连续像素网格</text>
+    <text x="80" y="238" text-anchor="middle" font-size="11" fill="#555555">224 × 224 × 3</text>
+    <line x1="146" y1="120" x2="186" y2="120" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM151)"/>
+    <!-- 视觉编码器 -->
+    <rect x="192" y="66" width="150" height="108" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="267" y="96" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">视觉编码器</text>
+    <text x="267" y="118" text-anchor="middle" font-size="11" fill="#555555">ViT：切块 → 投影</text>
+    <text x="267" y="138" text-anchor="middle" font-size="11" fill="#555555">→ Transformer</text>
+    <text x="267" y="158" text-anchor="middle" font-size="10" fill="#888888">15.2 节</text>
+    <text x="267" y="200" text-anchor="middle" font-size="11" fill="#555555">输出：视觉特征序列</text>
+    <text x="267" y="220" text-anchor="middle" font-size="11" fill="#555555">256 × 1024（冻结）</text>
+    <line x1="348" y1="120" x2="388" y2="120" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM151)"/>
+    <!-- 连接器 -->
+    <rect x="394" y="66" width="150" height="108" rx="8" fill="#cffafe" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="469" y="96" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#155e75">连接器</text>
+    <text x="469" y="118" text-anchor="middle" font-size="11" fill="#155e75">投影 / Q-Former</text>
+    <text x="469" y="138" text-anchor="middle" font-size="11" fill="#155e75">翻译进词嵌入空间</text>
+    <text x="469" y="158" text-anchor="middle" font-size="10" fill="#0e7490">15.3–15.4 节</text>
+    <text x="469" y="200" text-anchor="middle" font-size="11" fill="#555555">输出：视觉 token 序列</text>
+    <text x="469" y="220" text-anchor="middle" font-size="11" fill="#555555">256 × 4096（可训练）</text>
+    <line x1="550" y1="120" x2="590" y2="120" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM151)"/>
+    <!-- 拼接 -->
+    <rect x="596" y="66" width="150" height="108" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="606" y="82" width="60" height="14" fill="#0891b2" rx="3"/>
+    <rect x="606" y="102" width="60" height="14" fill="#0891b2" rx="3" opacity="0.75"/>
+    <rect x="672" y="82" width="64" height="14" fill="#6d28d9" rx="3"/>
+    <rect x="672" y="102" width="64" height="14" fill="#6d28d9" rx="3" opacity="0.75"/>
+    <text x="671" y="140" text-anchor="middle" font-size="11" fill="#555555">视觉 token + 文本 token</text>
+    <text x="671" y="158" text-anchor="middle" font-size="11" fill="#555555">拼成一条混合序列</text>
+    <text x="671" y="200" text-anchor="middle" font-size="11" fill="#555555">输入：统一嵌入序列</text>
+    <line x1="752" y1="120" x2="792" y2="120" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM151)"/>
+    <!-- LLM -->
+    <rect x="798" y="66" width="150" height="108" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="873" y="102" text-anchor="middle" font-size="13" font-weight="bold" fill="#ffffff">LLM</text>
+    <text x="873" y="124" text-anchor="middle" font-size="11" fill="#ede9fe">第 4–5 章的同一台机器</text>
+    <text x="873" y="144" text-anchor="middle" font-size="11" fill="#ede9fe">自回归生成回答</text>
+    <text x="873" y="163" text-anchor="middle" font-size="10" fill="#d8b4fe">训练配方见 15.5 节</text>
+    <text x="873" y="200" text-anchor="middle" font-size="11" fill="#555555">输出：文本 token 序列</text>
+    <text x="873" y="220" text-anchor="middle" font-size="11" fill="#555555">「图中是一盒布洛芬……」</text>
+    <!-- 底部鸿沟标注 -->
+    <line x1="20" y1="280" x2="544" y2="280" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="282" y="270" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#dc2626">模态鸿沟：连续 → 离散 · 二维 → 一维 · 高密度 → 高语义（前两段由编码器与连接器填平）</text>
+    <line x1="596" y1="280" x2="948" y2="280" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="772" y="270" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">LLM 主场：从这里开始，一切与第 0–14 章相同</text>
+  </svg>
+  <div class="diagram-caption">图 1：VLM 的标准三段式配方。视觉编码器（15.2 节）把像素网格变成特征向量序列，连接器（15.3–15.4 节）把它翻译进 LLM 的词嵌入空间，与文本 token 拼接后交给 LLM 正常生成——从 LLM 的视角看，视觉信息不过是上下文里多出的一段「特殊词」。各模块的训练与冻结策略见 15.5 节，激进的一体化替代方案见 15.6 节。</div>
+</div>
+
+<h2>15.1.3 VLM 能做什么：从看图说话到视觉推理</h2>
+
+<p>　　装上眼睛之后，模型的视觉能力大致分四个层级，难度逐级递增，对「翻译质量」的要求也逐级提高：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>图像描述 Captioning</h4><p>看图说话：「图中有什么」。只需抓住全局主体，是最基础的视觉能力，也是最早的训练任务形态。</p></div>
+  <div class="concept-card"><h4>视觉问答 VQA</h4><p>针对图像内容提问：「猫在哪个物体左边？」「穿红衣服的有几人？」。要求定位与计数，考的是细粒度对齐。</p></div>
+  <div class="concept-card"><h4>OCR 与文档理解</h4><p>读出图中的文字并结合版式理解：表格、票据、截图、公式。要求视觉特征保留足够高的分辨率细节。</p></div>
+  <div class="concept-card"><h4>视觉推理</h4><p>基于图像做多步推理：读折线图推趋势、看几何图做证明、对照照片排故障。视觉与第 11 章推理能力的交汇点。</p></div>
+</div>
+
+<p>　　前两个层级在 2020 年前后已由专用模型解决得不错；真正的跃迁发生在 VLM 与 LLM 合体之后——后两个层级需要的是「看懂」之上的语言理解与推理，恰恰是 LLM 的主场。这也是为什么今天的多模态模型几乎都以一个预训练 LLM 为基座来搭建，而不是从零设计。</p>
+
+<h2>15.1.4 三条技术路线与全章地图</h2>
+
+<p>　　跨越模态鸿沟的工程实践沿三条路线展开，本章各节与之对应：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>路线</th><th>做法</th><th>代表</th><th>定位</th></tr></thead>
+    <tbody>
+      <tr><td>A. 编码器对接</td><td>独立视觉编码器提取特征，经连接器接入 LLM 上下文</td><td>LLaVA、BLIP-2、Flamingo</td><td><strong>当前主流</strong>，15.2–15.5 节</td></tr>
+      <tr><td>B. 原生统一</td><td>图像也离散化成 token，与文本共享词表，一个 Transformer 统一建模</td><td>Chameleon、GPT-4o 方向</td><td>演进趋势，15.6 节</td></tr>
+      <tr><td>C. 工具调用</td><td>LLM 不「看」图，而是调用独立视觉模型，把其文本输出读进上下文</td><td>Visual ChatGPT 等</td><td>过渡形态，14.4 节的自然延伸</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　路线 C 最省事：视觉问题全部外包给现成视觉模型，LLM 只读它们的文字报告。但信息在「图像 → 文字报告」这一步被强行压缩，细节与不确定性尽失，本质是第 14.4 节工具调用的特例，本章不再展开。路线 A 把「翻译」做进了模型内部，细节保留完整、端到端可训练，是今天几乎所有开源与商用 VLM 的共同骨架——本章 15.2 到 15.5 节逐部件拆解它：视觉编码器 ViT（15.2）、模态对齐的对比学习与连接器（15.3、15.4）、把零件训成系统的训练流水线（15.5）。路线 B 更进一步，干脆取消「外挂编码器」，让图像从输入端就是 token，与文本同词表、同架构、同目标——这是正在发生的范式演进，15.6 节用它收束全章。</p>
+
+<div class="highlight-box">
+  全章主线一句话：多模态扩展的机制创新，全部浓缩在「图像 → token」这条转换链上——15.2 节讲怎么切，15.3–15.4 节讲怎么对齐，15.5 节讲怎么训，15.6 节讲怎么连「切」这件事也交给模型自己学。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么不能把图像直接拼进 LLM 的输入？</div>
+    <div class="sc-key">模态鸿沟挡在中间：图像是连续取值的二维像素网格，LLM 消化一维离散 token；图像没有现成的语义「词」可查表，且像素量巨大、信息密度低，直接当 token 会让序列长度爆炸（注意力成本随长度平方增长）。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">跨越模态鸿沟的标准配方是什么？</div>
+    <div class="sc-key">三段式：视觉编码器把图像切块并编码成特征向量序列（ViT，15.2 节），连接器把特征翻译进 LLM 的词嵌入空间（CLIP/投影/Q-Former，15.3–15.4 节），与文本 token 拼接后由 LLM 统一生成——对 LLM 而言，视觉不过是上下文里多出的一段「特殊词」。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">三条技术路线各自的取舍是什么？</div>
+    <div class="sc-key">编码器对接（路线 A）细节保留完整、端到端可训，是当前主流；原生统一（路线 B）让图像与文本共享词表与架构，最彻底但训练最难；工具调用（路线 C）最省事，却把视觉信息压缩成文字报告，丢细节也丢不确定性，只是过渡形态。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Zhang et al., 2025. Distributed LLMs and Multimodal Large Language Models: A Survey on Advances, Challenges, and Future Directions（多模态大模型综述，arXiv:2503.16585）。</li>
+  <li>Bayoudh et al., 2023. Multimodal Deep Learning（多模态深度学习综述，arXiv:2301.04856）。</li>
+  <li>OpenAI, 2023. GPT-4V(ision) System Card（VLM 能力层级与风险的官方说明）。</li>
+  <li>Alayrac et al., 2022. Flamingo: a Visual Language Model for Few-Shot Learning（路线 A 代表，arXiv:2204.14198，15.4 节展开）。</li>
+  <li>Liu et al., 2023. Visual Instruction Tuning（LLaVA，路线 A 代表，arXiv:2304.08485，15.4、15.5 节展开）。</li>
+  <li>Chameleon Team, 2024. Chameleon: Mixed-Modal Early-Fusion Foundation Models（路线 B 代表，arXiv:2405.09818，15.6 节展开）。</li>
+</ul>
+</article>
