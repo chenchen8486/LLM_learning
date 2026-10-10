@@ -1,36 +1,22 @@
 # LLM 机制学习手册
 
-　　一套可离线浏览的中文学习手册，目标是系统讲清大语言模型（LLM）从数据到部署的完整机制：训练数据、分词、词向量与位置编码、Transformer 架构、预训练、中间训练、后训练（SFT / 偏好对齐 / 推理能力训练）、推理与后处理、推理系统与部署、应用范式、评测。
+　　[![GitHub stars](https://img.shields.io/github/stars/chenchen8486/LLM_learning?style=social)](https://github.com/chenchen8486/LLM_learning/stargazers)
+　　[![章节数](https://img.shields.io/badge/章节-15%20章%20%2B%20附录-6d28d9)](#内容骨架)
 
-　　讲解对标高校公开课水平：先直觉类比再上公式，关键术语逐个讲透，抽象机制配原创示意图（页面内 SVG），全部公式用 KaTeX 渲染。
+　　一套可离线浏览的中文 LLM 全链路手册：从训练数据、分词、Transformer 架构，一路讲到预训练、后训练、推理部署与应用范式，逐条机制拆开讲透。带公式推导、原创示意图（页面内 SVG）与真实代码印证，讲解对标高校公开课，先直觉类比再上公式，非本专业读者也能跟着读懂。
 
-## 直接阅读（无需构建）
+　　在线直接看（推荐，无需克隆）：<https://chenchen8486.github.io/LLM_learning/output/html/ch0_1_what_is_llm.html>。从侧边栏按章节顺序阅读即可。
 
-　　成品页面已随库发布：克隆后用浏览器打开 `output/html/ch0_1_what_is_llm.html`（第 0 章第 1 节），从侧边栏逐章阅读即可。公式与字体走 CDN（KaTeX、Noto Sans SC），首次打开需联网一次。
+![手册预览：全景导论](assets/preview-01.png)
+![手册预览：Transformer 架构精讲](assets/preview-02.png)
+![手册预览：BPE 分词手算](assets/preview-03.png)
 
-## 重新构建（仅改动内容后需要）
+## 这套手册有什么不一样
 
-```bash
-python output/html/build.py
-```
-
-　　页面源文件在 `output/html/pages/`，构建产物（`output/html/ch*.html` 与配图副本）也提交在库中，构建只是重新生成它们。
-
-## 目录结构
-
-```
-LLM_learning/
-├── AGENTS.md               # 工程协作基准
-├── docs/                   # 开发方案与 HTML 编写规范
-├── ref_paper/              # 参考论文（只读素材）
-├── minimind-master/        # 可读代码参考（Apache 2.0，上游 jingyaogong/minimind）
-├── temp/                   # 归档与临时文件
-└── output/html/
-    ├── build.py            # 构建脚本
-    ├── template.html       # 页面骨架
-    ├── static/global.css   # 全局样式
-    └── pages/              # 页面片段（手册正文源文件）
-```
+- 全链路，不跳步：按 LLM 生命周期组织，第 0 章到第 15 章覆盖数据 → 分词 → 词向量与位置编码 → 架构 → 预训练 → 中间训练 → 后训练（SFT / 偏好对齐 / 推理训练）→ 推理与后处理 → 部署优化 → 应用范式 → 多模态，一条主线走完。
+- 机制讲透，不贴术语：每个术语都有最小可用解释，关键公式逐符号注解，抽象机制配原创示意图（矩阵、注意力、KV Cache、量化、投机采样都有图）。
+- 有代码印证：机制描述对照开源项目 [minimind](https://github.com/jingyaogong/minimind) 的 PyTorch 实现，引用处标注文件名与行号，理论和能跑的小模型对得上。
+- 附录补齐前置数学：向量与旋转、点积与余弦相似度、softmax 与温度、交叉熵与困惑度、反向传播、激活与归一化、幂律与对数坐标等 13 节，看不懂正文时回头补。
 
 ## 内容骨架
 
@@ -48,10 +34,41 @@ LLM_learning/
 第 10 章 后训练 II：偏好对齐（RLHF / PPO / DPO 家族 / 安全对齐）
 第 11 章 后训练 III：推理能力训练（RLVR / GRPO / 长思维链）
 第 12 章 推理机制与后处理：解码策略、停止条件、结构化输出
-第 13 章 推理系统与部署（KV Cache、量化、蒸馏、投机采样、推理时扩展）
-第 14 章 应用范式（Prompt / CoT / RAG / Function Calling / Agent）
-第 15 章 多模态扩展（ViT、CLIP、连接器、VLM 训练流水线、统一架构）
+第 13 章 推理系统与部署：KV Cache、量化、蒸馏、投机采样、推理时扩展
+第 14 章 应用范式：Prompt / CoT / RAG / Function Calling / Agent
+第 15 章 多模态扩展：ViT、CLIP、连接器、VLM 训练流水线、统一架构
 附录     数学与深度学习基础速览（A.1–A.13）
+```
+
+　　每章拆成若干页面，页面内用“快速浏览卡片、正文、图、要点回顾、参考来源”的统一结构组织。第 4 章以 Attention 原论文译文为依据，其余章节以原始论文（arXiv）与官方技术报告为依据，每页末尾附出处。
+
+## 本地直接阅读（无需构建）
+
+　　成品页面已随库发布：克隆后用浏览器打开 `output/html/ch0_1_what_is_llm.html`，从侧边栏逐章阅读。公式与字体走 CDN（KaTeX、Noto Sans SC），首次打开需联网一次。
+
+## 重新构建（仅改动正文后需要）
+
+```bash
+python output/html/build.py
+```
+
+　　正文源文件在 `output/html/pages/`，构建产物（`output/html/ch*.html`）也提交在库中，构建只是重新生成它们。
+
+## 目录结构
+
+```
+LLM_learning/
+├── README.md
+├── assets/                 # README 预览图
+├── docs/                   # 开发方案与 HTML 编写规范
+├── ref_paper/              # 参考论文（只读素材）
+├── minimind-master/        # 可读代码参考（Apache 2.0，上游 jingyaogong/minimind）
+└── output/html/
+    ├── build.py            # 构建脚本
+    ├── template.html       # 页面骨架
+    ├── static/global.css   # 全局样式
+    ├── pages/              # 页面片段（手册正文源文件）
+    └── ch*.html            # 构建产物（可离线直接打开）
 ```
 
 ## 素材与出处
@@ -66,4 +83,8 @@ LLM_learning/
 
 ## 许可证
 
-　　手册正文为个人学习笔记。`minimind-master/` 目录遵循其原有 Apache 2.0 许可证（详见该目录下的 `LICENSE` 文件）。
+　　手册正文为个人学习笔记，欢迎自由阅读、引用与交流。`minimind-master/` 目录遵循其原有 Apache 2.0 许可证（详见该目录下的 `LICENSE` 文件）。
+
+---
+
+　　如果这本手册帮你理清了某个机制，欢迎点个 Star 让更多人看到。发现错误或有想补充的章节，提 Issue 即可。

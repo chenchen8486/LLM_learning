@@ -8,3 +8,12 @@ __pycache__/
 # 系统
 .DS_Store
 Thumbs.db
+
+# AI 协作配置文件（本地保留，不入库）
+AGENTS.md
+agents.md
+CLAUDE.md
+claude.md
+
+# 工作区临时文件
+temp/
