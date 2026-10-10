@@ -24,9 +24,9 @@ No clone, no install — just open the sidebar and read chapter by chapter:
 
 ## Preview
 
-![Handbook preview: overview](assets/preview-01.png)
-![Handbook preview: Transformer architecture](assets/preview-02.png)
-![Handbook preview: BPE tokenization walkthrough](assets/preview-03.png)
+![Handbook preview: the full LLM pipeline](assets/figure-pipeline.png)
+
+![Handbook preview: the Transformer two-tower architecture](assets/figure-architecture.png)
 
 ## Table of contents
 

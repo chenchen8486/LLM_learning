@@ -9,9 +9,9 @@
 
 　　在线直接看（推荐，无需克隆）：<https://chenchen8486.github.io/LLM_learning/output/html/ch0_1_what_is_llm.html>。从侧边栏按章节顺序阅读即可。
 
-![手册预览：全景导论](assets/preview-01.png)
-![手册预览：Transformer 架构精讲](assets/preview-02.png)
-![手册预览：BPE 分词手算](assets/preview-03.png)
+![手册预览：LLM 全链路全景](assets/figure-pipeline.png)
+
+![手册预览：Transformer 两塔架构](assets/figure-architecture.png)
 
 ## 这套手册有什么不一样
 
