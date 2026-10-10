@@ -1,5 +1,7 @@
 # LLM 机制学习手册
 
+　　中文 | [English](README_en.md)
+
 　　[![GitHub stars](https://img.shields.io/github/stars/chenchen8486/LLM_learning?style=social)](https://github.com/chenchen8486/LLM_learning/stargazers)
 　　[![章节数](https://img.shields.io/badge/章节-15%20章%20%2B%20附录-6d28d9)](#内容骨架)
 
@@ -58,9 +60,10 @@ python output/html/build.py
 
 ```
 LLM_learning/
-├── README.md
+├── README.md / README_en.md  # 中文与英文说明
+├── LICENSE                 # 正文许可（CC BY-NC-SA 4.0）
 ├── assets/                 # README 预览图
-├── docs/                   # 开发方案与 HTML 编写规范
+├── docs/                   # 开发方案、编写规范与发布材料
 ├── ref_paper/              # 参考论文（只读素材）
 ├── minimind-master/        # 可读代码参考（Apache 2.0，上游 jingyaogong/minimind）
 └── output/html/
@@ -83,7 +86,7 @@ LLM_learning/
 
 ## 许可证
 
-　　手册正文为个人学习笔记，欢迎自由阅读、引用与交流。`minimind-master/` 目录遵循其原有 Apache 2.0 许可证（详见该目录下的 `LICENSE` 文件）。
+　　手册正文采用 CC BY-NC-SA 4.0（署名-非商业性使用-相同方式共享）许可协议：欢迎自由阅读、引用与分享，禁止商业使用。协议全文见根目录 [LICENSE](LICENSE)。`minimind-master/` 目录遵循其原有 Apache 2.0 许可证（详见该目录下的 `LICENSE` 文件），`ref_paper/` 目录的著作权归原论文作者与出版方所有。
 
 ---
 

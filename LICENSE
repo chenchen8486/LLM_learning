@@ -1,0 +1,24 @@
+# 许可证 / License
+
+　　本仓库中的手册正文（`output/html/` 下的页面与配图、`README.md`、`README_en.md`、`docs/` 下的文档、`assets/` 下的预览图）采用 Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International（CC BY-NC-SA 4.0，署名-非商业性使用-相同方式共享）许可协议。
+
+　　你可以自由地：
+
+- 共享：以任何媒介或格式复制、发行本作品。
+- 演绎：修改、转换或以本作品为基础进行创作。
+
+　　但须遵守以下条件：
+
+- 署名：必须给出适当的署名，提供指向本许可协议的链接，并说明是否作了修改。
+- 非商业性使用：不得将本作品用于商业目的。
+- 相同方式共享：若你修改、转换或以本作品为基础进行创作，你的贡献必须采用与本作品相同的许可协议。
+
+　　许可协议全文（中文）：<https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.zh-hans>
+
+　　商业使用授权、其他许可协商，请联系仓库作者。
+
+## 例外与说明
+
+- `minimind-master/` 目录为上游开源项目 [jingyaogong/minimind](https://github.com/jingyaogong/minimind) 的只读副本，遵循其原始 Apache 2.0 许可证（详见该目录下的 `LICENSE` 文件），不受本协议约束。
+- `ref_paper/` 目录为已公开发表论文的中文译文与插图，著作权归原作者与出版方所有，此处仅作学习引用。
+- 手册正文中的公式、图表若引自上述论文，以其原始出处与授权为准。
