@@ -13,7 +13,7 @@ Every mechanism is explained from first principles: intuition first, then the ma
 
 No clone, no install — just open the sidebar and read chapter by chapter:
 
-**https://chenchen8486.github.io/LLM_learning/output/html/ch0_1_what_is_llm.html**
+**https://chenchen8486.github.io/LLM_learning/**
 
 ## What makes it different
 

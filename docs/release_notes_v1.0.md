@@ -28,7 +28,7 @@
 
 ### 在线阅读
 
-　　<https://chenchen8486.github.io/LLM_learning/output/html/ch0_1_what_is_llm.html>
+　　<https://chenchen8486.github.io/LLM_learning/>
 
 ### 许可
 

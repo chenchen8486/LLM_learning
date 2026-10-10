@@ -7,7 +7,7 @@
 
 　　一套可离线浏览的中文 LLM 全链路手册：从训练数据、分词、Transformer 架构，一路讲到预训练、后训练、推理部署与应用范式，逐条机制拆开讲透。带公式推导、原创示意图（页面内 SVG）与真实代码印证，讲解对标高校公开课，先直觉类比再上公式，非本专业读者也能跟着读懂。
 
-　　在线直接看（推荐，无需克隆）：<https://chenchen8486.github.io/LLM_learning/output/html/ch0_1_what_is_llm.html>。从侧边栏按章节顺序阅读即可。
+　　在线直接看（推荐，无需克隆）：<https://chenchen8486.github.io/LLM_learning/>。从侧边栏按章节顺序阅读即可。
 
 ![手册预览：LLM 全链路全景](assets/figure-pipeline.png)
 
