@@ -29,67 +29,10 @@
 
 <p>　　读完本节，应该能讲清约束解码的一步是怎么走的，能为手里的场景选对工具，也知道格式保证的边界画在哪里。</p>
 
-<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及「按格式说话」这一环放大之后的内部构造。心里有这张地图（图 1、图 2），后面每一步都知道自己站在哪：</p>
+<p>　　逐节展开之前，先把约束解码的一步整体看一眼：一条已生成的前缀和一份格式约定，是怎么汇合起来、把词表劈成合法与非法两堆的？心里有这张图，后面每一步都知道自己站在哪：</p>
 
-<div class="diagram">
-  <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
-    <defs>
-      <marker id="arrS124structuredoutput" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
-      </marker>
-      <marker id="arrG124structuredoutput" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
-      </marker>
-    </defs>
-    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
-    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
-    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
-    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
-    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
-    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
-    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
-    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
-    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
-    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
-    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
-    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
-    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
-    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
-    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
-    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
-    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
-    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
-    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
-    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
-    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
-    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
-    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
-    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
-    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
-    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS124structuredoutput)"/>
-    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS124structuredoutput)"/>
-    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS124structuredoutput)"/>
-    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS124structuredoutput)"/>
-    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS124structuredoutput)"/>
-    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS124structuredoutput)"/>
-    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS124structuredoutput)"/>
-    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
-    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
-    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
-    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
-  </svg>
-  <div class="diagram-caption">图 1：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）与推理训练（第 11 章），交出会对话、懂分寸、会推理的模型；推理与部署（本章）是它的下一站，任务是把模型的打分变成可用输出。本节讲其中「按格式说话」这一环——结构化输出与约束解码；12.5 节收束调参与陷阱，系统工程（KV Cache、量化等）留给第 13 章。</div>
-</div>
 
-<p>　　图 1 里这个紫框的「结构化输出」放大之后长什么样？一条已生成的前缀和一份格式约定，是怎么汇合起来、把词表劈成合法与非法两堆的？把约束解码的一步单独拆开看（图 2）：</p>
+<p>　　图 1 里这个紫框的「结构化输出」放大之后长什么样？一条已生成的前缀和一份格式约定，是怎么汇合起来、把词表劈成合法与非法两堆的？把约束解码的一步单独拆开看（图 1）：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -152,7 +95,7 @@
     <polyline points="280,574 20,574 20,90 36,90" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR124so)"/>
     <text x="150" y="564" text-anchor="middle" font-size="10.5" fill="#dc2626">自回归回路（12.1 节）</text>
   </svg>
-  <div class="diagram-caption">图 2：约束解码一步的局部放大（词表 6400 为 minimind 真实配置，绿块比例仅为示意）。输入有二：已生成的前缀（{"name": "小明",）与离线编译好的格式状态机。前缀兵分两路——进模型前向得到 6400 维 logits z，进状态机推进到「等待键名字符串」状态、算出同样 6400 维的掩码 m（合法位 0、非法位 −∞）；z + m 之后 softmax 只在绿色合法堆里归一化，温度与 top-k/top-p 照常叠加，采样出 1 个合法 token（如 "age"），经红色自回归回路拼回前缀进入下一步。12.4.2 会逐格讲清这张图。</div>
+  <div class="diagram-caption">图 1：约束解码一步的局部放大（词表 6400 为 minimind 真实配置，绿块比例仅为示意）。输入有二：已生成的前缀（{"name": "小明",）与离线编译好的格式状态机。前缀兵分两路——进模型前向得到 6400 维 logits z，进状态机推进到「等待键名字符串」状态、算出同样 6400 维的掩码 m（合法位 0、非法位 −∞）；z + m 之后 softmax 只在绿色合法堆里归一化，温度与 top-k/top-p 照常叠加，采样出 1 个合法 token（如 "age"），经红色自回归回路拼回前缀进入下一步。12.4.2 会逐格讲清这张图。</div>
 </div>
 
 <h2>12.4.1 为什么需要约束：JSON 错一个逗号就全盘崩</h2>
@@ -254,7 +197,7 @@
     <line x1="870" y1="194" x2="870" y2="242" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrFsm124)"/>
     <text x="880" y="222" font-size="11" fill="#0891b2">}</text>
   </svg>
-  <div class="diagram-caption">图 3：JSON 对象格式的简化状态机（原创示意，真实实现的状态划分更细）。沿主链从左到右正好走出 {"name":"小明","age":8}：开始只准 {；键名串内靠自环逐字符推进，直到结束引号；值之后遇 , 沿上方回环回到「对象内」开始下一个键，遇 } 走向结束。每个状态的「只准什么」翻译成词表语言，就是该状态下合法 token 的集合——本节开头图 2 里那两堆绿红 token，正是从这张转移表里查出来的。</div>
+  <div class="diagram-caption">图 2：JSON 对象格式的简化状态机（原创示意，真实实现的状态划分更细）。沿主链从左到右正好走出 {"name":"小明","age":8}：开始只准 {；键名串内靠自环逐字符推进，直到结束引号；值之后遇 , 沿上方回环回到「对象内」开始下一个键，遇 } 走向结束。每个状态的「只准什么」翻译成词表语言，就是该状态下合法 token 的集合——本节开头图 1 里那两堆绿红 token，正是从这张转移表里查出来的。</div>
 </div>
 
 <p>　　状态机给出「当前合法字符」，模型给出「当前 logits」，两者在词表上汇合。把第 \(t\) 步的合法判定写成一个掩码向量，约束解码的完整一步就是：</p>

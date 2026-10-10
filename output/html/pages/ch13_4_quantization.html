@@ -29,67 +29,10 @@
 
 <p>　　读完本节，应该能手算任意一组权重的对称量化结果，说清激活为什么比权重难压，并能用「搬运变少」与「算力变多」两个来源解释 W4A16 与 W8A8 的加速差异。提前剧透两个记号：W4A16 指权重 4 bit、激活仍 16 bit，W8A8 指权重与激活都 8 bit，13.4.4 会正式立起这套约定。minimind 没有量化实现，本节走纯论文路线，方法与效果数字一律以原文为准。</p>
 
-<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及「量化」这一步放大之后的内部结构。心里有这张地图（图 1、图 2），后面每种方法都知道自己补的是哪个洞：</p>
+<p>　　逐节展开之前，先看一眼「量化」这一步放大之后的内部结构，后面每种方法都知道自己补的是哪个洞：</p>
 
-<div class="diagram">
-  <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
-    <defs>
-      <marker id="arrS134quantization" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
-      </marker>
-      <marker id="arrG134quantization" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
-      </marker>
-    </defs>
-    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
-    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
-    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
-    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
-    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
-    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
-    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
-    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
-    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
-    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
-    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
-    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
-    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
-    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
-    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
-    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
-    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
-    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
-    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
-    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
-    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
-    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
-    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
-    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
-    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
-    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS134quantization)"/>
-    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS134quantization)"/>
-    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS134quantization)"/>
-    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS134quantization)"/>
-    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS134quantization)"/>
-    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS134quantization)"/>
-    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS134quantization)"/>
-    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
-    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
-    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
-    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
-  </svg>
-  <div class="diagram-caption">图 1：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）与推理训练（第 11 章），交出会对话、懂分寸、会推理的模型；推理与部署（第 12–13 章）是最后一站，任务是让训好的模型服务得更快、更便宜。本节讲其中「量化」一环：把权重与激活从高精度浮点压成低比特整数，直接削减显存与带宽开销。</div>
-</div>
 
-<p>　　「量化」这一步放大之后长什么样？它以训练好的 FP16 权重为输入，吐出同数量的低比特权重文件，推理引擎加载之后，每步解码要搬运的字节数随之缩水。把这条小链路单独拆开看（图 2）：</p>
+<p>　　「量化」这一步放大之后长什么样？它以训练好的 FP16 权重为输入，吐出同数量的低比特权重文件，推理引擎加载之后，每步解码要搬运的字节数随之缩水。把这条小链路单独拆开看（图 1）：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -141,7 +84,7 @@
     <text x="872" y="198" text-anchor="middle" font-size="10" fill="#888888">（13.4.4 详解）</text>
     <text x="480" y="286" text-anchor="middle" font-size="10.5" fill="#6b7280">输入：FP16 权重 63.9M 个参数 → 输出：同数量的低比特整数 + scale 表；离线量化只跑一次，收益在每一次解码中兑现</text>
   </svg>
-  <div class="diagram-caption">图 2：量化在部署链路中的局部放大。训练产物是 FP16 权重（minimind 63.9M 参数 ≈ 128 MB），经一次性离线量化得到同数量的低比特整数与一张 scale 表（INT8 ≈ 64 MB、INT4 ≈ 32 MB），推理引擎加载后每步解码的搬运量同比例下降。运行时有两条路：weight-only 方案先把整数反量化回 FP16 再算（W4A16），全量化方案直接走整数矩阵乘（W8A8），区别在 13.4.4 展开。PTQ 即训练后量化：不重新训练，只用一小批校准数据统计数值范围。</div>
+  <div class="diagram-caption">图 1：量化在部署链路中的局部放大。训练产物是 FP16 权重（minimind 63.9M 参数 ≈ 128 MB），经一次性离线量化得到同数量的低比特整数与一张 scale 表（INT8 ≈ 64 MB、INT4 ≈ 32 MB），推理引擎加载后每步解码的搬运量同比例下降。运行时有两条路：weight-only 方案先把整数反量化回 FP16 再算（W4A16），全量化方案直接走整数矩阵乘（W8A8），区别在 13.4.4 展开。PTQ 即训练后量化：不重新训练，只用一小批校准数据统计数值范围。</div>
 </div>
 
 <h2>13.4.1 什么是量化：从浮点到整数的映射</h2>
@@ -180,7 +123,7 @@
   </table>
 </div>
 
-<p>　　两组数字对照着看。INT8 的误差全部压在 ±0.004 以内，对幅值零点几的权重只是千分之几的相对偏差；INT4 的误差上界涨到 \(s/2 \approx 0.086\)，最小的权重 0.02 直接被抹成 0。对称方案的刻度间隔由 \(s\) 决定，INT8 与 INT4 的 \(s\) 相差约 18 倍（127 对 7），误差上界同步放大——这就是低位宽要还的债。图 3 把这段映射画在数轴上：</p>
+<p>　　两组数字对照着看。INT8 的误差全部压在 ±0.004 以内，对幅值零点几的权重只是千分之几的相对偏差；INT4 的误差上界涨到 \(s/2 \approx 0.086\)，最小的权重 0.02 直接被抹成 0。对称方案的刻度间隔由 \(s\) 决定，INT8 与 INT4 的 \(s\) 相差约 18 倍（127 对 7），误差上界同步放大——这就是低位宽要还的债。图 2 把这段映射画在数轴上：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -253,7 +196,7 @@
     <text x="480" y="360" text-anchor="middle" font-size="11" fill="#dc2626">还原 ŵ：[0.3429, −0.6857, 1.2000, 0.0000]，最大误差 0.064，而 INT8 的误差上界只有 0.0047；0.02 被抹成 0</text>
     <text x="480" y="404" text-anchor="middle" font-size="10.5" fill="#6b7280">同一条横轴三种读法：刻度标签不同（±1.20 / ±127 / ±7），落点位置一一对应；位宽越低，刻度越粗，误差上界越大</text>
   </svg>
-  <div class="diagram-caption">图 3：四个 FP16 权重在两种位宽下的映射对照（数值同正文手算例）。上带是原始连续值；中带按 \(s \approx 0.00945\) 映到 INT8 的 −127~127 档，还原后几乎贴回原位；下带按 \(s \approx 0.171\) 映到 INT4 的 −7~7 档，落点明显偏离原位置，0.02 被舍入到 0。</div>
+  <div class="diagram-caption">图 2：四个 FP16 权重在两种位宽下的映射对照（数值同正文手算例）。上带是原始连续值；中带按 \(s \approx 0.00945\) 映到 INT8 的 −127~127 档，还原后几乎贴回原位；下带按 \(s \approx 0.171\) 映到 INT4 的 −7~7 档，落点明显偏离原位置，0.02 被舍入到 0。</div>
 </div>
 
 <div class="highlight-box">
@@ -270,7 +213,7 @@
 
 <p>　　量化的精度损失有两个来源，性质不同。其一是舍入误差：值落在两个档位之间，被归到最近的一档，偏差至多 \(s/2\)，均匀、温和、到处都有。其二是截断误差：超出 \([-\max|w|,\ \max|w|]\) 范围的值被硬压到端点档位，偏差没有上界。定 scale 时两者此消彼长：范围取得大，\(s\) 变粗、舍入误差变大；范围取得小，更多值被截断。选范围这个动作在工程上叫校准（calibration）：拿一小批有代表性的真实数据跑一遍，统计各层数值分布，据此定 scale，本质就是在两类误差之间找平衡。</p>
 
-<p>　　对 LLM 的权重来说，这个平衡不难做：权重分布平滑、范围稳定，而且推理前就已固定，可以慢慢挑 scale。真正的麻烦在激活——每层算出来的中间结果张量。Dettmers et al. 2022 在 LLM.int8() 论文（arXiv:2208.07339）中系统报道：模型规模到 6.7B 附近后，激活里会涌现出高度系统化的离群值——一条序列里多达约 15 万个离群值，却集中在仅仅约 6 个特征通道上，幅值可达常规通道的 20 倍左右。朴素的按张量定 scale 遇到它们立刻翻车，图 4 画出了翻车的机制：</p>
+<p>　　对 LLM 的权重来说，这个平衡不难做：权重分布平滑、范围稳定，而且推理前就已固定，可以慢慢挑 scale。真正的麻烦在激活——每层算出来的中间结果张量。Dettmers et al. 2022 在 LLM.int8() 论文（arXiv:2208.07339）中系统报道：模型规模到 6.7B 附近后，激活里会涌现出高度系统化的离群值——一条序列里多达约 15 万个离群值，却集中在仅仅约 6 个特征通道上，幅值可达常规通道的 20 倍左右。朴素的按张量定 scale 遇到它们立刻翻车，图 3 画出了翻车的机制：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -327,7 +270,7 @@
     <line x1="776" y1="132" x2="758" y2="188" stroke="#9ca3af" stroke-width="1.2"/>
     <text x="480" y="384" text-anchor="middle" font-size="10.5" fill="#6b7280">数字口径：离群值集中于约 6 个特征通道、幅值约 20 倍（arXiv:2208.07339，6.7B 规模起）；±6 档与 8% 为按公式 (1) 的推算</text>
   </svg>
-  <div class="diagram-caption">图 4：离群值如何拖垮按张量量化。左：某层激活的通道幅值，24 个通道里 2 个（红色）冲到约 20 倍量级；右：按整个张量的最大值定 scale 后，INT8 的 ±127 档几乎全被离群值占用，幅值约 ±1 的正常值被挤进中间 ±6 档，舍入误差相对自身幅值放大到约 8%，量化后的激活面目全非。</div>
+  <div class="diagram-caption">图 3：离群值如何拖垮按张量量化。左：某层激活的通道幅值，24 个通道里 2 个（红色）冲到约 20 倍量级；右：按整个张量的最大值定 scale 后，INT8 的 ±127 档几乎全被离群值占用，幅值约 ±1 的正常值被挤进中间 ±6 档，舍入误差相对自身幅值放大到约 8%，量化后的激活面目全非。</div>
 </div>
 
 <div class="term-card">

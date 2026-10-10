@@ -405,67 +405,7 @@ tr:last-child td{border-bottom:none}
 
 <p>　　读完本节，应该能手算一个小型分布在任意温度下的形状，说清 top-p 凭什么取代 top-k 成为主流默认，并能照着 minimind（Apache 2.0）的 generate 函数复述整条修正链。softmax 与温度的数学基础（配分函数、指数的放大效应）在附录 A.3 有完整铺垫，本节直接站在上面看效果。</p>
 
-<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置，以及「修正链」放大之后的内部结构。心里有这张地图（图 1、图 2），后面每个旋钮都知道自己拧在哪：</p>
-
-<div class="diagram">
-  <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
-    <defs>
-      <marker id="arrS122sampling" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
-      </marker>
-      <marker id="arrG122sampling" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
-      </marker>
-    </defs>
-    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
-    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
-    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
-    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
-    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
-    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
-    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
-    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
-    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
-    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
-    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
-    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
-    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
-    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
-    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
-    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
-    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
-    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
-    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
-    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
-    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
-    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
-    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
-    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
-    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
-    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS122sampling)"/>
-    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS122sampling)"/>
-    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS122sampling)"/>
-    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS122sampling)"/>
-    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS122sampling)"/>
-    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS122sampling)"/>
-    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS122sampling)"/>
-    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
-    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
-    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
-    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
-  </svg>
-  <div class="diagram-caption">图 1：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）与推理训练（第 11 章），交出会对话、懂分寸、会推理的模型；推理与部署（第 12–13 章）是它的下一站，任务是把模型的打分变成实际文字。本节讲其中「修正概率分布」的一环：温度、top-k、top-p 三个旋钮如何整形每一步的候选分布。</div>
-</div>
-
-<p>　　「修正」这个环节放大之后长什么样？一组原始 logits 从进去到出来，要过几道闸、每道闸留下什么？把一条修正链单独拆开看（图 2）：</p>
+<p>　　逐节展开之前，先把「修正」这一站放大看：一组原始 logits 从进去到出来，要过几道闸、每道闸留下什么？心里有这张图，后面每个旋钮都知道自己拧在哪：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -584,7 +524,7 @@ tr:last-child td{border-bottom:none}
     <text x="860" y="408" text-anchor="middle" font-size="10.5" fill="#888888">model_minimind.py:283</text>
     <text x="480" y="452" text-anchor="middle" font-size="10.5" fill="#6b7280">数字为正文数值小例（logits = [3, 2, 1, 0]，词表实为 6400 维、此处只画前 4 名）；截断的置 −∞ 规则与 minimind generate（272–283 行）一致</text>
   </svg>
-  <div class="diagram-caption">图 2：一步解码修正链的局部放大，五站流水线（本例恰好 top-k = 2 与 top-p = 0.85 留下同样的核，纯属数字巧合，机制完全不同，12.2.2 展开）。原始 logits（站 1，词表 6400 维、画前 4 名）先被温度整形（站 2，T &lt; 1 变尖、T &gt; 1 变平），再经 top-k 固定名额截断（站 3，低于第 k 名置 −∞）与 top-p 累计概率截断（站 4，累计首次达到 p 即止），最后 multinomial 按归一化后的概率抽出 1 个 token（站 5），接回输入进入下一步。重复惩罚一站未画出，它在代码里位于温度与 top-k 之间，见 12.2.4。</div>
+  <div class="diagram-caption">图 1：一步解码修正链的局部放大，五站流水线（本例恰好 top-k = 2 与 top-p = 0.85 留下同样的核，纯属数字巧合，机制完全不同，12.2.2 展开）。原始 logits（站 1，词表 6400 维、画前 4 名）先被温度整形（站 2，T &lt; 1 变尖、T &gt; 1 变平），再经 top-k 固定名额截断（站 3，低于第 k 名置 −∞）与 top-p 累计概率截断（站 4，累计首次达到 p 即止），最后 multinomial 按归一化后的概率抽出 1 个 token（站 5），接回输入进入下一步。重复惩罚一站未画出，它在代码里位于温度与 top-k 之间，见 12.2.4。</div>
 </div>
 
 <h2>12.2.1 温度：调节分布的锐度（数学见附录 A.3）</h2>
@@ -657,7 +597,7 @@ tr:last-child td{border-bottom:none}
   </div>
 </div>
 
-<p>　　用 12.2.1 的数值小例看两刀的下刀位置。\(T = 1\) 时分布为 \([0.64, 0.24, 0.09, 0.03]\)：top-k 取 \(k = 2\)，留下前两名，归一化后得 \([0.73, 0.27]\)；top-p 取 \(p = 0.85\)，累计概率 \(0.64\) 不够、加到 \(0.88\) 首次越过阈值，核同样是前两名，归一化也是 \([0.73, 0.27]\)。本例两刀同结果纯属数字巧合——换一个分布，两者立刻分道扬镳。图 3 把两种典型分布摆在一起对照：</p>
+<p>　　用 12.2.1 的数值小例看两刀的下刀位置。\(T = 1\) 时分布为 \([0.64, 0.24, 0.09, 0.03]\)：top-k 取 \(k = 2\)，留下前两名，归一化后得 \([0.73, 0.27]\)；top-p 取 \(p = 0.85\)，累计概率 \(0.64\) 不够、加到 \(0.88\) 首次越过阈值，核同样是前两名，归一化也是 \([0.73, 0.27]\)。本例两刀同结果纯属数字巧合——换一个分布，两者立刻分道扬镳。图 2 把两种典型分布摆在一起对照：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -741,10 +681,10 @@ tr:last-child td{border-bottom:none}
     <line x1="730" y1="390" x2="892" y2="390" stroke="#9ca3af" stroke-width="1.2"/>
     <text x="806" y="410" text-anchor="middle" font-size="10.5" fill="#15803d">0.92 已超 0.8：核收紧到 1 个</text>
   </svg>
-  <div class="diagram-caption">图 3：固定名额与动态名额的分歧（柱高为各行内相对比例，柱顶数值为准）。上排是平坦分布 \([0.30, 0.27, 0.23, 0.20]\)：top-k = 2 把同样合理的第三、四名砍掉（合计 0.43 的概率质量被误伤），top-p = 0.8 累计到 0.80 才收刀、核放宽到 3 个；下排是尖锐分布 \([0.92, 0.05, 0.02, 0.01]\)：top-k = 2 名额没处用、硬把 0.05 的尾巴留在候选席，top-p 在第一名就已越过阈值、核收紧到 1 个。名额随分布形状伸缩，正是 top-p 相对 top-k 的核心改进。</div>
+  <div class="diagram-caption">图 2：固定名额与动态名额的分歧（柱高为各行内相对比例，柱顶数值为准）。上排是平坦分布 \([0.30, 0.27, 0.23, 0.20]\)：top-k = 2 把同样合理的第三、四名砍掉（合计 0.43 的概率质量被误伤），top-p = 0.8 累计到 0.80 才收刀、核放宽到 3 个；下排是尖锐分布 \([0.92, 0.05, 0.02, 0.01]\)：top-k = 2 名额没处用、硬把 0.05 的尾巴留在候选席，top-p 在第一名就已越过阈值、核收紧到 1 个。名额随分布形状伸缩，正是 top-p 相对 top-k 的核心改进。</div>
 </div>
 
-<p>　　两刀的分歧在图 3 里一目了然，落成一张对照表：</p>
+<p>　　两刀的分歧在图 2 里一目了然，落成一张对照表：</p>
 
 <div class="table-wrap">
   <table>
