@@ -393,7 +393,7 @@ tr:last-child td{border-bottom:none}
   <h3 class="doc-meta-title">快速浏览</h3>
   <table class="doc-meta">
     <tbody>
-      <tr><td>核心问题</td><td>原论文给出的是编码器-解码器双塔结构，为什么今天的主流 LLM 只剩一座解码器塔？</td></tr>
+      <tr><td>核心问题</td><td>原论文（Vaswani et al., 2017）给出的是编码器-解码器双塔结构，为什么今天的主流 LLM 只剩一座解码器塔？</td></tr>
       <tr><td>本节主张</td><td>2017 到 2019 年三条架构路线分家：encoder-only 擅理解、encoder-decoder 擅翻译、decoder-only 擅生成。decoder-only 凭「生成天然自回归、单塔最简、扩展最顺」赢下生成赛道，现代 LLM 的一层 block 就是原论文 decoder 层删掉交叉注意力、逐件更换零件后的直系后代。</td></tr>
       <tr><td>一句话结论</td><td>现代 LLM 一层 block = 掩码多头自注意力 + FFN + 残差 + 归一化，骨架沿用 2017 年的 decoder 层，零件全面升级（第 5 章逐件拆解）。</td></tr>
       <tr><td>关键词</td><td>
@@ -745,7 +745,7 @@ tr:last-child td{border-bottom:none}
 
 <h2>参考来源</h2>
 <ul>
-  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）。编码器与解码器各 N=6 层、解码器第三个子层为交叉注意力、掩码与右移一位的约定、Post-Norm 公式 LayerNorm(x + Sublayer(x))、FFN 用 ReLU、正弦位置编码、\(d_{\mathrm{model}}=512\)，均逐字核对该文第 3 节。</li>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）。编码器与解码器各 N=6 层、解码器第三个子层为交叉注意力、掩码与右移一位的约定、Post-Norm 公式 LayerNorm(x + Sublayer(x))、FFN 用 ReLU、正弦位置编码、\(d_{\mathrm{model}}=512\)，均逐字核对该文第 3 节。本页正文所称「原论文」即此篇。</li>
   <li>Radford, Narasimhan, Salimans &amp; Sutskever, 2018. Improving Language Understanding by Generative Pre-Training（OpenAI 技术报告，GPT-1）。12 层 decoder-only、约 117M 参数、BookCorpus 自回归预训练出自该报告。</li>
   <li>Devlin et al., 2019. BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding（arXiv:1810.04805）。encoder-only 路线与掩码填空（MLM）目标出自该文。</li>
   <li>Raffel et al., 2019. Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer（T5，arXiv:1910.10683）。encoder-decoder 路线在 LLM 时代的延续。</li>

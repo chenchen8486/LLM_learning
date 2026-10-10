@@ -782,7 +782,7 @@ tr:last-child td{border-bottom:none}
 <h2>参考来源</h2>
 <ul>
   <li>Pope et al., 2022. Efficiently Scaling Transformer Inference（arXiv:2211.05102，MLSys 2023）：decode 阶段 memory-bound 的系统分析、权重搬运按 batch 摊销与 KV Cache 成本框架；本节「带宽决定 decode 吞吐」「加大 batch 提高硬件利用率」主线的直接依据。</li>
-  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：自回归增量解码的原始设定（逐位置生成、输出接回输入），13.1.1 串行约束的出处。</li>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：自回归增量解码的原始设定（逐位置生成、输出接回输入），13.1.1 串行约束的出处。本页正文所称「原论文」即此篇。</li>
   <li>Kaplan et al., 2020. Scaling Laws for Neural Language Models（arXiv:2001.08361）：前向每 token 约 \(2N\) FLOPs 的算力口径（训练每 token 约 \(6N\) = 前向 \(2N\) + 反向 \(4N\)），与第 7 章 \(C \approx 6ND\) 同出一源。</li>
   <li>NVIDIA A100 Tensor Core GPU 官方规格：FP16 tensor core 算力约 312 TFLOPS、HBM 带宽约 2 TB/s（2039 GB/s）、L2 缓存 40 MB；用于图 3、图 4 与拐点 \(I^* \approx 150\) FLOP/B 的量级估算（均为可复算的比值，非实测）。</li>
   <li>minimind（Apache 2.0）：模型配置（hidden 768、8 层、词表 6400、8 头 / KV 头 4、head_dim 96、FFN 2432、约 63.9M 参数、embedding 与 lm_head 权重共享），见 minimind-master/model/model_minimind.py 及项目 README；13.1.2 的参数量对账以此为准。</li>

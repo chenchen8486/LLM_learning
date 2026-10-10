@@ -611,7 +611,7 @@ tr:last-child td{border-bottom:none}
 
 <div class="formula-card">
   \[ \mathrm{Attention}(Q,K,V)=\mathrm{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V \tag{2} \]
-  <div class="formula-note">公式 (2)：与原论文公式 (1) 逐字一致。本例 \(d_k = 96\)，\(\sqrt{96} \approx 9.80\)。<code>[1, 8, 10, 96] @ [1, 8, 96, 10]</code> 得到分数 <code>[1, 8, 10, 10]</code>：每个头一张 10×10 的"亲密度表"，第 \(i\) 行第 \(j\) 列表示位置 \(i\) 对位置 \(j\) 的关注程度（归一化之前）。符号说明：\(Q,K,V\) 是第 2–4 小步备好的查询、键、值张量，均已按头重排为 <code>[1, 8, 10, 96]</code>；\(K^{\top}\) 表示交换 \(K\) 的最后两维；softmax 在最后一维上做，把每行分数归一化成和为 1 的权重；乘 \(V\) 即按权重加权求和。</div>
+  <div class="formula-note">公式 (2)：与原论文（Vaswani et al., 2017）公式 (1) 逐字一致。本例 \(d_k = 96\)，\(\sqrt{96} \approx 9.80\)。<code>[1, 8, 10, 96] @ [1, 8, 96, 10]</code> 得到分数 <code>[1, 8, 10, 10]</code>：每个头一张 10×10 的"亲密度表"，第 \(i\) 行第 \(j\) 列表示位置 \(i\) 对位置 \(j\) 的关注程度（归一化之前）。符号说明：\(Q,K,V\) 是第 2–4 小步备好的查询、键、值张量，均已按头重排为 <code>[1, 8, 10, 96]</code>；\(K^{\top}\) 表示交换 \(K\) 的最后两维；softmax 在最后一维上做，把每行分数归一化成和为 1 的权重；乘 \(V\) 即按权重加权求和。</div>
 </div>
 
 <p>　　<strong>第 6 小步，加因果掩码。</strong>给分数加上一个上三角（不含主对角线）全为 \(-\infty\) 的 10×10 矩阵（第 129 行），形状不变，仍是 <code>[1, 8, 10, 10]</code>。</p>
@@ -774,7 +774,7 @@ tr:last-child td{border-bottom:none}
 
 <h2>参考来源</h2>
 <ul>
-  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：本文公式 (2) 与该文公式 (1) 逐字核对一致，嵌入/输出权重共享出自其 3.4 节，对照 ref_paper 中文译稿核实。</li>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：本文公式 (2) 与该文公式 (1) 逐字核对一致，嵌入/输出权重共享出自其 3.4 节，对照 ref_paper 中文译稿核实。本页正文所称「原论文」即此篇。</li>
   <li>minimind 工程（jingyaogong/minimind，Apache 2.0）：全部配置数字、参数拆解与代码行号出自 <code>model/model_minimind.py</code> 及 README.md 模型规格表（minimind-3：64M、词表 6400、8 层、768 维、q_heads=8、kv_heads=4）。</li>
   <li>Kaplan et al., 2020. Scaling Laws for Neural Language Models（arXiv:2001.08361）：前向计算量 \(C \approx 2NT\) 的经验估算出自该文表 1，本文公式 (4) 另用逐模块手算交叉验证。</li>
   <li>Zhang &amp; Sennrich, 2019. Root Mean Square Layer Normalization（arXiv:1910.07467）：公式 (1) RMSNorm 的出处，实现细节以 minimind 源码为准。</li>

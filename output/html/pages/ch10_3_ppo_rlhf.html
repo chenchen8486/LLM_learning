@@ -254,7 +254,7 @@
 
 <div class="formula-card">
   \[ r_t(\theta) = \frac{\pi_{\theta}(a_t \mid s_t)}{\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)}, \qquad \mathcal{L}^{\mathrm{CLIP}}(\theta) = \mathbb{E}_t\left[ \min\left( r_t(\theta)\, \hat{A}_t,\; \mathrm{clip}\left( r_t(\theta),\, 1-\varepsilon,\, 1+\varepsilon \right) \hat{A}_t \right) \right] \tag{3} \]
-  <div class="formula-note">公式 (3)：PPO 的裁剪目标——概率比 \(r_t\) 乘上优势得到「自由版」收益，再把 \(r_t\) 裁到 \([1-\varepsilon, 1+\varepsilon]\) 得到「保守版」收益，取两者中较小的那个来优化；无论更新方向好坏，越过裁剪区的额外收益都被没收，梯度在边界处归零，模型自然不敢一步跨太远。符号说明：\(\pi_{\theta}\) 是当前正在更新的策略；\(\pi_{\theta_{\mathrm{old}}}\) 是采样这批数据时的旧策略（更新期间固定不动）；\(a_t\) 是第 \(t\) 步生成的 token，\(s_t\) 是它的上文；\(\hat{A}_t\) 是优势估计（下一步动作比平均水平好多少，见公式 (4)）；\(\mathrm{clip}(v, l, u)\) 把 \(v\) 截断到区间 \([l, u]\)；\(\varepsilon\) 是裁剪半径，minimind 默认 0.2（train_ppo.py:327），与 PPO 原论文的常用取值一致。</div>
+  <div class="formula-note">公式 (3)：PPO 的裁剪目标——概率比 \(r_t\) 乘上优势得到「自由版」收益，再把 \(r_t\) 裁到 \([1-\varepsilon, 1+\varepsilon]\) 得到「保守版」收益，取两者中较小的那个来优化；无论更新方向好坏，越过裁剪区的额外收益都被没收，梯度在边界处归零，模型自然不敢一步跨太远。符号说明：\(\pi_{\theta}\) 是当前正在更新的策略；\(\pi_{\theta_{\mathrm{old}}}\) 是采样这批数据时的旧策略（更新期间固定不动）；\(a_t\) 是第 \(t\) 步生成的 token，\(s_t\) 是它的上文；\(\hat{A}_t\) 是优势估计（下一步动作比平均水平好多少，见公式 (4)）；\(\mathrm{clip}(v, l, u)\) 把 \(v\) 截断到区间 \([l, u]\)；\(\varepsilon\) 是裁剪半径，minimind 默认 0.2（train_ppo.py:327），与 PPO 原论文（Schulman et al., 2017）的常用取值一致。</div>
 </div>
 
 <p>　　一个数值小例把 clip 讲死。设 \(\varepsilon = 0.2\)，某 token 的优势 \(\hat{A}_t = 1\)（好动作，想抬概率）。若更新后概率比涨到 \(r_t = 1.3\)，自由版收益是 \(1.3\)，但保守版把 \(r_t\) 裁到 \(1.2\)，收益只有 \(1.2\)；取 min 后按 \(1.2\) 算——超出 20% 的那部分改进不给奖励，梯度在边界处直接归零，模型没有动力继续往这个方向冲。反过来，若 \(\hat{A}_t = -1\)（坏动作，想压概率），概率比跌破 \(0.8\) 之后同样被封顶：min 会选中更「难看」的那个值，把过度的压低也拦在门外。两个方向一对照，就是图 3：</p>
@@ -372,7 +372,7 @@
 
 <h2>参考来源</h2>
 <ul>
-  <li>Schulman et al., 2017. Proximal Policy Optimization Algorithms（PPO 原始论文，arXiv:1707.06347）：裁剪代理目标、同一批数据多轮 minibatch 更新的设计动机；已核对 arXiv 摘要页。</li>
+  <li>Schulman et al., 2017. Proximal Policy Optimization Algorithms（PPO 原始论文，arXiv:1707.06347）：裁剪代理目标、同一批数据多轮 minibatch 更新的设计动机；已核对 arXiv 摘要页。本页正文所称「原论文」即此篇。</li>
   <li>Ouyang et al., 2022. Training Language Models to Follow Instructions with Human Feedback（InstructGPT，arXiv:2203.02155）：「SFT → RM → PPO」流水线、逐 token KL 罚项、PPO-ptx 混入预训练梯度；1.3B 对齐模型人类偏好超过 175B GPT-3 的结论已核对 arXiv 摘要页，公式 (1)(2) 按论文式 (2) 转写。</li>
   <li>minimind（Apache 2.0），trainer/train_ppo.py：四模型初始化（36–48 行 CriticModel、380–381 行 ref 冻结、337–338 与 388 行 RM 加载）、奖励合成（61–67 行规则整形、136–138 行末位加奖励、204–205 行 KL 估计）、GAE 与优势标准化（140–151 行）、PPO 裁剪损失（206–209 行）、KL 早停（198–199 行）、默认超参（311–335 行：lr 3e-7 / 5e-7、clip 0.2、kl_coef 0.02、γ 1.0、λ 0.95、early_stop_kl 0.25、ppo_update_iters 2、prompt 768 / 生成 1024、temperature 0.8 见 88–94 行）。</li>
   <li>Schulman et al., 2015. High-Dimensional Continuous Control Using Generalized Advantage Estimation（GAE 原始论文，arXiv:1506.02438）：公式 (4) 的出处，指数加权优势估计（类比 TD(λ)）已核对 arXiv 摘要页。</li>

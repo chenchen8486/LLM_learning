@@ -403,7 +403,7 @@ tr:last-child td{border-bottom:none}
   </table>
 </div>
 
-<p>　　前两节把注意力讲透了，但一层 Transformer 不只有注意力。原论文的每一层里，注意力之外还站着三位搭档：前馈网络、残差连接、层归一化。缺了它们，6 层都叠不稳，更别说今天 LLM 的上百层。本节逐个讲清它们各管什么，最后把零件装回整机：</p>
+<p>　　前两节把注意力讲透了，但一层 Transformer 不只有注意力。原论文（Vaswani et al., 2017）的每一层里，注意力之外还站着三位搭档：前馈网络、残差连接、层归一化。缺了它们，6 层都叠不稳，更别说今天 LLM 的上百层。本节逐个讲清它们各管什么，最后把零件装回整机：</p>
 
 <ol>
   <li><strong>FFN：每个位置的独立思考</strong>（4.4.1）：注意力管搬运，FFN 管加工，512 → 2048 → 512 的两段变换拿走了一层约三分之二的参数；</li>
@@ -859,7 +859,7 @@ tr:last-child td{border-bottom:none}
 
 <h2>参考来源</h2>
 <ul>
-  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：3.1 节（残差连接与 LayerNorm(x+Sublayer(x))、统一 512 维）、3.3 节（FFN 公式与 \(d_{ff}=2048\)）、5.4 节（residual dropout，\(P_{drop}=0.1\)）。</li>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：3.1 节（残差连接与 LayerNorm(x+Sublayer(x))、统一 512 维）、3.3 节（FFN 公式与 \(d_{ff}=2048\)）、5.4 节（residual dropout，\(P_{drop}=0.1\)）。本页正文所称「原论文」即此篇。</li>
   <li>He et al., 2016. Deep Residual Learning for Image Recognition（CVPR 2016）：残差连接的原始出处，原论文参考文献 [11]。</li>
   <li>Ba, Kiros &amp; Hinton, 2016. Layer Normalization（arXiv:1607.06450）：层归一化原始论文，原论文参考文献 [1]。</li>
   <li>Xiong et al., 2020. On Layer Normalization in the Transformer Architecture（arXiv:2002.04745，ICML 2020）：Post-LN 与 Pre-LN 的对比分析，Pre-LN 训练更稳定、可不依赖学习率预热的结论出自该文。</li>

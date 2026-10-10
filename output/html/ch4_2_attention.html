@@ -411,7 +411,7 @@ tr:last-child td{border-bottom:none}
   <li><strong>公式拆解：四步完成一次注意力</strong>（4.2.3）：匹配打分、缩放、softmax、加权求和，并讲清为什么要除以 √d_k；</li>
   <li><strong>手算一遍：3 个 token、4 维向量的完整推演</strong>（4.2.4）：以矩阵形式把打分、缩放、掩码、softmax、加权求和五步走完，看清注意力权重这张分配表；</li>
   <li><strong>同一个公式，三种用法</strong>（4.2.5）：编码器自注意力、解码器掩码自注意力、编码器-解码器注意力，区别只在 Q、K、V 从哪里来、每个位置能看哪些位置；</li>
-  <li><strong>为什么注意力取代了循环</strong>（4.2.6）：用原论文的复杂度对比表收账——换来 O(1) 的顺序操作与信息路径，代价是 O(n²) 的计算量。</li>
+  <li><strong>为什么注意力取代了循环</strong>（4.2.6）：用原论文（Vaswani et al., 2017）的复杂度对比表收账——换来 O(1) 的顺序操作与信息路径，代价是 O(n²) 的计算量。</li>
 </ol>
 
 <p>　　读完全节，softmax(QKᵀ/√d_k)V 这个公式对你来说应该不再是一串符号，而是"先算谁和谁相关，再按相关程度取内容"这四步的速写。</p>
@@ -924,7 +924,7 @@ tr:last-child td{border-bottom:none}
 
 <h2>参考来源</h2>
 <ul>
-  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）。本节的注意力定义、公式 (1)、缩放因子 \(1/\sqrt{d_k}\) 的理由、加性与点积注意力的对比、注意力的三种用法出自其 3.2 节；RNN 的串行瓶颈出自第 1 节；层类型复杂度对比出自第 4 节表 1。引用内容均以工程内中译本 ref_paper/2016_attention_is_all_you_need/2016_attention_is_all_you_need_zh.md 逐字核对。</li>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）。本节的注意力定义、公式 (1)、缩放因子 \(1/\sqrt{d_k}\) 的理由、加性与点积注意力的对比、注意力的三种用法出自其 3.2 节；RNN 的串行瓶颈出自第 1 节；层类型复杂度对比出自第 4 节表 1。引用内容均以工程内中译本 ref_paper/2016_attention_is_all_you_need/2016_attention_is_all_you_need_zh.md 逐字核对。本页正文所称「原论文」即此篇。</li>
   <li>minimind 工程（Apache 2.0）：model/model_minimind.py 中 Attention 类的实现。</li>
   <li>4.2.4 节的数值例子为自编演示数字（文中已标注），仅用于演示计算流程，不来自任何真实模型。</li>
 </ul>

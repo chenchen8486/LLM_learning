@@ -174,7 +174,7 @@
 <div class="formula-card">
   \[ \pi^{*}(y \mid x) = \frac{1}{Z(x)}\,\pi_{\mathrm{ref}}(y \mid x)\exp\left(\frac{1}{\beta}\,r(x, y)\right) \tag{2} \]
   \[ r(x, y) = \beta \log \frac{\pi^{*}(y \mid x)}{\pi_{\mathrm{ref}}(y \mid x)} + \beta \log Z(x) \tag{3} \]
-  <div class="formula-note">公式 (2)：最优策略就是参考策略按奖励做指数加权再归一化——奖励高的回答概率被放大，放大力度由 \(\beta\) 控制。公式 (3)：把公式 (2) 两边取对数再移项，把奖励反解出来。符号说明：\(\pi^{*}\) 是公式 (1) 的最优策略。\(Z(x)=\sum_y \pi_{\mathrm{ref}}(y \mid x)\exp(r(x,y)/\beta)\) 是配分函数（归一化常数），只跟 \(x\) 有关、跟具体回答 \(y\) 无关。\(\exp\) 是指数函数，\(\log\) 是自然对数。推导细节见 DPO 原论文附录 A.1，本手册只取结论。</div>
+  <div class="formula-note">公式 (2)：最优策略就是参考策略按奖励做指数加权再归一化——奖励高的回答概率被放大，放大力度由 \(\beta\) 控制。公式 (3)：把公式 (2) 两边取对数再移项，把奖励反解出来。符号说明：\(\pi^{*}\) 是公式 (1) 的最优策略。\(Z(x)=\sum_y \pi_{\mathrm{ref}}(y \mid x)\exp(r(x,y)/\beta)\) 是配分函数（归一化常数），只跟 \(x\) 有关、跟具体回答 \(y\) 无关。\(\exp\) 是指数函数，\(\log\) 是自然对数。推导细节见 DPO 原论文（Rafailov et al., 2023，DPO）附录 A.1，本手册只取结论。</div>
 </div>
 
 <p>　　公式 (3) 是整条捷径的枢纽。它说：奖励可以被改写成「最优策略与参考模型的对数比」，外加一个只跟 \(x\) 有关的 \(\beta\log Z(x)\)。再回想 10.2 节的 Bradley-Terry 模型——偏好概率只取决于两个回答的<strong>奖励之差</strong>。把公式 (3) 代进奖励差里，\(\beta\log Z(x)\) 在一减之间恰好抵消，剩下的只有策略与参考模型的对数比。奖励模型这个中间环节，就这样被数学消掉了：不需要先训一个打分器再让模型追分，直接让策略在偏好对上学「谁的分差该更大」即可。</p>
@@ -311,7 +311,7 @@
 
 <h2>参考来源</h2>
 <ul>
-  <li>Rafailov et al., 2023. Direct Preference Optimization: Your Language Model is Secretly a Reward Model（DPO 原始论文，arXiv:2305.18290）：KL 约束下最优策略的闭式解、隐式奖励重参数化与 DPO 损失。实验部分默认 β=0.1、TL;DR 摘要任务 β=0.5，情感控制上超过 PPO 版 RLHF，摘要与单轮对话持平或更好。</li>
+  <li>Rafailov et al., 2023. Direct Preference Optimization: Your Language Model is Secretly a Reward Model（DPO 原始论文，arXiv:2305.18290）：KL 约束下最优策略的闭式解、隐式奖励重参数化与 DPO 损失。实验部分默认 β=0.1、TL;DR 摘要任务 β=0.5，情感控制上超过 PPO 版 RLHF，摘要与单轮对话持平或更好。本页正文所称「原论文」即此篇。</li>
   <li>Azar et al., 2023. A General Theoretical Paradigm to Understand Learning from Human Preferences（IPO，arXiv:2310.12036）：ΨPO 统一框架。指出 DPO 依赖 Bradley-Terry 假设，在偏好确定或接近确定时易过拟合、KL 约束失效。IPO 取 Ψ 为恒等映射绕开该假设。</li>
   <li>Ethayarajh et al., 2024. KTO: Model Alignment as Prospect Theoretic Optimization（arXiv:2402.01306）：基于 Kahneman-Tversky 前景理论提出 human-aware loss（HALO）视角。KTO 只需单条二元好/坏标签，1B 到 30B 规模上达到或超过成对偏好方法。</li>
   <li>Meng et al., 2024. SimPO: Simple Preference Optimization with a Reference-Free Reward（arXiv:2405.14734）：以序列平均对数概率作隐式奖励、无需参考模型，加目标分差 margin。AlpacaEval 2 最多比 DPO 高 6.4 分，Arena-Hard 最多高 7.5 分。</li>

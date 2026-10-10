@@ -393,7 +393,7 @@ tr:last-child td{border-bottom:none}
   <h3 class="doc-meta-title">快速浏览</h3>
   <table class="doc-meta">
     <tbody>
-      <tr><td>核心问题</td><td>第 4 章讲完了原论文的 Transformer：LayerNorm 加 ReLU 前馈。可今天打开任何一个主流 LLM 的源码，看到的却是 RMSNorm、Pre-LN 和 SwiGLU。为什么要换？换成了什么？</td></tr>
+      <tr><td>核心问题</td><td>第 4 章讲完了原论文（Vaswani et al., 2017）的 Transformer：LayerNorm 加 ReLU 前馈。可今天打开任何一个主流 LLM 的源码，看到的却是 RMSNorm、Pre-LN 和 SwiGLU。为什么要换？换成了什么？</td></tr>
       <tr><td>本节主张</td><td>现代 LLM 的标配残差块是三处精准改造的组合：归一化从 LayerNorm 化简为 RMSNorm（做减法）、从 Post-LN 挪到 Pre-LN（改位置）、前馈从 ReLU 升级为 SwiGLU 门控（加闸门）。三处改动都不增加参数量，却换来更稳的深层训练和更好的效果。</td></tr>
       <tr><td>一句话结论</td><td>RMSNorm 砍掉减均值、Pre-LN 给梯度留一条恒等通路、SwiGLU 让 FFN 学会按内容放行信息，这套组合是 Llama、Qwen、minimind 等现代模型的共同选择。</td></tr>
       <tr><td>关键词</td><td>
@@ -752,6 +752,7 @@ tr:last-child td{border-bottom:none}
   <li>Dauphin et al., 2016. Language Modeling with Gated Convolutional Networks（GLU 原始论文，arXiv:1612.08083）。公式 (6) 的门控结构出自该文。</li>
   <li>Touvron et al., 2023. LLaMA: Open and Efficient Foundation Language Models（arXiv:2302.13971）。Pre-LN + RMSNorm + SwiGLU 在主流开源 LLM 中的定型搭配出自该文架构部分。</li>
   <li>Radford et al., 2019. Language Models are Unsupervised Multitask Learners（GPT-2 报告）。Pre-LN 写法的早期主流采用。</li>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：本页正文所称「原论文」即此篇，LayerNorm + ReLU FFN + Post-LN + warmup 的初代配置出处，逐节精拆见本手册第 4 章。</li>
 </ul>
 
 </article>

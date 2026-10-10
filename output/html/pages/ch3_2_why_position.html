@@ -284,7 +284,7 @@
 
 <p>　　这样的例子在中文里俯拾皆是。「我请你吃饭」和「你请我吃饭」，人情方向完全颠倒；「屡战屡败」和「屡败屡战」用字全同，一个是丧气汇报，一个是顽强表态。人类语言的语义有相当一部分就装在词序里，读不出顺序，等于丢了一半的信息。</p>
 
-<p>　　所以 Transformer 必须有办法感知位置。原论文对此写得非常直白：</p>
+<p>　　所以 Transformer 必须有办法感知位置。原论文（Vaswani et al., 2017）对此写得非常直白：</p>
 
 <blockquote>
   由于我们的模型不包含循环和卷积，为了让模型利用序列的顺序信息，我们必须注入关于序列中令牌相对或绝对位置的信息。<br>—— Vaswani et al., Attention Is All You Need，第 3.5 节
@@ -368,7 +368,7 @@
 
 <h2>参考来源</h2>
 <ul>
-  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762），第 3.5 节明确提出「模型不含循环与卷积，必须注入位置信息」。</li>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762），第 3.5 节明确提出「模型不含循环与卷积，必须注入位置信息」。本页正文所称「原论文」即此篇。</li>
   <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（RoPE 原始论文，arXiv:2104.09864），3.4 节详述。</li>
   <li>Press, Smith &amp; Lewis, 2021. Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation（ALiBi 原始论文，arXiv:2108.12409），3.4、3.5 节详述。</li>
   <li>Devlin et al., 2019. BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding（arXiv:1810.04805），可学习绝对位置编码的代表。</li>

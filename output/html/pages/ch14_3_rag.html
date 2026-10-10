@@ -18,7 +18,7 @@
 
 <p>　　前两节（14.1 的 prompt 工程、14.2 的思维链）都在「怎么问」上做文章：换 prompt 写法、让模型把中间步骤写出来，模型的知识存量一分没增。本节换个方向，处理另一类短板——模型「不知道」的问题。先打个比方：训练收官的模型像一个刚交卷的闭卷考生，脑子里的知识冻结在收卷那一刻；之后世界发生的新事、别人手里的私有资料，他都无从知晓，被追问时还可能凭语感现编一个听起来像样的答案。RAG 的思路就是把闭卷改成开卷：回答之前，先让他翻资料。</p>
 
-<p>　　本节按「动机 → 原论文 → 工程实践 → 失效模式」的顺序展开，路线图如下：</p>
+<p>　　本节按「动机 → 原论文（Lewis et al., 2020，RAG 原始论文）→ 工程实践 → 失效模式」的顺序展开，路线图如下：</p>
 
 <ol>
   <li><strong>为什么需要外挂：参数记忆的三个短板</strong>（14.3.1）：知识截止、私有知识、幻觉——焊死在权重里的知识为什么不够用；</li>
@@ -434,7 +434,7 @@
 
 <h2>参考来源</h2>
 <ul>
-  <li>Lewis et al., 2020. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks（RAG 原始论文，NeurIPS 2020，arXiv:2005.11401）：参数记忆与非参数记忆框架、检索器 DPR + 生成器 BART-large、2018 年 12 月英文维基切成 2100 万个 100 词块并编码为 768 维向量、FAISS 建 MIPS 索引、RAG-Sequence 与 RAG-Token 两种形式（公式 (2)(3)）、训练时冻结文档编码器与索引只训问题编码器与生成器、开放域问答当时最佳且生成更具体更有事实依据；arXiv 编号与关键设置来自章分页规格（已联网核实）。</li>
+  <li>Lewis et al., 2020. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks（RAG 原始论文，NeurIPS 2020，arXiv:2005.11401）：参数记忆与非参数记忆框架、检索器 DPR + 生成器 BART-large、2018 年 12 月英文维基切成 2100 万个 100 词块并编码为 768 维向量、FAISS 建 MIPS 索引、RAG-Sequence 与 RAG-Token 两种形式（公式 (2)(3)）、训练时冻结文档编码器与索引只训问题编码器与生成器、开放域问答当时最佳且生成更具体更有事实依据；arXiv 编号与关键设置来自章分页规格（已联网核实）。本页正文所称「原论文」即此篇。</li>
   <li>Karpukhin et al., 2020. Dense Passage Retrieval for Open-Domain Question Answering（DPR 原始论文，EMNLP 2020，arXiv:2004.04906）：双编码器结构、768 维 [CLS] 表示、批内负样本对比学习、top-20 命中率比 BM25 高 9–19 个点；编号与数字来自章分页规格（已联网核实）。</li>
   <li>Gao et al., 2023. Retrieval-Augmented Generation for Large Language Models: A Survey（arXiv:2312.10997）：现代 RAG 工程链路（切块 / 嵌入 / 向量库 / 召回 / 重排）的范式归纳、RAG 与长上下文之争；已核对 arXiv 页面。</li>
   <li>Barnett et al., 2024. Seven Failure Points When Engineering a Retrieval Augmented Generation System（arXiv:2401.05856）：三个真实项目总结的七个失效点，前两位为「库里本来就没有答案」与「答案在库里但没进 top-k」；已核对 arXiv 摘要页。</li>

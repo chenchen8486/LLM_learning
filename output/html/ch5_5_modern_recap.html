@@ -403,7 +403,7 @@ tr:last-child td{border-bottom:none}
   </table>
 </div>
 
-<p>　　本章前四节把现代 LLM 的新零件逐个拆了一遍：RMSNorm 与 SwiGLU、GQA、MLA、MoE。本节是收官，要把镜头拉远，回答一个更大的问题：从 2017 年原论文到今天服务器上跑的开源大模型，架构上到底改了什么，又是什么七年没人换得动？本节按「先看全景、再算总账、装回图纸、最后叩问不变的部分」的顺序走：</p>
+<p>　　本章前四节把现代 LLM 的新零件逐个拆了一遍：RMSNorm 与 SwiGLU、GQA、MLA、MoE。本节是收官，要把镜头拉远，回答一个更大的问题：从 2017 年的 Transformer 原论文（Vaswani et al., 2017）到今天服务器上跑的开源大模型，架构上到底改了什么，又是什么七年没人换得动？本节按「先看全景、再算总账、装回图纸、最后叩问不变的部分」的顺序走：</p>
 
 <ol>
   <li><strong>七年演化一图速览</strong>（5.5.1）：从 2017 的 Transformer 到 2024 的 MLA 与 MoE，五个节点看清骨架不变、零件常新；</li>
@@ -813,7 +813,7 @@ tr:last-child td{border-bottom:none}
 
 <h2>参考来源</h2>
 <ul>
-  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762），原论文配置列（Post-LN、ReLU、正弦位置、MHA、约 3.7 万词表）对照该文第 3、5 节。</li>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762），原论文配置列（Post-LN、ReLU、正弦位置、MHA、约 3.7 万词表）对照该文第 3、5 节。本页正文所称「原论文」即此篇。</li>
   <li>Zhang &amp; Sennrich, 2019. Root Mean Square Layer Normalization（RMSNorm 原始论文，arXiv:1910.07467）。</li>
   <li>Xiong et al., 2020. On Layer Normalization in the Transformer Architecture（arXiv:2002.04745），Pre-LN 稳定性与 warmup 分析。</li>
   <li>Shazeer, 2020. GLU Variants Improve Transformer（SwiGLU 出处，arXiv:2002.05202），含三分之二折算系数。</li>
