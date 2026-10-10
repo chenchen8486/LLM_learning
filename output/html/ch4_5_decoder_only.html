@@ -40,9 +40,19 @@ a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
 
 /* Sidebar */
 .sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
-.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header{padding:20px;padding-right:74px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
 .sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
 .sidebar-header p{font-size:12px;color:var(--text-secondary)}
+/* 目录整栏收起/展开按钮 */
+.sidebar-hide-btn{position:absolute;top:14px;right:12px;padding:4px 10px;font-size:12px;color:var(--text-secondary);background:transparent;border:1px solid var(--border);border-radius:14px;cursor:pointer;font-family:inherit}
+.sidebar-hide-btn:hover{color:var(--primary-dark);border-color:var(--primary-light)}
+.sidebar-show-btn{position:fixed;top:14px;left:14px;z-index:60;display:none;padding:8px 14px;font-size:13px;color:var(--primary-dark);background:var(--surface);border:1px solid var(--border);border-radius:18px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.08);font-family:inherit}
+.sidebar-show-btn:hover{border-color:var(--primary-light)}
+html.nav-off .sidebar{transform:translateX(-100%)}
+html.nav-off .main{margin-left:0}
+html.nav-off .content{max-width:1180px}
+html.nav-off .sidebar-show-btn{display:inline-block}
+html.nav-on .sidebar{transform:none}/* 移动端默认收起，点「☰ 目录」展开时覆盖媒体查询 */
 .nav-tree{padding:12px}
 .nav-group{margin-bottom:4px}
 .nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
@@ -56,7 +66,7 @@ a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
 .nav-link.active{background:var(--primary);color:#fff;font-weight:500}
 
 /* Main & Breadcrumb */
-.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0;transition:margin-left .3s}
 .breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
 .breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
 
@@ -188,10 +198,16 @@ tr:last-child td{border-bottom:none}
 
 </style>
 
+<script>
+// 目录显隐状态提前解析（在 body 渲染前打类，避免闪烁）；默认桌面展开、移动端收起
+(function(){var s=null;try{s=localStorage.getItem('llm_nav')}catch(e){}
+var on=s?s==='on':!window.matchMedia('(max-width:768px)').matches;
+document.documentElement.classList.add(on?'nav-on':'nav-off');})();
+</script>
 </head>
 <body>
 <aside class="sidebar">
-  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p><button class="sidebar-hide-btn" onclick="toggleSidebar()" title="收起目录，拓宽阅读视野">◀ 收起</button></div>
   <nav class="nav-tree">
     <div class="nav-group">
   <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
@@ -375,6 +391,7 @@ tr:last-child td{border-bottom:none}
 </div>
   </nav>
 </aside>
+<button class="sidebar-show-btn" onclick="toggleSidebar()" title="展开目录">☰ 目录</button>
 <div class="layout">
   <div class="main">
     <div class="breadcrumb">
@@ -767,6 +784,15 @@ function toggleNav(el){
     children.classList.toggle('collapsed');
     children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
   }
+}
+
+// 整个目录侧栏的收起/展开（状态存 localStorage，跨页面记忆）
+function toggleSidebar(){
+  const h=document.documentElement;
+  const show=h.classList.contains('nav-off');
+  h.classList.toggle('nav-on',show);
+  h.classList.toggle('nav-off',!show);
+  try{localStorage.setItem('llm_nav',show?'on':'off')}catch(e){}
 }
 
 // 图片点击放大/拖拽/滚轮缩放

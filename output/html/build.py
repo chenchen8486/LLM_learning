@@ -290,7 +290,8 @@ def render_sidebar(nav_tree: List[dict], current_href: str) -> str:
     sidebar_html = (
         '<aside class="sidebar">\n'
         '  <div class="sidebar-header">'
-        '<h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>\n'
+        '<h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p>'
+        '<button class="sidebar-hide-btn" onclick="toggleSidebar()" title="收起目录，拓宽阅读视野">◀ 收起</button></div>\n'
         '  <nav class="nav-tree">\n'
         f'    {top_level_html}\n'
         '  </nav>\n'

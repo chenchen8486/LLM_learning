@@ -13,9 +13,16 @@
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 {{GLOBAL_STYLES}}
 {{PAGE_STYLES}}
+<script>
+// 目录显隐状态提前解析（在 body 渲染前打类，避免闪烁）；默认桌面展开、移动端收起
+(function(){var s=null;try{s=localStorage.getItem('llm_nav')}catch(e){}
+var on=s?s==='on':!window.matchMedia('(max-width:768px)').matches;
+document.documentElement.classList.add(on?'nav-on':'nav-off');})();
+</script>
 </head>
 <body>
 {{SIDEBAR}}
+<button class="sidebar-show-btn" onclick="toggleSidebar()" title="展开目录">☰ 目录</button>
 <div class="layout">
   <div class="main">
     {{BREADCRUMB}}
@@ -34,6 +41,15 @@ function toggleNav(el){
     children.classList.toggle('collapsed');
     children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
   }
+}
+
+// 整个目录侧栏的收起/展开（状态存 localStorage，跨页面记忆）
+function toggleSidebar(){
+  const h=document.documentElement;
+  const show=h.classList.contains('nav-off');
+  h.classList.toggle('nav-on',show);
+  h.classList.toggle('nav-off',!show);
+  try{localStorage.setItem('llm_nav',show?'on':'off')}catch(e){}
 }
 
 // 图片点击放大/拖拽/滚轮缩放
