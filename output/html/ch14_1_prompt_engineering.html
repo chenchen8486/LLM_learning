@@ -1,0 +1,802 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>14.1 Prompt 工程：不改权重的编程方式 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 13 章 推理系统与部署</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch13_1_inference_cost.html">13.1 推理的成本结构：显存、算力、带宽谁先成为瓶颈</a>
+<a class="nav-link" href="ch13_2_kv_cache.html">13.2 KV Cache：用显存换速度的核心缓存</a>
+<a class="nav-link" href="ch13_3_serving_systems.html">13.3 服务化：连续批处理与 PagedAttention</a>
+<a class="nav-link" href="ch13_4_quantization.html">13.4 量化：FP16 到 INT4 的压缩术</a>
+<a class="nav-link" href="ch13_5_distillation.html">13.5 蒸馏：大模型教小模型</a>
+<a class="nav-link" href="ch13_6_speculative_scaling.html">13.6 投机采样与推理时扩展：无损加速与多花计算的两端</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 14 章 应用范式</span></div>
+  <div class="nav-children">
+    <a class="nav-link active" href="ch14_1_prompt_engineering.html">14.1 Prompt 工程：不改权重的编程方式</a>
+<a class="nav-link" href="ch14_2_cot.html">14.2 思维链：让模型把中间步骤写出来</a>
+<a class="nav-link" href="ch14_3_rag.html">14.3 RAG：给模型外挂一个资料库</a>
+<a class="nav-link" href="ch14_4_function_calling.html">14.4 Function Calling：让模型学会「打电话」</a>
+<a class="nav-link" href="ch14_5_agent.html">14.5 Agent：规划、工具与多步执行循环</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 14 章 应用范式</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>14.1 Prompt 工程：不改权重的编程方式</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>14.1 Prompt 工程：不改权重的编程方式</h1>
+<p class="subtitle">本页范围：第 14 章第 1 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>第 12–13 章解决了「模型怎么把概率分布变成文字、怎么高效跑起来」，但同一个部署好的模型，为什么有人用得好、有人用得差？在不改一个参数的前提下，输入文本（prompt）的写法能在多大程度上决定输出质量？</td></tr>
+      <tr><td>本节主张</td><td>Prompt 是模型唯一的输入通道，写 prompt 本质上是在不写代码、不动权重的前提下给模型「编程」。上下文学习（few-shot）证明示例本身就是信息注入；实用技巧（角色设定、指令具体化、格式约束、分隔符）之所以有效，统一解释为把输入往训练分布中优质样本的方向上靠。</td></tr>
+      <tr><td>一句话结论</td><td>Prompt 改变的是条件分布 \(P_\theta(\mathbf{y} \mid \mathbf{c})\) 里的条件 \(\mathbf{c}\)，它只能倾斜概率、不能锁死输出——它是请求，不是约束；真正需要保证的格式与安全，交给 12.4 节的约束解码和外部校验。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>Prompt</span><span>chat template</span><span>系统提示</span><span>上下文学习</span><span>few-shot</span><span>zero-shot</span><span>GPT-3</span><span>提示注入</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　到第 13 章为止，手册走完了 LLM 生命周期的最后一站：模型训练完毕、部署上线，能逐 token 地把概率分布变成文字。第 14 章换一个视角——站在模型外面，问一个使用侧的问题：同一个权重冻结的模型，怎么用得更好？本章的回答是「在模型外面搭脚手架」，而一切脚手架的入口都是 prompt。本节作为全章的开篇，先把 prompt 这个通道本身讲透：它是什么结构、为什么几个示例就能让模型现场学会新任务、常用技巧为什么有效，以及它的能力边界在哪里。</p>
+
+<p>　　本节按「是什么 → 为什么有效 → 怎么用 → 边界在哪」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>Prompt 是什么：模型唯一的输入通道</strong>（14.1.1）：系统提示、用户消息与 chat template 的结构化，对照 minimind 的两种真实拼法；</li>
+  <li><strong>上下文学习：few-shot 为什么不改权重却有效</strong>（14.1.2）：GPT-3 的 zero / one / few-shot 定义与效果，示例作为信息注入的机制；</li>
+  <li><strong>实用技巧清单：角色、指令、格式、分隔符</strong>（14.1.3）：四条主力技巧逐条说清「为什么有效」——往训练分布上靠；</li>
+  <li><strong>Prompt 的边界：它是请求不是约束</strong>（14.1.4）：概率倾斜与硬保证的区别，呼应 12.4 节的结构化输出。</li>
+</ol>
+
+<p>　　读完本节，应该能说清 chat template 在代码里做了什么、用一句话解释 few-shot 的原理，并能判断一个需求该用 prompt 技巧解决还是该上约束解码与外部校验。本节涉及的解码与采样机制（温度、top-p、约束解码）分别在 12.2 节与 12.4 节讲过，这里直接引用结论。</p>
+
+<p>　　逐节展开之前，先看一眼本章在 LLM 生命周期中的位置。需要特别说明的是：应用范式不是生命周期的新一站，而是架在 P8 推理部署之上的使用层——模型本体在 P8 已经收尾，本章的全部内容都发生在它之上（图 1）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS141promptengineering" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG141promptengineering" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS141promptengineering)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS141promptengineering)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS141promptengineering)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS141promptengineering)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS141promptengineering)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS141promptengineering)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS141promptengineering)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：本章内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）与推理训练（第 11 章）塑造模型本体，推理与部署（第 12–13 章，紫框 P8）把模型跑起来——到此模型本体已经收尾。应用范式不是生命周期的新一站，而是架在 P8 之上的使用层：权重不再改变，本章各节（Prompt、思维链、RAG、Function Calling、Agent）全部通过组织输入与输出来挖掘同一个模型的能力。本节讲最底层的那块地基：prompt 本身。</div>
+</div>
+
+<p>　　「使用层」放大之后长什么样？一次对话请求从消息列表到模型吃进 token，中间经过了哪道工序？把 prompt 这条输入通道单独拆开看（图 2）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP141ct" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：chat template 把消息列表拼成一段结构化文本（minimind，eval_llm.py:76）</text>
+    <!-- 左：消息列表 -->
+    <text x="140" y="56" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">输入：消息列表（2 条）</text>
+    <rect x="30" y="70" width="220" height="96" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="46" y="92" font-size="11" font-weight="bold" fill="#155e75">system（系统提示）</text>
+    <text x="46" y="114" font-size="10.5" fill="#555555">「你是一位耐心的</text>
+    <text x="46" y="132" font-size="10.5" fill="#555555">　数学老师」</text>
+    <text x="46" y="154" font-size="10" fill="#888888">角色与行为规范</text>
+    <rect x="30" y="182" width="220" height="96" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="46" y="204" font-size="11" font-weight="bold" fill="#4c1d95">user（用户消息）</text>
+    <text x="46" y="226" font-size="10.5" fill="#555555">「鸡兔同笼，头 35 个、</text>
+    <text x="46" y="244" font-size="10.5" fill="#555555">　脚 94 只，各几只？」</text>
+    <text x="46" y="266" font-size="10" fill="#888888">本轮问题本体</text>
+    <line x1="250" y1="174" x2="304" y2="174" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP141ct)"/>
+    <!-- 中：apply_chat_template -->
+    <rect x="308" y="118" width="150" height="112" rx="10" fill="#6d28d9"/>
+    <text x="383" y="150" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#ffffff">apply_chat_template</text>
+    <text x="383" y="172" text-anchor="middle" font-size="10.5" fill="#ede9fe">按模板插入角色标记</text>
+    <text x="383" y="192" text-anchor="middle" font-size="10.5" fill="#ede9fe">追加生成起始标记</text>
+    <text x="383" y="214" text-anchor="middle" font-size="10" fill="#d8b4fe">eval_llm.py:76</text>
+    <line x1="458" y1="174" x2="500" y2="174" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP141ct)"/>
+    <!-- 右：拼出的文本流 -->
+    <text x="712" y="56" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">输出：一段结构化文本（随后分词成 token ID 序列）</text>
+    <rect x="504" y="70" width="416" height="26" rx="4" fill="#0891b2"/>
+    <text x="516" y="88" font-size="10.5" fill="#ffffff">&lt;|im_start|&gt;system</text>
+    <rect x="504" y="100" width="416" height="26" rx="4" fill="#ecfeff" stroke="#0891b2" stroke-width="1"/>
+    <text x="516" y="118" font-size="10.5" fill="#155e75">你是一位耐心的数学老师&lt;|im_end|&gt;</text>
+    <rect x="504" y="132" width="416" height="26" rx="4" fill="#6d28d9"/>
+    <text x="516" y="150" font-size="10.5" fill="#ffffff">&lt;|im_start|&gt;user</text>
+    <rect x="504" y="162" width="416" height="26" rx="4" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1"/>
+    <text x="516" y="180" font-size="10.5" fill="#4c1d95">鸡兔同笼，头 35 个、脚 94 只，各几只？&lt;|im_end|&gt;</text>
+    <rect x="504" y="194" width="416" height="26" rx="4" fill="#dc2626"/>
+    <text x="516" y="212" font-size="10.5" fill="#ffffff">&lt;|im_start|&gt;assistant　← 模型从这里开始续写</text>
+    <text x="712" y="250" text-anchor="middle" font-size="10.5" fill="#555555">每段消息 = 起始标记 + 角色名 + 内容 + 结束标记</text>
+    <text x="712" y="270" text-anchor="middle" font-size="10.5" fill="#555555">特殊 token 名 &lt;|im_start|&gt; / &lt;|im_end|&gt; 为 minimind（Qwen 系）模板，各家模型模板不同</text>
+    <!-- 底部对照 -->
+    <rect x="30" y="306" width="890" height="112" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="48" y="334" font-size="11.5" font-weight="bold" fill="#555555">对照：base（pretrain）模型没有对话结构，不走 chat template</text>
+    <text x="48" y="360" font-size="10.5" fill="#555555">eval_llm.py:73–74：加载 pretrain 权重时，输入直接拼成 bos_token + prompt——一个开头标记接上原始问题，没有角色、没有轮次边界</text>
+    <text x="48" y="382" font-size="10.5" fill="#555555">eval_llm.py:75–76：加载 SFT 权重时，走 apply_chat_template——消息列表被拼成上方右侧的结构化文本，再交给分词器</text>
+    <text x="48" y="404" font-size="10.5" fill="#888888">同一脚本、同一分词器，两种拼法的区别就是「裸文本」与「结构化对话」的区别；模型在 SFT 阶段（第 9 章）已学会这套标记的含义</text>
+  </svg>
+  <div class="diagram-caption">图 2：prompt 输入通道的局部放大。左侧是应用层看到的输入：system 与 user 两条消息；中间的 chat template（minimind eval_llm.py:76）把它们拼成一段带角色标记的文本（右侧），末尾追加 assistant 起始标记作为续写起点，随后才分词、进模型。底部灰框是对照组：同一个脚本加载 base 权重时（74 行）只把 bos_token 与原始 prompt 直接拼接，没有角色结构。chat template 就是 prompt 结构化的代码实现，它本身不改变任何权重。</div>
+</div>
+
+<h2>14.1.1 Prompt 是什么：模型唯一的输入通道</h2>
+
+<p>　　先给工作定义。Prompt（提示）是喂给模型的那段文本：一次请求里，模型能看到的全部信息就是这段文本切出的 token 序列，不多不少。它对世界的了解只有两个来源——训练时压进权重的（第 1–11 章的全部工作），以及此刻上下文窗口里的 token。权重在部署后是冻结的，于是留给使用者的操作面只剩下一个：把输入序列写好。这就是「prompt 工程」这个名字的来历：它是在不改权重、不写训练代码的前提下，用自然语言给模型编程。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">提示 Prompt</span>
+    <span class="term-en">prompt = 提示、唤起；模型生成输出前看到的全部上下文文本</span>
+  </div>
+  <div class="term-body">
+    <p>在对话产品里，prompt 通常组织成消息列表：system（系统提示，定角色与行为规范，一般由产品方设定）、user（用户消息，本轮问题）、assistant（模型此前的回答，多轮对话时带上）。这份列表不会直接进模型——模型只认 token 序列，中间需要一道「结构化」工序：chat template 按模板把每条消息包上角色标记，拼成一整段文本（如图 2），再交给分词器。模板的具体写法各家模型不同，但职责相同：把「谁在说话」这件对话层面的事，翻译成模型在 SFT 阶段学过的文本模式。</p>
+    <div class="term-analogy">像剧团的剧本：演员（模型）只按剧本念台词，chat template 负责把导演的分工（角色、轮次）誊写成标准剧本格式——谁的名字、说什么词，一行一行标清楚。</div>
+  </div>
+</div>
+
+<p>　　图 2 底部灰框里的对照值得停下来看一眼。同一个 minimind 评测脚本，加载 base（pretrain）权重时走的是第 74 行：输入就是 <code>tokenizer.bos_token + prompt</code>，一个开头标记直接拼上原始问题；加载 SFT 权重时走第 76 行：<code>apply_chat_template(conversation, tokenize=False, add_generation_prompt=True)</code>，消息列表被拼成带 <code>&lt;|im_start|&gt;</code> 角色标记的结构化文本，末尾还追加 assistant 起始标记，等于明确告诉模型「轮到你说话了」。两种拼法对应两类模型的训练经历：base 模型只见过连续文本，SFT 模型见过这套对话标记，自然要用它能理解的方式提问。这也解释了第 9 章的一个现象：为什么 base 模型直接对话常常自说自话、不知道停——它没学过 assistant 该在哪里收尾。</p>
+
+<p>　　把视角再抽象一层，prompt 的全部作用可以用一个条件分布写清楚。第 12 章讲过，解码就是逐 token 地从模型分布里选词；把 prompt 显式写进条件，一次完整的回答生成就是：</p>
+
+<div class="formula-card">
+  \[ P_\theta(\mathbf{y} \mid \mathbf{c}) = \prod_{t=1}^{T} P_\theta\!\left(y_t \mid \mathbf{c},\, y_{&lt;t}\right) \tag{1} \]
+  <div class="formula-note">公式 (1)：一次回答的生成概率——在 prompt 条件下逐 token 链式相乘。符号说明：\(\theta\) 是训练好的模型权重，部署后冻结，本节一切技巧都不碰它；\(\mathbf{c}\) 是 prompt 经 chat template 拼接、分词后的上下文 token 序列（系统提示、用户消息、历史轮次都在里面）；\(\mathbf{y} = (y_1, \dots, y_T)\) 是模型生成的回答序列；\(y_{&lt;t}\) 是已生成的前 \(t-1\) 个输出 token；\(T\) 是回答长度。链式分解本身见附录 A.12。这个公式是本节的总纲：prompt 工程的全部操作，归纳成一句话就是在不动 \(\theta\) 的前提下把条件 \(\mathbf{c}\) 写好。</div>
+</div>
+
+<div class="highlight-box info">
+  注释：公式 (1) 也划清了 prompt 工程与前几章的分工。第 6–11 章改的是 \(\theta\)（预训练、SFT、对齐都在更新权重），第 12–13 章改的是从 \(P_\theta\) 里选词的方式与效率（解码、KV Cache、量化），本章改的是 \(\mathbf{c}\)。三个旋钮互不替代：prompt 写得再好也补不了能力的课，正如 12.2 节的采样参数补不了分布形状的课。
+</div>
+
+<h2>14.1.2 上下文学习：few-shot 为什么不改权重却有效</h2>
+
+<p>　　prompt 通道能承载多少信息？GPT-3 论文（Brown et al., 2020，NeurIPS 2020，arXiv:2005.14165）给出了一个当时超出许多人预期的答案：足够让模型现场学会一个没专门训练过的任务。GPT-3 有 1750 亿参数，论文的核心发现在标题里——语言模型本身就是 few-shot learner（少样本学习者）：只在 prompt 里放几个任务示例，不做任何梯度更新，模型就能照着示例的格式完成新样本。这个现象被称为<strong>上下文学习</strong>（in-context learning）：学习发生在上下文里，不发生在权重里。</p>
+
+<p>　　论文按示例数量把用法分成三档，这套定义沿用至今，已成为事实标准：</p>
+
+<ul>
+  <li><strong>zero-shot（零样本）</strong>：只给任务的自然语言描述，不给示例。例如「把英语翻译成法语：cheese =>」。</li>
+  <li><strong>one-shot（单样本）</strong>：描述之外给 1 个完整示例，再给新输入。例如先放「sea otter => loutre de mer」，再问「cheese =>」。</li>
+  <li><strong>few-shot（少样本）</strong>：给 \(K\) 个示例再加新输入，\(K\) 典型在几十条以内（论文原文约 10 到 100），上限受上下文窗口容量约束（GPT-3 的窗口是 2048 个 token）。</li>
+</ul>
+
+<p>　　三档的区别只在 prompt 的构成，模型与解码方式原封不动。图 3 用论文中的翻译任务示例把三档摆在一起对照：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 380" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP141fs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">三种设定的 prompt 构成对比（示例取自 GPT-3 论文的英法翻译任务）</text>
+    <!-- zero-shot -->
+    <text x="175" y="58" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">zero-shot：只给任务描述</text>
+    <rect x="35" y="74" width="280" height="46" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="50" y="94" font-size="10.5" font-weight="bold" fill="#4c1d95">任务描述</text>
+    <text x="50" y="112" font-size="10.5" fill="#555555">「把英语翻译成法语：」</text>
+    <rect x="35" y="130" width="280" height="46" rx="6" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
+    <text x="50" y="150" font-size="10.5" font-weight="bold" fill="#92400e">新输入</text>
+    <text x="50" y="168" font-size="10.5" fill="#555555">「cheese =>」</text>
+    <line x1="175" y1="176" x2="175" y2="212" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP141fs)"/>
+    <rect x="35" y="218" width="280" height="52" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="175" y="240" text-anchor="middle" font-size="10.5" fill="#555555">模型续写（权重不动）</text>
+    <text x="175" y="258" text-anchor="middle" font-size="10.5" fill="#555555">全凭描述理解任务</text>
+    <!-- one-shot -->
+    <text x="500" y="58" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">one-shot：描述 + 1 个示例</text>
+    <rect x="360" y="74" width="280" height="34" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="375" y="96" font-size="10.5" fill="#4c1d95">任务描述：「把英语翻译成法语：」</text>
+    <rect x="360" y="116" width="280" height="40" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="375" y="133" font-size="10.5" font-weight="bold" fill="#155e75">示例 1</text>
+    <text x="375" y="149" font-size="10.5" fill="#555555">「sea otter => loutre de mer」</text>
+    <rect x="360" y="164" width="280" height="34" rx="6" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
+    <text x="375" y="186" font-size="10.5" fill="#92400e">新输入：「cheese =>」</text>
+    <line x1="500" y1="198" x2="500" y2="212" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP141fs)"/>
+    <rect x="360" y="218" width="280" height="52" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="500" y="240" text-anchor="middle" font-size="10.5" fill="#555555">模型续写（权重不动）</text>
+    <text x="500" y="258" text-anchor="middle" font-size="10.5" fill="#555555">照着示例的格式作答</text>
+    <!-- few-shot -->
+    <text x="825" y="58" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">few-shot：描述 + K 个示例</text>
+    <rect x="685" y="74" width="280" height="30" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="700" y="94" font-size="10.5" fill="#4c1d95">任务描述：「把英语翻译成法语：」</text>
+    <rect x="685" y="110" width="280" height="30" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="700" y="130" font-size="10.5" fill="#155e75">示例 1：「sea otter => loutre de mer」</text>
+    <rect x="685" y="146" width="280" height="30" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="700" y="166" font-size="10.5" fill="#155e75">示例 2：「peppermint => menthe poivrée」</text>
+    <rect x="685" y="182" width="280" height="30" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="700" y="202" font-size="10.5" fill="#155e75">示例 3：「plush giraffe => girafe peluche」</text>
+    <text x="825" y="226" text-anchor="middle" font-size="11" fill="#555555">⋮　（K 典型几十条以内，受窗口容量约束）</text>
+    <rect x="685" y="236" width="280" height="30" rx="6" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
+    <text x="700" y="256" font-size="10.5" fill="#92400e">新输入：「cheese =>」</text>
+    <line x1="825" y1="266" x2="825" y2="286" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP141fs)"/>
+    <rect x="685" y="292" width="280" height="52" rx="6" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="825" y="314" text-anchor="middle" font-size="10.5" fill="#555555">模型续写（权重不动）</text>
+    <text x="825" y="332" text-anchor="middle" font-size="10.5" fill="#555555">从多个示例归纳任务规律</text>
+  </svg>
+  <div class="diagram-caption">图 3：zero-shot、one-shot、few-shot 的 prompt 构成对比。三档共用同一个冻结模型与同一份任务描述，差别只在示例数量：zero-shot 没有任何示范，one-shot 放 1 个完整问答对，few-shot 放 \(K\) 个。图中翻译示例（sea otter / peppermint / plush giraffe / cheese）取自 GPT-3 论文的英法翻译任务（arXiv:2005.14165），此处按手册风格重绘。示例全部位于上下文内，不参与梯度更新——这是与微调（第 9 章）的本质分界。</div>
+</div>
+
+<p>　　为什么不改权重也能「学会」？回到公式 (1) 看条件 \(\mathbf{c}\) 的变化。zero-shot 时，\(\mathbf{c}\) 里只有一句任务描述，模型要靠自己对这句话的理解去猜测输出格式，理解稍有偏差答法就飘了；few-shot 时，\(K\) 个「输入 => 输出」的实例排进上下文，任务是什么、答案长什么样，全部由实例显式给出，模型剩下的工作只是续写出一个与示例同构的续篇。信息论一点的说法：示例把任务规格写进了条件，输出分布的不确定性因此大幅降低。</p>
+
+<p>　　模型为什么具备「照着示例续写」的本领？直觉答案藏在训练数据里。预训练语料（第 1 章）里天然充满「题目—解答—题目—解答」的同构模式：教材的例题、论坛的问答、试卷的参考答案。在海量文本上做下一个 token 预测（第 6 章）的模型，早已学会识别这种模式并延续它。few-shot 不过是把这个压进权重的能力，用几个示例在上下文里激活出来——没有新学习，只有旧能力的现场调度。需要说明的是，这属于被广泛接受的直觉解释；上下文学习的内在机制在学术界仍是开放问题，存在多种竞争性解释，prompt 综述（arXiv:2107.13586）对相关工作有系统梳理，本手册不展开。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">上下文学习 In-Context Learning</span>
+    <span class="term-en">in-context = 在上下文之中；学习信号只来自 prompt 里的示例，权重零更新</span>
+  </div>
+  <div class="term-body">
+    <p>由 GPT-3 论文确立的现象与术语：把任务的少量示例放进 prompt，模型即可对新输入给出同构答案，全程不做梯度更新。与微调（第 9 章）的分界线在于参数变不变：微调把任务知识写进权重，关掉对话也在；上下文学习把任务知识放在上下文里，这段对话结束它就消失。二者成本也不同：few-shot 零训练成本、即改即用，但示例每次请求都占上下文窗口、都要付推理的 token 账。</p>
+    <div class="term-analogy">像考试允许带一张公式小抄：知识没进脑子（权重），写在带进考场的纸上（上下文）照样能解题；交卷离场，小抄上的内容就与你无关了。</div>
+  </div>
+</div>
+
+<p>　　效果如何？论文报告，GPT-3 在 few-shot 设定下于翻译、问答、完形填空以及需要现场推理或领域适应的任务上达到有竞争力的水平，其中一部分逼近当时的微调最优结果；且 few-shot 能力随模型规模增长明显——模型越大，从示例中提取任务规律的本领越强。这条「规模依赖」值得记住：上下文学习是模型规模给到一定程度后才显现的能力，小模型上的 few-shot 效果要打折扣，不必硬套。</p>
+
+<h2>14.1.3 实用技巧清单：角色、指令、格式、分隔符</h2>
+
+<p>　　few-shot 之外，日常 prompt 工程还有一组不依赖示例的主力技巧。prompt 综述文献对它们有系统的收集与分类：早期全景综述见 Liu et al.（arXiv:2107.13586，ACM Computing Surveys 2023），2024 年的现代技巧综述见 Sahoo et al.（arXiv:2402.07927），White et al.（arXiv:2302.11382）则整理了一份可直接套用的提示模式目录。本节取其中最常用、原理也最清楚的四条。先给总纲：四条技巧看似互不相关，为什么有效的解释却是同一句——把 prompt 往模型训练分布中「优质样本」的方向上靠，让公式 (1) 的条件 \(\mathbf{c}\) 更像那些伴随高质量回答的文本。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>技巧</th><th>典型写法</th><th>为什么有效（分布解释）</th></tr></thead>
+    <tbody>
+      <tr><td>角色设定</td><td>系统提示写「你是一位耐心的数学老师」</td><td>把输出条件化到该角色的文体区域：训练语料里，教师口吻的文本确实更耐心、更讲步骤</td></tr>
+      <tr><td>指令具体化</td><td>说清任务、步骤、约束、不要什么</td><td>减少歧义：模糊指令让多个「可能的任务」瓜分概率质量，写具体等于把分布收窄到目标任务上</td></tr>
+      <tr><td>输出格式约束</td><td>「用 JSON 回答」「分三点，每点不超过两句」</td><td>格式词出现在上下文里，续写时同类格式概率升高；且语料中格式规范的文本往往质量更高</td></tr>
+      <tr><td>分隔符</td><td>用 ###、```、XML 标签把指令与数据分开</td><td>结构化标记在语料中常伴随清晰边界，模型据此区分「该执行的指令」与「该处理的素材」</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　逐条展开。<strong>角色设定</strong>利用的是系统提示这个专用通道（14.1.1）：「你是一位……」不是客套，而是给整个回答定调的条件信号。模型在语料里见过海量不同角色的文本，角色词会把续写拉向对应区域——「数学老师」带出讲步骤的口吻，「资深编辑」带出挑语病的眼光。角色写得越具体，条件化越精确。</p>
+
+<p>　　<strong>指令具体化</strong>针对的是歧义。「总结一下这篇文章」在模型眼里对应许多个都合理的任务：一句话摘要、分点摘要、面向小学生的摘要、五百字摘要——概率质量被这些可能用途摊薄，抽到哪支全凭运气。把「给谁看、多长、什么结构、不要什么」写清楚，等于把无关用途的概率逐一切走。这条技巧零成本，收益却往往最大。</p>
+
+<p>　　<strong>输出格式约束</strong>与<strong>分隔符</strong>是一对搭档：前者规定回答长什么样，后者规定输入怎么分区。格式要求（JSON、表格、三点式）写进 prompt 后，模型续写时会高概率模仿——语料里格式词与格式实例本就共生。分隔符则处理另一个问题：当指令和数据混在一段文本里（「把下面这段话翻译成英语：……」），边界不清时模型可能把数据当指令执行。用 ###、三个反引号或 XML 标签把数据包起来，借的是训练语料里结构化标记与清晰边界的共现规律。14.1.4 会看到，这层「区分」是概率意义上的倾斜，并非铁闸。</p>
+
+<div class="highlight-box info">
+  注释：技巧有效不等于技巧万能。这些写法提高的是「得到想要回答」的概率，不是把概率推到 1。同一 prompt 换个随机种子、换个解码温度（12.2 节），结果仍可能波动。评估一个 prompt 写法是否真的好，需要在多个样本上统计成功率，单次的惊艳或翻车都不作数。
+</div>
+
+<h2>14.1.4 Prompt 的边界：它是请求不是约束</h2>
+
+<p>　　技巧清单容易给人一种感觉：prompt 写到位，模型就会照办。这个感觉必须校正。回看公式 (1)：prompt 出现在条件 \(\mathbf{c}\) 里，它能改变分布的形状——让想要的输出概率升高、不想要的降低——但只要概率没有真正归零，采样（12.2 节）就仍可能选中那个不想要的尾巴。「请只输出 JSON」之后模型回一句「好的，这是你要的 JSON」，不是模型故意作对，是分布里那点剩余概率被抽中了。prompt 是请求，不是约束，这是它的结构性属性，不是技巧不足。</p>
+
+<p>　　图 4 把这个区别画成两个分布：左边只靠 prompt 约束，非法候选只是概率变小；右边用约束解码，非法候选被直接清零：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 400" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">同一个「请只输出 JSON」请求下，下一步 token 的候选分布（数值小例，柱顶数值为准，可复算）</text>
+    <!-- 左：只靠 prompt -->
+    <rect x="16" y="44" width="452" height="300" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="242" y="70" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">只靠 prompt：概率倾斜</text>
+    <rect x="60" y="120" width="52" height="180" fill="#6d28d9"/>
+    <rect x="130" y="255" width="52" height="45" fill="#6d28d9"/>
+    <rect x="200" y="270" width="52" height="30" fill="#dc2626"/>
+    <rect x="270" y="280" width="52" height="20" fill="#dc2626"/>
+    <rect x="340" y="290" width="52" height="10" fill="#dc2626"/>
+    <text x="86" y="112" text-anchor="middle" font-size="10.5" fill="#4c1d95">0.72</text>
+    <text x="156" y="247" text-anchor="middle" font-size="10.5" fill="#4c1d95">0.09</text>
+    <text x="226" y="262" text-anchor="middle" font-size="10.5" fill="#dc2626">0.06</text>
+    <text x="296" y="272" text-anchor="middle" font-size="10.5" fill="#dc2626">0.04</text>
+    <text x="366" y="282" text-anchor="middle" font-size="10.5" fill="#dc2626">0.02</text>
+    <line x1="48" y1="300" x2="420" y2="300" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="86" y="316" text-anchor="middle" font-size="10.5" fill="#555">{</text>
+    <text x="156" y="316" text-anchor="middle" font-size="10.5" fill="#555">"</text>
+    <text x="226" y="316" text-anchor="middle" font-size="10.5" fill="#555">好的</text>
+    <text x="296" y="316" text-anchor="middle" font-size="10.5" fill="#555">总之</text>
+    <text x="366" y="316" text-anchor="middle" font-size="10.5" fill="#555">其余</text>
+    <text x="242" y="338" text-anchor="middle" font-size="10.5" fill="#dc2626">红色尾巴仍在：每步都有非零概率抽出非 JSON 开头</text>
+    <!-- 右：约束解码 -->
+    <rect x="492" y="44" width="452" height="300" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="718" y="70" text-anchor="middle" font-size="12" font-weight="bold" fill="#15803d">约束解码（12.4 节）：硬性清零</text>
+    <rect x="536" y="120" width="52" height="180" fill="#16a34a"/>
+    <rect x="606" y="255" width="52" height="45" fill="#16a34a"/>
+    <rect x="676" y="270" width="52" height="30" fill="#d1d5db" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4 3"/>
+    <rect x="746" y="280" width="52" height="20" fill="#d1d5db" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4 3"/>
+    <rect x="816" y="290" width="52" height="10" fill="#d1d5db" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="562" y="112" text-anchor="middle" font-size="10.5" fill="#15803d">0.80</text>
+    <text x="632" y="247" text-anchor="middle" font-size="10.5" fill="#15803d">0.10</text>
+    <text x="702" y="262" text-anchor="middle" font-size="10.5" fill="#dc2626">−∞</text>
+    <text x="772" y="272" text-anchor="middle" font-size="10.5" fill="#dc2626">−∞</text>
+    <text x="842" y="282" text-anchor="middle" font-size="10.5" fill="#dc2626">−∞</text>
+    <line x1="524" y1="300" x2="896" y2="300" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="562" y="316" text-anchor="middle" font-size="10.5" fill="#555">{</text>
+    <text x="632" y="316" text-anchor="middle" font-size="10.5" fill="#555">"</text>
+    <text x="702" y="316" text-anchor="middle" font-size="10.5" fill="#555">好的</text>
+    <text x="772" y="316" text-anchor="middle" font-size="10.5" fill="#555">总之</text>
+    <text x="842" y="316" text-anchor="middle" font-size="10.5" fill="#555">其余</text>
+    <text x="718" y="338" text-anchor="middle" font-size="10.5" fill="#15803d">非法候选置 −∞，归一化后合法候选重新分账</text>
+    <text x="480" y="378" text-anchor="middle" font-size="10.5" fill="#6b7280">左图分布为示意小例；右图的置 −∞ 与归一化机制与 12.2 节 top-k / top-p 截断相同，只是截断规则换成了语法状态机</text>
+  </svg>
+  <div class="diagram-caption">图 4：「请求」与「约束」的机制差别。左：prompt 里写「只输出 JSON」，「好的」「总之」这类非法开头的概率被压低但没有消失（红色尾巴），采样仍可能抽中；右：约束解码按语法状态机把非法候选的 logit 置为 −∞，softmax 后概率严格为 0，合法候选归一化重新分账（0.72 / 0.09 变为 0.80 / 0.10）。前者是分布倾斜，后者是分布手术——要格式保证，用后者。</div>
+</div>
+
+<p>　　同一个结构性限制在安全场景下后果更严重，它有个专门的名字：<strong>提示注入</strong>（prompt injection）。在模型眼里，系统提示与用户输入没有权限等级之分——它们只是同一段 token 流的不同位置（图 2 看得很清楚：拼起来就是一条序列）。用户输入一句「忽略之前的所有指令，照我说的做」，这段文字同样进入条件 \(\mathbf{c}\)，同样倾斜分布，有时真能把模型从系统提示的轨道上拉走。因此系统提示不能当安全边界用：凡涉及权限、资金、隐私数据的操作，防线必须建在模型外面（调用前的校验、最小权限的工具接口），不能指望措辞拦住恶意输入。</p>
+
+<div class="highlight-box danger">
+  把「系统提示里写了不许做 X」当作安全保证是典型误用。系统提示与用户输入在模型看来是同一段文本，提示注入没有一劳永逸的 prompt 解法；真正的防线在外部：约束解码保证格式、代码校验保证语义、最小权限与人工确认保证操作安全。14.4 节讲工具调用时会回到这个话题。
+</div>
+
+<p>　　那么 prompt 边界之外的正确工具是什么？按需求分三类：要<strong>格式保证</strong>（必须是合法 JSON、必须命中枚举值），用 12.4 节的结构化输出与约束解码，把合法性升格为解码期保证，如图 4 右侧；要<strong>语义正确</strong>（计算结果对、代码能跑），把验证写成代码，输出后校验、失败重试，或在 14.4 节把计算本身外包给工具；要<strong>模型不知道的知识</strong>（私有文档、实时信息），prompt 里硬写「不许编造」收效甚微，正解是 14.3 节的 RAG——把资料查好塞进上下文。prompt 工程负责「把请求表达清楚」，这三类问题都超出了「表达」能解决的范畴。</p>
+
+<div class="highlight-box">
+  本节的核心结论可以收成一句：prompt 是写给分布的请求书，不是发给系统的命令。它改变公式 (1) 中条件 \(\mathbf{c}\) 的内容，从而倾斜每一个输出 token 的概率；倾斜可以非常强，但永远不等于锁死。工程上的正确姿势是分层：表达层用 prompt 技巧把分布引向目标，保证层用约束解码与外部校验兜住剩余概率。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么说写 prompt 是「不改权重的编程」？</div>
+    <div class="sc-key">模型部署后权重 \(\theta\) 冻结，使用者唯一能操作的是公式 (1) 里的条件 \(\mathbf{c}\)：系统提示定角色、用户消息给任务、chat template（minimind eval_llm.py:76）把消息列表拼成带角色标记的结构化文本。对照 74 行 base 模型的裸拼 bos_token + prompt，就能看出这道「结构化」工序正是 prompt 工程的代码实现。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">few-shot 不做梯度更新，为什么能让模型学会新任务？</div>
+    <div class="sc-key">示例把任务规格显式写进了上下文，模型只需续写出与示例同构的续篇，输出分布的不确定性大幅降低。本领来自预训练：语料里充满「题目—解答」的同构模式，下一个 token 预测训练让模型学会了识别并延续它。few-shot 是旧能力的现场调度，不是新学习——关掉对话，这份「学会」就消失。内在机制在学术界仍是开放问题。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">「请只输出 JSON」为什么不能算可靠保证，正确做法是什么？</div>
+    <div class="sc-key">prompt 只倾斜概率，非法候选仍有非零概率被采样抽中；同理系统提示拦不住提示注入，因为系统提示与用户输入在模型眼里是同一段 token 流。正确做法分层：格式保证用约束解码（12.4 节，非法候选置 −∞），语义正确用代码校验加重试，知识缺口用 RAG（14.3 节）补齐，安全防线建在模型外部。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Brown et al., 2020. Language Models are Few-Shot Learners（GPT-3 原始论文，arXiv:2005.14165，NeurIPS 2020）：1750 亿参数；zero-shot / one-shot / few-shot 三档定义；few-shot 不更新梯度、示例仅位于上下文；few-shot 在翻译、问答、完形填空与需现场推理的任务上达到有竞争力水平、部分逼近当时微调最优；few-shot 能力随规模增长；上下文窗口 2048 token、\(K\) 约 10 至 100；英法翻译示例（sea otter / peppermint / plush giraffe / cheese）取自论文图 1.1。已核对 arXiv 摘要页。</li>
+  <li>Liu et al., 2023. Pre-train, Prompt, and Predict: A Systematic Survey of Prompting Methods in NLP（prompt 综述，arXiv:2107.13586，ACM Computing Surveys）：prompt 范式的系统化梳理、prompt 方法分类与机理研究综述；已核对 arXiv 摘要页。</li>
+  <li>Sahoo et al., 2024. A Systematic Survey of Prompt Engineering in Large Language Models: Techniques and Applications（arXiv:2402.07927）：现代 prompt 技巧的分类整理；已核对 arXiv 摘要页。</li>
+  <li>White et al., 2023. A Prompt Pattern Catalog to Enhance Prompt Engineering with ChatGPT（提示模式目录，arXiv:2302.11382）：可套用的提示模式集合；已核对 arXiv 摘要页（注意勿与 arXiv:2302.11373 混淆，后者为物理论文）。</li>
+  <li>minimind（Apache 2.0），eval_llm.py:73–76：base 权重裸拼 <code>tokenizer.bos_token + prompt</code>（74 行）与 SFT 权重 <code>apply_chat_template</code>（76 行）两种输入拼法；model/tokenizer_config.json 中的 chat template（&lt;|im_start|&gt; / &lt;|im_end|&gt; 角色标记、add_generation_prompt 追加 assistant 起始标记）。</li>
+  <li>本手册 12.2 节（采样三件套）、12.4 节（结构化输出与约束解码）、附录 A.12（条件概率与链式分解）：公式 (1) 与图 4 的机制依据。</li>
+  <li>待核实事项：上下文学习的内在机制（贝叶斯推断等竞争性解释）本节仅作开放问题提及，未展开，具体论点归属请以上述综述原文为准。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch13_6_speculative_scaling.html" title="13.6 投机采样与推理时扩展：无损加速与多花计算的两端">← 上一节：13.6 投机采样与推理时扩展：无损加速与多花计算的两端</a><a class="next" href="ch14_2_cot.html" title="14.2 思维链：让模型把中间步骤写出来">下一节：14.2 思维链：让模型把中间步骤写出来 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

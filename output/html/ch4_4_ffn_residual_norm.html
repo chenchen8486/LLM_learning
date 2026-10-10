@@ -324,6 +324,27 @@ tr:last-child td{border-bottom:none}
   </div>
 </div>
 <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 13 章 推理系统与部署</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch13_1_inference_cost.html">13.1 推理的成本结构：显存、算力、带宽谁先成为瓶颈</a>
+<a class="nav-link" href="ch13_2_kv_cache.html">13.2 KV Cache：用显存换速度的核心缓存</a>
+<a class="nav-link" href="ch13_3_serving_systems.html">13.3 服务化：连续批处理与 PagedAttention</a>
+<a class="nav-link" href="ch13_4_quantization.html">13.4 量化：FP16 到 INT4 的压缩术</a>
+<a class="nav-link" href="ch13_5_distillation.html">13.5 蒸馏：大模型教小模型</a>
+<a class="nav-link" href="ch13_6_speculative_scaling.html">13.6 投机采样与推理时扩展：无损加速与多花计算的两端</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 14 章 应用范式</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch14_1_prompt_engineering.html">14.1 Prompt 工程：不改权重的编程方式</a>
+<a class="nav-link" href="ch14_2_cot.html">14.2 思维链：让模型把中间步骤写出来</a>
+<a class="nav-link" href="ch14_3_rag.html">14.3 RAG：给模型外挂一个资料库</a>
+<a class="nav-link" href="ch14_4_function_calling.html">14.4 Function Calling：让模型学会「打电话」</a>
+<a class="nav-link" href="ch14_5_agent.html">14.5 Agent：规划、工具与多步执行循环</a>
+  </div>
+</div>
+<div class="nav-group">
   <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
   <div class="nav-children collapsed">
     <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
@@ -439,7 +460,136 @@ tr:last-child td{border-bottom:none}
   <div class="diagram-caption">图 1：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）变成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层逐层加工，再经输出投影算分（本章后半）、采样出下一个 token 接回输入（第 12 章）。本节只看这一站内部：注意力之外，一层还需要 FFN、残差连接与层归一化三位搭档才完整。</div>
 </div>
 
-<p>　　这个紫框放大之后长什么样？一层 block 的输入和输出各是什么形状，三件套按什么顺序包裹子层？把现代模型的一层单独拆开看：</p>
+<p>　　「一层」在链路里的位置清楚了，接下来需要一座桥，从整条链路走进单层内部。这座桥 4.1 节已经搭好：那张两塔流水线图就是整个网络的架构总览，塔里每个白框「子层组」（注意力或 FFN，外加残差与归一化）就是一层的核心构件。把它转引在这里作架构地图（图 2），本节要拆的就是这些子层组的内部构造：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 780 590" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrT44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrTC44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+      <marker id="arrTR44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+
+    <!-- 塔标题 -->
+    <text x="180" y="30" text-anchor="middle" font-size="15" font-weight="bold" fill="#6d28d9">编码器（读懂源句）</text>
+    <text x="540" y="30" text-anchor="middle" font-size="15" font-weight="bold" fill="#6d28d9">解码器（逐词写译文）</text>
+
+    <!-- 编码器：顶部输出 z -->
+    <rect x="60" y="46" width="240" height="52" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="180" y="68" text-anchor="middle" font-size="14" fill="#333">上下文表示 z</text>
+    <text x="180" y="88" text-anchor="middle" font-size="11" fill="#666">每个 token 一个 512 维向量</text>
+    <line x1="180" y1="130" x2="180" y2="101" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT44)"/>
+
+    <!-- 编码器层堆叠：数据自下而上，每个白框是一个完整子层（先变换、后残差归一化） -->
+    <rect x="55" y="130" width="250" height="220" rx="12" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="180" y="150" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">编码器层 ×6（两个子层，自下而上）</text>
+
+    <!-- 编码器 子层 2 组（紫色粗边框 = 图 4 展开范围） -->
+    <rect x="70" y="158" width="220" height="94" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
+    <rect x="80" y="166" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="180" y="181" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
+    <line x1="180" y1="198" x2="180" y2="191" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT44)"/>
+    <rect x="80" y="198" width="200" height="50" rx="6" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="180" y="219" text-anchor="middle" font-size="13" fill="#333">子层 2：前馈网络 FFN</text>
+    <text x="180" y="237" text-anchor="middle" font-size="11" fill="#666">512 → 2048 → 512</text>
+
+    <line x1="180" y1="262" x2="180" y2="255" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT44)"/>
+
+    <!-- 编码器 子层 1 组（紫色粗边框 = 图 4 展开范围） -->
+    <rect x="70" y="262" width="220" height="82" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
+    <rect x="80" y="270" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="180" y="285" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
+    <line x1="180" y1="302" x2="180" y2="295" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT44)"/>
+    <rect x="80" y="302" width="200" height="38" rx="6" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="180" y="326" text-anchor="middle" font-size="13" fill="#333">子层 1：多头自注意力</text>
+
+    <line x1="180" y1="358" x2="180" y2="347" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT44)"/>
+
+    <!-- 编码器：Embedding -->
+    <rect x="60" y="358" width="240" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="180" y="380" text-anchor="middle" font-size="13" fill="#333">Embedding × √512</text>
+    <text x="180" y="398" text-anchor="middle" font-size="11" fill="#666">再加位置编码（第 3 章）</text>
+    <line x1="180" y1="440" x2="180" y2="413" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT44)"/>
+
+    <!-- 编码器：输入 -->
+    <rect x="60" y="440" width="240" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="180" y="460" text-anchor="middle" font-size="13" fill="#333">源句 token 序列</text>
+    <text x="180" y="477" text-anchor="middle" font-size="11" fill="#666">例：I love you（4 个 token）</text>
+
+    <!-- 解码器：顶部输出 -->
+    <rect x="420" y="46" width="240" height="52" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="540" y="68" text-anchor="middle" font-size="14" fill="#333">Linear + Softmax</text>
+    <text x="540" y="88" text-anchor="middle" font-size="11" fill="#666">输出下一个词的概率</text>
+    <line x1="540" y1="130" x2="540" y2="101" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT44)"/>
+
+    <!-- 解码器层堆叠：数据自下而上，每个白框是一个完整子层（先变换、后残差归一化） -->
+    <rect x="415" y="130" width="250" height="300" rx="12" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="540" y="150" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">解码器层 ×6（三个子层，自下而上）</text>
+
+    <!-- 解码器 子层 3 组（橙色边框 = 图 3 展开范围） -->
+    <rect x="430" y="158" width="220" height="82" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="2"/>
+    <rect x="440" y="166" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="540" y="181" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
+    <line x1="540" y1="198" x2="540" y2="191" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT44)"/>
+    <rect x="440" y="198" width="200" height="38" rx="6" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="540" y="222" text-anchor="middle" font-size="13" fill="#333">子层 3：前馈网络 FFN</text>
+
+    <line x1="540" y1="250" x2="540" y2="243" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT44)"/>
+
+    <!-- 解码器 子层 2 组 -->
+    <rect x="430" y="250" width="220" height="82" rx="8" fill="#ffffff" stroke="#a78bfa" stroke-width="1.2"/>
+    <rect x="440" y="258" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="540" y="273" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
+    <line x1="540" y1="290" x2="540" y2="283" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT44)"/>
+    <rect x="440" y="290" width="200" height="38" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="540" y="314" text-anchor="middle" font-size="13" fill="#333">子层 2：编码器-解码器注意力</text>
+
+    <line x1="540" y1="342" x2="540" y2="335" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT44)"/>
+
+    <!-- 解码器 子层 1 组（橙色边框 = 图 3 展开范围） -->
+    <rect x="430" y="342" width="220" height="82" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="2"/>
+    <rect x="440" y="350" width="200" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="540" y="365" text-anchor="middle" font-size="11" fill="#047857">残差连接 + 层归一化</text>
+    <line x1="540" y1="382" x2="540" y2="375" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT44)"/>
+    <rect x="440" y="382" width="200" height="38" rx="6" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="540" y="406" text-anchor="middle" font-size="13" fill="#333">子层 1：掩码多头自注意力</text>
+
+    <line x1="540" y1="438" x2="540" y2="427" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT44)"/>
+
+    <!-- 解码器：Embedding -->
+    <rect x="420" y="438" width="240" height="52" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="540" y="460" text-anchor="middle" font-size="13" fill="#333">Embedding × √512</text>
+    <text x="540" y="478" text-anchor="middle" font-size="11" fill="#666">再加位置编码（第 3 章）</text>
+    <line x1="540" y1="520" x2="540" y2="493" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT44)"/>
+
+    <!-- 解码器：输入 -->
+    <rect x="420" y="520" width="240" height="44" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="540" y="540" text-anchor="middle" font-size="13" fill="#333">已生成前缀（右移一位）</text>
+    <text x="540" y="557" text-anchor="middle" font-size="11" fill="#666">起始符 + 已写出的译文词</text>
+
+    <!-- 跨塔箭头：编码器输出喂给解码器子层 2 -->
+    <path d="M 300 72 C 380 72 360 309 435 309" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrTC44)"/>
+    <text x="368" y="58" text-anchor="middle" font-size="12" fill="#0891b2">K、V 来自编码器</text>
+
+    <!-- 展开范围图例 -->
+    <text x="180" y="581" text-anchor="middle" font-size="11.5" fill="#6d28d9">紫色边框的两个子层组（自注意力 + FFN）= 图 4 展开范围（4.4.4）</text>
+    <text x="540" y="581" text-anchor="middle" font-size="11.5" fill="#d97706">橙色边框的两个子层组（子层 1 + 子层 3）= 图 3 展开的范围</text>
+
+    <!-- 自回归循环 -->
+    <path d="M 660 72 L 740 72 L 740 542 L 664 542" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrTR44)"/>
+    <text x="752" y="307" text-anchor="middle" font-size="12" fill="#dc2626" transform="rotate(90 752 307)">输出接回输入，逐词循环</text>
+  </svg>
+  <div class="diagram-caption">图 2：Transformer 两塔流水线（与 4.1 节图 3 为同一张图，转引至此作为本节的架构地图）。数据自下而上流动：编码器读源句，解码器逐词写译文，塔中每个白框是一个完整子层（先变换、后残差归一化）。两塔的子层组是同构的——编码塔的子层组（自注意力 + FFN，紫色边框）由图 4 按原论文 Post-LN 顺序展开；今天的 decoder-only LLM 相当于只保留解码塔、去掉编码器-解码器注意力子层，图 3 展开的就是解码塔中橙色边框圈出的两个子层组（子层 1 掩码自注意力 + 子层 3 FFN）的现代形态。本节讲的 FFN、残差、归一化三件套对两塔一视同仁，差别只在顺序与掩码。</div>
+</div>
+
+<p>　　对应关系先立清楚：图 3 展开的是图 2 解码塔（右塔）一层中的两个白框——子层 1「掩码多头自注意力」组和子层 3「前馈网络 FFN」组，图 2 已用橙色边框把它们圈出；夹在中间的子层 2「编码器-解码器注意力」在 decoder-only 模型里没有对应物，直接去掉。取出这两个子层组后，按今天模型的做法重新组装——归一化挪到子层之前、LN 换成 RMSNorm、FFN 换成 SwiGLU——就得到图 3：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -489,7 +639,7 @@ tr:last-child td{border-bottom:none}
     <text x="182" y="265" font-size="11.5" fill="#0891b2">残差旁路</text>
     <text x="380" y="562" text-anchor="middle" font-size="12.5" fill="#666">每个子层都是「先 RMSNorm、再计算、最后残差相加」；形状全程 3 × 768，×8 层堆叠（minimind）</text>
   </svg>
-  <div class="diagram-caption">图 2：现代 LLM 一层 Block 的内部数据流（Pre-Norm 顺序，数字取自 minimind：768 维主干、FFN 中间层 2432、GQA 8 头 Q / 4 组 KV）。两个子层各自先过 RMSNorm 再计算，输入沿残差旁路原样直达加法点；张量形状从头到尾是 3 × 768，所以 8 层可以逐层接续。与图 3（4.4.4 节原论文 Post-LN 数据流）对照看：顺序从「相加后归一化」变成「归一化后计算再相加」，LN 换成 RMSNorm，原因在第 5 章。</div>
+  <div class="diagram-caption">图 3：图 2 解码塔中橙色边框的两个子层组（子层 1 掩码自注意力 + 子层 3 FFN）在现代 decoder-only 模型里的展开形态（Pre-Norm 顺序，数字取自 minimind：768 维主干、FFN 中间层 2432、GQA 8 头 Q / 4 组 KV）。两个子层各自先过 RMSNorm 再计算，输入沿残差旁路原样直达加法点；张量形状从头到尾是 3 × 768，所以 8 层可以逐层接续。与图 4（4.4.4 节原论文 Post-LN 数据流）对照看：顺序从「相加后归一化」变成「归一化后计算再相加」，LN 换成 RMSNorm，原因在第 5 章。</div>
 </div>
 
 <h2>4.4.1 FFN：每个位置的独立思考</h2>
@@ -676,10 +826,10 @@ tr:last-child td{border-bottom:none}
     <!-- 底部说明 -->
     <text x="380" y="600" text-anchor="middle" font-size="13" fill="#666">每个子层都被同一套流程包裹：dropout → 残差相加 → 层归一化</text>
   </svg>
-  <div class="diagram-caption">图 3：原论文 Post-LN 顺序下，一层编码器的完整数据流。两个子层各自被三件套包裹，张量形状全程 (n, 512) 不变。</div>
+  <div class="diagram-caption">图 4：原论文 Post-LN 顺序下，一层编码器的完整数据流。两个子层各自被三件套包裹，张量形状全程 (n, 512) 不变。它就是本页图 2 两塔中编码器层按原论文顺序的精确展开（与图 3 的现代 Pre-Norm 版本对照）。</div>
 </div>
 
-<p>　　注意图 3 里一个贯穿始终的事实：从输入到输出，张量形状始终是 \((n,512)\)。残差相加能成立靠它（形状一致才能相加），层与层之间能无限堆叠也靠它——这一层的输出形状和输入一样，下一层原样接上即可。</p>
+<p>　　注意图 4 里一个贯穿始终的事实：从输入到输出，张量形状始终是 \((n,512)\)。残差相加能成立靠它（形状一致才能相加），层与层之间能无限堆叠也靠它——这一层的输出形状和输入一样，下一层原样接上即可。</p>
 
 <div class="highlight-box info">
   演进预告：原论文这种「先相加、后归一化」的顺序叫 Post-LN。后来的研究发现，把归一化挪到子层输入侧（Pre-LN，即 \(x+\mathrm{Sublayer}(\mathrm{LN}(x))\)）在深层模型中训练更稳定，甚至不必依赖学习率预热（Xiong et al., 2020）；LN 本身被简化成 RMSNorm，FFN 的 ReLU 也被 SwiGLU 取代。这些现代变体是第 5 章的主题，5.1 节细讲。

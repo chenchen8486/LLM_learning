@@ -324,6 +324,27 @@ tr:last-child td{border-bottom:none}
   </div>
 </div>
 <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 13 章 推理系统与部署</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch13_1_inference_cost.html">13.1 推理的成本结构：显存、算力、带宽谁先成为瓶颈</a>
+<a class="nav-link" href="ch13_2_kv_cache.html">13.2 KV Cache：用显存换速度的核心缓存</a>
+<a class="nav-link" href="ch13_3_serving_systems.html">13.3 服务化：连续批处理与 PagedAttention</a>
+<a class="nav-link" href="ch13_4_quantization.html">13.4 量化：FP16 到 INT4 的压缩术</a>
+<a class="nav-link" href="ch13_5_distillation.html">13.5 蒸馏：大模型教小模型</a>
+<a class="nav-link" href="ch13_6_speculative_scaling.html">13.6 投机采样与推理时扩展：无损加速与多花计算的两端</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 14 章 应用范式</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch14_1_prompt_engineering.html">14.1 Prompt 工程：不改权重的编程方式</a>
+<a class="nav-link" href="ch14_2_cot.html">14.2 思维链：让模型把中间步骤写出来</a>
+<a class="nav-link" href="ch14_3_rag.html">14.3 RAG：给模型外挂一个资料库</a>
+<a class="nav-link" href="ch14_4_function_calling.html">14.4 Function Calling：让模型学会「打电话」</a>
+<a class="nav-link" href="ch14_5_agent.html">14.5 Agent：规划、工具与多步执行循环</a>
+  </div>
+</div>
+<div class="nav-group">
   <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
   <div class="nav-children collapsed">
     <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
@@ -580,7 +601,7 @@ tr:last-child td{border-bottom:none}
 <p>　　对照词级分词器：词表没收<code>龘</code>，只能输出 UNK 占位符，这个字到底是什么就彻底丢了。字节兜底的本质是——合并词条是捷径，单字节是保底；捷径可以没有，保底永远在，所以任何输入都拆得开。</p>
 
 <div class="highlight-box info">
-  注：把 256 个字节想成 26 个英文字母。词典没收某个生僻词，照样能用字母逐个拼出来；字节级词表保证 256 个「字母」永远在场，合并词条只是省时拼法，删掉它保底拼法还在。
+  注释：把 256 个字节想成 26 个英文字母。词典没收某个生僻词，照样能用字母逐个拼出来；字节级词表保证 256 个「字母」永远在场，合并词条只是省时拼法，删掉它保底拼法还在。
 </div>
 
 <div class="table-wrap">

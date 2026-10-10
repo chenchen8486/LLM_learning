@@ -1,0 +1,376 @@
+<article class="content">
+<h1>13.5 蒸馏：大模型教小模型</h1>
+<p class="subtitle">本页范围：第 13 章第 5 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>13.4 节的量化压的是每个权重的数值位宽，模型骨架原封不动。能不能更彻底一点，干脆换一个更小的模型？麻烦在于：同一个小模型，直接拿训练数据从头训，效果总比大模型差一截——大模型学到的很多东西，硬标签里根本没有。这些缺失的知识怎么传给小模型？</td></tr>
+      <tr><td>本节主张</td><td>蒸馏换的是监督信号：学生不只学硬标签的对错，还学教师输出分布的形状——非正确答案之间的相对概率（暗知识）编码了类间相似关系，这是硬标签里不存在的信息。机制上就是同温度软化两路分布、用前向 KL 散度对齐、乘 T² 补偿梯度，再与硬标签交叉熵按比例混合。这套 2015 年定稿的配方至今仍是蒸馏的底座。</td></tr>
+      <tr><td>一句话结论</td><td>软标签 + 温度 + T²·KL 是蒸馏的全部要义；LLM 时代它扩展为「蒸数据」——DeepSeek-R1 用 80 万条教师轨迹蒸出的 32B 学生，AIME 2024 得分 72.6%，反超同底座直接做大规模 RL 的 47.0%，说明对小模型而言，蒸馏强教师的成果比自己做 RL 更经济有效。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>知识蒸馏</span><span>教师与学生</span><span>软标签</span><span>暗知识</span><span>温度 T</span><span>KL 散度</span><span>T² 因子</span><span>序列级蒸馏</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　13.4 节把量化讲透了：模型还是那个模型，只是每个数用更少的比特存放。本节换一条压缩路线——直接换一个小模型。小模型便宜是便宜，能力却是硬伤：同样的架构、同样的数据，参数少了就是学不过大模型。知识蒸馏（Knowledge Distillation）要解决的正是这个传承问题：让一个已经训好的大模型（教师）给小模型（学生）当老师，学生不只学标准答案，还学教师「怎么看这道题」。这一节放在部署章讲，是因为蒸馏的账要算在推理侧：训练期多花一次教师的代价，换来推理期长期用便宜的小模型。</p>
+
+<p>　　本节按「为什么 → 怎么算 → 怎么实现 → 怎么演变」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>为什么蒸馏比直接训小模型好：硬标签缺失的暗知识</strong>（13.5.1）：软标签里的类间关系是硬标签没有的信息，附可复算的数值小例；</li>
+  <li><strong>Hinton 原始机制：温度 T、KL 散度与 T² 因子</strong>（13.5.2）：2015 年定稿的损失配方，三个组件各管一件事；</li>
+  <li><strong>minimind 代码印证：train_distillation.py 逐行对照</strong>（13.5.3）：看配方如何落成一份不到 240 行的训练脚本；</li>
+  <li><strong>LLM 时代的蒸馏：从蒸 logits 到蒸数据</strong>（13.5.4）：从 DistilBERT 到 DeepSeek-R1，蒸馏对象从输出分布扩展到生成轨迹。</li>
+</ol>
+
+<p>　　读完本节，应该能手算一组 logits 在任意温度下的软标签，写出蒸馏总损失并解释 T² 因子的作用，说清 minimind 蒸馏脚本里教师模型为什么全程无梯度，以及 DeepSeek-R1 的蒸馏对照实验到底说明了什么。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置（图 1）：蒸馏发生在训练与部署的接缝上——它本身是一次额外的训练，目的却完全是推理侧的便宜。心里有这张地图，后面每个组件都知道自己装在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS135distillation" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG135distillation" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS135distillation)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS135distillation)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS135distillation)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS135distillation)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS135distillation)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS135distillation)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS135distillation)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）与推理训练（第 11 章），交出会对话、懂分寸、会推理的模型；推理与部署（第 12–13 章）回答同一个模型怎么服务得更快、更便宜。本章前几节已讲成本结构、KV Cache、服务化与量化，本节讲蒸馏：一条在训练侧一次性付出、换推理侧长期便宜的压缩路线——用已训好的大模型教师，把输出分布里的知识传给小模型学生。</div>
+</div>
+
+<p>　　蒸馏这一步放大之后长什么样？一批训练数据进去，教师和学生各过一次前向，两路 logits 怎么变成一个损失、梯度又流回哪里？把蒸馏训练的一个 step 单独拆开看（图 2，形状与行号均取自 minimind 的蒸馏脚本）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 660" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrF135" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrK135" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/>
+      </marker>
+      <marker id="arrB135" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <text x="16" y="24" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：蒸馏训练的一个 step——同一批数据兵分三路，软硬两路损失合成（行号均为 trainer/train_distillation.py）</text>
+    <!-- 输入 -->
+    <rect x="340" y="40" width="280" height="56" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="480" y="62" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">输入：B×340 token ID</text>
+    <text x="480" y="82" text-anchor="middle" font-size="10.5" fill="#555555">SFT 数据 · max_seq_len 340（152 行）</text>
+    <!-- 左侧分发线 -->
+    <line x1="339" y1="68" x2="130" y2="68" stroke="#6d28d9" stroke-width="2"/>
+    <text x="234" y="60" text-anchor="middle" font-size="10.5" fill="#555555">同一批数据，兵分三路</text>
+    <line x1="130" y1="68" x2="130" y2="116" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrF135)"/>
+    <line x1="130" y1="210" x2="130" y2="256" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrF135)"/>
+    <line x1="130" y1="350" x2="130" y2="424" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrF135)"/>
+    <!-- 教师行 -->
+    <rect x="20" y="122" width="200" height="86" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="120" y="144" text-anchor="middle" font-size="12" font-weight="bold" fill="#155e75">教师模型（冻结）</text>
+    <text x="120" y="164" text-anchor="middle" font-size="10.5" fill="#555555">eval + 关闭梯度（42–44 行）</text>
+    <text x="120" y="184" text-anchor="middle" font-size="10.5" fill="#555555">默认同尺寸 MoE 版（159 行）</text>
+    <line x1="220" y1="165" x2="266" y2="165" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrF135)"/>
+    <rect x="270" y="122" width="240" height="86" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="390" y="142" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">teacher_logits：B×340×6400</text>
+    <text x="390" y="160" text-anchor="middle" font-size="10" fill="#555555">62 行前向 · 63–64 行截断词表</text>
+    <rect x="300" y="170" width="180" height="16" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <line x1="320" y1="170" x2="320" y2="186" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="340" y1="170" x2="340" y2="186" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="360" y1="170" x2="360" y2="186" stroke="#6d28d9" stroke-width="0.8"/>
+    <text x="452" y="183" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">···</text>
+    <text x="390" y="200" text-anchor="middle" font-size="10" fill="#888888">扁长条：列 = 词表 6400</text>
+    <line x1="510" y1="165" x2="556" y2="165" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrF135)"/>
+    <rect x="560" y="122" width="180" height="86" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="650" y="142" text-anchor="middle" font-size="11" font-weight="bold" fill="#92400e">软目标 q_t（教师）</text>
+    <text x="650" y="162" text-anchor="middle" font-size="10.5" fill="#555555">logits ÷T 再 softmax</text>
+    <text x="650" y="182" text-anchor="middle" font-size="10.5" fill="#555555">27 行 · T = 1.5（164 行）</text>
+    <line x1="742" y1="150" x2="786" y2="212" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrF135)"/>
+    <!-- 学生行 -->
+    <rect x="20" y="262" width="200" height="86" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="120" y="284" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">学生模型（训练中）</text>
+    <text x="120" y="304" text-anchor="middle" font-size="10.5" fill="#555555">hidden 768 · 8 层 · 约 63.9M</text>
+    <text x="120" y="324" text-anchor="middle" font-size="10.5" fill="#555555">默认 dense（158 行 use_moe=0）</text>
+    <line x1="220" y1="305" x2="266" y2="305" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrF135)"/>
+    <rect x="270" y="262" width="240" height="86" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="390" y="282" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">student_logits：B×340×6400</text>
+    <text x="390" y="300" text-anchor="middle" font-size="10" fill="#555555">56–57 行前向输出</text>
+    <rect x="300" y="310" width="180" height="16" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <line x1="320" y1="310" x2="320" y2="326" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="340" y1="310" x2="340" y2="326" stroke="#6d28d9" stroke-width="0.8"/>
+    <line x1="360" y1="310" x2="360" y2="326" stroke="#6d28d9" stroke-width="0.8"/>
+    <text x="452" y="323" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">···</text>
+    <text x="390" y="340" text-anchor="middle" font-size="10" fill="#888888">形状与教师一致</text>
+    <line x1="510" y1="305" x2="556" y2="305" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrF135)"/>
+    <rect x="560" y="262" width="180" height="86" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="650" y="282" text-anchor="middle" font-size="11" font-weight="bold" fill="#92400e">软预测 q_s（学生）</text>
+    <text x="650" y="302" text-anchor="middle" font-size="10.5" fill="#555555">logits ÷T 再 log_softmax</text>
+    <text x="650" y="322" text-anchor="middle" font-size="10.5" fill="#555555">29 行 · 同一温度 T</text>
+    <line x1="742" y1="320" x2="786" y2="296" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrF135)"/>
+    <!-- KL 盒 -->
+    <rect x="780" y="196" width="160" height="118" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="860" y="218" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">KL(q_t ‖ q_s)</text>
+    <text x="860" y="238" text-anchor="middle" font-size="10.5" fill="#555555">F.kl_div（31–35 行）</text>
+    <text x="860" y="258" text-anchor="middle" font-size="10.5" fill="#555555">× T² 补偿（36 行）</text>
+    <text x="860" y="288" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#dc2626">= 蒸馏损失</text>
+    <line x1="860" y1="316" x2="860" y2="414" stroke="#16a34a" stroke-width="2" marker-end="url(#arrK135)"/>
+    <!-- CE 盒 -->
+    <rect x="20" y="430" width="280" height="80" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="160" y="452" text-anchor="middle" font-size="12" font-weight="bold" fill="#92400e">硬标签交叉熵 CE（68–78 行）</text>
+    <text x="160" y="472" text-anchor="middle" font-size="10.5" fill="#555555">labels 右移一位对齐（68 行）</text>
+    <text x="160" y="492" text-anchor="middle" font-size="10.5" fill="#555555">ignore_index=−100 忽略填充位（73 行）</text>
+    <line x1="300" y1="470" x2="414" y2="470" stroke="#16a34a" stroke-width="2" marker-end="url(#arrK135)"/>
+    <!-- 合并盒 -->
+    <rect x="420" y="420" width="460" height="84" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="650" y="446" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#15803d">总损失 = α·CE + (1−α)·蒸馏损失（91 行）</text>
+    <text x="650" y="468" text-anchor="middle" font-size="10.5" fill="#555555">默认 α = 0.5（163 行）· T = 1.5（164 行）</text>
+    <text x="650" y="488" text-anchor="middle" font-size="10.5" fill="#555555">÷ 梯度累积步数后 backward（91–93 行）</text>
+    <!-- 反向传播 -->
+    <line x1="418" y1="438" x2="140" y2="352" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrB135)"/>
+    <text x="258" y="376" text-anchor="middle" font-size="10.5" fill="#dc2626">反向传播只更新学生 · 教师无梯度</text>
+    <!-- 底注 -->
+    <text x="480" y="640" text-anchor="middle" font-size="10.5" fill="#6b7280">输入形状 B×340、logits 形状 B×340×6400、损失为标量；minimind 默认教师为同尺寸 MoE 版、学生为 dense 版，均从 full_sft 权重出发（158–161 行）</text>
+  </svg>
+  <div class="diagram-caption">图 2：蒸馏训练一个 step 的局部放大（行号均为 minimind trainer/train_distillation.py）。同一批 token ID（B×340）兵分三路：教师模型（冻结，默认同尺寸 MoE 版）前向得 teacher_logits（B×340×6400），截断到学生词表后按 T = 1.5 软化成软目标；学生模型（dense，约 63.9M 参数）前向得同形状的 student_logits，按同一温度软化；两路软化分布算 KL 散度并乘 T²，得蒸馏损失。labels 同时与学生 logits 算硬标签交叉熵 CE。总损失按 α = 0.5 加权两路，反向传播只更新学生——教师全程无梯度，只当考官不当考生。13.5.2 讲公式，13.5.3 逐行讲代码。</div>
+</div>
+
+<h2>13.5.1 为什么蒸馏比直接训小模型好：硬标签缺失的暗知识</h2>
+
+<p>　　先把账接上。13.1 节算过，推理成本的大头是每生成一个 token 都要把全部权重从显存搬一遍，参数量直接决定延迟与硬件门槛。13.4 节的量化把每个权重的位宽压下去，模型骨架没变。蒸馏更彻底：直接换一个小模型。以 minimind 为例，学生默认 hidden 768、8 层、约 63.9M 参数——它本来就是个小模型，蒸馏脚本演示的是让这个小模型去模仿一个更强的教师（默认是同尺寸的 MoE 版），把教师的本事尽量搬过来。</p>
+
+<p>　　为什么需要教师来搬？直接训练小模型，监督信号是硬标签（one-hot，正确答案为 1、其余全 0 的分布）：它只记录「正确答案是什么」。而训练好的教师在每个样本上输出的是一个完整分布——软标签——里面藏着硬标签没有的东西。用一个数值小例看清楚。假设教师面对一道四分类题：识别一个手写数字 3，候选为 3、5、8、其他四个类别，它对某个样本打出 logits \([4.5, 1.8, 1.2, 0]\)。经 softmax 归一化（附录 A.3），概率约为 \([0.90, 0.06, 0.03, 0.01]\)。这份分布不只说「答案是 3」，还说：这个 3 有 6% 像 5、3% 像 8、几乎不像其他类别。「5 和 8 与 3 的相似程度不同」这种类间关系，硬标签里根本不存在——Hinton 把这部分藏在非正确答案相对概率里的信息称为暗知识（dark knowledge）。图 3 把三种监督信号摆在一起对照：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 430" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrL135" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">同一道题的三种监督信号：硬标签 vs 两档温度的软标签（logits = [4.5, 1.8, 1.2, 0]，可复算）</text>
+    <!-- 面板 1：硬标签 -->
+    <text x="160" y="56" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">① 硬标签（one-hot）</text>
+    <text x="160" y="74" text-anchor="middle" font-size="10" fill="#888888">训练数据给的唯一信号</text>
+    <rect x="62" y="80" width="36" height="220" fill="#6d28d9"/>
+    <text x="80" y="72" text-anchor="middle" font-size="10" font-weight="bold" fill="#4c1d95">1.0</text>
+    <text x="136" y="292" text-anchor="middle" font-size="10" fill="#dc2626">0</text>
+    <text x="192" y="292" text-anchor="middle" font-size="10" fill="#dc2626">0</text>
+    <text x="248" y="292" text-anchor="middle" font-size="10" fill="#dc2626">0</text>
+    <line x1="50" y1="300" x2="270" y2="300" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="80" y="318" text-anchor="middle" font-size="10.5" fill="#555555">3</text>
+    <text x="136" y="318" text-anchor="middle" font-size="10.5" fill="#555555">5</text>
+    <text x="192" y="318" text-anchor="middle" font-size="10.5" fill="#555555">8</text>
+    <text x="248" y="318" text-anchor="middle" font-size="10.5" fill="#555555">其他</text>
+    <text x="160" y="348" text-anchor="middle" font-size="10.5" fill="#555555">只回答一句：答案是 3</text>
+    <text x="160" y="368" text-anchor="middle" font-size="10.5" fill="#555555">5、8、其他被同等对待</text>
+    <!-- vs -->
+    <text x="315" y="190" text-anchor="middle" font-size="12" font-weight="bold" fill="#9ca3af">vs</text>
+    <!-- 面板 2：软标签 T=1 -->
+    <text x="480" y="56" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">② 软标签 T = 1</text>
+    <text x="480" y="74" text-anchor="middle" font-size="10" fill="#888888">教师的原始输出分布</text>
+    <rect x="382" y="102" width="36" height="198" fill="#6d28d9"/>
+    <rect x="438" y="287" width="36" height="13" fill="#6d28d9"/>
+    <rect x="494" y="293" width="36" height="7" fill="#6d28d9"/>
+    <rect x="550" y="298" width="36" height="2" fill="#6d28d9"/>
+    <text x="400" y="94" text-anchor="middle" font-size="10" font-weight="bold" fill="#4c1d95">0.90</text>
+    <text x="456" y="279" text-anchor="middle" font-size="10" fill="#4c1d95">0.06</text>
+    <text x="512" y="285" text-anchor="middle" font-size="10" fill="#4c1d95">0.03</text>
+    <text x="568" y="290" text-anchor="middle" font-size="10" fill="#4c1d95">0.01</text>
+    <rect x="428" y="262" width="168" height="42" rx="6" fill="none" stroke="#dc2626" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <line x1="370" y1="300" x2="590" y2="300" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="400" y="318" text-anchor="middle" font-size="10.5" fill="#555555">3</text>
+    <text x="456" y="318" text-anchor="middle" font-size="10.5" fill="#555555">5</text>
+    <text x="512" y="318" text-anchor="middle" font-size="10.5" fill="#555555">8</text>
+    <text x="568" y="318" text-anchor="middle" font-size="10.5" fill="#555555">其他</text>
+    <text x="480" y="348" text-anchor="middle" font-size="10.5" fill="#555555">0.06 &gt; 0.03：5 比 8 更像 3</text>
+    <text x="480" y="368" text-anchor="middle" font-size="10.5" fill="#555555">但信号太弱（红框内），难学</text>
+    <!-- 升温箭头 -->
+    <line x1="612" y1="190" x2="658" y2="190" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrL135)"/>
+    <text x="635" y="178" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#6d28d9">÷ 5</text>
+    <!-- 面板 3：软标签 T=5 -->
+    <text x="800" y="56" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">③ 软标签 T = 5</text>
+    <text x="800" y="74" text-anchor="middle" font-size="10" fill="#888888">升温压平后的分布</text>
+    <rect x="702" y="212" width="36" height="88" fill="#6d28d9"/>
+    <rect x="758" y="249" width="36" height="51" fill="#6d28d9"/>
+    <rect x="814" y="254" width="36" height="46" fill="#6d28d9"/>
+    <rect x="870" y="265" width="36" height="35" fill="#6d28d9"/>
+    <text x="720" y="204" text-anchor="middle" font-size="10" font-weight="bold" fill="#4c1d95">0.40</text>
+    <text x="776" y="241" text-anchor="middle" font-size="10" fill="#4c1d95">0.23</text>
+    <text x="832" y="246" text-anchor="middle" font-size="10" fill="#4c1d95">0.21</text>
+    <text x="888" y="257" text-anchor="middle" font-size="10" fill="#4c1d95">0.16</text>
+    <line x1="690" y1="300" x2="910" y2="300" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="720" y="318" text-anchor="middle" font-size="10.5" fill="#555555">3</text>
+    <text x="776" y="318" text-anchor="middle" font-size="10.5" fill="#555555">5</text>
+    <text x="832" y="318" text-anchor="middle" font-size="10.5" fill="#555555">8</text>
+    <text x="888" y="318" text-anchor="middle" font-size="10.5" fill="#555555">其他</text>
+    <text x="800" y="348" text-anchor="middle" font-size="10.5" fill="#555555">类间相似结构浮出水面</text>
+    <text x="800" y="368" text-anchor="middle" font-size="10.5" fill="#555555">学生能学到「错得接近」</text>
+    <text x="480" y="412" text-anchor="middle" font-size="10" fill="#6b7280">柱高 ∝ 概率；数值按 softmax(z/T) 手算：T = 1 得 [0.90, 0.06, 0.03, 0.01]，T = 5 得 [0.40, 0.23, 0.21, 0.16]；示意小例，非论文原实验数据</text>
+  </svg>
+  <div class="diagram-caption">图 3：硬标签与软标签的信息量对照（柱高与概率成正比，数值为示意小例、可按 softmax(z/T) 复算，非论文原实验数据）。硬标签（左）只携带「答案是 3」一条信息；教师原始软标签（中，T = 1）的尾巴里藏着类间关系——5（0.06）比 8（0.03）更像 3——但数值太小，梯度信号微弱；升温到 T = 5（右）后分布被压平，相似结构浮出水面，学生才能真正学到「错得接近」与「错得离谱」的区别。温度就是暗知识的放大镜。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">暗知识 Dark Knowledge</span>
+    <span class="term-en">dark = 看不见的：藏在大模型输出分布尾巴里的类间关系</span>
+  </div>
+  <div class="term-body">
+    <p>教师的软标签里，非正确答案之间的相对概率编码了教师学到的类别相似结构：一只猫被错认成狗的概率，通常远高于被错认成汽车的概率——这说明在教师眼里猫和狗更接近。硬标签把这些概率全部压成 0，学生无从得知「错得接近」和「错得离谱」的区别。Hinton 2015 年的论文指出，正是这部分信息帮助学生用更少的数据学到教师的泛化方式，知识因此得名：它一直在教师的输出里，只是藏得太深，不经温度放大就看不见。</p>
+    <div class="term-analogy">像老师批改选择题不只给对错，还在卷子上写「B 和 C 容易混，它俩确实像」——学生学到的是知识之间的地形图，不只是一个个孤立答案。</div>
+  </div>
+</div>
+
+<div class="highlight-box">
+  蒸馏的本质是换一种监督信号：硬标签只回答「正确答案是什么」，软标签还回答「各个错误答案谁更接近正确」。小模型从头训练只能学到前者，跟着教师蒸馏能学到后者——这正是同样的小模型，蒸馏后通常比直接训练效果好的根本原因。Hinton 给出的机制（升温、对齐、混合）是 13.5.2 的主题。
+</div>
+
+<h2>13.5.2 Hinton 原始机制：温度 T、KL 散度与 T² 因子</h2>
+
+<p>　　2015 年 Hinton、Vinyals、Dean 的论文（arXiv:1503.02531）把蒸馏配方定稿为三件事：升温、对齐、混合。升温就是把教师与学生的 logits 用同一个温度 \(T\) 软化：</p>
+
+<div class="formula-card">
+  \[ q_i = \frac{\exp(z_i / T)}{\sum_{j=1}^{V} \exp(z_j / T)} \tag{1} \]
+  <div class="formula-note">公式 (1)：带温度的 softmax——教师与学生的 logits 先同除以 \(T\) 再归一化，得到软化分布。符号说明：\(z_i\) 是模型对词表第 \(i\) 个 token（或分类任务第 \(i\) 个类别）打出的 logit；\(T &gt; 0\) 是温度，蒸馏通常取大于 1 的值把分布压平；\(V\) 是词表大小（minimind 为 6400）；\(q_i\) 是软化后的概率。这与 12.2 节的采样温度是同一个数学工具：那里用它整形抽样分布，这里用它构造训练目标；13.5.1 的数值小例正是按此式计算。</div>
+</div>
+
+<p>　　对齐，就是让学生的软化分布逼近教师的软化分布，度量工具是 KL 散度（10.3 节有它的术语卡）：</p>
+
+<div class="formula-card">
+  \[ \mathrm{KL}(P \| Q) = \sum_{i=1}^{V} P(i)\, \log \frac{P(i)}{Q(i)} \tag{2} \]
+  <div class="formula-note">公式 (2)：KL 散度——度量两个分布的差异：完全一致时为 0，差得越多值越大，恒不为负，且不对称（\(\mathrm{KL}(P\|Q) \neq \mathrm{KL}(Q\|P)\)）。符号说明：\(P\) 是目标分布、\(Q\) 是逼近它的分布、\(V\) 是词表大小。蒸馏取 \(P\) 为教师、\(Q\) 为学生（前向 KL），方向不能写反——写反了就是另一个量。minimind 调用 <code>F.kl_div(student_log_probs, teacher_probs)</code> 正是这个方向：PyTorch 约定第一个参数是 \(\log Q\)、第二个是 \(P\)，代入后算的就是 \(\mathrm{KL}(\text{教师} \| \text{学生})\)。</div>
+</div>
+
+<p>　　混合，就是把软目标与硬标签各取一份，按权重加起来：</p>
+
+<div class="formula-card">
+  \[ \mathcal{L} = \alpha \cdot \mathcal{L}_{\mathrm{CE}}\!\left(y,\, p_s\right) + (1 - \alpha) \cdot T^{2} \cdot \mathrm{KL}\!\left( q^{\,t}_{T} \| q^{\,s}_{T} \right) \tag{3} \]
+  <div class="formula-note">公式 (3)：蒸馏总损失——硬标签交叉熵与软目标 KL 按 \(\alpha\) 加权。符号说明：\(y\) 是真实的下一个 token（硬标签）；\(p_s\) 是学生在 \(T = 1\) 下的输出分布；\(\mathcal{L}_{\mathrm{CE}}\) 是标准交叉熵（附录 A.4）；\(q^{\,t}_T\) 与 \(q^{\,s}_T\) 是教师与学生按公式 (1) 在同一温度 \(T\) 下软化出的分布；\(\alpha \in [0,1]\) 是软硬两路的平衡权重（minimind 默认 0.5）；\(T^2\) 是梯度补偿因子，作用见下文。</div>
+</div>
+
+<p>　　乘 \(T^2\) 是 Hinton 原文明写的细节，作用是补偿温度对梯度的压缩：软目标这一路里 logits 先除以 \(T\)，软化概率对 logit 的梯度幅度随之缩到 \(1/T^2\)。不乘回去，调大温度就等于暗中把软目标的权重调小，\(\alpha\) 设好的平衡被悄悄破坏；乘上 \(T^2\) 之后，软目标对训练的贡献与温度选择解耦——\(T\) 只管分布压多平，不管它说话多大声。</p>
+
+<p>　　温度的取值有分寸：\(T = 1\) 时软目标退化为教师的原始分布，暗知识埋没在尾巴里（图 3 中间一档）；\(T\) 太大则分布趋近均匀，连「正确答案是 3」的信息也被磨平。实战温度通常取个位数的小值：minimind 默认 \(T = 1.5\)，帮助文本推荐 1.0–2.0（train_distillation.py:164）。\(\alpha\) 的取舍同理：\(\alpha\) 大则学生更信硬标签、更像直接训练，\(\alpha\) 小则更信教师；minimind 默认 0.5，两路各占一半（163 行）。</p>
+
+<div class="highlight-box info">
+  注释：公式 (3) 用的是前向 KL（教师 ‖ 学生）。LLM 蒸馏研究里也有故意反过来用反向 KL 的工作，代表是 MiniLLM（Gu et al., 2023，arXiv:2306.08543）：反向 KL 促使学生把概率集中到教师的高概率区域，避免摊得太开。这属于进阶选项，minimind 与 Hinton 配方一致，用前向 KL。
+</div>
+
+<h2>13.5.3 minimind 代码印证：train_distillation.py 逐行对照</h2>
+
+<p>　　minimind 把公式 (3) 落成一份不到 240 行的脚本 trainer/train_distillation.py（Apache 2.0）。默认配置先把角色定好：学生是 dense 版，hidden 768、8 层、约 63.9M 参数（154–155、158 行默认）；教师默认同尺寸但开 MoE（156–157、159 行）；两者都从各自的 full_sft 权重出发（160–161 行）——蒸馏在 SFT 之后做，与图 1 的生命周期顺序一致。逐行对照公式的落地：</p>
+
+<ol>
+  <li><strong>教师冻结</strong>（42–44、199–200 行）：教师设为 eval 模式并 <code>requires_grad_(False)</code>，前向包在 <code>no_grad</code> 里——教师只推理不训练，显存里只有一份前向开销，没有梯度与优化器状态；</li>
+  <li><strong>双前向</strong>（56–62 行）：同一批 input_ids，学生正常前向拿 student_logits，教师无梯度前向拿 teacher_logits，两路都切掉最后一个位置（<code>[..., :-1, :]</code>），与右移一位的 labels 对齐；</li>
+  <li><strong>词表对齐</strong>（63–64 行）：<code>teacher_logits = teacher_logits[..., :vocab_size_student]</code>——教师输出截断到学生词表宽度，两路分布才能在同一词表上对齐；</li>
+  <li><strong>硬标签 CE</strong>（68–78 行）：shift labels、<code>ignore_index=-100</code> 忽略填充位，标准 SFT 交叉熵（第 9 章同款）；</li>
+  <li><strong>软目标 KL</strong>（81–86 行调用 25–36 行）：教师 logits 除以 \(T\) 后 softmax 并 detach，学生 logits 除以 \(T\) 后 log_softmax，<code>F.kl_div</code> 按 batchmean 归一，最后乘 \(T^2\)——公式 (3) 的软路原样落地；且蒸馏损失只在有效 token 上计算（83–84 行用 loss_mask 筛选），填充位不参与；</li>
+  <li><strong>合并与回传</strong>（90–93 行）：<code>loss = alpha * ce_loss + (1 - alpha) * distill_loss</code>，默认 \(\alpha = 0.5\)（163 行）、\(T = 1.5\)（164 行）；backward、梯度裁剪、step 全部作用在学生参数上，教师一个梯度都不收。</li>
+</ol>
+
+<div class="highlight-box info">
+  注释：第 3 步的截断揭示了一个隐含前提——这套实现要求教师与学生共用同一套分词器（词表 6400），截断只是把输出头宽度对齐到学生词表。若教师与学生的词表不同（跨分词器蒸馏），logits 逐位对齐本身就不成立，需要更复杂的映射方案，不在 minimind 的演示范围内。读开源蒸馏代码时，先确认这一点能避开不少困惑。
+</div>
+
+<h2>13.5.4 LLM 时代的蒸馏：从蒸 logits 到蒸数据</h2>
+
+<p>　　Hinton 配方奠定的「蒸 logits」路线，在 BERT 时代交出过一张标志性成绩单：DistilBERT（Sanh et al., 2019，arXiv:1910.01108）把 12 层的 BERT-base 蒸成 6 层，论文口径是参数量小 40%、推理快 60%、在语言理解基准上保留 BERT 97% 的能力——「小一点、快很多、只差一点」，这九个字至今仍是蒸馏价值的最佳广告。</p>
+
+<p>　　到了 LLM 时代，蒸 logits 遇到两个现实障碍：一是词表膨胀后，逐位置对齐整个分布的存储与计算成本变高；二是很多强模型只开放文本接口，根本拿不到完整的 logits 分布。主流做法于是转向蒸数据：让教师先生成回答，学生直接在教师的输出上做 SFT。这条路线的源头是 Kim &amp; Rush 2016 年的序列级蒸馏（sequence-level knowledge distillation，EMNLP 2016，arXiv:1606.07947）：让学生学习教师 beam search 的整段输出，而不是逐位置的分布。今天的「教师生成思维链、学生微调」，就是这条路线在 LLM 时代的放大版。</p>
+
+<p>　　DeepSeek-R1（arXiv:2501.12948，2025）把蒸数据做出了标杆效果，还顺手做了一组漂亮的对照实验。做法是：用 R1 训练流水线产出的 80 万条样本（含推理与非推理数据），直接微调 Qwen 与 Llama 系列的开源小模型。关键数字在数学推理基准 AIME 2024 上：蒸馏版 DeepSeek-R1-Distill-Qwen-32B 得分 72.6%；而同样从 Qwen-32B 底座出发、不蒸馏、直接做大规模 RL 的 DeepSeek-R1-Zero-Qwen-32B 只有 47.0%。论文据此明确给出建议：对小模型而言，蒸馏强教师的成果比自己做 RL 更经济有效。注意这个结论的边界——它不否定 RL（教师 R1 本身正是 RL 练出来的，第 11 章），而是说小模型的性价比路线是先接住教师已经训好的成果，不必亲自重走一遍昂贵的 RL。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>工作</th><th>年份</th><th>蒸什么</th><th>教师 → 学生</th><th>招牌数字</th></tr></thead>
+    <tbody>
+      <tr><td>Hinton 蒸馏（arXiv:1503.02531）</td><td>2015</td><td>升温软化后的输出分布</td><td>大网络 / 集成 → 小网络</td><td>提出暗知识、温度与 T² 配方</td></tr>
+      <tr><td>DistilBERT（arXiv:1910.01108）</td><td>2019</td><td>软目标分布为主，配隐层对齐</td><td>BERT-base 12 层 → 6 层</td><td>小 40%、快 60%、保留 97% 能力</td></tr>
+      <tr><td>DeepSeek-R1 蒸馏（arXiv:2501.12948）</td><td>2025</td><td>教师生成的 80 万条轨迹</td><td>R1 → Qwen / Llama 小模型</td><td>32B 学生 AIME 72.6%，反超直接 RL 的 47.0%</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　放回部署视角收束本节：蒸馏的成本结构是「训练期一次付清、推理期长期分红」——教师的训练、80 万条轨迹的生成都价格不菲，但付过一次之后，每次推理用的都是便宜的学生。它与 13.4 节的量化正交：量化压位宽、蒸馏换骨架，两者可以叠加（先蒸小、再量化）。它还连着下一节：13.6 节投机采样里负责起草的小模型，常见来源正是蒸馏得到的小模型——本节的学生，下一节还要上场当草稿员。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">软标签比硬标签多给了学生什么？</div>
+    <div class="sc-key">类间关系，即暗知识。硬标签只说「答案是 3」；教师的软标签还说这个 3 有 6% 像 5、3% 像 8——非正确答案的相对概率编码了类别相似结构。温度 \(T\) 是放大镜：本节小例里 \(T = 1\) 时信号只有 0.06 与 0.03 之差，升温到 \(T = 5\) 后变成 0.23 与 0.21，学生才学得到。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">蒸馏损失里的 T² 因子是干什么的，少了会怎样？</div>
+    <div class="sc-key">补偿温度对梯度的压缩。logits 除以 \(T\) 后，软目标一路的梯度幅度缩到 \(1/T^2\)；不乘回 \(T^2\)，调大温度就等于暗中调小软目标的权重，\(\alpha\) 设好的软硬平衡被破坏。minimind 在 train_distillation.py 第 36 行原样执行 <code>(temperature ** 2) * kl</code>。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">DeepSeek-R1 的蒸馏对照实验说明了什么？</div>
+    <div class="sc-key">同一底座（Qwen-32B），吃 R1 的 80 万条蒸馏数据在 AIME 2024 得 72.6%，直接做大规模 RL 只有 47.0%——论文结论是对小模型蒸馏比 RL 更经济有效。边界要记清：这不否定 RL，教师 R1 正是 RL 练出来的；小模型的性价比路线是站在教师肩膀上，而非亲自重走 RL。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Hinton, Vinyals, Dean, 2015. Distilling the Knowledge in a Neural Network（arXiv:1503.02531）：带温度的软标签、暗知识（非正确答案的相对概率携带类间关系）、软硬目标加权混合、T² 梯度补偿因子（§2）。</li>
+  <li>Sanh et al., 2019. DistilBERT, a distilled version of BERT: smaller, faster, cheaper and lighter（arXiv:1910.01108）：6 层学生相比 BERT-base 参数小 40%、推理快 60%、保留 97% 语言理解能力（论文口径）。</li>
+  <li>Kim &amp; Rush, 2016. Sequence-Level Knowledge Distillation（EMNLP 2016，arXiv:1606.07947）：学生在教师 beam search 的整段输出上训练，「蒸数据」路线的源头；已核对 arXiv 条目。</li>
+  <li>DeepSeek-AI, 2025. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning（arXiv:2501.12948）：用 80 万条样本蒸馏 Qwen / Llama 小模型、DeepSeek-R1-Distill-Qwen-32B 在 AIME 2024 得 72.6% 对比直接 RL 的 47.0%、「对小模型蒸馏比 RL 更有效」的结论（论文口径）。</li>
+  <li>Gu et al., 2023. MiniLLM: Knowledge Distillation of Large Language Models（arXiv:2306.08543，ICLR 2024）：反向 KL 蒸馏的代表工作（13.5.2 注卡提及）；已核对 arXiv 条目。</li>
+  <li>minimind（Apache 2.0），trainer/train_distillation.py：distillation_loss 的 T²×KL（25–36 行）、教师冻结（42–44、199–200 行）、双前向与切片对齐（56–62 行）、教师 logits 截断到学生词表（63–64 行）、硬标签 CE（68–78 行）、蒸馏损失只在有效 token 上计算（83–84 行）、总损失 α·CE+(1−α)·KL（90–91 行）、默认 α=0.5 / T=1.5（163–164 行）、学生 dense 教师 MoE 的默认搭配与 full_sft 起点（154–161 行）。</li>
+  <li>本手册 12.2 节（采样温度，与公式 (1) 同一数学工具）、10.3 节（KL 散度术语卡）、13.1 节（推理成本结构）、附录 A.3（softmax 与温度）、附录 A.4（交叉熵）。</li>
+</ul>
+
+</article>

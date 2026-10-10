@@ -1,0 +1,866 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>14.3 RAG：给模型外挂一个资料库 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 13 章 推理系统与部署</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch13_1_inference_cost.html">13.1 推理的成本结构：显存、算力、带宽谁先成为瓶颈</a>
+<a class="nav-link" href="ch13_2_kv_cache.html">13.2 KV Cache：用显存换速度的核心缓存</a>
+<a class="nav-link" href="ch13_3_serving_systems.html">13.3 服务化：连续批处理与 PagedAttention</a>
+<a class="nav-link" href="ch13_4_quantization.html">13.4 量化：FP16 到 INT4 的压缩术</a>
+<a class="nav-link" href="ch13_5_distillation.html">13.5 蒸馏：大模型教小模型</a>
+<a class="nav-link" href="ch13_6_speculative_scaling.html">13.6 投机采样与推理时扩展：无损加速与多花计算的两端</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 14 章 应用范式</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch14_1_prompt_engineering.html">14.1 Prompt 工程：不改权重的编程方式</a>
+<a class="nav-link" href="ch14_2_cot.html">14.2 思维链：让模型把中间步骤写出来</a>
+<a class="nav-link active" href="ch14_3_rag.html">14.3 RAG：给模型外挂一个资料库</a>
+<a class="nav-link" href="ch14_4_function_calling.html">14.4 Function Calling：让模型学会「打电话」</a>
+<a class="nav-link" href="ch14_5_agent.html">14.5 Agent：规划、工具与多步执行循环</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 14 章 应用范式</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>14.3 RAG：给模型外挂一个资料库</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>14.3 RAG：给模型外挂一个资料库</h1>
+<p class="subtitle">本页范围：第 14 章第 3 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>模型权重训练收官就冻结：知识有截止日期，够不着训练语料之外的私有文档，不懂的问题也敢硬答（幻觉）。不改一个参数，能不能让模型回答时「现查资料」？查到的资料又怎样进入模型的输入？</td></tr>
+      <tr><td>本节主张</td><td>RAG（检索增强生成）把「记住知识」与「使用知识」解耦：参数记忆留在权重里管语言能力，非参数记忆搬到模型外落成向量资料库管事实知识。回答前先按问题的向量检索出最相关的文档块，拼进 prompt，模型在新鲜、专属的资料上生成——权重一个没动，知识随改随生效，还能指明出处。</td></tr>
+      <tr><td>一句话结论</td><td>RAG 的全部魔法就是「推理之前先查资料，再把资料拼进输入」；它由检索器（DPR 双编码器）与生成器两部分组成，效果上限由检索质量决定，失效也大多发生在检索一侧。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>RAG</span><span>检索增强生成</span><span>DPR</span><span>双编码器</span><span>参数记忆</span><span>非参数记忆</span><span>向量检索</span><span>top-k 召回</span><span>重排</span><span>RAG-Sequence</span><span>RAG-Token</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　前两节（14.1 的 prompt 工程、14.2 的思维链）都在「怎么问」上做文章：换 prompt 写法、让模型把中间步骤写出来，模型的知识存量一分没增。本节换个方向，处理另一类短板——模型「不知道」的问题。先打个比方：训练收官的模型像一个刚交卷的闭卷考生，脑子里的知识冻结在收卷那一刻；之后世界发生的新事、别人手里的私有资料，他都无从知晓，被追问时还可能凭语感现编一个听起来像样的答案。RAG 的思路就是把闭卷改成开卷：回答之前，先让他翻资料。</p>
+
+<p>　　本节按「动机 → 原论文 → 工程实践 → 失效模式」的顺序展开，路线图如下：</p>
+
+<ol>
+  <li><strong>为什么需要外挂：参数记忆的三个短板</strong>（14.3.1）：知识截止、私有知识、幻觉——焊死在权重里的知识为什么不够用；</li>
+  <li><strong>RAG 原论文结构：检索器 DPR 与生成器</strong>（14.3.2）：2020 年的原始设计，问题编码 → 检索 → 拼接进上下文的完整推导，RAG-Sequence 与 RAG-Token 两种形式；</li>
+  <li><strong>工程链路：切块、嵌入、向量库、召回、重排、塞进 prompt</strong>（14.3.3）：今天的标准做法，六步流水线逐步拆解；</li>
+  <li><strong>RAG 的失效模式</strong>（14.3.4）：检索不到、切坏上下文、噪声混入——挂了资料库也救不了的三种典型翻车。</li>
+</ol>
+
+<p>　　读完本节，应该能说清 RAG 为什么不改权重却能注入新知识，看懂原论文两条生成公式的差别，并照着六步链路复述一个现代 RAG 系统的完整工作流程。嵌入向量与相似度的数学基础分别在 3.1 节与附录 A.2，本节直接站在上面用。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置。心里有这张地图（图 1），就知道本节站在哪块地基上做文章：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS143rag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG143rag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS143rag)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS143rag)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS143rag)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS143rag)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS143rag)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS143rag)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS143rag)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）、推理训练（第 11 章）与推理部署（第 12–13 章），交出可服务的模型——模型本体到此为止。本章（第 14 章 应用范式）不是生命周期的新一站，而是架在推理部署之上的使用层：紫框高亮表示本节依托的地基，本章全部内容都在它之上做文章，不改模型一个参数。本节讲的 RAG 正是典型代表：在推理之前把「查资料」这一步前置进来。</div>
+</div>
+
+<p>　　「使用层」放大之后长什么样？一次带检索的问答，输入和输出各是什么形状，模型在哪一步才被碰到？把这条链路单独拆开看（图 2）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP143zoom" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG143zoom" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：一次 RAG 问答的两阶段——输入 1 段问题文本，输出 1 段回答文本（数字口径取自 RAG 原论文设置）</text>
+    <text x="16" y="56" font-size="11.5" font-weight="bold" fill="#4c1d95">离线 · 建索引（资料入库时做一次）</text>
+    <rect x="30" y="72" width="150" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="105" y="96" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">原始文档库</text>
+    <text x="105" y="116" text-anchor="middle" font-size="10.5" fill="#555555">维基百科等语料</text>
+    <line x1="180" y1="104" x2="226" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP143zoom)"/>
+    <rect x="230" y="72" width="150" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="305" y="92" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">切块</text>
+    <text x="305" y="110" text-anchor="middle" font-size="10.5" fill="#555555">每块 100 个词</text>
+    <text x="305" y="126" text-anchor="middle" font-size="10.5" fill="#555555">共 2100 万块</text>
+    <line x1="380" y1="104" x2="426" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP143zoom)"/>
+    <rect x="430" y="72" width="150" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="505" y="92" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">文档编码器</text>
+    <text x="505" y="110" text-anchor="middle" font-size="10.5" fill="#555555">每块 → 768 维向量</text>
+    <text x="505" y="126" text-anchor="middle" font-size="10.5" fill="#555555">BERT-base</text>
+    <line x1="580" y1="104" x2="646" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP143zoom)"/>
+    <rect x="650" y="72" width="170" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="662" y="82" width="22" height="44" fill="#6d28d9"/>
+    <text x="673" y="112" text-anchor="middle" font-size="14" fill="#ffffff">⋮</text>
+    <text x="692" y="92" font-size="12" font-weight="bold" fill="#4c1d95">向量索引</text>
+    <text x="692" y="110" font-size="10.5" fill="#555555">2100 万 × 768</text>
+    <text x="692" y="126" font-size="10" fill="#888888">FAISS · 内积检索</text>
+    <text x="16" y="206" font-size="11.5" font-weight="bold" fill="#4c1d95">在线 · 检索与生成（每次问答都走一遍）</text>
+    <rect x="16" y="222" width="140" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="86" y="246" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">用户问题</text>
+    <text x="86" y="266" text-anchor="middle" font-size="10.5" fill="#555555">输入：1 段文本</text>
+    <line x1="156" y1="254" x2="172" y2="254" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP143zoom)"/>
+    <rect x="174" y="222" width="140" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="244" y="242" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">问题编码器</text>
+    <text x="244" y="260" text-anchor="middle" font-size="10.5" fill="#555555">BERT-base</text>
+    <text x="244" y="276" text-anchor="middle" font-size="10" fill="#888888">与文档编码器独立</text>
+    <line x1="314" y1="254" x2="330" y2="254" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP143zoom)"/>
+    <rect x="332" y="222" width="140" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="402" y="240" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">问题向量</text>
+    <rect x="352" y="250" width="100" height="10" fill="#0891b2"/>
+    <text x="402" y="259" text-anchor="middle" font-size="10" fill="#ffffff">⋯</text>
+    <text x="402" y="278" text-anchor="middle" font-size="10.5" fill="#555555">1 × 768</text>
+    <line x1="472" y1="254" x2="488" y2="254" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP143zoom)"/>
+    <rect x="490" y="222" width="140" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="560" y="242" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">top-k 召回</text>
+    <text x="560" y="260" text-anchor="middle" font-size="10.5" fill="#555555">内积打分取前 k 名</text>
+    <text x="560" y="276" text-anchor="middle" font-size="10.5" fill="#555555">输出：k 个文档块</text>
+    <line x1="630" y1="254" x2="646" y2="254" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP143zoom)"/>
+    <rect x="648" y="222" width="140" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="718" y="242" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">拼接进 prompt</text>
+    <text x="718" y="260" text-anchor="middle" font-size="10.5" fill="#555555">问题 + k 块资料</text>
+    <text x="718" y="276" text-anchor="middle" font-size="10" fill="#888888">上下文变长</text>
+    <line x1="788" y1="254" x2="804" y2="254" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP143zoom)"/>
+    <rect x="806" y="222" width="140" height="64" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="876" y="242" text-anchor="middle" font-size="12" font-weight="bold" fill="#15803d">模型生成</text>
+    <text x="876" y="260" text-anchor="middle" font-size="10.5" fill="#555555">输出：1 段回答</text>
+    <text x="876" y="276" text-anchor="middle" font-size="10" fill="#888888">权重不变</text>
+    <line x1="560" y1="218" x2="560" y2="140" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrG143zoom)"/>
+    <text x="570" y="184" font-size="10" fill="#6b7280">查询索引</text>
+    <text x="16" y="322" font-size="10.5" fill="#6b7280">形状约定：扁长条（⋯）表示 1 × 768 的单个向量（列多，横向省略）；高瘦条（⋮）表示 2100 万 × 768 的索引矩阵（行多，竖向省略）。整条链路模型的权重一个都没动，变化全发生在模型外的脚手架上。</text>
+  </svg>
+  <div class="diagram-caption">图 2：一次 RAG 问答的局部放大，分上下两排。上排离线建索引：原始文档库切块（RAG 论文口径：每块 100 个词、共 2100 万块），经文档编码器逐块压成 768 维向量，存入 FAISS 内积索引（2100 万 × 768 的矩阵）；下排在线问答：用户问题经独立的问题编码器压成 1 × 768 的向量，对索引做内积检索召回 top-k 个文档块，与问题拼接进 prompt，最后才轮到模型生成回答。模型只在最后一格出现，且权重不变。</div>
+</div>
+
+<h2>14.3.1 为什么需要外挂：参数记忆的三个短板</h2>
+
+<p>　　把「不知道」拆开看，参数记忆（存在模型权重里的知识）有三个绕不开的短板：</p>
+
+<ol>
+  <li><strong>知识截止</strong>。训练语料有时间断面（第 1 章），权重里的知识也就冻结在那一刻。之后的新产品、新人事、新论文，模型一概不知。靠重新训练追新不现实：第 7 章算过账，一次预训练的算力开销巨大，不可能天天重跑。</li>
+  <li><strong>私有知识</strong>。企业内部文档、个人笔记、未公开的数据从没进过训练语料，再强的模型也不可能背出它没见过的东西。靠微调把私有知识灌进权重，既贵又慢，改一条就要动一次训练。</li>
+  <li><strong>幻觉</strong>。语言建模的训练目标（第 6 章）只奖励「说得像人话」，不奖励「说的是真的」。模型对不了解的领域同样下笔流利，自己分不清哪句来自记忆、哪句是现编，也给不出任何出处。</li>
+</ol>
+
+<p>　　三条短板同根同源：知识焊死在参数里。焊死的东西有两个通病——改不动（更新一条知识要动权重，牵一发动全身）、查不着（说不清某句话的依据是什么）。RAG 论文（Lewis et al., 2020）给出的破局框架，是把记忆拆成两半：<strong>参数记忆</strong>（parametric memory）继续留在权重里，管语言能力与推理；<strong>非参数记忆</strong>（non-parametric memory）搬到模型外面，落成一座可检索的资料库，管事实知识。资料库的内容随改随生效，还能逐条指明出处。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">检索增强生成 RAG</span>
+    <span class="term-en">Retrieval-Augmented Generation = 检索 + 增强 + 生成：先检索资料，再让生成有据可依</span>
+  </div>
+  <div class="term-body">
+    <p>一类系统的统称：回答之前，先按问题去外部资料库检索最相关的内容，把检索结果与原问题一起拼进模型输入，再让模型基于这些新鲜、专属的资料生成回答。全过程中模型权重一个参数都不动——改变的是输入，不是模型。名字里的「增强」指的就是检索到的资料对输入的增强。</p>
+    <div class="term-analogy">闭卷考试改开卷考试：考生（模型）还是那个人，水平没变，但允许他进场翻资料。冷门题目的正确率立刻上去，而且每道题都能注明翻的是哪本书。</div>
+  </div>
+</div>
+
+<div class="highlight-box">
+  分工原则一句话：知识与能力分开存放——语言与推理能力留在参数里，靠训练获得（第 6–11 章）；事实知识放进外部资料库，靠检索取用。模型不必把全世界背下来，会查就行。
+</div>
+
+<h2>14.3.2 RAG 原论文结构：检索器 DPR 与生成器</h2>
+
+<p>　　RAG 这个名字来自 Lewis 等人（Facebook AI）2020 年发表在 NeurIPS 的论文（arXiv:2005.11401），标题点明了它的战场：知识密集型 NLP 任务。论文的结构干净利落，只有两大件：<strong>检索器</strong>负责从资料库里找出相关文档，<strong>生成器</strong>负责读文档写答案。一次问答走三步：问题编码 → 检索 → 拼接进上下文。</p>
+
+<p>　　检索器用的是同一团队稍早提出的 DPR（Dense Passage Retrieval，arXiv:2004.04906，EMNLP 2020），核心是<strong>双编码器</strong>：问题编码器 \(q(\cdot)\) 与文档编码器 \(d(\cdot)\) 是两个独立的 BERT-base 模型，各自把一段文本压成一个 768 维向量（取 [CLS] 位置的表示，[CLS] 是 BERT 输入最前端的特殊标记，其输出向量常被当作整段文本的语义摘要）。问题与文档的匹配程度用两个向量的内积衡量，全体文档上的归一化形式是：</p>
+
+<div class="formula-card">
+  \[ p_\eta(z \mid x) \;=\; \frac{\exp\!\big(d(z)^{\top} q(x)\big)}{\sum_{z'} \exp\!\big(d(z')^{\top} q(x)\big)} \tag{1} \]
+  <div class="formula-note">公式 (1)：检索分布——文档块与问题的向量内积越大，被检索到的概率越高。符号说明：\(x\) 是用户问题；\(z\) 是资料库中的一个文档块；\(q(\cdot)\) 是问题编码器，输出 768 维向量；\(d(\cdot)\) 是文档编码器，与 \(q\) 互相独立；\(d(z)^{\top} q(x)\) 是两个向量的内积，语义越相近分越高；\(\eta\) 代表检索器的参数。分母是对全库文档的归一化，实际系统不算它——内积本身就能排序，直接取前 \(k\) 名即可（这一步叫最大内积搜索 MIPS，由 FAISS 这类向量索引加速）。</div>
+</div>
+
+<div class="highlight-box info">
+  注释：BM25 是关键词时代的主流检索算法（Lucene / Elasticsearch 的默认打分），靠词频与逆文档频率做字面匹配，不懂语义——「猫」和「喵星人」在它眼里是两个无关词。DPR 这类稠密检索把文本压进语义向量空间（3.1 节的词嵌入思想从词推广到段落），措辞不同但意思相近也能匹配上。DPR 论文报告：在多个开放域问答数据集上，top-20 命中率比 BM25 高 9–19 个点。开放域问答指不限定依据文档、直接对大语料库提问的问答形式。
+</div>
+
+<p>　　RAG 论文的资料库是 2018 年 12 月的英文维基百科，切成 2100 万个互不重叠的 100 词块，每块经文档编码器得到一个 768 维向量，全部向量用 FAISS 建成索引。生成器是 BART-large（约 4 亿参数的编码器-解码器结构，第 4 章架构家族的成员）：把问题与检索到的文档块拼在一起作为输入，逐 token 生成答案。有一个工程取舍值得记住：训练时文档编码器与索引冻结不动——2100 万个向量重算一遍太贵；被训练的只有问题编码器与生成器，两者端到端联训。索引建成后，资料库对训练而言就是一张只读大表。</p>
+
+<p>　　检索结果怎么参与生成？论文给了两种形式，差别在边缘化（把「依据哪份资料」这个隐变量加权平均掉）发生在哪一级。第一种 RAG-Sequence 让整段回答共用同一份检索结果：</p>
+
+<div class="formula-card">
+  \[ p_{\mathrm{RAG\text{-}S}}(y \mid x) \;\approx\; \sum_{z \in \mathrm{top\text{-}k}} p_\eta(z \mid x)\, p_\theta(y \mid x, z) \tag{2} \]
+  <div class="formula-note">公式 (2)：RAG-Sequence——在序列级做加权，一份检索结果决定整段回答。符号说明：\(y\) 是完整回答；\(\theta\) 是生成器（BART-large）的参数；\(p_\theta(y \mid x, z)\) 是给定问题与某一个文档块时生成整段回答的概率；\(\mathrm{top\text{-}k}\) 是公式 (1) 召回的前 \(k\) 个文档块；求和把「答案依据哪份资料」按检索概率 \(p_\eta\) 加权平均掉。</div>
+</div>
+
+<p>　　第二种 RAG-Token 把加权下放到每一个 token：</p>
+
+<div class="formula-card">
+  \[ p_{\mathrm{RAG\text{-}T}}(y \mid x) \;\approx\; \prod_{i=1}^{N} \sum_{z \in \mathrm{top\text{-}k}} p_\eta(z \mid x)\, p_\theta(y_i \mid x, z, y_{&lt;i}) \tag{3} \]
+  <div class="formula-note">公式 (3)：RAG-Token——在 token 级做加权。符号说明：\(N\) 是回答的 token 数；\(y_i\) 是第 \(i\) 个 token；\(y_{&lt;i}\) 是已经生成的前 \(i-1\) 个 token；其余符号同公式 (2)。连乘号里面套着求和号：每生成一个 token 都重新对 \(k\) 个文档块做一次加权，于是不同 token 可以援引不同文档。</div>
+</div>
+
+<p>　　图 3 把两种形式摆在一起对照，左边的求和包在整段回答外面，右边的求和钻进每个 token 里面：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 360" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP143forms" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">RAG 的两种生成形式：「按哪份资料加权」发生在哪一级（检索权重数值为示意）</text>
+    <rect x="16" y="46" width="440" height="302" rx="10" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+    <text x="236" y="72" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">RAG-Sequence：整段答案共用一份检索结果</text>
+    <rect x="51" y="94" width="110" height="46" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="106" y="114" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">文档 z₁</text>
+    <text x="106" y="131" text-anchor="middle" font-size="10" fill="#555555">检索权重 0.5</text>
+    <rect x="181" y="94" width="110" height="46" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="236" y="114" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">文档 z₂</text>
+    <text x="236" y="131" text-anchor="middle" font-size="10" fill="#555555">检索权重 0.3</text>
+    <rect x="311" y="94" width="110" height="46" rx="6" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="366" y="114" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">文档 z₃</text>
+    <text x="366" y="131" text-anchor="middle" font-size="10" fill="#555555">检索权重 0.2</text>
+    <line x1="106" y1="140" x2="106" y2="162" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP143forms)"/>
+    <line x1="236" y1="140" x2="236" y2="162" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP143forms)"/>
+    <line x1="366" y1="140" x2="366" y2="162" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP143forms)"/>
+    <rect x="51" y="166" width="110" height="40" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="106" y="183" text-anchor="middle" font-size="10" fill="#4c1d95">生成整段回答</text>
+    <text x="106" y="198" text-anchor="middle" font-size="10" fill="#4c1d95">y|x,z₁</text>
+    <rect x="181" y="166" width="110" height="40" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="236" y="183" text-anchor="middle" font-size="10" fill="#4c1d95">生成整段回答</text>
+    <text x="236" y="198" text-anchor="middle" font-size="10" fill="#4c1d95">y|x,z₂</text>
+    <rect x="311" y="166" width="110" height="40" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="366" y="183" text-anchor="middle" font-size="10" fill="#4c1d95">生成整段回答</text>
+    <text x="366" y="198" text-anchor="middle" font-size="10" fill="#4c1d95">y|x,z₃</text>
+    <line x1="106" y1="206" x2="160" y2="226" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP143forms)"/>
+    <line x1="236" y1="206" x2="236" y2="226" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP143forms)"/>
+    <line x1="366" y1="206" x2="312" y2="226" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP143forms)"/>
+    <rect x="116" y="228" width="240" height="46" rx="6" fill="#6d28d9"/>
+    <text x="236" y="250" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">Σ 按检索权重求和</text>
+    <text x="236" y="267" text-anchor="middle" font-size="10" fill="#ede9fe">整段答案的概率（公式 2）</text>
+    <text x="236" y="322" text-anchor="middle" font-size="10" fill="#6b7280">求和在序列级：一份资料决定整段回答</text>
+    <rect x="504" y="46" width="440" height="302" rx="10" fill="#ffffff" stroke="#d1d5db" stroke-width="1"/>
+    <text x="724" y="72" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">RAG-Token：每个 token 各自做一次文档加权</text>
+    <rect x="556" y="206" width="56" height="16" rx="3" fill="#6d28d9"/>
+    <text x="584" y="218" text-anchor="middle" font-size="9" fill="#ffffff">z₁ 主导</text>
+    <rect x="556" y="226" width="56" height="16" rx="3" fill="#e5e7eb"/>
+    <text x="584" y="238" text-anchor="middle" font-size="9" fill="#555555">z₂</text>
+    <rect x="556" y="246" width="56" height="16" rx="3" fill="#e5e7eb"/>
+    <text x="584" y="258" text-anchor="middle" font-size="9" fill="#555555">z₃</text>
+    <line x1="584" y1="262" x2="584" y2="274" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP143forms)"/>
+    <rect x="552" y="276" width="64" height="36" rx="6" fill="#0891b2"/>
+    <text x="584" y="299" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">y₁</text>
+    <rect x="656" y="206" width="56" height="16" rx="3" fill="#e5e7eb"/>
+    <text x="684" y="218" text-anchor="middle" font-size="9" fill="#555555">z₁</text>
+    <rect x="656" y="226" width="56" height="16" rx="3" fill="#e5e7eb"/>
+    <text x="684" y="238" text-anchor="middle" font-size="9" fill="#555555">z₂</text>
+    <rect x="656" y="246" width="56" height="16" rx="3" fill="#6d28d9"/>
+    <text x="684" y="258" text-anchor="middle" font-size="9" fill="#ffffff">z₃ 主导</text>
+    <line x1="684" y1="262" x2="684" y2="274" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP143forms)"/>
+    <rect x="652" y="276" width="64" height="36" rx="6" fill="#0891b2"/>
+    <text x="684" y="299" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">y₂</text>
+    <rect x="756" y="206" width="56" height="16" rx="3" fill="#e5e7eb"/>
+    <text x="784" y="218" text-anchor="middle" font-size="9" fill="#555555">z₁</text>
+    <rect x="756" y="226" width="56" height="16" rx="3" fill="#6d28d9"/>
+    <text x="784" y="238" text-anchor="middle" font-size="9" fill="#ffffff">z₂ 主导</text>
+    <rect x="756" y="246" width="56" height="16" rx="3" fill="#e5e7eb"/>
+    <text x="784" y="258" text-anchor="middle" font-size="9" fill="#555555">z₃</text>
+    <line x1="784" y1="262" x2="784" y2="274" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP143forms)"/>
+    <rect x="752" y="276" width="64" height="36" rx="6" fill="#0891b2"/>
+    <text x="784" y="299" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">y₃</text>
+    <rect x="856" y="206" width="56" height="16" rx="3" fill="#6d28d9"/>
+    <text x="884" y="218" text-anchor="middle" font-size="9" fill="#ffffff">z₁ 主导</text>
+    <rect x="856" y="226" width="56" height="16" rx="3" fill="#e5e7eb"/>
+    <text x="884" y="238" text-anchor="middle" font-size="9" fill="#555555">z₂</text>
+    <rect x="856" y="246" width="56" height="16" rx="3" fill="#e5e7eb"/>
+    <text x="884" y="258" text-anchor="middle" font-size="9" fill="#555555">z₃</text>
+    <line x1="884" y1="262" x2="884" y2="274" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP143forms)"/>
+    <rect x="852" y="276" width="64" height="36" rx="6" fill="#0891b2"/>
+    <text x="884" y="299" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">y₄</text>
+    <text x="724" y="322" text-anchor="middle" font-size="10" fill="#6b7280">连乘内套求和：不同 token 可援引不同文档（公式 3）</text>
+  </svg>
+  <div class="diagram-caption">图 3：RAG 两种生成形式的对照。左图 RAG-Sequence：每个文档块各自支撑一个完整的候选回答，最后按检索权重求和（Σ）得到整段答案的概率，求和发生在序列级；右图 RAG-Token：每生成一个 token（y₁ 到 y₄）都重新对三个文档块做一次加权，深紫色块是该 token 的主导资料，不同 token 可以援引不同文档，求和钻进了连乘号内部。</div>
+</div>
+
+<p>　　值得一提的是，今天的实际系统大多按 RAG-Sequence 的精神做简化执行：检索一次 top-k、拼进上下文、生成交给大模型——公式 (2) 里那笔边缘化的细账，交给大模型在阅读上下文时自己消化，不再显式求和。原论文在开放域问答上取得了当时最佳的成绩，人工评估还显示 RAG 生成的答案比纯参数模型更具体、更有事实依据。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">密集段落检索 DPR</span>
+    <span class="term-en">Dense Passage Retrieval = 用稠密向量做段落级检索</span>
+  </div>
+  <div class="term-body">
+    <p>双编码器检索器：问题与文档各走一个 BERT-base，压成 768 维向量，内积即匹配分。训练用对比学习：一个问题配若干正确文档为正样本，同批次其他问题对应的文档充当负样本（批内负样本），目标是拉近正样本对的内积、推远负样本对。「稠密」对应「稀疏」：BM25 的词袋表示又高又稀疏（词表多大向量就多大），DPR 的 768 维向量紧凑稠密。</p>
+    <div class="term-analogy">图书馆的两种找书法：BM25 按书名关键词逐字比对；DPR 像一位懂内容的馆员，按「讲的是什么」找书，换个问法也找得到。</div>
+  </div>
+</div>
+
+<h2>14.3.3 工程链路：切块、嵌入、向量库、召回、重排、塞进 prompt</h2>
+
+<p>　　原论文的端到端联训漂亮但门槛高。今天的工程实践把 RAG 拆成一条六步流水线（综述 arXiv:2312.10997 将其归纳为标准范式），每步都有现成组件，不需要训练任何新模型。图 4 给出全貌：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 240" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP143pipe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrC143pipe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">工程链路六步：前 3 步离线建库，后 3 步在线服务</text>
+    <rect x="16" y="56" width="140" height="96" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="86" y="82" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">① 切块</text>
+    <text x="86" y="102" text-anchor="middle" font-size="10.5" fill="#555555">把长文档切成块</text>
+    <text x="86" y="120" text-anchor="middle" font-size="10.5" fill="#555555">按长度或语义边界</text>
+    <line x1="156" y1="104" x2="172" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP143pipe)"/>
+    <rect x="174" y="56" width="140" height="96" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="244" y="82" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">② 嵌入</text>
+    <text x="244" y="102" text-anchor="middle" font-size="10.5" fill="#555555">每块 → 一个向量</text>
+    <text x="244" y="120" text-anchor="middle" font-size="10.5" fill="#555555">语义近则距离近</text>
+    <line x1="314" y1="104" x2="330" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP143pipe)"/>
+    <rect x="332" y="56" width="140" height="96" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="402" y="82" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">③ 向量库</text>
+    <text x="402" y="102" text-anchor="middle" font-size="10.5" fill="#555555">向量全部建索引</text>
+    <text x="402" y="120" text-anchor="middle" font-size="10.5" fill="#555555">近似最近邻加速</text>
+    <line x1="472" y1="104" x2="488" y2="104" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC143pipe)"/>
+    <rect x="490" y="56" width="140" height="96" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="560" y="82" text-anchor="middle" font-size="12" font-weight="bold" fill="#0e7490">④ 召回</text>
+    <text x="560" y="102" text-anchor="middle" font-size="10.5" fill="#555555">问题也编成向量</text>
+    <text x="560" y="120" text-anchor="middle" font-size="10.5" fill="#555555">内积取 top-k</text>
+    <line x1="630" y1="104" x2="646" y2="104" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC143pipe)"/>
+    <rect x="648" y="56" width="140" height="96" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="718" y="82" text-anchor="middle" font-size="12" font-weight="bold" fill="#0e7490">⑤ 重排</text>
+    <text x="718" y="102" text-anchor="middle" font-size="10.5" fill="#555555">精排模型再筛一遍</text>
+    <text x="718" y="120" text-anchor="middle" font-size="10.5" fill="#555555">召回求快、重排求准</text>
+    <line x1="788" y1="104" x2="804" y2="104" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC143pipe)"/>
+    <rect x="806" y="56" width="140" height="96" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="876" y="82" text-anchor="middle" font-size="12" font-weight="bold" fill="#0e7490">⑥ 塞进 prompt</text>
+    <text x="876" y="102" text-anchor="middle" font-size="10.5" fill="#555555">资料拼在问题前</text>
+    <text x="876" y="120" text-anchor="middle" font-size="10.5" fill="#555555">模型只多看到文本</text>
+    <path d="M16,162 L16,172 L472,172 L472,162" stroke="#6d28d9" stroke-width="1.5" fill="none"/>
+    <text x="244" y="192" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">离线 · 入库时做一次</text>
+    <path d="M490,162 L490,172 L946,172 L946,162" stroke="#0891b2" stroke-width="1.5" fill="none"/>
+    <text x="718" y="192" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#0e7490">在线 · 每次问答都跑一遍</text>
+    <text x="480" y="226" text-anchor="middle" font-size="10.5" fill="#6b7280">链路里不需要训练任何新组件：嵌入与重排都是现成模型，大模型只在最后读拼好的 prompt</text>
+  </svg>
+  <div class="diagram-caption">图 4：现代 RAG 系统的六步工程链路。切块 → 嵌入 → 向量库是离线三步，资料入库时做一次（紫色）；召回 → 重排 → 塞进 prompt 是在线三步，每次问答都跑一遍（青色）。与原论文相比，工程链路把「端到端联训」换成了「现成组件拼装」：嵌入模型、向量索引、重排模型各司其职，大模型只在最后读拼接好的输入。</div>
+</div>
+
+<p>　　逐步看每个环节的要点：</p>
+
+<ol>
+  <li><strong>切块</strong>：把长文档切成小块。块太小，一句话被拦腰切断、指代丢失（「该公司」不知指谁）；块太大，相关信号被无关文字稀释，还挤占上下文预算。常见做法是按固定长度重叠切分，或按标题、段落等语义边界切——没有通吃的答案，只能按资料形态调。</li>
+  <li><strong>嵌入</strong>：每块经嵌入模型压成一个向量。3.1 节讲过词向量的核心性质——语义相近则向量距离相近，这里只是把编码对象从单个词换成整段文本，嵌入模型同样是 Transformer 编码器家族的成员。</li>
+  <li><strong>向量库</strong>：把所有块的向量建索引存好。库规模大时用近似最近邻（ANN）索引（FAISS 等），拿一点点精度换几个数量级的速度，不必对每个查询都全库精算。</li>
+  <li><strong>召回</strong>：问题也编成向量，与库内向量算内积或余弦相似度 \(\cos(\mathbf{a}, \mathbf{b}) = \frac{\mathbf{a} \cdot \mathbf{b}}{\|\mathbf{a}\| \, \|\mathbf{b}\|}\)（\(\mathbf{a}\)、\(\mathbf{b}\) 是两个向量，推导见附录 A.2；向量预先归一化时内积与余弦等价），取分数最高的前 \(k\) 个文档块。\(k\) 是经验参数，典型取值在个位数到几十个之间。</li>
+  <li><strong>重排</strong>：召回求快——文档向量预先算好，一次内积全库扫完；重排求准——换 cross-encoder 精排（把问题与候选块拼成一对、过同一个模型细算相关度，准但慢），只对召回的几十个块运行，所以算得起。两步各司其职。</li>
+  <li><strong>塞进 prompt</strong>：把筛出的文档块拼在问题前面，一起交给模型。</li>
+</ol>
+
+<p>　　最后一步说穿了就是拼字符串，模型端毫无感知。minimind（Apache 2.0）的 eval_llm.py 把这一事实写得很直白：base 模型是把 bos_token 与 prompt 直接拼成一个字符串（74 行），chat 模型则用 apply_chat_template 拼出带角色标记的字符串（76 行）——不管内容来路如何，模型看到的永远只是拼好的一串 token。RAG 无非在拼接之前多备了一份资料。这也是「RAG 不改权重」的另一种讲法：它只是改变了 prompt 的内容（呼应 14.1，prompt 是模型唯一的输入通道）。代价是上下文变长：第 8 章的长上下文扩展让模型塞得下更多文档块，第 13 章的 KV Cache 与推理优化让长输入算得起。</p>
+
+<div class="highlight-box warn">
+  切块大小是召回质量的第一道关口：切小了断语义，切大了稀释信号、烧上下文预算。拿不准时先用带重叠的固定长度切块打底，再按资料结构（标题层级、表格、代码块）逐步换成语义边界切块，并以召回效果为准迭代。
+</div>
+
+<h2>14.3.4 RAG 的失效模式</h2>
+
+<p>　　挂上资料库不等于万事大吉。RAG 系统的失效大多不在生成侧，而在检索与资料侧。Barnett 等人（2024，arXiv:2401.05856）从三个真实项目里总结出七个失效点，排在前两位的分别是「库里本来就没有答案」与「答案在库里但没被召回进 top-k」——都发生在检索一侧。把常见失效归为三类：</p>
+
+<ol>
+  <li><strong>检索不到</strong>：正确块根本进不了 top-k。原因可能是嵌入模型的语义盲区（用户措辞与文档措辞差得太远、领域术语分布不同），也可能是库里真的没有。后果是模型只能凭参数记忆硬答——幻觉换了个入口回来。</li>
+  <li><strong>切坏上下文</strong>：答案横跨两块被拦腰切断，或块内指代断裂、块过大稀释信号。检索到了也对不全、读不懂。</li>
+  <li><strong>噪声混入</strong>：无关块被模型当真，多个块内容互相矛盾，检索文本里夹带恶意指令。垃圾进，垃圾出，还挤占上下文预算。</li>
+</ol>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>失效模式</th><th>典型原因</th><th>常见对策</th></tr></thead>
+    <tbody>
+      <tr><td>检索不到</td><td>嵌入模型语义盲区；措辞不匹配；库里没有答案</td><td>换更适合领域的嵌入模型；向量召回与关键词召回混合；补齐资料库</td></tr>
+      <tr><td>切坏上下文</td><td>答案横跨两块被切断；指代断裂；块过大</td><td>带重叠切块、按语义边界切；命中块顺带取相邻块</td></tr>
+      <tr><td>噪声混入</td><td>无关块被当真；多块互相矛盾；恶意指令夹带</td><td>重排筛掉低分块；要求模型标注引用来源；系统提示约束「仅依据给定资料回答」</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　第三类里有一种值得单独警惕：检索到的文本混进「忽略之前的指令」这类恶意句子，模型可能照做——这叫提示注入，14.4 讲工具调用时还会正面碰上。更根本的提醒是：RAG 没有消灭幻觉，只是把「回答对不对」换成了两个新问题——检索准不准、模型忠不忠于检索到的资料。评估一个 RAG 系统也因此要分两侧打分：检索侧看召回质量，生成侧看答案是否被资料支持。</p>
+
+<div class="highlight-box info">
+  注释：上下文窗口变大之后，「不如把全文直接塞进去」的议论一直没停。RAG 仍有它的位置：全库塞入的成本随库规模失控，检索则把每次推理的输入控制在窗口预算内，且天然带来出处可追溯的好处。综述（arXiv:2312.10997）对这场争论有系统梳理。
+</div>
+
+<p>　　至此，模型已经能「开口前先翻书」。但翻书只是单向的读——下一节 Function Calling 让模型反向「打电话」，把请求递出给外部世界执行；14.5 的 Agent 则会把 RAG 当作一件可被调用的工具，组装进多步执行循环。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">RAG 不改模型权重，为什么能让模型回答训练时没见过的知识？</div>
+    <div class="sc-key">记忆被拆成两半：参数记忆焊在权重里管语言能力，非参数记忆放在外部向量库管事实知识。RAG 只在推理前把相关文档块检索出来拼进 prompt，改变的只是输入字符串——模型本就只认拼好的 token 流（minimind eval_llm.py 的 74/76 行两种拼法可印证）。资料库随改随生效，权重一个不动。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">RAG-Sequence 与 RAG-Token 差在哪？</div>
+    <div class="sc-key">差在边缘化的层级。RAG-Sequence 整段回答共用同一份检索结果，求和在序列级（公式 (2)）；RAG-Token 每生成一个 token 都重新对 top-k 文档做一次加权，求和钻进连乘号内部（公式 (3)），不同 token 可援引不同文档。今天的工程实践多按前者精神简化：检索 top-k 拼进上下文，交给大模型自己消化。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">RAG 系统答错了，排查应该先看哪一侧？</div>
+    <div class="sc-key">先看检索。七个经典失效点的前两位（库里没有答案、答案没进 top-k）都在检索侧。推荐顺序：库里有没有 → 召回的 top-k 里有没有 → 重排有没有把它顶上来 → 资料是否干净 → 最后才看模型有没有忠于资料生成。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Lewis et al., 2020. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks（RAG 原始论文，NeurIPS 2020，arXiv:2005.11401）：参数记忆与非参数记忆框架、检索器 DPR + 生成器 BART-large、2018 年 12 月英文维基切成 2100 万个 100 词块并编码为 768 维向量、FAISS 建 MIPS 索引、RAG-Sequence 与 RAG-Token 两种形式（公式 (2)(3)）、训练时冻结文档编码器与索引只训问题编码器与生成器、开放域问答当时最佳且生成更具体更有事实依据；arXiv 编号与关键设置来自章分页规格（已联网核实）。</li>
+  <li>Karpukhin et al., 2020. Dense Passage Retrieval for Open-Domain Question Answering（DPR 原始论文，EMNLP 2020，arXiv:2004.04906）：双编码器结构、768 维 [CLS] 表示、批内负样本对比学习、top-20 命中率比 BM25 高 9–19 个点；编号与数字来自章分页规格（已联网核实）。</li>
+  <li>Gao et al., 2023. Retrieval-Augmented Generation for Large Language Models: A Survey（arXiv:2312.10997）：现代 RAG 工程链路（切块 / 嵌入 / 向量库 / 召回 / 重排）的范式归纳、RAG 与长上下文之争；已核对 arXiv 页面。</li>
+  <li>Barnett et al., 2024. Seven Failure Points When Engineering a Retrieval Augmented Generation System（arXiv:2401.05856）：三个真实项目总结的七个失效点，前两位为「库里本来就没有答案」与「答案在库里但没进 top-k」；已核对 arXiv 摘要页。</li>
+  <li>minimind（Apache 2.0），eval_llm.py：base 模型裸拼 bos_token + prompt（74 行）与 chat 模型 apply_chat_template（76 行），用于印证「模型只认拼好的字符串」这一锚点。</li>
+  <li>本手册 3.1 节（词向量与嵌入）、附录 A.2（点积与余弦相似度）：14.3.3 节嵌入与相似度计算的基础。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch14_2_cot.html" title="14.2 思维链：让模型把中间步骤写出来">← 上一节：14.2 思维链：让模型把中间步骤写出来</a><a class="next" href="ch14_4_function_calling.html" title="14.4 Function Calling：让模型学会「打电话」">下一节：14.4 Function Calling：让模型学会「打电话」 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

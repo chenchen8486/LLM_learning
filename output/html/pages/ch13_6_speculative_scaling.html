@@ -1,0 +1,444 @@
+<article class="content">
+<h1>13.6 投机采样与推理时扩展：无损加速与多花计算的两端</h1>
+<p class="subtitle">本页范围：第 13 章第 6 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>13.1 节算过账：解码是 memory-bound，大模型每产出一个 token 都要把全部权重从显存搬一遍，算力大量空转。能不能让一次前向产出不止一个 token？反过来，如果延迟与账单允许，多花的计算能不能买到更好的答案？</td></tr>
+      <tr><td>本节主张</td><td>投机采样用「小模型起草、大模型并行验收」把串行解码改成批量验证，数学上保证输出分布不变，是部署侧少见的无损加速；推理时扩展走反方向，主动多投入推理计算（更多采样、更长思考）换更高准确率。一个省时间，一个买质量。</td></tr>
+      <tr><td>一句话结论</td><td>投机采样的加速来自「一次前向验证多个 token」，接受准则 min(1, p/q) 加残差分布重采让输出分布与原模型完全一致（T5-XXL 实测 2–3 倍加速）；推理时扩展把「思考长度与采样条数」变成新的资源旋钮，o1 范式表明它像训练算力一样存在扩展规律。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>投机采样</span><span>draft model</span><span>验收准则</span><span>残差分布</span><span>无损加速</span><span>self-consistency</span><span>多数投票</span><span>思维链预算</span><span>test-time compute</span><span>o1</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　13.5 节用蒸馏造出了「小一号但同源」的模型，它可以独立服役。小模型还有第二个用途：给大模型当助手。本节先讲这对搭档的成名技——投机采样（speculative decoding）：小模型先起草几个 token，大模型用一次前向把它们全部验收，输出分布一个字不变，速度却快了两三倍。随后调转方向，聊与「省钱提速」相反的思路——推理时扩展：不心疼计算，反而主动多花，用更长的思考与更多的采样换更高的准确率。</p>
+
+<p>　　一个省时间、一个买质量，看似相反，底层却是同一笔账的两面。13.1 节的结论是：解码阶段的瓶颈在显存带宽与逐 token 的串行等待，GPU 算力有大量空闲。投机采样问的是「空闲的算力能不能利用起来」，推理时扩展问的是「既然算力有空余，多算能不能换更好的答案」。本节按「机制 → 无损性 → 反向花钱 → 全章收束」展开，路线图如下：</p>
+
+<ol>
+  <li><strong>投机采样：小模型起草、大模型验收</strong>（13.6.1）：一轮四步的完整机制、加速倍数由什么决定、两篇并发出处；</li>
+  <li><strong>无损性：为什么输出分布不变</strong>（13.6.2）：验收准则的数学形式与面积直觉，只讲直觉不证定理；</li>
+  <li><strong>推理时扩展：用更多计算换更好答案</strong>（13.6.3）：self-consistency 多数投票、思维链预算与 o1 范式；</li>
+  <li><strong>本章总回顾</strong>（13.6.4）：把第 13 章六节串成一张地图，看清各自的代价与兼容性。</li>
+</ol>
+
+<p>　　读完本节，应该能手推一轮投机采样的推进过程，说清「无损」到底保住了什么，并能讲明白 o1 式「多思考」与第 11 章推理训练的分工。逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置（图 1）：它是训练全部收官之后的部署技巧，也是整本手册主线的最后一站。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS136speculativescaling" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG136speculativescaling" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS136speculativescaling)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS136speculativescaling)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS136speculativescaling)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS136speculativescaling)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS136speculativescaling)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS136speculativescaling)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS136speculativescaling)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）与推理训练（第 11 章），交出会对话、懂分寸、会推理的模型；推理与部署（第 12–13 章）是它的下一站，解决「同一个模型怎么服务得更快、更便宜、更准」。本节是第 13 章的收尾：投机采样把解码的串行瓶颈改成批量验收（无损加速），推理时扩展则反方向地用计算换质量。</div>
+</div>
+
+<h2>13.6.1 投机采样：小模型起草、大模型验收</h2>
+
+<p>　　先把 13.1 节的账翻出来：解码逐 token 串行，每走一步都要把大模型的全部权重从显存搬进计算单元，只为算出一个位置的分布——带宽吃满，算力空转。这里有个被浪费的事实：一次前向其实可以给任意多个位置并行打分，训练时的 teacher forcing 就是这么干的（第 6 章）；只要提前知道后面的 token 是什么，一次前向就能顺便把它们的分布全算出来，耗时与只算一个位置几乎相同。问题在于，解码时后面的 token 还不存在。投机采样的回答很朴素：不知道，就猜——让一个便宜的小模型先把后面几个 token 猜出来，大模型只做验收。</p>
+
+<p>　　一轮投机采样分四步走完（草案长度记为 \(\gamma\)，两篇原论文的实验里取 3–4）：</p>
+
+<ol>
+  <li><strong>起草</strong>：草案模型（draft model，记为 \(M_q\)）自回归生成 \(\gamma\) 个候选 token。它也要逐 token 解码，但模型小一个数量级以上，每步成本远低于大模型；</li>
+  <li><strong>并行打分</strong>：把 \(\gamma\) 个候选接在现有上下文之后，目标模型（target model，记为 \(M_p\)）只做一次前向，并行得到这 \(\gamma\) 个位置各自的下一步分布 \(p\)——这是整件事能成立的物理基础；</li>
+  <li><strong>逐个验收</strong>：从前往后检查每个候选，第 \(i\) 个候选以一定概率被接受（具体准则与数学形式是 13.6.2 的主角）；一旦遇到第一个被拒绝的候选，立刻停下，把这一位换成大模型亲手修正的 token，排在它后面的草案全部作废；</li>
+  <li><strong>推进</strong>：本轮把「通过的最长前缀 + 1 个修正 token」正式写入序列。若 \(\gamma\) 个候选全部通过，还能用该次前向算出的第 \(\gamma + 1\) 个位置的分布再白采一个，本轮最多推进 \(\gamma + 1\) 个 token。</li>
+</ol>
+
+<p>　　直觉类比：主编与实习记者。实习生（小模型）先把稿子拟出草稿，主编（大模型）通读一遍，顺的段落放行，出错的地方亲手改一笔。主编通读全稿的工夫和细看一句话差不多，一次却能定稿好几段——前提是实习生写得足够像主编，否则通篇返工反而更慢。这个「像不像」就是接受率，它决定加速的上限。图 2 把一轮（\(\gamma = 4\)）的三阶段画成流水线，对照普通解码的串行节奏看，加速的来源一目了然：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP136spec" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrC136spec" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <text x="16" y="28" font-size="13" font-weight="bold" fill="#4c1d95">一轮投机采样的三阶段（草案长度 γ = 4 的示例，token 用抽象符号 x̂ 表示）</text>
+    <!-- 栏 1：起草 -->
+    <rect x="16" y="56" width="280" height="330" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="156" y="86" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#155e75">① 起草：小模型串行猜词</text>
+    <text x="156" y="106" text-anchor="middle" font-size="10.5" fill="#555555">草案模型 M_q · 4 次前向</text>
+    <rect x="32" y="140" width="52" height="40" rx="6" fill="#0891b2"/>
+    <rect x="100" y="140" width="52" height="40" rx="6" fill="#0891b2"/>
+    <rect x="168" y="140" width="52" height="40" rx="6" fill="#0891b2"/>
+    <rect x="236" y="140" width="52" height="40" rx="6" fill="#0891b2"/>
+    <text x="58" y="165" text-anchor="middle" font-size="12" fill="#ffffff">x̂₁</text>
+    <text x="126" y="165" text-anchor="middle" font-size="12" fill="#ffffff">x̂₂</text>
+    <text x="194" y="165" text-anchor="middle" font-size="12" fill="#ffffff">x̂₃</text>
+    <text x="262" y="165" text-anchor="middle" font-size="12" fill="#ffffff">x̂₄</text>
+    <line x1="84" y1="160" x2="98" y2="160" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC136spec)"/>
+    <line x1="152" y1="160" x2="166" y2="160" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC136spec)"/>
+    <line x1="220" y1="160" x2="234" y2="160" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC136spec)"/>
+    <text x="58" y="200" text-anchor="middle" font-size="10" fill="#555555">第 1 步</text>
+    <text x="126" y="200" text-anchor="middle" font-size="10" fill="#555555">第 2 步</text>
+    <text x="194" y="200" text-anchor="middle" font-size="10" fill="#555555">第 3 步</text>
+    <text x="262" y="200" text-anchor="middle" font-size="10" fill="#555555">第 4 步</text>
+    <text x="156" y="246" text-anchor="middle" font-size="10.5" fill="#555555">每步只搬小模型的权重</text>
+    <text x="156" y="268" text-anchor="middle" font-size="10.5" fill="#555555">耗时 ≈ 4 × 小模型单步</text>
+    <text x="156" y="290" text-anchor="middle" font-size="10.5" fill="#555555">模型小一个数量级以上，单步便宜</text>
+    <text x="156" y="348" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#155e75">成本：低</text>
+    <line x1="296" y1="221" x2="320" y2="221" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP136spec)"/>
+    <!-- 栏 2：并行打分 -->
+    <rect x="326" y="56" width="300" height="330" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="476" y="86" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">② 验收：大模型一次前向</text>
+    <text x="476" y="106" text-anchor="middle" font-size="10.5" fill="#555555">目标模型 M_p · 4 个位置并行打分</text>
+    <rect x="342" y="130" width="52" height="36" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <rect x="410" y="130" width="52" height="36" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <rect x="478" y="130" width="52" height="36" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <rect x="546" y="130" width="52" height="36" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="368" y="153" text-anchor="middle" font-size="12" fill="#4c1d95">x̂₁</text>
+    <text x="436" y="153" text-anchor="middle" font-size="12" fill="#4c1d95">x̂₂</text>
+    <text x="504" y="153" text-anchor="middle" font-size="12" fill="#4c1d95">x̂₃</text>
+    <text x="572" y="153" text-anchor="middle" font-size="12" fill="#4c1d95">x̂₄</text>
+    <line x1="476" y1="170" x2="476" y2="196" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP136spec)"/>
+    <!-- 4 组迷你分布柱，基线 y=250 -->
+    <rect x="351" y="220" width="10" height="30" fill="#6d28d9"/>
+    <rect x="363" y="232" width="10" height="18" fill="#6d28d9"/>
+    <rect x="375" y="240" width="10" height="10" fill="#6d28d9"/>
+    <rect x="419" y="236" width="10" height="14" fill="#6d28d9"/>
+    <rect x="431" y="220" width="10" height="30" fill="#6d28d9"/>
+    <rect x="443" y="238" width="10" height="12" fill="#6d28d9"/>
+    <rect x="487" y="240" width="10" height="10" fill="#6d28d9"/>
+    <rect x="499" y="228" width="10" height="22" fill="#6d28d9"/>
+    <rect x="511" y="220" width="10" height="30" fill="#6d28d9"/>
+    <rect x="555" y="224" width="10" height="26" fill="#6d28d9"/>
+    <rect x="567" y="238" width="10" height="12" fill="#6d28d9"/>
+    <rect x="579" y="230" width="10" height="20" fill="#6d28d9"/>
+    <line x1="342" y1="250" x2="598" y2="250" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="368" y="266" text-anchor="middle" font-size="10" fill="#555555">p₁</text>
+    <text x="436" y="266" text-anchor="middle" font-size="10" fill="#555555">p₂</text>
+    <text x="504" y="266" text-anchor="middle" font-size="10" fill="#555555">p₃</text>
+    <text x="572" y="266" text-anchor="middle" font-size="10" fill="#555555">p₄</text>
+    <text x="476" y="296" text-anchor="middle" font-size="10.5" fill="#555555">一次前向同时算出 4 个位置的分布</text>
+    <text x="476" y="316" text-anchor="middle" font-size="10.5" fill="#555555">与只算 1 个位置耗时几乎相同</text>
+    <text x="476" y="348" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">耗时 ≈ 解码 1 个 token</text>
+    <line x1="626" y1="221" x2="650" y2="221" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP136spec)"/>
+    <!-- 栏 3：验收结果 -->
+    <rect x="656" y="56" width="288" height="330" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="800" y="86" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#15803d">③ 逐个验收，拒绝即修正</text>
+    <text x="800" y="106" text-anchor="middle" font-size="10.5" fill="#555555">前 3 个通过 · 第 4 个被拒</text>
+    <rect x="672" y="130" width="52" height="36" rx="6" fill="#16a34a"/>
+    <rect x="740" y="130" width="52" height="36" rx="6" fill="#16a34a"/>
+    <rect x="808" y="130" width="52" height="36" rx="6" fill="#16a34a"/>
+    <rect x="876" y="130" width="52" height="36" rx="6" fill="#dc2626"/>
+    <text x="698" y="153" text-anchor="middle" font-size="12" fill="#ffffff">x̂₁ ✓</text>
+    <text x="766" y="153" text-anchor="middle" font-size="12" fill="#ffffff">x̂₂ ✓</text>
+    <text x="834" y="153" text-anchor="middle" font-size="12" fill="#ffffff">x̂₃ ✓</text>
+    <text x="902" y="153" text-anchor="middle" font-size="12" fill="#ffffff">x̂₄ ✗</text>
+    <line x1="800" y1="170" x2="800" y2="196" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP136spec)"/>
+    <rect x="672" y="204" width="52" height="36" rx="6" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <rect x="740" y="204" width="52" height="36" rx="6" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <rect x="808" y="204" width="52" height="36" rx="6" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <rect x="876" y="204" width="52" height="36" rx="6" fill="#6d28d9"/>
+    <text x="698" y="227" text-anchor="middle" font-size="12" fill="#15803d">x̂₁</text>
+    <text x="766" y="227" text-anchor="middle" font-size="12" fill="#15803d">x̂₂</text>
+    <text x="834" y="227" text-anchor="middle" font-size="12" fill="#15803d">x̂₃</text>
+    <text x="902" y="227" text-anchor="middle" font-size="12" fill="#ffffff">x̂₄′</text>
+    <text x="800" y="266" text-anchor="middle" font-size="10.5" fill="#555555">前 3 个草案直接落袋</text>
+    <text x="800" y="288" text-anchor="middle" font-size="10.5" fill="#555555">第 4 位从残差分布重采修正（紫块）</text>
+    <text x="800" y="310" text-anchor="middle" font-size="10.5" fill="#555555">被拒位置之后的草案作废，本轮结束</text>
+    <text x="800" y="348" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#15803d">推进 4 个 token</text>
+    <text x="480" y="414" text-anchor="middle" font-size="11" fill="#555555">对照：普通解码推进 4 个 token 要 4 次大模型前向；本轮只要 1 次（若 4 个全通过，还能从第 5 个位置的分布再白采 1 个）</text>
+  </svg>
+  <div class="diagram-caption">图 2：一轮投机采样的三阶段（草案长度 γ = 4 的示例，token 用抽象符号表示）。小模型（左）串行起草 4 个候选，每次前向成本低廉；大模型（中）把 4 个候选拼进上下文做一次前向，并行算出 4 个位置的分布，耗时与解码 1 个 token 几乎相同——这正是 13.1 节 memory-bound 账的直接推论；验收（右）从前往后逐个判，前 3 个落袋、第 4 个被拒后从残差分布重采一个修正 token，本轮净推进 4 个。加速的本质：把串行解码改成了批量验收。</div>
+</div>
+
+<p>　　图 2 的账可以写成公式。设草案模型单步耗时与目标模型单步耗时之比为 \(c\)（远小于 1），单个候选的平均接受率为 \(\alpha\)，在候选相互独立的简化假设下，Leviathan et al. 给出的期望加速比为：</p>
+
+<div class="formula-card">
+  \[ \mathbb{E}[\text{加速比}] = \frac{1 - \alpha^{\gamma + 1}}{(1 - \alpha)\,(c\gamma + 1)} \tag{1} \]
+  <div class="formula-note">公式 (1)：投机采样的期望加速比——一轮期望推进的 token 数除以一轮的耗时。符号说明：\(\alpha \in [0,1]\) 是单个草案 token 的平均接受率（13.6.2 会给出它的精确含义：两个分布的重叠面积）；\(\gamma\) 是每轮的草案长度；\(c\) 是草案模型单步耗时除以目标模型单步耗时（memory-bound 下单步耗时大致正比于参数量，故 \(c\) 反映两者的体量差距）。分子 \(1 + \alpha + \alpha^2 + \dots + \alpha^{\gamma} = (1 - \alpha^{\gamma+1})/(1-\alpha)\)：第一个候选必推进，第二个以概率 \(\alpha\) 存在，依此类推的几何级数；分母 \(c\gamma + 1\) 以「大模型一次前向耗时」为单位：\(\gamma\) 次草案各花 \(c\)，一次验收花 \(1\)。两个极端很有说服力：\(\alpha \to 1\) 时分子趋向 \(\gamma + 1\)，草案免费（\(c \to 0\)）时加速比逼近 \(\gamma + 1\) 倍；\(\alpha \to 0\) 时加速比小于 1，草案全部白写，反而更慢。</div>
+</div>
+
+<p>　　这个算法由两个团队在 2022 年底至 2023 年初几乎同时提出。Google 的 Leviathan et al.（arXiv:2211.17192，ICML 2023）在 T5-XXL（约 11B 参数，配 T5 家族小模型当草案）上报告了 2–3 倍的墙钟加速，并强调输出与标准解码完全相同（identical outputs）；DeepMind 的 Chen et al.（arXiv:2302.01318）把它命名为 speculative sampling，在 Chinchilla 70B 上报告了 2–2.5 倍加速，并给出分布不变的严格证明。两篇论文的算法实质相同，本节统称投机采样。后来草案的来源也有了新花样：Medusa（arXiv:2401.10774）给目标模型加装多个预测头、让大模型自己给自己起草，EAGLE（arXiv:2401.15077）改在特征层起草，都是「先猜后验」这一思想的变体，本节不展开。</p>
+
+<p>　　minimind 仓库（Apache 2.0）没有实现投机采样：它的 generate 函数（model/model_minimind.py:262 起）是标准的逐 token 解码循环，268 行的 <code>for _ in range(max_new_tokens)</code> 每圈只推进一个 token。本节的描述全部以两篇原始论文为准。不过 minimind 的一个配置可以拿来理解工程约束：它的词表是 6400，草案模型必须与目标模型共享同一套分词与词表，否则「第 \(i\) 个候选 token」在两个模型里根本不是同一个单位，逐 token 验收无从谈起。这也是实践中草案模型常取自同一家族小号成员的原因——13.5 节蒸馏出的小模型就是现成候选。</p>
+
+<div class="highlight-box warn">
+  词表一致性是硬约束：验收准则要逐 token 比较两个模型对同一个 token 的概率打分，词表不同则单位都对不上。即便词表相同，草案模型的训练数据风格也应尽量贴近目标模型——接受率 \(\alpha\) 直接决定加速比（公式 (1)），风格差得远，草案就白写了。
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">投机采样 Speculative Decoding</span>
+    <span class="term-en">speculative = 投机的、猜测性的；先猜后验，赌小模型的猜测多半是对的</span>
+  </div>
+  <div class="term-body">
+    <p>一种无损的解码加速算法：小模型（草案模型）先自回归猜出 \(\gamma\) 个候选 token，大模型（目标模型）用一次前向并行验收，通过的候选直接落袋，第一个被拒的位置由大模型亲手修正，本轮至此结束。加速来自「一次前向验证多个 token」：解码的瓶颈是搬运权重的带宽而非算力（13.1 节），一次前向算一个位置还是算 \(\gamma\) 个位置，耗时几乎相同，只要平均接受率足够高，墙钟时间就成倍下降。两篇原始论文都证明了：这套流程产出的序列与直接用大模型采样服从完全相同的分布——加速不以牺牲输出为代价。Chen et al. 把它叫 speculative sampling，两个名字指同一算法。</p>
+    <div class="term-analogy">像老师批改口算作业：学生（小模型）先把一整页算完，老师（大模型）一页扫过去，对的打勾、遇到第一处错误停下改红笔。比老师自己一道道算快得多，而且最终答案与老师亲手算的一样对。</div>
+  </div>
+</div>
+
+<h2>13.6.2 无损性：为什么输出分布不变</h2>
+
+<p>　　13.6.1 埋了个问题：验收为什么需要概率准则？直接信小模型行不行？不行——那样产出的 token 服从的是小模型的分布 \(q\)，不是大模型的分布 \(p\)，「加速」是以偷换模型为代价的。投机采样的精髓恰恰在验收准则的数学设计：它把输出分布精确地扳回 \(p\)。记当前位置上大模型的分布为 \(p(\cdot)\)、小模型的分布为 \(q(\cdot)\)（都是词表上的概率分布，minimind 的词表大小为 6400），对小模型抽出的候选 \(x\)，两篇原论文给出的验收规则是：</p>
+
+<div class="formula-card">
+  \[ \alpha(x) = \min\!\left(1,\ \frac{p(x)}{q(x)}\right), \qquad x \text{ 被拒时改从 } p'(x) = \mathrm{norm}\big(\max(0,\ p(x) - q(x))\big) \text{ 重采} \tag{2} \]
+  <div class="formula-note">公式 (2)：投机采样的验收准则——候选以 \(p/q\) 之比（封顶为 1）被接受，被拒的位置从「残差分布」重采一个修正 token。符号说明：\(p(x)\) 是目标模型给 token \(x\) 的概率，\(q(x)\) 是草案模型给 \(x\) 的概率，\(\alpha(x)\) 是候选 \(x\) 的接受概率：草案给的概率大模型也认（\(p(x) \geq q(x)\)）则必然通过；草案高估了 \(x\)（\(q(x) &gt; p(x)\)）则按超额比例打回。\(\mathrm{norm}(\cdot)\) 表示归一化到总和为 1；\(\max(0, p(x) - q(x))\) 是「大模型认为应得、小模型却没给够」的概率质量，归一化后叫残差分布。规则覆盖每个位置：被拒候选之后的草案全部作废，从修正位置起开启新一轮。</div>
+</div>
+
+<p>　　这套准则的直觉可以用「面积」讲清。把两个分布在同一组候选上的柱形叠在一起：重叠部分 \(\min(p, q)\) 是「草案猜得和大模型一样好」的部分，直接落袋；\(q\) 高出 \(p\) 的部分是草案的高估，按 \(p/q\) 的比例打回；\(p\) 高出 \(q\) 的部分是草案的漏估，积攒起来构成拒绝时重采的残差分布——大模型认为该给而草案没给够的 token，修正时优先补回。打回与补课双管齐下，合起来恰好还原 \(p\)。图 3 用 5 个候选的数值小例把这个结构画了出来：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 400" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <text x="16" y="28" font-size="13" font-weight="bold" fill="#4c1d95">验收准则的面积直觉（数值小例：取词表上 5 个候选，可复算；真实词表为 6400）</text>
+    <!-- 柱区：基线 y=330，高 = p×560 -->
+    <!-- 甲 q=0.10 p=0.30 -->
+    <rect x="40" y="274" width="88" height="56" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="40" y="274" width="88" height="56" fill="#6d28d9" opacity="0.85"/>
+    <rect x="40" y="162" width="88" height="112" fill="#dc2626" opacity="0.8"/>
+    <text x="84" y="156" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#6d28d9">p = 0.30</text>
+    <text x="84" y="268" text-anchor="middle" font-size="10" fill="#ffffff">q = 0.10</text>
+    <!-- 乙 q=0.50 p=0.20 -->
+    <rect x="136" y="50" width="88" height="280" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="136" y="218" width="88" height="112" fill="#6d28d9" opacity="0.85"/>
+    <text x="180" y="44" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#0891b2">q = 0.50</text>
+    <text x="180" y="280" text-anchor="middle" font-size="10" fill="#ffffff">p = 0.20</text>
+    <!-- 丙 q=0.20 p=0.25 -->
+    <rect x="232" y="218" width="88" height="112" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="232" y="218" width="88" height="112" fill="#6d28d9" opacity="0.85"/>
+    <rect x="232" y="190" width="88" height="28" fill="#dc2626" opacity="0.8"/>
+    <text x="276" y="184" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#6d28d9">p = 0.25</text>
+    <text x="276" y="274" text-anchor="middle" font-size="10" fill="#ffffff">q = 0.20</text>
+    <!-- 丁 q=0.10 p=0.15 -->
+    <rect x="328" y="274" width="88" height="56" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="328" y="274" width="88" height="56" fill="#6d28d9" opacity="0.85"/>
+    <rect x="328" y="246" width="88" height="28" fill="#dc2626" opacity="0.8"/>
+    <text x="372" y="240" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#6d28d9">p = 0.15</text>
+    <text x="372" y="324" text-anchor="middle" font-size="10" fill="#ffffff">q = 0.10</text>
+    <!-- 戊 q=0.10 p=0.10 -->
+    <rect x="424" y="274" width="88" height="56" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <rect x="424" y="274" width="88" height="56" fill="#6d28d9" opacity="0.85"/>
+    <text x="468" y="268" text-anchor="middle" font-size="10" fill="#555555">q = p = 0.10</text>
+    <line x1="32" y1="330" x2="520" y2="330" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="84" y="348" text-anchor="middle" font-size="11" fill="#555555">甲</text>
+    <text x="180" y="348" text-anchor="middle" font-size="11" fill="#555555">乙</text>
+    <text x="276" y="348" text-anchor="middle" font-size="11" fill="#555555">丙</text>
+    <text x="372" y="348" text-anchor="middle" font-size="11" fill="#555555">丁</text>
+    <text x="468" y="348" text-anchor="middle" font-size="11" fill="#555555">戊</text>
+    <!-- 右侧注解 -->
+    <text x="580" y="80" font-size="12" font-weight="bold" fill="#4c1d95">平均接受率 = 重叠面积</text>
+    <text x="580" y="104" font-size="11" fill="#333333">α = Σ min(p, q)</text>
+    <text x="580" y="124" font-size="11" fill="#333333">= 0.10 + 0.20 + 0.20 + 0.10 + 0.10 = 0.70</text>
+    <text x="580" y="144" font-size="10.5" fill="#555555">本例平均七成草案被接受</text>
+    <text x="580" y="188" font-size="12" font-weight="bold" fill="#b91c1c">拒绝时的残差分布</text>
+    <text x="580" y="212" font-size="11" fill="#333333">norm(max(0, p − q))</text>
+    <text x="580" y="232" font-size="11" fill="#333333">∝ [0.20, 0, 0.05, 0.05, 0]</text>
+    <text x="580" y="252" font-size="11" fill="#333333">= [0.67, 0, 0.17, 0.17, 0]（各项 ÷ 0.30）</text>
+    <text x="580" y="272" font-size="10.5" fill="#555555">甲被低估最多，重采时最常补回它</text>
+    <!-- 图例行 -->
+    <rect x="40" y="360" width="16" height="12" fill="#6d28d9" opacity="0.85"/>
+    <text x="62" y="370" font-size="10.5" fill="#555555">紫色：重叠 min(p, q)，直接落袋</text>
+    <rect x="290" y="360" width="16" height="12" fill="#dc2626" opacity="0.8"/>
+    <text x="312" y="370" font-size="10.5" fill="#555555">红色：p 比 q 多出的部分，拒绝时从它重采</text>
+    <rect x="580" y="360" width="16" height="12" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="602" y="370" font-size="10.5" fill="#555555">青色框：q 比 p 多出的部分，按 p/q 比例打回</text>
+  </svg>
+  <div class="diagram-caption">图 3：验收准则的面积直觉。小模型草案分布 q（青色框）与大模型目标分布 p（紫 + 红）叠在同一组候选上：紫色重叠区是两种分布一致认可的质量，草案落袋；红色区是大模型认为应得、草案没给够的部分，拒绝时从它归一化出的残差分布里重采修正；青色框高出紫柱的部分（如乙）是草案的高估，按 p/q 的比例打回。三者合起来，输出分布恰好还原 p——这就是「无损」的几何图像。</div>
+</div>
+
+<p>　　从图 3 还能读出一个常用结论：平均接受率就是两个分布的重叠面积。候选 \(x\) 从小模型分布 \(q\) 中抽出，期望接受率 \(\mathbb{E}_{x \sim q}[\alpha(x)] = \sum_x q(x)\min(1,\ p(x)/q(x)) = \sum_x \min(p(x),\ q(x))\)。图 3 的例子里重叠面积为 \(0.10 + 0.20 + 0.20 + 0.10 + 0.10 = 0.70\)，即平均七成草案被接受。两个分布越像，接受率越高，公式 (1) 的加速比越大——这就是草案模型要同家族、同数据风格的数学理由。</p>
+
+<p>　　用三个极端检验这套直觉。\(q = p\) 时接受率恒为 1，草案永远全收，投机采样退化为「小模型免费代笔」，加速比逼近上限；\(q\) 与 \(p\) 毫无重叠时接受率为 0，每轮草案全部作废、只推进修正的那一个 token，白赔草案成本。还有一个工程上最常用的特例：贪心解码。大模型走 argmax 时 \(p\) 是 one-hot 分布，准则退化为「草案 token 恰好等于大模型的 argmax 才接受」，被拒则取 argmax 本身——输出与大模型贪心解码逐 token 相同，这是最严格意义的无损，也是在线服务开启投机采样时的常见形态。</p>
+
+<p>　　为什么接受加重采之后分布恰好是 \(p\)，两篇原论文都给了严格证明（核心是对每个 token 验证「经接受通道来的概率 + 经重采通道来的概率 = \(p(x)\)」）。本节按手册惯例只讲直觉不证定理，想读证明的读者可对照 Leviathan et al. 附录 A 与 Chen et al. 第 3 节。</p>
+
+<div class="highlight-box">
+  无损的确切含义：投机采样不改模型、不改参数、不改输出分布——同一个大模型、同一套采样参数，开与不开投机采样，产出序列服从完全相同的分布；贪心模式下输出逐 token 相同。代价只有草案模型的额外显存与计算，以及实现复杂度。这与量化（13.4 节）形成鲜明对照：量化用可控的精度损失换带宽，投机采样是纯粹的系统侧免费午餐。
+</div>
+
+<div class="highlight-box info">
+  注释：「无损」是分布层面的数学结论，落地时有三个折扣。其一，浮点运算的非结合性会让并行验收的 logits 与逐 token 解码有尾数级差异，实际输出可能个别分叉；其二，投机采样不省 KV Cache 显存（13.2 节），也不解决多用户调度（13.3 节），三者是正交、可叠加的优化；其三，接受率随任务波动——代码、格式化问答这类结构化程度高的文本接受率高，开放式创作接受率低，\(\gamma\) 宜调小。
+</div>
+
+<h2>13.6.3 推理时扩展：用更多计算换更好答案</h2>
+
+<p>　　从 13.1 到 13.6.2，本章所有技巧都在回答同一个问题：同样的答案，怎么更快更便宜。推理时扩展（test-time scaling）问反方向的问题：如果延迟和账单允许，多花的计算能不能买到更好的答案？2024 年下半年起，这个问题的答案从「能」变成「能，而且有类似 Scaling Law 的规律」，直接改写了部署侧的成本模型。</p>
+
+<p>　　最早成熟的一条路线是 self-consistency（Wang et al., 2022，arXiv:2203.11171，ICLR 2023）：同一道题用温度采样独立生成 \(k\) 条思维链（chain-of-thought，让模型先写推理过程再给答案的提示方式，第 11 章与第 14 章均有展开），每条链给出一个最终答案，取多数答案输出：</p>
+
+<div class="formula-card">
+  \[ \hat{a} = \arg\max_{a} \sum_{i=1}^{k} \mathbb{1}[\,a_i = a\,] \tag{3} \]
+  <div class="formula-note">公式 (3)：多数投票——\(k\) 条独立采样链的答案做众数表决。符号说明：\(a_i\) 是第 \(i\) 条思维链的最终答案；\(\mathbb{1}[\cdot]\) 是指示函数，相等为 1、否则为 0；\(k\) 是采样链数；\(\hat{a}\) 是最终输出。思想直白：单条链可能走错路，多数链同时走错同一条路的概率低得多。论文报告在 GSM8K 数学应用题上，相对贪心解码单链，准确率绝对提升 17.9 个百分点（摘要口径）。代价同样直白：成本与延迟约乘 \(k\)，且只在「答案短、可表决」的任务上有效——开放式写作没有多数可言。</div>
+</div>
+
+<p>　　第二条路线控制的不是条数而是长度：让模型在回答前生成更长的推理链。长思考的能力本身是训练出来的（第 11 章的 RLVR 正是干这个的），但部署侧也有一个开关。s1 论文（Muennighoff et al., 2025，arXiv:2501.19393）给出了最朴素的版本——预算强制（budget forcing）：思考到预设长度就掐断收尾；想延长，则压下思考结束标记、追加一个「Wait」让模型继续想。论文用 1000 条精选推理轨迹微调出的 s1-32B 配合这一开关，在竞赛数学题（MATH 与 AIME24）上最高超过 o1-preview 27 个百分点，一度成为「测试时计算也能扩展」的标志性复现。</p>
+
+<p>　　把这条路推到聚光灯下的是 OpenAI 的 o1。2024 年 9 月 12 日的官方博客《Learning to Reason with LLMs》宣布：o1 的性能随强化学习训练计算量（train-time compute）与思考时间（test-time compute）同步提升——两条扩展曲线并存，这是 o1 范式的核心主张。博客给出的 AIME 2024（美国数学邀请赛，面向顶尖高中生的数学竞赛）数字极具冲击力：GPT-4o 平均只能解出 12% 的题目，o1 单样本 74%，64 个样本多数投票到 83%，1000 个样本经学习打分器重排到 93%。图 4 把这些点画在「推理时计算量—准确率」坐标里，从 74% 到 93% 的代价是三个数量级的额外采样。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrA136tts" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+      </marker>
+    </defs>
+    <text x="16" y="28" font-size="13" font-weight="bold" fill="#4c1d95">多花推理计算，能买到多少准确率（实线为趋势示意；红点为 o1 博客公布的实测）</text>
+    <!-- 坐标轴 -->
+    <line x1="90" y1="370" x2="90" y2="54" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrA136tts)"/>
+    <line x1="90" y1="370" x2="918" y2="370" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrA136tts)"/>
+    <text x="34" y="210" font-size="11.5" fill="#555555" transform="rotate(-90 34 210)" text-anchor="middle">准确率</text>
+    <text x="505" y="430" text-anchor="middle" font-size="11.5" fill="#555555">推理时计算量（采样数 / 思考 token 数，对数刻度）</text>
+    <!-- 纵轴刻度 -->
+    <line x1="86" y1="370" x2="94" y2="370" stroke="#6b7280" stroke-width="1.2"/>
+    <line x1="86" y1="290" x2="94" y2="290" stroke="#6b7280" stroke-width="1.2"/>
+    <line x1="86" y1="210" x2="94" y2="210" stroke="#6b7280" stroke-width="1.2"/>
+    <line x1="86" y1="130" x2="94" y2="130" stroke="#6b7280" stroke-width="1.2"/>
+    <line x1="86" y1="50" x2="94" y2="50" stroke="#6b7280" stroke-width="1.2"/>
+    <text x="80" y="374" text-anchor="end" font-size="10" fill="#555555">0%</text>
+    <text x="80" y="294" text-anchor="end" font-size="10" fill="#555555">25%</text>
+    <text x="80" y="214" text-anchor="end" font-size="10" fill="#555555">50%</text>
+    <text x="80" y="134" text-anchor="end" font-size="10" fill="#555555">75%</text>
+    <text x="80" y="54" text-anchor="end" font-size="10" fill="#555555">100%</text>
+    <!-- GPT-4o 基线 -->
+    <line x1="90" y1="332" x2="918" y2="332" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <text x="912" y="324" text-anchor="end" font-size="10.5" fill="#6b7280">GPT-4o：12%（AIME 2024）</text>
+    <!-- 示意曲线 1：多数投票 -->
+    <path d="M130,318 C380,240 640,190 880,168" fill="none" stroke="#6d28d9" stroke-width="2.5"/>
+    <text x="560" y="232" text-anchor="middle" font-size="10.5" fill="#6d28d9">多数投票：多采 k 条链（趋势示意）</text>
+    <!-- 示意曲线 2：长思维链 -->
+    <path d="M130,326 C400,292 660,232 880,192" fill="none" stroke="#0891b2" stroke-width="2.5"/>
+    <text x="620" y="296" text-anchor="middle" font-size="10.5" fill="#0891b2">长思维链：拉长思考预算（趋势示意）</text>
+    <!-- o1 实测阶梯 -->
+    <line x1="150" y1="133" x2="565" y2="104" stroke="#dc2626" stroke-width="1.8" stroke-dasharray="6 4"/>
+    <line x1="565" y1="104" x2="840" y2="72" stroke="#dc2626" stroke-width="1.8" stroke-dasharray="6 4"/>
+    <circle cx="150" cy="133" r="5.5" fill="#dc2626" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="565" cy="104" r="5.5" fill="#dc2626" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="840" cy="72" r="5.5" fill="#dc2626" stroke="#ffffff" stroke-width="1.5"/>
+    <text x="150" y="118" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#dc2626">74%｜1 个样本</text>
+    <text x="565" y="90" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#dc2626">83%｜64 样本共识</text>
+    <text x="840" y="58" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#dc2626">93%｜1000 样本重排</text>
+    <text x="505" y="402" text-anchor="middle" font-size="10.5" fill="#6b7280">红点连线为 o1 博客公布的 AIME 2024 实测阶梯；两条实线只示意「单调上升、边际递减」的形状，不对应具体数值</text>
+  </svg>
+  <div class="diagram-caption">图 4：推理时扩展的两种花法与一个实测阶梯。两条实线为趋势示意：多花推理计算（更多采样、更长思考）通常单调提升准确率、但边际递减，曲线不对应具体数值；三个红点与灰色虚线是真实数字——o1 官方博客公布的 AIME 2024 结果：GPT-4o 仅 12%，o1 单样本 74%、64 样本多数投票 83%、1000 样本经学习打分器重排 93%（博客口径，无技术报告）。横轴为对数刻度：从 74% 到 93%，靠的是三个数量级的额外采样。</div>
+</div>
+
+<div class="highlight-box info">
+  注释：o1 的全部数字来自官方博客口径——OpenAI 未发布 o1 的技术报告，模型细节、训练方法与评测设置均不公开，外界无法独立复现。读这组数字的正确姿势是把它当方向性证据（推理时计算量确实能换准确率），而不当可复现的基准结论。另外，推理时扩展不改模型权重，是纯粹的部署侧旋钮，与第 11 章「把长思考能力训进权重」分工明确：第 11 章负责「会不会想」，本节负责「愿意想多久」。
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">推理时扩展 Test-time Scaling</span>
+    <span class="term-en">scaling = 扩展；性能随推理阶段投入的计算量增长而提升的现象与做法</span>
+  </div>
+  <div class="term-body">
+    <p>又称测试时计算扩展：不改模型、不改权重，通过在推理阶段投入更多计算来提升答案质量——多采几条候选做表决、把思维链拉长、让打分器重排候选，都是它的具体形态。它与训练侧的 Scaling Law（第 6 章）遥相呼应：那边是性能随训练算力按幂律提升，这边是性能随推理算力（对数刻度下）近似线性提升。代价是延迟与账单同步上涨，所以它本质上是部署预算的分配问题：简单请求一次过，困难请求才值得多想。</p>
+    <div class="term-analogy">像考试时间的分配：简单题扫一眼写答案，压轴题值得留出半小时打三遍草稿。推理时扩展就是给模型争取「打草稿」的预算。</div>
+  </div>
+</div>
+
+<h2>13.6.4 本章总回顾</h2>
+
+<p>　　至此第 13 章走完。回头看，整章其实只围绕 13.1 节算清的那笔账展开：解码阶段的瓶颈是把权重一遍遍搬出显存的带宽，以及逐 token 串行的等待。后面五节各从一条缝切入，落成一张对照表：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>节</th><th>对付什么</th><th>手段</th><th>代价与性质</th></tr></thead>
+    <tbody>
+      <tr><td>13.1 成本结构</td><td>——（算账）</td><td>定位瓶颈：显存带宽、串行解码</td><td>全章出发点</td></tr>
+      <tr><td>13.2 KV Cache</td><td>重复计算</td><td>缓存历史 K/V，每步只算新 token</td><td>显存换速度，无损</td></tr>
+      <tr><td>13.3 服务化</td><td>单请求浪费算力</td><td>连续批处理 + PagedAttention</td><td>系统调度，无损</td></tr>
+      <tr><td>13.4 量化</td><td>带宽本身</td><td>权重从 FP16 压到 INT8 / INT4</td><td>可控精度损失，有损</td></tr>
+      <tr><td>13.5 蒸馏</td><td>模型本身太大</td><td>大模型教小模型</td><td>精度靠重训补回，有损</td></tr>
+      <tr><td>13.6 投机采样</td><td>串行等待</td><td>小模型起草、大模型并行验收</td><td>分布不变，无损</td></tr>
+      <tr><td>13.6 推理时扩展</td><td>（反向）答案不够好</td><td>多采样表决、拉长思考链</td><td>成本换质量</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　这些手段大多正交：KV Cache 是解码的事实标准，连续批处理与 PagedAttention 解决多用户，量化压缩权重的字节数，蒸馏直接换小模型，投机采样消灭串行空转——一套生产系统通常同时开着其中好几样，量化加投机采样加连续批处理并不冲突。推理时扩展是唯一的反向旋钮：别人省钱，它花钱。部署的艺术很大程度就是在这张菜单上按预算点菜：延迟敏感的前台对话开足无损加速，离线批处理与困难推理任务才轮到多采样与长思考。</p>
+
+<p>　　模型部署好了，接下来的问题是「怎么用它」：提示词怎么写、知识怎么外挂、工具怎么调用、多步任务怎么编排。这些应用层范式是第 14 章的主题，也是手册主线的下一章。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">投机采样为什么能加速，加速倍数由什么决定？</div>
+    <div class="sc-key">解码的瓶颈是搬运权重的带宽而非算力，大模型一次前向验证 \(\gamma\) 个候选的耗时与解码 1 个 token 几乎相同；小模型起草、大模型并行验收，把串行解码改成批量验证。加速比由公式 (1) 给出：平均接受率 \(\alpha\)（两个分布的重叠面积）越高、草案成本 \(c\) 越低，加速越大；\(\alpha\) 太低时反而更慢。出处是并发的两篇：Leviathan et al.（T5-XXL 2–3 倍）与 Chen et al.（Chinchilla 70B 2–2.5 倍）。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">「无损」保住了什么，验收准则凭什么做到无损？</div>
+    <div class="sc-key">保住的是输出分布：投机采样的产出与直接用大模型采样服从同一分布（贪心模式下逐 token 相同）。准则 \(\alpha(x) = \min(1, p(x)/q(x))\) 按超额比例打回小模型高估的 token，拒绝时从残差分布 \(\mathrm{norm}(\max(0, p - q))\) 补回小模型漏估的 token，两条通道合起来恰好还原 \(p\)。注意无损是分布层面的结论；它不省 KV Cache 显存，与量化、批处理正交可叠加。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">推理时扩展与投机采样方向相反，它换到了什么？</div>
+    <div class="sc-key">投机采样用空闲算力省时间，推理时扩展主动多花钱换准确率：self-consistency 多数投票在 GSM8K 上绝对提升 17.9 个百分点（成本约乘 \(k\)），budget forcing 直接控制思考长度，o1 博客给出 AIME 74%→83%→93% 的阶梯（博客口径，无技术报告）。它不改权重，是部署侧旋钮——与第 11 章「把长思考能力训进模型」的分工要分清。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Leviathan et al., 2023. Fast Inference from Transformers via Speculative Decoding（ICML 2023，arXiv:2211.17192）：投机采样算法本体、验收准则与残差分布（公式 (2)）、独立同分布假设下的期望加速比（公式 (1)）、T5-XXL 上 2–3 倍墙钟加速与输出完全相同（identical outputs）的声明；已核对 arXiv 原文与 PMLR 正式版。</li>
+  <li>Chen et al., 2023. Accelerating Large Language Model Decoding with Speculative Sampling（DeepMind，arXiv:2302.01318）：speculative sampling 的命名、输出分布不变的严格证明、Chinchilla 70B 上 2–2.5 倍加速；已核对 arXiv 摘要页与正文方法节。</li>
+  <li>Wang et al., 2022. Self-Consistency Improves Chain of Thought Reasoning in Language Models（ICLR 2023，arXiv:2203.11171）：多条思维链采样加多数投票，GSM8K 相对贪心解码绝对提升 17.9 个百分点（摘要口径）；已核对 arXiv 摘要页。</li>
+  <li>Muennighoff et al., 2025. s1: Simple test-time scaling（arXiv:2501.19393）：预算强制（budget forcing）机制（到长截断、或压下结束标记并追加 Wait 延长思考）、s1-32B 在 MATH 与 AIME24 上最高超过 o1-preview 27 个百分点；已核对 arXiv 摘要页。</li>
+  <li>OpenAI, 2024-09-12. Learning to Reason with LLMs（官方博客，无技术报告）：train-time compute 与 test-time compute 双扩展的主张、AIME 2024 数字（GPT-4o 12%、o1 单样本 74%、64 样本共识 83%、1000 样本经学习打分器重排 93%）；博客口径，无法独立复现。</li>
+  <li>Cai et al., 2024. Medusa: Simple LLM Inference Acceleration Framework with Multiple Decoding Heads（arXiv:2401.10774）；Li et al., 2024. EAGLE: Speculative Sampling Requires Rethinking Feature Uncertainty（arXiv:2401.15077）：草案来源的两个变体（多预测头、特征层起草），正文一笔带过；已核对 arXiv 摘要页。</li>
+  <li>minimind（Apache 2.0），model/model_minimind.py：generate 函数（262 行起）为逐 token 解码循环（268 行 for 循环每圈推进一个 token），未实现投机采样；词表 6400 用于图 3 的维度说明。</li>
+</ul>
+
+</article>

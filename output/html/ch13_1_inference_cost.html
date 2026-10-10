@@ -1,0 +1,883 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>13.1 推理的成本结构：显存、算力、带宽谁先成为瓶颈 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 13 章 推理系统与部署</span></div>
+  <div class="nav-children">
+    <a class="nav-link active" href="ch13_1_inference_cost.html">13.1 推理的成本结构：显存、算力、带宽谁先成为瓶颈</a>
+<a class="nav-link" href="ch13_2_kv_cache.html">13.2 KV Cache：用显存换速度的核心缓存</a>
+<a class="nav-link" href="ch13_3_serving_systems.html">13.3 服务化：连续批处理与 PagedAttention</a>
+<a class="nav-link" href="ch13_4_quantization.html">13.4 量化：FP16 到 INT4 的压缩术</a>
+<a class="nav-link" href="ch13_5_distillation.html">13.5 蒸馏：大模型教小模型</a>
+<a class="nav-link" href="ch13_6_speculative_scaling.html">13.6 投机采样与推理时扩展：无损加速与多花计算的两端</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 14 章 应用范式</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch14_1_prompt_engineering.html">14.1 Prompt 工程：不改权重的编程方式</a>
+<a class="nav-link" href="ch14_2_cot.html">14.2 思维链：让模型把中间步骤写出来</a>
+<a class="nav-link" href="ch14_3_rag.html">14.3 RAG：给模型外挂一个资料库</a>
+<a class="nav-link" href="ch14_4_function_calling.html">14.4 Function Calling：让模型学会「打电话」</a>
+<a class="nav-link" href="ch14_5_agent.html">14.5 Agent：规划、工具与多步执行循环</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 13 章 推理系统与部署</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>13.1 推理的成本结构：显存、算力、带宽谁先成为瓶颈</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>13.1 推理的成本结构：显存、算力、带宽谁先成为瓶颈</h1>
+<p class="subtitle">本页范围：第 13 章第 1 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>模型训练完交付使用，之后每产出一个 token 都要花真金白银的算力。同一个模型、同一张卡，为什么训练时 GPU 忙得不可开交，推理（decode）时算力却大片闲置？推理的成本到底由哪几本账决定，谁先顶到天花板？</td></tr>
+      <tr><td>本节主张</td><td>推理成本可以拆成三本账：显存（装不装得下）、算力（算得快不快）、带宽（搬得动搬不动）。decode 阶段受自回归约束只能逐 token 串行，每生成一个 token 都要把全部权重从显存搬进计算单元一次，搬运量与参数量成正比、与峰值算力无关，于是带宽先成为瓶颈，算力大量空转。</td></tr>
+      <tr><td>一句话结论</td><td>decode 的吞吐上限 ≈ 显存带宽 ÷ 权重字节数，公式里根本没有峰值算力；本章后续的优化技术（KV Cache、批处理、量化、蒸馏、投机采样）本质都是在这个公式和算术强度公式里动变量。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>memory-bound</span><span>算术强度</span><span>roofline</span><span>显存带宽</span><span>FLOPs</span><span>prefill / decode</span><span>逐 token 串行</span><span>KV Cache</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　第 12 章解决的是模型侧的问题：一步解码怎么走、采样旋钮怎么调、什么时候停、怎么输出结构化结果。从本章起换一副眼镜，看系统侧：同一份权重，一个人本地跑和十万人同时用，成本与速度天差地别；云端每服务好一个请求，背后都是显存、算力、带宽三种资源的消耗。本章的任务是把同一个模型服务得更快、更便宜，而动手之前先得把账算清——「成本」这个笼统的词，拆开到底是哪几本账，各自怎么算，谁先顶到天花板。</p>
+
+<p>　　本节沿「先分清模式差异，再手算三本账，最后定位瓶颈」的主线展开，所有数字都用 minimind 的真实配置（约 63.9M 参数）手算一遍，读者可以跟着复算。路线图如下：</p>
+
+<ol>
+  <li><strong>训练和推理不是一回事：批量并行 vs 逐 token 串行</strong>（13.1.1）：同一个模型，两种完全不同的计算模式，利用率悬殊的根源在并行度；</li>
+  <li><strong>一次解码的账：参数量、显存、FLOPs 怎么算</strong>（13.1.2）：用 minimind 的真实数字把显存、算力两本账各算一遍，63.9M 参数逐组件对账；</li>
+  <li><strong>真正的瓶颈是带宽：算术强度与 memory-bound</strong>（13.1.3）：一步 decode 的时间分解触目惊心，roofline 一张图说清为什么；</li>
+  <li><strong>优化全景图：本章后续五节各动哪个变量</strong>（13.1.4）：KV Cache、批处理、量化、蒸馏、投机采样各自攻哪本账，一张表收束全章。</li>
+</ol>
+
+<p>　　读完本节，应该能手算任意模型在 FP16 下的权重显存与 decode 吞吐上限，说清 decode 为什么喂不饱 GPU，并能在成本公式的视角下预告本章每一节的存在理由。逐节展开之前，先看一眼本节在整条生命周期中的位置（图 1）。训练侧章节到第 11 章已经全部走完，从本节起进入收官的推理与部署阶段；心里有这张地图，后面每一节优化技术登场时都知道它站在哪一站、攻哪本账：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS131inferencecost" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG131inferencecost" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS131inferencecost)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS131inferencecost)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS131inferencecost)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS131inferencecost)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS131inferencecost)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS131inferencecost)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS131inferencecost)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：本节内容在 LLM 生命周期中的位置。训练数据（第 1 章）经预训练（第 6 章）、训练工程（第 7 章）、中间训练（第 8 章）、SFT（第 9 章）、偏好对齐（第 10 章）与推理训练（第 11 章），交出会对话、懂分寸、会推理的模型；推理与部署（第 12–13 章）负责把它变成可用的服务。第 12 章讲的是模型侧的解码机制，本节起转向系统侧：先把推理的成本拆成显存、算力、带宽三本账，找出谁先顶到天花板，本章后续每一节优化技术都对应账本上的某一格。</div>
+</div>
+
+<h2>13.1.1 训练和推理不是一回事：批量并行 vs 逐 token 串行</h2>
+
+<p>　　表面上看，训练和推理都是把一批 token 喂进 Transformer 过一遍，似乎没理由一个忙得过来一个闲得发慌。差异的根源在数据可得性。训练时全部语料早已躺在硬盘里：第 6 章讲过，next-token 目标下一条长度为 \(n\) 的序列能同时提供 \(n\) 个位置的输入与监督，于是可以把成百上千条序列拼成一个大 batch，一次前向全部算完，矩阵乘法拉满。推理时序列是边算边长的：第 \(t\) 个 token 依赖前 \(t-1\) 个的输出，在算出第 \(t-1\) 个之前，谁也不知道第 \(t\) 个位置该放什么，只能按顺序一个一个生成。这个串行约束不是工程上的偷懒，是自回归的定义使然（第 12 章），早在 Transformer 原论文（Vaswani et al., 2017）的 decoder 推理设定里就是如此。</p>
+
+<p>　　严格说，一次完整生成分两个阶段：<strong>prefill（预填充）</strong>把用户的 prompt 一次性并行算完，计算模式与训练相同；之后才进入 <strong>decode（解码）</strong>阶段逐 token 的串行循环。本章谈的瓶颈与优化，绝大多数针对 decode 阶段——一次生成里 decode 步数往往占大头（生成 500 个 token 就要 500 步串行），而且它的计算模式恰好是硬件最不擅长的那种。图 2 把两种模式摆在一起对照。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrT131mode" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG131loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <line x1="480" y1="16" x2="480" y2="398" stroke="#e5e7eb" stroke-width="1"/>
+    <text x="240" y="34" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">训练：语料早已在手，一次前向全部并行</text>
+    <text x="700" y="34" text-anchor="middle" font-size="13" font-weight="bold" fill="#4c1d95">推理 decode：下一词依赖上一词，只能逐 token 串行</text>
+    <!-- 左半：训练 -->
+    <text x="165" y="58" text-anchor="middle" font-size="10.5" fill="#555555">seq = 5 个位置</text>
+    <text x="92" y="100" text-anchor="end" font-size="10.5" fill="#555555">batch = 3</text>
+    <text x="92" y="116" text-anchor="end" font-size="10.5" fill="#555555">条序列</text>
+    <rect x="100" y="66" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="126" y="66" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="152" y="66" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="178" y="66" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="204" y="66" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="100" y="92" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="126" y="92" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="152" y="92" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="178" y="92" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="204" y="92" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="100" y="118" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="126" y="118" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="152" y="118" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="178" y="118" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="204" y="118" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <line x1="165" y1="152" x2="165" y2="172" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT131mode)"/>
+    <rect x="85" y="176" width="160" height="38" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="165" y="200" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">Transformer 前向 × 1</text>
+    <line x1="165" y1="218" x2="165" y2="240" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT131mode)"/>
+    <rect x="45" y="244" width="240" height="62" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="165" y="270" text-anchor="middle" font-size="11" fill="#78350f">一次算出 3 × 5 = 15 个位置的预测</text>
+    <text x="165" y="292" text-anchor="middle" font-size="11" fill="#78350f">每个位置都配好监督信号（交叉熵）</text>
+    <text x="240" y="346" text-anchor="middle" font-size="10.5" fill="#555555">同一秒内，上万 token 一起过模型，算力吃得满</text>
+    <text x="240" y="368" text-anchor="middle" font-size="10.5" fill="#555555">瓶颈是算力：矩阵乘法越大越划算</text>
+    <!-- 右半：decode -->
+    <text x="516" y="86" font-size="11" fill="#555555">第 1 步</text>
+    <rect x="584" y="68" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="610" y="68" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <text x="597" y="86" text-anchor="middle" font-size="12" fill="#111111">你</text>
+    <text x="623" y="86" text-anchor="middle" font-size="12" fill="#111111">好</text>
+    <line x1="640" y1="81" x2="664" y2="81" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT131mode)"/>
+    <rect x="668" y="68" width="26" height="26" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="681" y="86" text-anchor="middle" font-size="12" fill="#15803d">今</text>
+    <text x="516" y="136" font-size="11" fill="#555555">第 2 步</text>
+    <rect x="584" y="118" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="610" y="118" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="636" y="118" width="26" height="26" fill="#f3f4f6" stroke="#9ca3af" stroke-width="1"/>
+    <text x="597" y="136" text-anchor="middle" font-size="12" fill="#111111">你</text>
+    <text x="623" y="136" text-anchor="middle" font-size="12" fill="#111111">好</text>
+    <text x="649" y="136" text-anchor="middle" font-size="12" fill="#6b7280">今</text>
+    <line x1="666" y1="131" x2="690" y2="131" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT131mode)"/>
+    <rect x="694" y="118" width="26" height="26" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="707" y="136" text-anchor="middle" font-size="12" fill="#15803d">天</text>
+    <text x="516" y="186" font-size="11" fill="#555555">第 3 步</text>
+    <rect x="584" y="168" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="610" y="168" width="26" height="26" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
+    <rect x="636" y="168" width="26" height="26" fill="#f3f4f6" stroke="#9ca3af" stroke-width="1"/>
+    <rect x="662" y="168" width="26" height="26" fill="#f3f4f6" stroke="#9ca3af" stroke-width="1"/>
+    <text x="597" y="186" text-anchor="middle" font-size="12" fill="#111111">你</text>
+    <text x="623" y="186" text-anchor="middle" font-size="12" fill="#111111">好</text>
+    <text x="649" y="186" text-anchor="middle" font-size="12" fill="#6b7280">今</text>
+    <text x="675" y="186" text-anchor="middle" font-size="12" fill="#6b7280">天</text>
+    <line x1="692" y1="181" x2="716" y2="181" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrT131mode)"/>
+    <rect x="720" y="168" width="26" height="26" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="733" y="186" text-anchor="middle" font-size="12" fill="#15803d">。</text>
+    <path d="M 681,97 C 678,112 652,102 650,114" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="3 2" fill="none" marker-end="url(#arrG131loop)"/>
+    <path d="M 707,147 C 704,162 678,152 676,164" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="3 2" fill="none" marker-end="url(#arrG131loop)"/>
+    <text x="770" y="104" font-size="10.5" fill="#6b7280">输出接回输入</text>
+    <rect x="516" y="214" width="410" height="92" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="721" y="238" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">一次前向只产出 1 个新 token</text>
+    <text x="721" y="260" text-anchor="middle" font-size="11" fill="#555555">生成 T 个 token 就要跑 T 次前向，一步不能少</text>
+    <text x="721" y="282" text-anchor="middle" font-size="10.5" fill="#888888">前缀不重算的省法（KV Cache）见 13.2 节</text>
+    <text x="700" y="346" text-anchor="middle" font-size="10.5" fill="#555555">单请求时一次前向只有 1 个 token：权重全搬一遍只换它一个</text>
+    <text x="700" y="368" text-anchor="middle" font-size="10.5" fill="#555555">瓶颈是带宽：计算单元大半时间在等数据</text>
+    <text x="480" y="424" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">同一个模型、同一张卡：训练是批发，一次吞吐一整批；decode 是零售，一次只出一件</text>
+  </svg>
+  <div class="diagram-caption">图 2：训练与推理 decode 的计算模式对比。左：训练时全部语料在手，一批 3 × 5 个位置一次前向并行算完，每个位置都自带监督信号；右：decode 时第 \(t\) 个 token 依赖前 \(t-1\) 个的结果，一次前向只产出 1 个新 token（绿格），输出必须接回输入再算下一步，生成 T 个 token 就要 T 次前向。灰格是上一步刚生成的历史 token。并行度的悬殊，是两者硬件利用率天差地别的根源。</div>
+</div>
+
+<p>　　图 2 右侧的串行循环决定了 decode 的宿命：每步前向的规模被压到最小（单请求时一次只算 1 个 token），却又躲不开模型的全部权重。这意味着每一步的计算量与数据搬运量之间的比例被钉死了，这个比例正是 13.1.3 要讲的算术强度。先把三本账的具体数字算出来，再回头看它为什么成为瓶颈。</p>
+
+<div class="highlight-box">
+  同一个模型、同一张卡，训练是批发（一次吞吐一整批），decode 是零售（一次只出一件）。硬件利用率的悬殊不在模型、不在框架，在并行度：一次前向能同时服务多少个 token。
+</div>
+
+<h2>13.1.2 一次解码的账：参数量、显存、FLOPs 怎么算</h2>
+
+<p>　　先对账参数量。minimind 全量约 63.9M 参数，这个数不是凭空来的：词表 6400、hidden 维度 768 的 embedding 约 4.9M；每层注意力约 1.77M（Q 投影 768×768，K、V 投影各 768×384，O 投影 768×768），FFN 三路投影约 5.60M（768×2432×3，SwiGLU 结构，第 5 章讲过），每层合计约 7.37M，8 层约 59.0M；加回 embedding 正好约 63.9M（lm_head 与 embedding 共享权重，不重复计数）。落成一张对账表：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>组件</th><th>形状</th><th>参数量</th></tr></thead>
+    <tbody>
+      <tr><td>embedding（与 lm_head 共享）</td><td>\(6400 \times 768\)</td><td>≈ 4.9 M</td></tr>
+      <tr><td>注意力（每层）：Q / K / V / O 投影</td><td>\(768{\times}768 + 2 \times (768{\times}384) + 768{\times}768\)</td><td>≈ 1.77 M</td></tr>
+      <tr><td>FFN（每层，SwiGLU 三路投影）</td><td>\(3 \times (768 \times 2432)\)</td><td>≈ 5.60 M</td></tr>
+      <tr><td>8 层合计</td><td>—</td><td>≈ 59.0 M</td></tr>
+      <tr><td>全模型</td><td>—</td><td>≈ 63.9 M</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　表里 K、V 投影的 384 来自 GQA：KV 头数 4 × head_dim 96（第 5 章）。RMSNorm 增益等零星参数仅万级，对账时忽略。</p>
+
+<p>　　第一本账是显存。推理不需要梯度，也不需要第 7 章讲的 Adam 优化器状态，权重本身就是大头：</p>
+
+<div class="formula-card">
+  \[ S_{\mathrm{weight}} = N \times b \tag{1} \]
+  <div class="formula-note">公式 (1)：权重显存占用——参数量乘以每个参数的字节数。符号说明：\(S_{\mathrm{weight}}\) 是权重占用的显存字节数；\(N\) 是参数量（minimind 为 63.9M）；\(b\) 是每个参数的字节数，由数值精度决定：FP16 / BF16 为 2，INT8 为 1，INT4 为 0.5（第 13.4 节）。代入 FP16：\(63.9\,\mathrm{M} \times 2\,\mathrm{B} \approx 128\,\mathrm{MB}\)——消费级显卡随便装。</div>
+</div>
+
+<div class="highlight-box info">
+  注释：128 MB 只是权重。推理时显存里还有激活值与 KV Cache（缓存历史 token 的 K、V，避免每步重算，13.2 节细讲）：短上下文、小模型下权重占大头；上下文一拉长，KV Cache 会反超权重成为显存大头，这笔账也在 13.2 节算。训练侧的显存构成（参数 + 梯度 + 优化器状态 + 激活）是另一本账，见第 7 章。
+</div>
+
+<p>　　第二本账是算力。第 7 章用过 Kaplan et al.（2020）的估算口径：一次前向里每个参数约贡献 2 次浮点运算（一次乘、一次加），训练每个 token 约 \(6N\)（前向 \(2N\) 加反向 \(4N\)）。推理没有反向传播，每处理 1 个 token 的代价就是：</p>
+
+<div class="formula-card">
+  \[ F_{\mathrm{step}} \approx 2N \tag{2} \]
+  <div class="formula-note">公式 (2)：decode 一步（有 KV Cache、只处理 1 个新 token）的浮点运算量。符号说明：\(F_{\mathrm{step}}\) 是一步前向的 FLOPs；\(N\) 是参数量；系数 2 来自矩阵乘法中每个参数参与一次乘法和一次加法。适用条件：忽略了注意力分数的 \(n^2 d\) 项（\(n\) 为序列长度，短序列下占比很小），KV Cache 生效、每步只算新 token。代入 minimind：\(2 \times 63.9\,\mathrm{M} \approx 1.28\) 亿 FLOPs \(= 0.128\,\mathrm{GFLOP}\)；生成 100 个 token 累计约 12.8 GFLOP——对每秒能算 312 万亿次 FP16 的 A100 来说，是九牛一毛。</div>
+</div>
+
+<div class="highlight-box warn">
+  注意：\(2N\)/token 是工程估算口径，刻意忽略了注意力分数的 \(n^2 d\) 项、采样与调度等开销。上下文很短时它相当准；上下文拉长以后，注意力项会长大到不能忽略（即使有 KV Cache，注意力计算本身仍随长度线性增长），此时每步 FLOPs 高于公式 (2) 的估计。没有 KV Cache 时每步还要重算整段历史，代价随长度平方膨胀，那是 13.2 节要解决的灾难。
+</div>
+
+<p>　　前两本账看完都不像瓶颈：128 MB 显存随便一张卡装得下，0.128 GFLOP 的算力需求微不足道。那 decode 为什么快不起来？答案在第三本账。把三本账汇总成图 3，它的右下角正是 13.1.3 的主角。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 446" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <text x="20" y="26" font-size="13" font-weight="bold" fill="#4c1d95">推理成本的三本账：谁先顶到天花板，谁就是瓶颈</text>
+    <!-- 顶点虚线三角（先画，压在连线下层） -->
+    <line x1="270" y1="100" x2="140" y2="324" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <line x1="450" y1="100" x2="580" y2="324" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <line x1="240" y1="360" x2="480" y2="360" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <!-- 中心 -->
+    <rect x="260" y="196" width="200" height="64" rx="10" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="360" y="224" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理的速度与成本</text>
+    <text x="360" y="246" text-anchor="middle" font-size="11" fill="#ede9fe">装得下 · 算得快 · 搬得动</text>
+    <!-- 上：显存 -->
+    <rect x="260" y="46" width="200" height="60" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="360" y="72" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">显存容量（GB）</text>
+    <text x="360" y="94" text-anchor="middle" font-size="10.5" fill="#555555">装不装得下权重与缓存</text>
+    <rect x="486" y="40" width="214" height="72" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
+    <text x="593" y="62" text-anchor="middle" font-size="10.5" fill="#78350f">权重显存 = N × b</text>
+    <text x="593" y="82" text-anchor="middle" font-size="10.5" fill="#78350f">63.9M × 2B（FP16）</text>
+    <text x="593" y="100" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#b45309">≈ 128 MB</text>
+    <!-- 左下：算力 -->
+    <rect x="30" y="330" width="210" height="60" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="135" y="356" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">算力（TFLOPS）</text>
+    <text x="135" y="378" text-anchor="middle" font-size="10.5" fill="#555555">乘加运算有多快</text>
+    <rect x="30" y="400" width="240" height="40" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
+    <text x="150" y="418" text-anchor="middle" font-size="10.5" fill="#78350f">每步 FLOPs ≈ 2N</text>
+    <text x="150" y="434" text-anchor="middle" font-size="10.5" fill="#78350f">decode 一步仅 ≈ 0.13 GFLOP</text>
+    <!-- 右下：带宽 -->
+    <rect x="480" y="330" width="210" height="60" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="585" y="356" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">显存带宽（GB/s）</text>
+    <text x="585" y="378" text-anchor="middle" font-size="10.5" fill="#555555">数据搬运有多快</text>
+    <rect x="450" y="400" width="250" height="40" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
+    <text x="575" y="418" text-anchor="middle" font-size="10.5" fill="#78350f">decode 每步要把 b·N 字节</text>
+    <text x="575" y="434" text-anchor="middle" font-size="10.5" fill="#78350f">全部权重原样搬一遍</text>
+    <!-- 中心到三顶点的连线 -->
+    <line x1="360" y1="106" x2="360" y2="194" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="262" y1="250" x2="150" y2="328" stroke="#6d28d9" stroke-width="2"/>
+    <line x1="458" y1="250" x2="570" y2="328" stroke="#6d28d9" stroke-width="2"/>
+  </svg>
+  <div class="diagram-caption">图 3：推理成本的三本账汇总。显存决定装不装得下（权重 = \(N \times b\)，minimind FP16 约 128 MB），算力决定算得快不快（decode 每步 FLOPs ≈ \(2N\) ≈ 0.13 GFLOP），带宽决定搬得动搬不动（decode 每步要把全部权重原样搬一遍）。本节结论：decode 阶段先顶到天花板的是右下角这本账（13.1.3 展开）。</div>
+</div>
+
+<h2>13.1.3 真正的瓶颈是带宽：算术强度与 memory-bound</h2>
+
+<p>　　关键在一个容易被忽略的事实：decode 每走一步，63.9M 个参数每个只参与约 2 次运算（一乘一加），但每一个都必须从显存搬进计算单元。权重能在片上缓存里留住吗？留不住——A100 的 L2 缓存只有 40 MB，装不下 128 MB 的权重；就算装得下，下一个 token 来了，每个权重还得重新参与一轮矩阵乘法。于是每生成 1 个 token，就有 128 MB 的搬运和 0.128 GFLOP 的计算。搬运躲不掉，它的时间按 A100 的公开规格（HBM 带宽约 2 TB/s、FP16 算力约 312 TFLOPS）拆出来，就是图 4。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 430" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrP131tok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG131again" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13" font-weight="bold" fill="#4c1d95">decode 一步的时间花在哪：搬运 ≈ 64 µs，计算 ≈ 0.4 µs（minimind 权重 × A100 规格估算）</text>
+    <rect x="40" y="56" width="190" height="130" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="135" y="84" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">显存 HBM</text>
+    <text x="135" y="108" text-anchor="middle" font-size="11" fill="#555555">全部权重 128 MB</text>
+    <text x="135" y="128" text-anchor="middle" font-size="10.5" fill="#888888">63.9M 参数 × 2 B</text>
+    <text x="135" y="150" text-anchor="middle" font-size="10.5" fill="#888888">（FP16，63.9M 个权重）</text>
+    <rect x="236" y="112" width="160" height="18" fill="#dc2626"/>
+    <polygon points="396,102 396,140 430,121" fill="#dc2626"/>
+    <text x="330" y="88" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">显存带宽 ≈ 2 TB/s</text>
+    <text x="330" y="152" text-anchor="middle" font-size="10.5" fill="#555555">每步搬运 128 MB ≈ 64 µs</text>
+    <rect x="434" y="56" width="190" height="130" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="2"/>
+    <text x="529" y="84" text-anchor="middle" font-size="12" font-weight="bold" fill="#155e75">SM 计算单元</text>
+    <text x="529" y="108" text-anchor="middle" font-size="11" fill="#555555">FP16 ≈ 312 TFLOPS</text>
+    <text x="529" y="128" text-anchor="middle" font-size="10.5" fill="#555555">算完这批只要</text>
+    <text x="529" y="148" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#0891b2">≈ 0.4 µs</text>
+    <line x1="630" y1="121" x2="664" y2="121" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP131tok)"/>
+    <text x="672" y="125" font-size="11" fill="#555555">产出 1 个 token</text>
+    <path d="M 706,136 C 740,224 150,228 134,190" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4 3" fill="none" marker-end="url(#arrG131again)"/>
+    <text x="430" y="212" text-anchor="middle" font-size="10.5" fill="#6b7280">生成下一个 token：同一份 128 MB 原样再搬一趟</text>
+    <text x="60" y="252" font-size="11.5" font-weight="bold" fill="#4c1d95">一步 decode 的时间构成（按 64.4 µs 总时长等比）</text>
+    <rect x="60" y="268" width="830" height="34" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="475" y="290" text-anchor="middle" font-size="11" fill="#991b1b">等待权重送达：≈ 64 µs（带宽决定）</text>
+    <rect x="890" y="268" width="6" height="34" fill="#6d28d9"/>
+    <line x1="896" y1="304" x2="880" y2="322" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="874" y="334" text-anchor="end" font-size="10.5" fill="#4c1d95">紫色细条 ≈ 0.4 µs：实际计算时间，算力利用率不足 1%</text>
+    <text x="480" y="370" text-anchor="middle" font-size="10.5" fill="#555555">生成 100 个 token：同一份权重搬 100 趟，累计搬运 12.8 GB</text>
+    <text x="480" y="392" text-anchor="middle" font-size="10.5" fill="#555555">计算总量 12.8 GFLOP，与搬运 GB 数相同——正是算术强度 ≈ 1 FLOP/B 的体现</text>
+  </svg>
+  <div class="diagram-caption">图 4：decode 一步的时间分解（minimind 128 MB 权重、A100 公开规格的估算，可复算）。每生成 1 个 token，全部权重从 HBM 搬入计算单元：128 MB ÷ 2 TB/s ≈ 64 µs；实际计算只需 0.128 GFLOP ÷ 312 TFLOPS ≈ 0.4 µs，在时间条上几乎看不见（紫条已按等比画出，细成一条线）。算力利用率不足 1%，而且下一个 token 来了原样再搬一趟。</div>
+</div>
+
+<p>　　图 4 的时间条触目惊心：一步约 64 µs 里，63.6 µs 在等数据，真正计算只占 0.4 µs。搬运动作无法跳过，它给 decode 速度划了一条硬上限：</p>
+
+<div class="formula-card">
+  \[ \mathrm{tok/s} \;\leq\; \frac{B_{\mathrm{mem}}}{N \cdot b} \tag{3} \]
+  <div class="formula-note">公式 (3)：decode 吞吐的带宽上限——每生成 1 个 token 必须搬运 \(N \cdot b\) 字节（全部权重），带宽除以它就是每秒能走的步数。符号说明：\(B_{\mathrm{mem}}\) 是显存带宽（A100 约 2 TB/s）；\(N\) 是参数量；\(b\) 是每参数字节数（FP16 为 2）。代入：\(2\,\mathrm{TB/s} \div 128\,\mathrm{MB} \approx 15600\) tok/s。这是理论天花板，实际还有 kernel 启动、采样、调度等开销，真实速度只达上限的一部分。注意公式里没有峰值算力：只要 decode 保持逐 token 串行，换一块算力翻倍的卡，tok/s 几乎原地不动。</div>
+</div>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">算术强度 Arithmetic Intensity</span>
+    <span class="term-en">arithmetic intensity = 计算量 ÷ 数据搬运量，衡量每搬一个字节能「压榨」出多少次运算</span>
+  </div>
+  <div class="term-body">
+    <p>定义 \(I = F / D\)：\(F\) 是一次计算的浮点运算量（FLOPs），\(D\) 是这次计算必须从显存搬运的字节数。\(I\) 越高，数据复用越充分。每块硬件有自己的分水岭 \(I^* = \text{峰值算力} \div \text{带宽}\)（A100 ≈ 312 TFLOPS ÷ 2 TB/s ≈ 150 FLOP/B）：程序的 \(I\) 低于拐点，就算力再强也只能等数据，叫 <strong>memory-bound</strong>（带宽瓶颈）；高于拐点，数据供应跟得上，算力成为限制，叫 <strong>compute-bound</strong>（算力瓶颈）。decode 单请求的 \(I \approx 1\) FLOP/B，与拐点相差两个数量级，是深度 memory-bound。</p>
+    <div class="term-analogy">像厨房出菜：带宽是传菜员的腿速，算力是厨师的手速。一次只点一道菜（decode），厨师大半时间干等传菜；一次订五百桌酒席（大 batch），传菜一趟管全场，厨师才真正忙起来。</div>
+  </div>
+</div>
+
+<p>　　算术强度把「训练能跑满、decode 跑不满」统一到一个公式里。权重搬运一次可以摊给本次前向的所有 token，于是：</p>
+
+<div class="formula-card">
+  \[ I \;=\; \frac{F_{\mathrm{step}}}{D_{\mathrm{step}}} \;\approx\; \frac{2N \cdot M}{b \cdot N} \;=\; \frac{2M}{b} \tag{4} \]
+  <div class="formula-note">公式 (4)：算术强度与并行度的关系。符号说明：\(M\) 是一次前向并行处理的 token 数（decode 时等于 batch 大小，每个请求各贡献 1 个新 token；训练 / prefill 时等于 batch × 序列长度）；\(D_{\mathrm{step}} \approx b \cdot N\) 是每步搬运的权重字节数，与 \(M\) 无关——这是全式的前提：权重只搬一遍，全员共享。约号忽略了 KV Cache 读写与激活（小模型、短上下文下占比小）。FP16（\(b = 2\)）下 \(I \approx M\)：decode 单请求 \(M = 1\)、\(I \approx 1\)；训练时 \(M\) 轻松上万、\(I \approx 10^4\)。参数量 \(N\) 在分子分母中约掉，所以「decode 喂不饱 GPU」与模型大小无关，7B、70B 同病。</div>
+</div>
+
+<p>　　把公式 (3)(4) 画到一张图上，就是系统领域常用的 roofline 模型（图 5）：横轴是算术强度，纵轴是实际能吃到的性能，带宽和算力各画一条封顶线，谁低听谁的。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrA131axis" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#374151"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13" font-weight="bold" fill="#4c1d95">roofline 模型：算术强度决定性能天花板（双对数坐标，A100 量级示意）</text>
+    <!-- 坐标轴 -->
+    <line x1="90" y1="360" x2="692" y2="360" stroke="#374151" stroke-width="1.5" marker-end="url(#arrA131axis)"/>
+    <line x1="90" y1="360" x2="90" y2="46" stroke="#374151" stroke-width="1.5" marker-end="url(#arrA131axis)"/>
+    <!-- x 刻度 -->
+    <line x1="90" y1="360" x2="90" y2="366" stroke="#374151" stroke-width="1.2"/>
+    <line x1="230" y1="360" x2="230" y2="366" stroke="#374151" stroke-width="1.2"/>
+    <line x1="370" y1="360" x2="370" y2="366" stroke="#374151" stroke-width="1.2"/>
+    <line x1="510" y1="360" x2="510" y2="366" stroke="#374151" stroke-width="1.2"/>
+    <line x1="650" y1="360" x2="650" y2="366" stroke="#374151" stroke-width="1.2"/>
+    <text x="90" y="382" text-anchor="middle" font-size="10.5" fill="#555555">0.1</text>
+    <text x="230" y="382" text-anchor="middle" font-size="10.5" fill="#555555">1</text>
+    <text x="370" y="382" text-anchor="middle" font-size="10.5" fill="#555555">10</text>
+    <text x="510" y="382" text-anchor="middle" font-size="10.5" fill="#555555">100</text>
+    <text x="650" y="382" text-anchor="middle" font-size="10.5" fill="#555555">1000</text>
+    <text x="390" y="410" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#374151">算术强度 I = 计算量 ÷ 搬运字节数（FLOP/B，对数）</text>
+    <!-- y 刻度 -->
+    <line x1="84" y1="360" x2="90" y2="360" stroke="#374151" stroke-width="1.2"/>
+    <line x1="84" y1="290" x2="90" y2="290" stroke="#374151" stroke-width="1.2"/>
+    <line x1="84" y1="220" x2="90" y2="220" stroke="#374151" stroke-width="1.2"/>
+    <line x1="84" y1="150" x2="90" y2="150" stroke="#374151" stroke-width="1.2"/>
+    <line x1="84" y1="80" x2="90" y2="80" stroke="#374151" stroke-width="1.2"/>
+    <text x="78" y="364" text-anchor="end" font-size="10.5" fill="#555555">0.1</text>
+    <text x="78" y="294" text-anchor="end" font-size="10.5" fill="#555555">1</text>
+    <text x="78" y="224" text-anchor="end" font-size="10.5" fill="#555555">10</text>
+    <text x="78" y="154" text-anchor="end" font-size="10.5" fill="#555555">100</text>
+    <text x="78" y="84" text-anchor="end" font-size="10.5" fill="#555555">1000</text>
+    <text x="26" y="44" font-size="11.5" font-weight="bold" fill="#374151">可达性能 P</text>
+    <text x="26" y="62" font-size="10.5" fill="#555555">（TFLOPS，对数）</text>
+    <!-- roofline 折线 -->
+    <line x1="90" y1="339" x2="537" y2="115" stroke="#6d28d9" stroke-width="2.5"/>
+    <line x1="537" y1="115" x2="690" y2="115" stroke="#6d28d9" stroke-width="2.5"/>
+    <line x1="537" y1="115" x2="537" y2="360" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="545" y="350" font-size="10.5" fill="#6b7280">I* ≈ 150 FLOP/B</text>
+    <!-- 区域标注 -->
+    <text x="130" y="168" font-size="11.5" font-weight="bold" fill="#dc2626">带宽区</text>
+    <text x="130" y="188" font-size="10.5" fill="#dc2626">memory-bound：搬不及</text>
+    <text x="560" y="198" font-size="11.5" font-weight="bold" fill="#0891b2">算力区</text>
+    <text x="560" y="218" font-size="10.5" fill="#0891b2">compute-bound</text>
+    <!-- 数据点 -->
+    <circle cx="230" cy="269" r="6" fill="#dc2626"/>
+    <text x="244" y="292" font-size="10.5" fill="#991b1b">decode（batch = 1）：I ≈ 1</text>
+    <text x="244" y="308" font-size="10.5" fill="#991b1b">只能吃到 ≈ 2 TFLOPS</text>
+    <circle cx="609" cy="115" r="6" fill="#16a34a"/>
+    <text x="560" y="88" text-anchor="middle" font-size="10.5" fill="#15803d">batch ≈ 512 后进入算力区</text>
+    <text x="560" y="104" text-anchor="middle" font-size="10.5" fill="#15803d">摸满 312 TFLOPS</text>
+    <text x="360" y="434" text-anchor="middle" font-size="10.5" fill="#6b7280">读法（附录 A.7）：斜线段上 I 每 ×10，可达 P 也 ×10；过拐点后 P 被算力封顶</text>
+  </svg>
+  <div class="diagram-caption">图 5：roofline 模型（双对数坐标，按 A100 公开规格画的量级示意）。斜线段是带宽封顶（P = 带宽 × I），水平段是算力封顶（P = 峰值算力 312 TFLOPS），交点即拐点 \(I^* = \text{峰值算力} \div \text{带宽} \approx 150\) FLOP/B。decode 单请求（\(I \approx 1\)）深在带宽区，只能吃到约 2 TFLOPS；把 batch 加到数百，\(I\) 越过拐点，才能摸满算力。向右平移的唯一旋钮是 \(M\)（公式 (4)），这正是 13.3 节连续批处理的全部动机。</div>
+</div>
+
+<div class="highlight-box info">
+  注释：同一次生成里，两个阶段各站一边。prefill 的 \(M\) 等于 prompt 长度（成百上千），落在算力区；decode 的 \(M\) 等于 batch 大小，单请求时落在带宽区深处。这解释了工程上「首 token 延迟」（time to first token，主要由 prefill 决定）与「后续逐 token 速度」（由 decode 决定）成因不同，也说明加大 batch 是把 decode 在图 5 里向右推的唯一旋钮：一次搬运，服务全场。
+</div>
+
+<div class="highlight-box">
+  decode 瓶颈的完整表述：吞吐上限 = 带宽 ÷（\(b \cdot N\)），与峰值算力无关；突围只有三个方向——提高算术强度（加大 \(M\)）、缩小每参数字节（减小 \(b\)）、缩小参数量（减小 \(N\)）。第 13 章后续每一节，都是在这两个公式里动变量。
+</div>
+
+<h2>13.1.4 优化全景图：本章后续五节各动哪个变量</h2>
+
+<p>　　把公式 (3)(4) 摆在桌面上，本章后续五节的布局就一目了然：每个变量对应一类技术，每类技术攻一本账。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>技术</th><th>动的变量</th><th>一句话思路</th><th>详解</th></tr></thead>
+    <tbody>
+      <tr><td>KV Cache</td><td>每步计算量（省重复）</td><td>已算过的 K / V 存入显存，每步只算新 token，把注意力开销从随长度平方膨胀压回线性</td><td>13.2</td></tr>
+      <tr><td>连续批处理 / PagedAttention</td><td>\(M\) ↑</td><td>多请求拼批、token 级调度，一次权重搬运服务更多 token，把算术强度推过拐点</td><td>13.3</td></tr>
+      <tr><td>量化</td><td>\(b\) ↓</td><td>FP16 → INT8 / INT4，显存与搬运量同比例缩小，tok/s 上限同比提高</td><td>13.4</td></tr>
+      <tr><td>蒸馏</td><td>\(N\) ↓</td><td>大模型教小模型，直接换一本更小的账</td><td>13.5</td></tr>
+      <tr><td>投机采样</td><td>串行步数 ↓</td><td>小模型起草多个 token，大模型一次前向验收，把若干步并成一步</td><td>13.6</td></tr>
+      <tr><td>推理时扩展</td><td>主动加计算</td><td>反向操作：decode 的算力本来就闲置，多花计算换更好答案反而划算</td><td>13.6</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　表里 KV Cache 一行需要多说一句：它省的是重复计算，权重搬运一趟不少，缓存本身还增加显存占用。它的价值在于保证公式 (2)(3) 的口径在长上下文下依然成立——没有它，decode 每步要重算整段历史，计算量随长度平方膨胀，带宽公式还没轮到出场，算力先被拖垮。所以全景表里它动的变量写的是每步计算量，与带宽主线互为补充。Pope et al.（MLSys 2023）对 decode 成本结构的系统分析也正是在这个框架下展开：权重搬运按 batch 摊销、KV Cache 读写随长度增长，两者共同决定大模型推理的真实成本。</p>
+
+<p>　　账本已经摊开，瓶颈已经定位。下一节先看最基础也最普遍的一项优化——KV Cache：它不直接改成本公式里的任何变量，却是所有现代推理引擎的标配，因为它把 decode 从每步重算整段历史的灾难里救了出来。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">为什么训练时 GPU 算力能吃满，decode 时却大量闲置？</div>
+    <div class="sc-key">并行度差异。训练时语料在手，batch × 序列长度个位置一次前向并行算完，算术强度轻松上万，越过硬件拐点（A100 ≈ 150 FLOP/B）进入算力区；decode 受自回归约束逐 token 串行，单请求一次前向只算 1 个 token，算术强度 ≈ 1 FLOP/B，深在带宽区——一步约 64 µs 里 99% 在等权重从显存搬过来，真正计算只占 0.4 µs。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">用 minimind 把 decode 的三本账手算一遍？</div>
+    <div class="sc-key">显存：63.9M × 2 B ≈ 128 MB（FP16，组成可对账：embedding 4.9M + 每层 7.37M × 8）。算力：每步 FLOPs ≈ 2N ≈ 0.128 GFLOP。带宽：tok/s ≤ 2 TB/s ÷ 128 MB ≈ 15600（A100 理论上限，实际只达一部分）。瓶颈公式里没有峰值算力——decode 提速的钥匙是带宽、batch 与更小的 \(b \cdot N\)。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">第 13 章后续的优化技术与成本公式是什么关系？</div>
+    <div class="sc-key">全在 tok/s ≤ \(B_{\mathrm{mem}} / (b \cdot N)\) 与 \(I \approx 2M/b\) 里动变量：量化减小 \(b\)、蒸馏减小 \(N\)、连续批处理加大 \(M\)、投机采样把多个串行步并成一步。KV Cache 例外：它省的是随长度膨胀的重复计算，保证上面两个公式在长上下文下依然成立。推理时扩展是反向操作——既然 decode 算力闲置，主动多花计算换更好答案。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Pope et al., 2022. Efficiently Scaling Transformer Inference（arXiv:2211.05102，MLSys 2023）：decode 阶段 memory-bound 的系统分析、权重搬运按 batch 摊销与 KV Cache 成本框架；本节「带宽决定 decode 吞吐」「加大 batch 提高硬件利用率」主线的直接依据。</li>
+  <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：自回归增量解码的原始设定（逐位置生成、输出接回输入），13.1.1 串行约束的出处。</li>
+  <li>Kaplan et al., 2020. Scaling Laws for Neural Language Models（arXiv:2001.08361）：前向每 token 约 \(2N\) FLOPs 的算力口径（训练每 token 约 \(6N\) = 前向 \(2N\) + 反向 \(4N\)），与第 7 章 \(C \approx 6ND\) 同出一源。</li>
+  <li>NVIDIA A100 Tensor Core GPU 官方规格：FP16 tensor core 算力约 312 TFLOPS、HBM 带宽约 2 TB/s（2039 GB/s）、L2 缓存 40 MB；用于图 4、图 5 与拐点 \(I^* \approx 150\) FLOP/B 的量级估算（均为可复算的比值，非实测）。</li>
+  <li>minimind（Apache 2.0）：模型配置（hidden 768、8 层、词表 6400、8 头 / KV 头 4、head_dim 96、FFN 2432、约 63.9M 参数、embedding 与 lm_head 权重共享），见 minimind-master/model/model_minimind.py 及项目 README；13.1.2 的参数量对账以此为准。</li>
+  <li>本手册第 6 章（next-token 目标的并行训练设定）、第 7 章（训练显存构成与 \(C \approx 6ND\)）、第 12 章（解码机制）；附录 A.7（对数坐标读法，图 5 的阅读基础）。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch12_5_decoding_practice.html" title="12.5 解码实践与陷阱">← 上一节：12.5 解码实践与陷阱</a><a class="next" href="ch13_2_kv_cache.html" title="13.2 KV Cache：用显存换速度的核心缓存">下一节：13.2 KV Cache：用显存换速度的核心缓存 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

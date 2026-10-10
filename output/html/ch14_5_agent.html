@@ -1,0 +1,828 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>14.5 Agent：规划、工具与多步执行循环 — LLM 机制学习手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+/* ==========================================
+   LLM 机制学习手册 — 全局公共样式
+   职责：定义全局 CSS 变量、布局骨架、基础排版、通用组件
+   注意：此文件由 build.py 统一注入到每个生成页面
+   ========================================== */
+
+/* ─── CSS 变量 ─── */
+:root{
+  --primary:#6d28d9;--primary-light:#ede9fe;--primary-dark:#4c1d95;
+  --accent:#0891b2;--danger:#dc2626;--warning:#d97706;--success:#059669;
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-secondary:#64748b;
+  --border:#e2e8f0;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.08);
+  --radius:8px;--radius-lg:12px;--sidebar-width:300px;
+}
+
+/* ─── 基础重置 ─── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Sans SC',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.8;font-size:15px}
+a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ─── 布局骨架 ─── */
+.layout{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-width);background:var(--surface);border-right:1px solid var(--border);position:fixed;height:100vh;overflow-y:auto;z-index:50;transition:transform .3s}
+.sidebar-header{padding:20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
+.sidebar-header h1{font-size:16px;font-weight:700;color:var(--primary-dark);margin-bottom:4px}
+.sidebar-header p{font-size:12px;color:var(--text-secondary)}
+.nav-tree{padding:12px}
+.nav-group{margin-bottom:4px}
+.nav-toggle{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;color:var(--text);user-select:none;transition:background .15s}
+.nav-toggle:hover{background:var(--primary-light)}
+.nav-toggle .arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;transition:transform .2s;font-size:11px;color:var(--text-secondary)}
+.nav-toggle.collapsed .arrow{transform:rotate(-90deg)}
+.nav-children{margin-left:20px;border-left:2px solid var(--border);padding-left:8px;overflow:hidden;transition:max-height .3s}
+.nav-children.collapsed{max-height:0}
+.nav-link{display:block;padding:6px 10px;border-radius:var(--radius);font-size:13px;color:var(--text-secondary);transition:all .15s}
+.nav-link:hover{background:var(--primary-light);color:var(--primary-dark)}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:500}
+
+/* Main & Breadcrumb */
+.main{margin-left:var(--sidebar-width);flex:1;min-width:0}
+.breadcrumb{position:sticky;top:0;background:rgba(248,250,252,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:12px 32px;font-size:13px;color:var(--text-secondary);z-index:40}
+.breadcrumb a{color:var(--text-secondary)}.breadcrumb a:hover{color:var(--primary)}.breadcrumb-sep{margin:0 8px;opacity:.5}
+
+/* ─── 内容区域基础排版 ─── */
+.content{max-width:1000px;margin:0 auto;padding:32px}
+.content h1{font-size:32px;font-weight:700;margin-bottom:8px;color:var(--text);letter-spacing:-.02em}
+.content .subtitle{font-size:14px;color:var(--text-secondary);margin-bottom:32px}
+.content h2{font-size:22px;font-weight:700;margin:40px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--primary-light);color:var(--primary-dark)}
+.content h3{font-size:18px;font-weight:600;margin:28px 0 12px;color:var(--text)}
+.content h4{font-size:15px;font-weight:600;margin:20px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em}
+.content p{margin-bottom:14px}
+.content ul,.content ol{margin:12px 0 12px 22px}
+.content li{margin-bottom:6px}
+.content blockquote{border-left:4px solid var(--primary);padding:12px 16px;background:var(--primary-light);border-radius:0 var(--radius) var(--radius) 0;margin:16px 0;font-size:14px}
+.content code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:'SF Mono',monospace;font-size:13px;color:var(--primary-dark);word-break:break-all;overflow-wrap:anywhere}
+.content pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:var(--radius);overflow-x:auto;font-size:13px;line-height:1.6;margin:16px 0}
+.content pre code{background:transparent;padding:0;color:inherit}
+
+/* ─── 表格基础 ─── */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 100%);color:#fff;font-weight:600;position:sticky;top:0;white-space:nowrap}
+tr:hover td{background:#faf5ff}
+tr:last-child td{border-bottom:none}
+.table-wrap{overflow-x:auto;margin:16px 0;border-radius:var(--radius);box-shadow:var(--shadow);background:var(--surface)}
+
+/* ─── 页脚导航 ─── */
+.footer-nav{display:flex;justify-content:space-between;align-items:center;margin-top:48px;padding-top:24px;border-top:2px solid var(--border)}
+.footer-nav a{display:flex;align-items:center;gap:8px;padding:12px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--border);font-size:14px;font-weight:500;transition:all .15s}
+.footer-nav a:hover{background:var(--primary-light);border-color:var(--primary);text-decoration:none}
+.footer-nav .prev{color:var(--text-secondary)}
+.footer-nav .next{color:var(--primary)}
+.footer-nav .disabled{opacity:.4;pointer-events:none}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+
+/* ─── 快速浏览元数据卡片 ─── */
+.doc-meta-card{
+  background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);
+  border:1px solid #ddd6fe;
+  border-radius:var(--radius-lg);
+  padding:16px 20px;margin:16px 0 24px 0;box-shadow:var(--shadow);
+}
+.doc-meta-title{margin:0 0 12px 0;font-size:16px;font-weight:600;color:var(--primary-dark)}
+.doc-meta-card .doc-meta{width:100%;border-collapse:collapse;border-radius:var(--radius);overflow:hidden}
+.doc-meta-card .doc-meta tbody td:first-child{
+  width:90px;background:#fff;color:var(--primary-dark);font-weight:600;font-size:13px;
+  padding:8px 12px;vertical-align:top;border-right:1px solid #ddd6fe;white-space:nowrap;
+}
+.doc-meta-card .doc-meta tbody td{vertical-align:top;padding:8px 0 8px 16px;color:#334155;font-size:14px;line-height:1.6}
+.doc-meta-card .doc-meta tbody tr+tr td{border-top:1px dashed #ddd6fe}
+.doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
+.doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
+
+/* ─── 重点框 ─── */
+.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
+.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
+.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
+.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
+.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
+.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+.highlight-box p:last-child{margin-bottom:0}
+
+/* ─── 苏格拉底问答卡片 ─── */
+.socratic-card{
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;padding:20px 24px;margin:24px 0;box-shadow:var(--shadow);
+}
+.socratic-card .sc-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--primary-dark);margin-bottom:12px}
+.socratic-card .sc-head .sc-icon{font-size:18px}
+.socratic-qa{margin:12px 0}
+.socratic-qa .sc-q{font-weight:600;color:var(--text);margin-bottom:6px}
+.socratic-qa .sc-q::before{content:'问 ';color:var(--primary);font-weight:700}
+.socratic-qa .sc-mine{background:#f5f3ff;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-mine::before{content:'我的理解 · ';color:var(--accent);font-weight:600;font-size:12px}
+.socratic-qa .sc-key{background:#ecfdf5;border-radius:var(--radius);padding:10px 14px;font-size:14px;color:#334155;margin:6px 0}
+.socratic-qa .sc-key::before{content:'关键补充 · ';color:var(--success);font-weight:600;font-size:12px}
+
+/* ─── 术语详解卡片（注释类组件，统一橙色系）─── */
+.term-card{background:#fffbf5;border:1px solid #fdba74;border-radius:var(--radius-lg);padding:16px 20px;margin:18px 0;box-shadow:var(--shadow)}
+.term-card::before{content:'术语';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
+.term-card .term-name{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.term-card .term-zh{font-size:16px;font-weight:700;color:#ea580c}
+.term-card .term-en{font-size:13px;color:var(--text-secondary);font-style:italic}
+.term-card .term-body{font-size:14px;color:#334155;line-height:1.75}
+.term-card .term-body p{margin:6px 0}
+.term-card .term-analogy{background:#fff;border-left:3px solid #ea580c;border-radius:0 var(--radius) var(--radius) 0;padding:8px 14px;margin-top:10px;font-size:13.5px;color:#475569}
+.term-card .term-analogy::before{content:'打个比方　';color:#ea580c;font-weight:600}
+
+/* ─── 自制示意图容器（区别于论文原图）─── */
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin:22px 0;box-shadow:var(--shadow);overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .diagram-caption{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:12px}
+.diagram .diagram-tag{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;margin-bottom:4px}
+
+/* ─── 概念对照 / 知识卡片网格 ─── */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0}
+.concept-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.concept-card h4{margin:0 0 8px;color:var(--primary-dark);font-size:15px;text-transform:none;letter-spacing:normal}
+.concept-card p{font-size:13px;color:var(--text-secondary);margin:0}
+
+/* ─── 公式块说明 ─── */
+.formula-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 24px 18px;margin:20px 0;box-shadow:var(--shadow)}
+.formula-card .formula-note{font-size:13px;color:var(--text-secondary);border-top:1px dashed var(--border);padding-top:12px;margin-top:8px}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0}
+
+/* ─── 配图 ─── */
+.img-block{margin:20px auto;text-align:center;max-width:760px}
+.img-block img{max-width:100%;max-height:420px;width:auto;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:zoom-in;transition:transform .2s;background:#fff}
+.img-block img:hover{transform:scale(1.02)}
+.img-caption{font-size:13px;color:var(--text-secondary);margin-top:8px;font-style:italic}
+.img-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:20px 0}
+.img-row .img-block{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.img-row.cols-3{grid-template-columns:repeat(3,1fr)}
+.img-zoom-overlay{position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:999;backdrop-filter:blur(4px);cursor:zoom-out;display:flex;justify-content:center;align-items:center;animation:fadeIn .2s ease}
+.img-zoom-overlay img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:var(--radius);box-shadow:0 25px 50px -12px rgba(0,0,0,.25);cursor:grab;transition:transform .1s ease-out;transform-origin:center center}
+.img-zoom-overlay img.is-dragging{cursor:grabbing}
+.img-zoom-overlay::after{content:'滚轮缩放 / 拖拽平移 / 点击关闭';position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:13px;color:#fff;background:rgba(15,23,42,0.7);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ─── 响应式 ─── */
+@media print{.sidebar{display:none}.main{margin-left:0}.breadcrumb{position:static}}
+@media (max-width:768px){:root{--sidebar-width:0}.sidebar{transform:translateX(-100%)}.main{margin-left:0}.content{padding:20px}.img-row,.img-row.cols-3{grid-template-columns:1fr}}
+
+</style>
+
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>LLM 机制学习手册</h1><p>从数据到部署 · 全链路拆解</p></div>
+  <nav class="nav-tree">
+    <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 0 章 全景导论</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch0_1_what_is_llm.html">0.1 大语言模型是什么</a>
+<a class="nav-link" href="ch0_2_pipeline.html">0.2 全景流水线：一张地图看懂 LLM 的一生</a>
+<a class="nav-link" href="ch0_3_history.html">0.3 LLM 简史与本手册读法</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 1 章 训练数据</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch1_1_corpus_sources.html">1.1 语料从哪来：互联网、书籍与公共语料库</a>
+<a class="nav-link" href="ch1_2_quality_filtering.html">1.2 质量过滤：从万亿网页里挑出好文本</a>
+<a class="nav-link" href="ch1_3_dedup.html">1.3 去重：同一段话训十遍有用吗</a>
+<a class="nav-link" href="ch1_4_data_mixture.html">1.4 数据配比：网页、代码、数学各放多少</a>
+<a class="nav-link" href="ch1_5_synthetic_data.html">1.5 合成数据与数据瓶颈：自己造教科书喂自己</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 2 章 分词</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch2_1_why_tokenization.html">2.1 为什么需要分词</a>
+<a class="nav-link" href="ch2_2_bpe.html">2.2 BPE：从数据压缩到子词词表</a>
+<a class="nav-link" href="ch2_3_wordpiece_unigram.html">2.3 WordPiece 与 Unigram：另外两条子词路线</a>
+<a class="nav-link" href="ch2_4_sentencepiece.html">2.4 SentencePiece：扔掉预分词的分词工具</a>
+<a class="nav-link" href="ch2_5_vocab_special_tokens.html">2.5 词表与特殊 Token</a>
+<a class="nav-link" href="ch2_6_tokenizer_in_practice.html">2.6 分词的实践与坑</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 3 章 词向量与位置编码</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch3_1_word_embeddings.html">3.1 词向量：把 token 放进语义坐标系</a>
+<a class="nav-link" href="ch3_2_why_position.html">3.2 为什么需要位置编码：注意力是个「脸盲」</a>
+<a class="nav-link" href="ch3_3_sinusoidal_learned.html">3.3 绝对位置编码：正弦与可学习两种方案</a>
+<a class="nav-link" href="ch3_4_rope_alibi.html">3.4 相对位置编码：RoPE 与 ALiBi</a>
+<a class="nav-link" href="ch3_5_length_extrapolation.html">3.5 长度外推：从几千 token 到几十万</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 4 章 Transformer 架构精讲</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch4_1_architecture_overview.html">4.1 整体架构：编码器与解码器搭起的流水线</a>
+<a class="nav-link" href="ch4_2_attention.html">4.2 注意力机制：Query、Key、Value 的分工</a>
+<a class="nav-link" href="ch4_3_multi_head.html">4.3 多头注意力与掩码：八个视角看同一句</a>
+<a class="nav-link" href="ch4_4_ffn_residual_norm.html">4.4 前馈网络、残差连接与层归一化：注意力的三位搭档</a>
+<a class="nav-link" href="ch4_5_decoder_only.html">4.5 从编码器-解码器到 Decoder-only：现代 LLM 的定型</a>
+<a class="nav-link" href="ch4_6_forward_walkthrough.html">4.6 一次完整前向：张量尺寸逐步走查</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 5 章 现代架构变体与效率改进</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch5_1_norm_activation.html">5.1 归一化与激活的现代选择：RMSNorm 与 SwiGLU</a>
+<a class="nav-link" href="ch5_2_mqa_gqa.html">5.2 注意力的省显存之路：MHA、MQA 与 GQA</a>
+<a class="nav-link" href="ch5_3_mla.html">5.3 MLA：把 K、V 压成低维「浓缩液」</a>
+<a class="nav-link" href="ch5_4_moe.html">5.4 MoE 混合专家：一个大脑，多位专科医生</a>
+<a class="nav-link" href="ch5_5_modern_recap.html">5.5 现代 LLM 架构总账：2017 到今天改了什么</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 6 章 预训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch6_1_pretraining_objective.html">6.1 预训练目标：预测下一个 token 凭什么学会智能</a>
+<a class="nav-link" href="ch6_2_optimizer_hyperparams.html">6.2 优化器与超参数：万亿 token 怎么喂</a>
+<a class="nav-link" href="ch6_3_training_loop.html">6.3 一次预训练长什么样：训练循环逐步走查</a>
+<a class="nav-link" href="ch6_4_scaling_law.html">6.4 Scaling Law：规模是可以计算的命运</a>
+<a class="nav-link" href="ch6_5_emergence.html">6.5 涌现能力：规模到了，能力「突然」出现？</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 7 章 预训练工程</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch7_1_scaling_wall.html">7.1 显存墙与算力墙：为什么单卡训不动大模型</a>
+<a class="nav-link" href="ch7_2_data_parallel_zero.html">7.2 数据并行与 ZeRO：把模型状态拆开装</a>
+<a class="nav-link" href="ch7_3_tensor_pipeline_parallel.html">7.3 张量并行与流水线并行：把模型本身切开</a>
+<a class="nav-link" href="ch7_4_mixed_precision_stability.html">7.4 混合精度与训练稳定性：快而不炸</a>
+<a class="nav-link" href="ch7_5_compute_cost.html">7.5 算力估算与成本核算：6ND 法则</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 8 章 中间训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch8_1_midtraining_overview.html">8.1 什么是中间训练：预训练与后训练之间的缓冲带</a>
+<a class="nav-link" href="ch8_2_rope_scaling.html">8.2 长上下文扩展 I：位置编码缩放</a>
+<a class="nav-link" href="ch8_3_long_context_training.html">8.3 长上下文扩展 II：数据与训练工程</a>
+<a class="nav-link" href="ch8_4_domain_adapt_anneal.html">8.4 领域适配与退火：收尾阶段的数据艺术</a>
+<a class="nav-link" href="ch8_5_midtraining_practice.html">8.5 中间训练实战剖面与全章收束</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 9 章 后训练 I：监督微调与参数高效微调</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch9_1_why_sft.html">9.1 为什么需要 SFT：从「会续写」到「会对话」</a>
+<a class="nav-link" href="ch9_2_sft_data.html">9.2 SFT 数据：指令对、对话模板与质量哲学</a>
+<a class="nav-link" href="ch9_3_sft_mechanics.html">9.3 SFT 训练机制：损失掩码与超参配方</a>
+<a class="nav-link" href="ch9_4_lora.html">9.4 LoRA：冻结主干，只训低秩旁路</a>
+<a class="nav-link" href="ch9_5_peft_family.html">9.5 参数高效微调家族：QLoRA 与选型策略</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 10 章 后训练 II：偏好对齐</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch10_1_alignment_gap.html">10.1 偏好差距：为什么 SFT 之后还要对齐</a>
+<a class="nav-link" href="ch10_2_reward_model.html">10.2 偏好数据与奖励模型：把「谁更好」炼成可打分的裁判</a>
+<a class="nav-link" href="ch10_3_ppo_rlhf.html">10.3 RLHF：PPO 强化学习对齐</a>
+<a class="nav-link" href="ch10_4_dpo_family.html">10.4 DPO 家族：绕过奖励模型的直接偏好优化</a>
+<a class="nav-link" href="ch10_5_safety_alignment.html">10.5 安全对齐与实践权衡：拒答、AI 评委与对齐税</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 11 章 后训练 III：推理能力训练</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch11_1_why_rlvr.html">11.1 从偏好到推理：可验证奖励为什么登场</a>
+<a class="nav-link" href="ch11_2_rlvr_loop.html">11.2 RLVR：可验证奖励的训练回路</a>
+<a class="nav-link" href="ch11_3_grpo.html">11.3 GRPO：扔掉价值模型的组相对优化</a>
+<a class="nav-link" href="ch11_4_long_cot.html">11.4 长思维链：让模型学会慢慢想</a>
+<a class="nav-link" href="ch11_5_reasoning_pitfalls.html">11.5 推理训练的实践与陷阱：作弊、蒸馏与能力边界</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 12 章 推理机制与后处理</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch12_1_decoding_loop.html">12.1 解码主循环：从 logits 到文字</a>
+<a class="nav-link" href="ch12_2_sampling.html">12.2 采样三件套：temperature、top-k、top-p</a>
+<a class="nav-link" href="ch12_3_stopping.html">12.3 停止条件与流式输出</a>
+<a class="nav-link" href="ch12_4_structured_output.html">12.4 结构化输出：让模型按格式说话</a>
+<a class="nav-link" href="ch12_5_decoding_practice.html">12.5 解码实践与陷阱</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 13 章 推理系统与部署</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch13_1_inference_cost.html">13.1 推理的成本结构：显存、算力、带宽谁先成为瓶颈</a>
+<a class="nav-link" href="ch13_2_kv_cache.html">13.2 KV Cache：用显存换速度的核心缓存</a>
+<a class="nav-link" href="ch13_3_serving_systems.html">13.3 服务化：连续批处理与 PagedAttention</a>
+<a class="nav-link" href="ch13_4_quantization.html">13.4 量化：FP16 到 INT4 的压缩术</a>
+<a class="nav-link" href="ch13_5_distillation.html">13.5 蒸馏：大模型教小模型</a>
+<a class="nav-link" href="ch13_6_speculative_scaling.html">13.6 投机采样与推理时扩展：无损加速与多花计算的两端</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 14 章 应用范式</span></div>
+  <div class="nav-children">
+    <a class="nav-link" href="ch14_1_prompt_engineering.html">14.1 Prompt 工程：不改权重的编程方式</a>
+<a class="nav-link" href="ch14_2_cot.html">14.2 思维链：让模型把中间步骤写出来</a>
+<a class="nav-link" href="ch14_3_rag.html">14.3 RAG：给模型外挂一个资料库</a>
+<a class="nav-link" href="ch14_4_function_calling.html">14.4 Function Calling：让模型学会「打电话」</a>
+<a class="nav-link active" href="ch14_5_agent.html">14.5 Agent：规划、工具与多步执行循环</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
+<a class="nav-link" href="ch90_2_dot_cosine.html">A.2 点积、缩放与余弦相似度：注意力怎么算“像不像”</a>
+<a class="nav-link" href="ch90_3_softmax.html">A.3 softmax 与温度：把分数变成概率</a>
+<a class="nav-link" href="ch90_4_crossentropy_ppl.html">A.4 交叉熵与困惑度：怎么给模型的预测打分</a>
+<a class="nav-link" href="ch90_5_gradient_backprop.html">A.5 梯度下降与反向传播：模型怎么从损失里学东西</a>
+<a class="nav-link" href="ch90_6_activation_norm.html">A.6 激活函数与归一化：让网络既会弯、又稳得住</a>
+<a class="nav-link" href="ch90_7_powerlaw_log.html">A.7 幂律与对数坐标：Scaling Law 的图怎么读</a>
+<a class="nav-link" href="ch90_8_residual.html">A.8 残差连接：给梯度留一条直达路</a>
+<a class="nav-link" href="ch90_9_sampling.html">A.9 概率分布与依概率抽样：轮盘怎么转</a>
+<a class="nav-link" href="ch90_10_cdf_quantile.html">A.10 累积概率与分位数：top-p 的数学底座</a>
+<a class="nav-link" href="ch90_11_softmax_mask.html">A.11 softmax 掩码：用 −∞ 屏蔽非法位置</a>
+<a class="nav-link" href="ch90_12_condprob_chain.html">A.12 条件概率与链式分解：语言模型的数学形态</a>
+<a class="nav-link" href="ch90_13_fsm_grammar.html">A.13 有限状态机与文法：约束解码的数学底座</a>
+  </div>
+</div>
+  </nav>
+</aside>
+<div class="layout">
+  <div class="main">
+    <div class="breadcrumb">
+    <a href="#">首页</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">第 14 章 应用范式</a>
+    <span class="breadcrumb-sep">/</span>
+    <span>14.5 Agent：规划、工具与多步执行循环</span>
+  </div>
+    <div class="content">
+      <article class="content">
+<h1>14.5 Agent：规划、工具与多步执行循环</h1>
+<p class="subtitle">本页范围：第 14 章第 5 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>前四节各给了模型一项外挂能力：Prompt 工程把话说好（14.1）、思维链把推理写开（14.2）、RAG 外挂资料库（14.3）、Function Calling 学会调用工具（14.4）。但真实任务——查资料再汇总、写代码再调试——不是一问一答能完成的：模型需要根据中间结果决定下一步做什么。如何把这些单项能力组装成一个能自主跑完多步任务的系统？</td></tr>
+      <tr><td>本节主张</td><td>Agent 不是新模型，也没有新的训练机制，而是一个模型之外的多步循环：LLM 当大脑，规划拆任务、工具办事情、记忆存轨迹，每转一圈仍然只是第 12 章讲过的一次普通解码。ReAct 给出「思考—行动—观察」的循环格式，Reflexion 再补一条「失败后写反思」的自我纠错通道。</td></tr>
+      <tr><td>一句话结论</td><td>把解码、思维链、RAG、工具调用串成闭环，模型就从「答题机」变成「办事员」；但闭环最大的敌人是错误累积——单步成功率 0.9 的任务连跑 10 步，全程走对的概率只剩约三分之一。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>Agent</span><span>ReAct</span><span>Thought/Action/Observation</span><span>Reflexion</span><span>口头强化学习</span><span>情景记忆</span><span>多步闭环</span><span>错误累积</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　14.4 节结束时，模型已经会「打电话」了：能按 schema 发出结构化的调用请求，由外部代码真正执行。但一次调用只解决一步的事，而现实中的任务长得多：调研一个主题要先搜、再读、再筛选、再组织；修一个 bug 要先读代码、定位、改动、跑测试、看报错再改。完成这类任务靠的不是更强的单次生成，而是一个能根据中间结果调整方向、转很多圈的循环——这就是 Agent（智能体）要干的事。本节是第 14 章的收官：把前四节拆开的零件重新装成一台整机。</p>
+
+<p>　　本节按「定义 → 循环 → 纠错 → 边界」展开：先给 Agent 一个可检验的组成定义，再精讲两个奠基性工作 ReAct 与 Reflexion，最后直面它今天仍然不省心的可靠性问题。读完应能说清三件事：Agent 与普通问答的本质区别在哪，Thought / Action / Observation 各是什么角色，为什么多步系统的成功率会按幂次衰减。</p>
+
+<ol>
+  <li><strong>从单次问答到多步闭环：Agent = LLM + 规划 + 工具 + 记忆</strong>（14.5.1）：给 Agent 下定义，看清它如何复用前四节的零件；</li>
+  <li><strong>ReAct：推理与行动交替（Thought/Action/Observation 循环）</strong>（14.5.2）：奠基性的循环格式，思考与行动为什么必须交替；</li>
+  <li><strong>Reflexion 与自我纠错</strong>（14.5.3）：不改权重的「学习」——把失败写成文字反思，带进下一轮；</li>
+  <li><strong>Agent 的可靠性与局限：错误累积、上下文膨胀、评估难</strong>（14.5.4）：算一笔幂次衰减的账，正视今天的瓶颈。</li>
+</ol>
+
+<p>　　逐节展开之前，先看一眼本章在整条 LLM 生命周期里的站位（图 1）。注意它不是链条上的新一站，而是架在「推理与部署」之上的使用层——模型本体到此为止，本章所有动作都发生在模型外面。心里有这张地图，后面讨论闭环、交替、反思与局限时，就不会忘记一条底线：权重从头到尾没有动过。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS145agent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG145agent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#555555">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS145agent)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS145agent)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS145agent)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS145agent)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS145agent)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS145agent)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS145agent)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：本章在 LLM 生命周期中的位置。生命周期从训练数据（第 1 章）走到推理与部署（第 12–13 章），交出可直接服务的模型；本章讲的应用范式不是这条链上的新一站，而是架在推理与部署之上的使用层——高亮框表示模型本体到此为止、权重不再改变，本章所有技术（Prompt、思维链、RAG、Function Calling、Agent）都是架在这一站之上的脚手架。本节 Agent 是其中集成度最高的形态：把前几节的单项能力组装成一个多步闭环。</div>
+</div>
+
+<h2>14.5.1 从单次问答到多步闭环：Agent = LLM + 规划 + 工具 + 记忆</h2>
+
+<p>　　14.1 到 14.4 节给的其实都是「一轮定胜负」的玩法：prompt 进去，一段文本出来——哪怕这段文本是一次工具调用请求（14.4 节），模型也只负责生成，连看一眼结果的机会都没有。Agent 要打破的正是这个一轮限制：让模型发出行动、看到行动的后果、再决定下一步，如此往复。这个能力不是训练出来的，而是模型外面的脚手架代码组织出来的。</p>
+
+<p>　　Agent 具体由什么组成？复旦大学的 Agent 综述（Xi et al., 2023，arXiv:2309.07864）把基于 LLM 的智能体拆成三个组件：大脑（brain，LLM 本体，负责推理与决策）、感知（perception，接收环境信息）、行动（action，通过工具影响环境）。工程界更常把它写成一句口诀：</p>
+
+<blockquote>Agent = LLM（大脑）+ 规划（拆任务）+ 工具（办事情）+ 记忆（存轨迹）</blockquote>
+
+<p>　　四个零件没有一个是新的，全部来自前面章节：</p>
+
+<div class="concept-grid">
+  <div class="concept-card"><h4>大脑：LLM</h4><p>每一步决策都是一次普通解码（第 12 章）：读上下文、吐下一段文字。权重全程不变。</p></div>
+  <div class="concept-card"><h4>规划 Planning</h4><p>把大任务拆成子目标与下一步动作，机制就是思维链的多步版本（14.2 节），树状搜索（ToT）也算。</p></div>
+  <div class="concept-card"><h4>工具 Tools</h4><p>Function Calling 发出的结构化调用（14.4 节）；RAG 检索（14.3 节）可视为一种只读工具。</p></div>
+  <div class="concept-card"><h4>记忆 Memory</h4><p>短期记忆就是上下文里的对话与轨迹；长期记忆靠外部存储按需取回。14.5.3 的反思也存放在这里。</p></div>
+</div>
+
+<p>　　把这些零件串起来的是脚手架：它把任务交给模型，解析模型输出的行动指令，调用真正的工具，再把结果拼回上下文，请模型走下一步——直到模型自己说「做完了」。图 2 画出这个闭环的全貌：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 460" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrA145loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrA145loopC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <text x="20" y="28" font-size="13" font-weight="bold" fill="#4c1d95">Agent 闭环：LLM 大脑 + 规划 + 记忆 + 工具，由外部脚手架驱动多轮循环（权重全程不变）</text>
+    <!-- 规划（上） -->
+    <rect x="370" y="60" width="220" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="480" y="84" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">规划</text>
+    <text x="480" y="102" text-anchor="middle" font-size="10.5" fill="#555555">把任务拆成子目标与下一步</text>
+    <text x="480" y="118" text-anchor="middle" font-size="10" fill="#888888">（思维链，14.2 节）</text>
+    <line x1="480" y1="128" x2="480" y2="174" stroke="#6d28d9" stroke-width="2" marker-start="url(#arrA145loop)" marker-end="url(#arrA145loop)"/>
+    <text x="498" y="156" font-size="10" fill="#555">拆解与纠偏</text>
+    <!-- 记忆（下） -->
+    <rect x="370" y="340" width="220" height="64" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="480" y="364" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">记忆</text>
+    <text x="480" y="382" text-anchor="middle" font-size="10.5" fill="#555555">历史轨迹 · 观察 · 反思</text>
+    <text x="480" y="398" text-anchor="middle" font-size="10" fill="#888888">（短期靠上下文，14.5.3 细讲）</text>
+    <line x1="480" y1="294" x2="480" y2="336" stroke="#6d28d9" stroke-width="2" marker-start="url(#arrA145loop)" marker-end="url(#arrA145loop)"/>
+    <text x="498" y="320" font-size="10" fill="#555">读写轨迹</text>
+    <!-- 任务（左上） -->
+    <rect x="30" y="120" width="150" height="70" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="105" y="146" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#92400e">任务目标</text>
+    <text x="105" y="168" text-anchor="middle" font-size="10.5" fill="#92400e">来自用户</text>
+    <line x1="182" y1="168" x2="364" y2="208" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145loop)"/>
+    <!-- LLM 大脑（中） -->
+    <rect x="370" y="180" width="220" height="110" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="480" y="212" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#ffffff">LLM 大脑</text>
+    <text x="480" y="236" text-anchor="middle" font-size="11" fill="#ede9fe">每一步 = 一次普通解码</text>
+    <text x="480" y="258" text-anchor="middle" font-size="10" fill="#d8b4fe">（第 12 章，权重不变）</text>
+    <!-- 工具箱（右） -->
+    <rect x="700" y="150" width="230" height="150" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="815" y="176" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#0e7490">工具箱（14.4 节）</text>
+    <text x="815" y="200" text-anchor="middle" font-size="10.5" fill="#155e75">搜索 / 网页（RAG，14.3 节）</text>
+    <text x="815" y="222" text-anchor="middle" font-size="10.5" fill="#155e75">计算器 · 代码执行</text>
+    <text x="815" y="244" text-anchor="middle" font-size="10.5" fill="#155e75">外部 API</text>
+    <text x="815" y="274" text-anchor="middle" font-size="10" fill="#555555">由外部代码真正执行</text>
+    <line x1="592" y1="205" x2="696" y2="205" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145loop)"/>
+    <text x="645" y="193" text-anchor="middle" font-size="10.5" fill="#4c1d95">行动指令（结构化）</text>
+    <line x1="696" y1="255" x2="594" y2="255" stroke="#0891b2" stroke-width="2" marker-end="url(#arrA145loopC)"/>
+    <text x="645" y="275" text-anchor="middle" font-size="10.5" fill="#0e7490">观察结果回注上下文</text>
+    <text x="643" y="314" text-anchor="middle" font-size="10" fill="#888888">一轮接一轮，直到模型发出结束指令</text>
+    <!-- 最终答案（左下） -->
+    <rect x="30" y="320" width="150" height="70" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="105" y="346" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#15803d">最终答案</text>
+    <text x="105" y="368" text-anchor="middle" font-size="10.5" fill="#15803d">模型决定收工时输出</text>
+    <line x1="364" y1="262" x2="184" y2="338" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145loop)"/>
+    <text x="238" y="290" text-anchor="middle" font-size="10" fill="#15803d">收工作答</text>
+    <text x="480" y="440" text-anchor="middle" font-size="10.5" fill="#6b7280">驱动权在外部脚手架：每轮把最新观察拼进上下文，再调一次模型；模型自己从不「执行」任何操作（14.4 节）</text>
+  </svg>
+  <div class="diagram-caption">图 2：Agent 闭环的组件与数据流。LLM 大脑居中，上接规划（思维链拆任务，14.2 节）、下连记忆（轨迹与反思存取）、右通工具箱（Function Calling，14.4 节；RAG 检索相当于只读工具）。每一轮：模型生成行动指令（结构化文本，格式约束见 12.4 节）→ 脚手架解析并交给工具执行 → 观察结果回注上下文 → 模型再走下一步，直到模型自己发出结束指令、输出最终答案。全程每个箭头上的「生成」都只是第 12 章的一次解码，「执行」全部是外部代码。</div>
+</div>
+
+<p>　　图 2 里最值得盯住的一点是「生成」与「执行」的严格分离：模型从头到尾只做一件事——生成文本；解析、调用、回注、重试全是外部代码的活。理解了这一层，Agent 的神秘感就消失了：它不是新物种，而是把旧零件装进了新循环。</p>
+
+<div class="highlight-box">
+  Agent 的本质是组装：一次解码（第 12 章）、一段思维链（14.2 节）、一次检索（14.3 节）、一次工具调用（14.4 节），每一步都是旧动作；新的是外部脚手架把它们串成闭环，让模型能看到自己行动的后果再决定下一步。本章开头那句「不改权重，只在模型外面搭脚手架」，在 Agent 这里走到了极致。
+</div>
+
+<div class="highlight-box info">
+  注释：minimind（Apache 2.0）没有 Agent 实现，它的 eval_llm.py 恰好展示了「没有 Agent 时」长什么样：base 模型把 <code>bos_token</code> 与 prompt 直接拼接（74 行），chat 模型用 <code>apply_chat_template</code> 拼成对话格式（76 行），然后一次性 generate 出整段回复——下一步问什么由人决定。Agent 脚手架做的正是把「下一步做什么」从人手里接过来，交给代码与模型自己；但每一次生成仍是同样的一次前向解码。
+</div>
+
+<h2>14.5.2 ReAct：推理与行动交替（Thought/Action/Observation 循环）</h2>
+
+<p>　　闭环定了，下一个问题是：每一轮里模型该干什么？在 ReAct 之前有两条现成的路，各有明显短板。一条是纯思维链（14.2 节）：从头到尾闭门推理，中途拿不到任何新信息，一旦某个事实记错，后面每一步都建立在错误前提上。另一条是纯行动：让模型直接输出一串动作，没有任何显式规划，面对多步任务容易迷失方向。ReAct（Yao et al., 2022，发表于 ICLR 2023，arXiv:2210.03629）给出的答案简单到出人意料：让两者交替——想一步，做一步，看一眼结果，再想下一步。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">ReAct</span>
+    <span class="term-en">Reasoning + Acting 的合成词 = 推理与行动交替进行</span>
+  </div>
+  <div class="term-body">
+    <p>ReAct 是发表于 ICLR 2023 的 Agent 范式：模型按固定格式逐轮生成两段文字——Thought（思考：分析现状、规划下一步）与 Action（行动：一条结构化指令，如「搜索[词条]」「结束[答案]」）；脚手架执行 Action，把环境返回的结果作为 Observation（观察）追加进上下文，再请模型生成下一段 Thought。如此交替，直到 Action 是「结束」。让模型学会这个格式不需要训练：prompt 里放几段人工写好的轨迹示例即可——14.1 节的 few-shot 与 14.2 节的思维链在这里被直接复用。</p>
+    <div class="term-analogy">像带着对讲机探路的队员：每走几步就停下来想想（Thought）、请示指挥部或派人探路（Action）、听到回话（Observation）再决定往哪走，而不是闭着眼一口气冲到底。</div>
+  </div>
+</div>
+
+<p>　　图 3 给出一条完整的 ReAct 轨迹（问答任务，内容为示意）：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 420" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrA145react" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13" font-weight="bold" fill="#4c1d95">ReAct 轨迹示例：Thought 与 Action 由模型生成，Observation 由外部环境返回（内容为示意）</text>
+    <!-- 行 1 -->
+    <rect x="40" y="60" width="180" height="88" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5"/>
+    <text x="130" y="84" text-anchor="middle" font-size="12" font-weight="bold" fill="#4b5563">问题</text>
+    <text x="130" y="106" text-anchor="middle" font-size="11" fill="#555555">《活着》的作者</text>
+    <text x="130" y="126" text-anchor="middle" font-size="11" fill="#555555">出生于哪一年？</text>
+    <line x1="222" y1="104" x2="256" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145react)"/>
+    <rect x="260" y="60" width="180" height="88" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="350" y="84" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">Thought 1</text>
+    <text x="350" y="106" text-anchor="middle" font-size="10.5" fill="#ede9fe">先查这本书的作者是谁</text>
+    <line x1="442" y1="104" x2="476" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145react)"/>
+    <rect x="480" y="60" width="180" height="88" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="570" y="84" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">Action 1</text>
+    <text x="570" y="106" text-anchor="middle" font-size="11" fill="#4c1d95">搜索[活着 小说]</text>
+    <text x="570" y="126" text-anchor="middle" font-size="10" fill="#888888">（结构化指令）</text>
+    <line x1="662" y1="104" x2="696" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145react)"/>
+    <rect x="700" y="60" width="180" height="88" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="790" y="84" text-anchor="middle" font-size="12" font-weight="bold" fill="#0e7490">Observation 1</text>
+    <text x="790" y="106" text-anchor="middle" font-size="10.5" fill="#155e75">《活着》是余华</text>
+    <text x="790" y="126" text-anchor="middle" font-size="10.5" fill="#155e75">创作的长篇小说</text>
+    <!-- 蛇形回行 -->
+    <polyline points="790,148 790,190 130,190 130,222" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145react)"/>
+    <text x="460" y="182" text-anchor="middle" font-size="10.5" fill="#555555">观察追加进上下文，开始下一轮</text>
+    <!-- 行 2 -->
+    <rect x="45" y="226" width="150" height="88" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="120" y="250" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">Thought 2</text>
+    <text x="120" y="272" text-anchor="middle" font-size="10.5" fill="#ede9fe">作者是余华，</text>
+    <text x="120" y="292" text-anchor="middle" font-size="10.5" fill="#ede9fe">接着查出生年份</text>
+    <line x1="197" y1="270" x2="221" y2="270" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145react)"/>
+    <rect x="225" y="226" width="150" height="88" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="300" y="250" text-anchor="middle" font-size="12" font-weight="bold" fill="#6d28d9">Action 2</text>
+    <text x="300" y="272" text-anchor="middle" font-size="10.5" fill="#4c1d95">搜索[余华 出生]</text>
+    <text x="300" y="292" text-anchor="middle" font-size="10" fill="#888888">（结构化指令）</text>
+    <line x1="377" y1="270" x2="401" y2="270" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145react)"/>
+    <rect x="405" y="226" width="150" height="88" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="480" y="250" text-anchor="middle" font-size="12" font-weight="bold" fill="#0e7490">Observation 2</text>
+    <text x="480" y="272" text-anchor="middle" font-size="10.5" fill="#155e75">余华，1960 年</text>
+    <text x="480" y="292" text-anchor="middle" font-size="10.5" fill="#155e75">出生于杭州</text>
+    <line x1="557" y1="270" x2="581" y2="270" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145react)"/>
+    <rect x="585" y="226" width="150" height="88" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="660" y="250" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">Thought 3</text>
+    <text x="660" y="272" text-anchor="middle" font-size="10.5" fill="#ede9fe">信息已足够，</text>
+    <text x="660" y="292" text-anchor="middle" font-size="10.5" fill="#ede9fe">可以作答</text>
+    <line x1="737" y1="270" x2="761" y2="270" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145react)"/>
+    <rect x="765" y="226" width="150" height="88" rx="8" fill="#ffffff" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="840" y="250" text-anchor="middle" font-size="12" font-weight="bold" fill="#15803d">Action 3</text>
+    <text x="840" y="272" text-anchor="middle" font-size="11" fill="#15803d">结束[1960 年]</text>
+    <text x="840" y="292" text-anchor="middle" font-size="10" fill="#888888">（输出答案）</text>
+    <text x="480" y="348" text-anchor="middle" font-size="10.5" fill="#6b7280">模型只负责生成 Thought 与 Action 两段文字；Action 由脚手架解析执行，Observation 由环境返回——执行权永远在外部</text>
+    <rect x="150" y="372" width="18" height="11" rx="2" fill="#6d28d9"/>
+    <text x="176" y="382" font-size="10.5" fill="#555">模型生成（Thought / Action）</text>
+    <rect x="420" y="372" width="18" height="11" rx="2" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="446" y="382" font-size="10.5" fill="#555">环境返回（Observation）</text>
+    <rect x="670" y="372" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="696" y="382" font-size="10.5" fill="#555">用户输入</text>
+  </svg>
+  <div class="diagram-caption">图 3：一条 ReAct 轨迹的交替节奏（蛇形排版，左上为起点）。模型逐轮生成 Thought（分析现状、规划下一步）与 Action（结构化指令），脚手架把 Action 交给外部环境执行，Observation 把结果带回上下文，如此往复，直到模型发出「结束」指令并给出答案。注意每一轮的输入都包含此前全部轨迹——这正是 14.5.4 上下文膨胀问题的来源。</div>
+</div>
+
+<p>　　交替为什么是刚需，图 3 里看得很清楚。Thought 让模型显式地规划与自我纠偏——Observation 1 回来之前模型并不知道作者是谁，靠闭门推理硬猜，猜错就一路错到底；有了观察，错误猜测能被事实当场纠正。Action 则补上思维链的另一块短板：给模型开了一扇获取外部信息的窗。而 Action 行的格式并不是新发明，它正是 12.4 节结构化输出与 14.4 节工具调用请求的合体：脚手架只认规定写法，解析出来交给真正的执行器。</p>
+
+<p>　　效果方面，论文在两个可交互环境里做了验证：ALFWorld（文字描述的家居任务环境，比如「把洗干净的杯子放进柜子」）和 WebShop（模拟网购环境，要按预算与要求买到指定商品）。ReAct 的绝对成功率分别超过同期模仿学习、强化学习基线 34 与 10 个百分点（论文摘要）。在知识密集型基准 HotpotQA（多跳问答）与 FEVER（事实核查）上，论文进一步报告 ReAct 与思维链结合使用效果最好——推理与行动互补而非互斥。这组结果让「Thought/Action/Observation 循环」被后来的 Agent 系统广泛采用。</p>
+
+<h2>14.5.3 Reflexion 与自我纠错</h2>
+
+<p>　　ReAct 让 Agent 会转圈了，但还留着一个遗憾：失败之后重跑，模型对上次为什么失败一无所知——权重不变，上下文一清空，教训归零，同样的错误可能再犯一遍。Reflexion（Shinn et al., 2023，发表于 NeurIPS 2023，arXiv:2303.11366）补的就是这块短板：既然不能改权重，那就把「教训」写成文字，放进下一轮的上下文里。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">Reflexion</span>
+    <span class="term-en">reflection = 反思；失败后把教训写成文字，带进下一次尝试</span>
+  </div>
+  <div class="term-body">
+    <p>Reflexion 是发表于 NeurIPS 2023 的自我纠错框架，在 Agent 循环外加三个角色：Actor（LLM，照 ReAct 等方式生成整条轨迹）、Evaluator（给轨迹判分：可以是环境自带的成败信号，如单元测试是否通过、任务是否完成，也可以是启发式评分）、Self-Reflection（另一个 LLM，把失败轨迹与评分翻译成一段具体的文字反思，例如「错在没先确认约束条件，下次应先核对再行动」）。反思被存进情景记忆（episodic memory，跨轮保留的外部存储），下一次尝试时拼进 Actor 的上下文。论文把这套机制称为口头强化学习（verbal reinforcement learning）：奖励信号没有被反向传播成梯度，而是被翻译成文字、经由上下文影响下一轮行为——一个参数都不动。</p>
+    <div class="term-analogy">像考试后写错题本：分数本身改不了脑子，但把「为什么错、下次怎么办」写下来，考前翻一遍，下次就不容易重蹈覆辙。</div>
+  </div>
+</div>
+
+<p>　　图 4 画出三个角色与情景记忆组成的完整回路：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 400" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrA145refl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrA145reflR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <text x="20" y="26" font-size="13" font-weight="bold" fill="#4c1d95">Reflexion：失败后生成文字反思，存入情景记忆，带进下一轮重试（全程不改权重）</text>
+    <!-- 主链 -->
+    <rect x="20" y="64" width="110" height="68" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5"/>
+    <text x="75" y="90" text-anchor="middle" font-size="12" font-weight="bold" fill="#4b5563">任务</text>
+    <text x="75" y="110" text-anchor="middle" font-size="10" fill="#888888">（可重复尝试）</text>
+    <line x1="132" y1="98" x2="166" y2="98" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145refl)"/>
+    <rect x="170" y="64" width="190" height="68" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="1.5"/>
+    <text x="265" y="88" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Actor</text>
+    <text x="265" y="106" text-anchor="middle" font-size="10.5" fill="#ede9fe">LLM 生成整条轨迹</text>
+    <text x="265" y="122" text-anchor="middle" font-size="10" fill="#d8b4fe">（如 ReAct 循环）</text>
+    <line x1="362" y1="98" x2="396" y2="98" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145refl)"/>
+    <rect x="400" y="64" width="150" height="68" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="475" y="88" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#0e7490">环境执行</text>
+    <text x="475" y="106" text-anchor="middle" font-size="10.5" fill="#155e75">运行动作、跑测试</text>
+    <text x="475" y="122" text-anchor="middle" font-size="10" fill="#155e75">返回结果</text>
+    <line x1="552" y1="98" x2="586" y2="98" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145refl)"/>
+    <rect x="590" y="64" width="160" height="68" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="670" y="88" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6d28d9">Evaluator</text>
+    <text x="670" y="106" text-anchor="middle" font-size="10.5" fill="#555555">给轨迹判分：</text>
+    <text x="670" y="122" text-anchor="middle" font-size="10" fill="#888888">成败信号 / 启发式评分</text>
+    <line x1="752" y1="98" x2="786" y2="98" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145refl)"/>
+    <rect x="790" y="64" width="150" height="68" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="865" y="102" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#92400e">任务成功？</text>
+    <!-- 成功支路 -->
+    <line x1="865" y1="134" x2="865" y2="176" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145refl)"/>
+    <text x="883" y="162" font-size="10.5" fill="#15803d">成功</text>
+    <rect x="790" y="180" width="150" height="60" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="865" y="204" text-anchor="middle" font-size="12" font-weight="bold" fill="#15803d">输出结果</text>
+    <text x="865" y="224" text-anchor="middle" font-size="10" fill="#15803d">（保留成功轨迹）</text>
+    <!-- 失败支路 -->
+    <line x1="670" y1="134" x2="670" y2="176" stroke="#dc2626" stroke-width="2" marker-end="url(#arrA145reflR)"/>
+    <text x="688" y="162" font-size="10.5" fill="#dc2626">失败</text>
+    <rect x="590" y="180" width="160" height="68" rx="8" fill="#ffffff" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="670" y="204" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#dc2626">Self-Reflection</text>
+    <text x="670" y="222" text-anchor="middle" font-size="10.5" fill="#555555">LLM 把失败写成</text>
+    <text x="670" y="238" text-anchor="middle" font-size="10.5" fill="#555555">一段文字反思</text>
+    <line x1="588" y1="214" x2="514" y2="214" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145refl)"/>
+    <text x="551" y="202" text-anchor="middle" font-size="10" fill="#555">写入</text>
+    <rect x="330" y="180" width="180" height="68" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="420" y="204" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">情景记忆</text>
+    <text x="420" y="222" text-anchor="middle" font-size="10.5" fill="#555555">存历次反思文字</text>
+    <text x="420" y="238" text-anchor="middle" font-size="10" fill="#888888">（跨轮保留）</text>
+    <!-- 回环 -->
+    <polyline points="420,248 420,320 265,320 265,136" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrA145refl)"/>
+    <text x="342" y="312" text-anchor="middle" font-size="10.5" fill="#4c1d95">下一轮：反思拼进 Actor 上下文，重新尝试</text>
+    <text x="480" y="366" text-anchor="middle" font-size="10.5" fill="#6b7280">反思是文字、不是梯度：权重一个参数不动，「学习」发生在上下文里——论文称之为口头强化学习（verbal reinforcement learning）</text>
+  </svg>
+  <div class="diagram-caption">图 4：Reflexion 的自我纠错回路。Actor（LLM）生成轨迹，环境执行后由 Evaluator 判分；成功则输出结果，失败则由 Self-Reflection（另一个 LLM）把失败轨迹翻译成一段文字反思，写入情景记忆，下一轮尝试时拼进 Actor 的上下文。整条回路不更新任何参数，「学习」全部发生在上下文层面。</div>
+</div>
+
+<p>　　效果上，论文给出的代表性数字来自代码生成基准 HumanEval：带 Reflexion 的 Agent 把 pass@1（只生成一次、通过全部测试用例的概率）推到 91%，超过 GPT-4 裸跑基线；在 ALFWorld 决策任务与 HotpotQA 问答上同样有稳定提升（论文摘要）。值得再强调一次：这些提升没有更新任何参数，「学习」完全发生在上下文层面。</p>
+
+<div class="highlight-box info">
+  注释：Reflexion 不是免费的午餐，它有两个前提。其一，Evaluator 得给得出可靠的成败信号——有单元测试的代码任务信号最干净，开放式任务（写一份好报告）没有明确判据，反思就失去方向。其二，反思本身也是模型生成的，可能反思错重点，把下一轮带偏。两个前提都不满足时，加反思未必比直接重试强。
+</div>
+
+<h2>14.5.4 Agent 的可靠性与局限：错误累积、上下文膨胀、评估难</h2>
+
+<p>　　讲了三节组装的艺术，最后必须泼点冷水：今天的 Agent 远谈不上可靠。三个结构性问题几乎每个实践者都会撞上。</p>
+
+<p>　　<strong>错误累积</strong>。单步成功率再高，也经不起步数连乘。设每步成功率 \(p\)，各步独立，则 \(n\) 步全程走对的概率是：</p>
+
+<div class="formula-card">
+  \[ P_{\mathrm{succ}} = p^{\,n} \tag{1} \]
+  <div class="formula-note">公式 (1)：多步任务全程成功的概率（各步独立的理想情形）。符号说明：\(p\) 是单步成功率（如 0.9）；\(n\) 是任务的步数；\(P_{\mathrm{succ}}\) 是 \(n\) 步全部走对的概率。两个可复算的例子：\(p = 0.9,\ n = 10\) 时 \(0.9^{10} \approx 0.35\)；\(p = 0.95,\ n = 20\) 时 \(0.95^{20} \approx 0.36\)——单步九成五的成功率，连跑二十步后只剩三分之一强。真实 Agent 往往比这更糟：独立假设已经偏乐观，一步的错误观察进入上下文后会带偏后续每一步，错误是有传染性的。</div>
+</div>
+
+<p>　　<strong>上下文膨胀</strong>。每一轮的 Observation——搜索结果、网页正文、工具返回值——都被原样堆进上下文。几十轮下来，轨迹轻松吃掉几万 token：既推高成本与延迟（KV Cache 的账见第 13 章），又可能撑爆窗口；噪声观察堆多了还会稀释模型对关键信息的注意力。工程上的常见对策是给观察做摘要、只保留与当前子目标相关的片段，或把子任务拆给上下文独立的子 Agent。</p>
+
+<p>　　<strong>评估难</strong>。单次问答看最终答案对错即可，Agent 的轨迹却有几十步：最终结果对不代表过程合理（可能蒙对），过程流畅也可能结论错误；环境本身有随机性，同一任务跑两遍结果不同，需要大量重复实验才有统计意义。Agent 综述（arXiv:2309.07864）把评估列为该方向的核心开放问题之一。三个局限与常见对策汇总如下：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>局限</th><th>成因</th><th>常见对策</th></tr></thead>
+    <tbody>
+      <tr><td>错误累积</td><td>成功率按步数幂次衰减（公式 (1)），错误经上下文传染</td><td>限制单轮步数、拆小任务、关键节点人工确认、Reflexion 式复盘</td></tr>
+      <tr><td>上下文膨胀</td><td>每轮观察全文回注，轨迹越滚越长</td><td>观察摘要、只保留相关片段、子任务拆给独立上下文</td></tr>
+      <tr><td>评估难</td><td>轨迹长、环境随机、过程与结果不完全对应</td><td>终点判定与轨迹检查结合、多次重复取分布</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="highlight-box danger">
+  论文里的 Agent 环境（ALFWorld、WebShop）全部可以回滚重来，真实世界不行。把 Agent 接到能删数据、转账、发邮件的接口上时，公式 (1) 里的 \(p\) 就不再只是性能指标，而是事故概率——不可逆操作的执行权必须留在人手里，或加上硬门槛（14.4 节「执行权在外部」是最后的防线）。
+</div>
+
+<p>　　收尾看一眼全景：Agent 是本章五个零件里集成度最高的一个——Prompt 工程（14.1）给它定格式，思维链（14.2）给它思考，RAG（14.3）给它资料，Function Calling（14.4）给它双手，本节给它循环与记忆。下一章（第 15 章）会把同样的「外挂与组装」思路推广到文字之外的模态：给模型接上眼睛。</p>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">Agent 和普通问答的本质区别在哪？它换了新模型吗？</div>
+    <div class="sc-key">没有。模型还是原来那个模型，每一步都是第 12 章讲过的一次普通解码，权重全程不变。区别在于模型外面多了一个由脚手架驱动的循环：生成行动指令 → 外部执行 → 观察结果回注上下文 → 再生成。Agent = LLM + 规划 + 工具 + 记忆，四样零件全部来自前面章节，新的是组装与闭环。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">ReAct 为什么让 Thought 和 Action 交替，而不是纯推理或纯行动？</div>
+    <div class="sc-key">纯思维链闭门造车，拿不到新信息，事实错了就一路错到底；纯行动没有显式规划，多步任务容易迷失。交替之后，Thought 负责规划与自我纠偏，Action 打开获取外部信息的窗，Observation 当场纠正错误猜测。效果：ALFWorld 与 WebShop 上绝对成功率超基线 34 与 10 个百分点（arXiv:2210.03629 摘要）。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">多步闭环最大的敌人是什么？Reflexion 怎么帮忙？</div>
+    <div class="sc-key">错误累积：各步独立时全程成功率 \(P_{\mathrm{succ}} = p^{\,n}\) 按幂次衰减，且错误会经上下文传染。Reflexion（arXiv:2303.11366）让 Evaluator 判分、Self-Reflection 把失败写成文字反思、存进情景记忆带进下一轮——不改一个参数，把「学习」搬进上下文，HumanEval pass@1 达 91%（论文摘要）。但它依赖可靠的成败信号，开放式任务上反思质量没保障。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Yao et al., 2022. ReAct: Synergizing Reasoning and Acting in Language Models（arXiv:2210.03629，ICLR 2023）：Thought / Action / Observation 交替循环的提出；ALFWorld 与 WebShop 上绝对成功率分别超基线 34 与 10 个百分点；HotpotQA、FEVER 上与思维链结合效果最佳。关键数字以论文摘要为准。</li>
+  <li>Shinn et al., 2023. Reflexion: Language Agents with Verbal Reinforcement Learning（arXiv:2303.11366，NeurIPS 2023）：Actor / Evaluator / Self-Reflection 三角色与情景记忆、口头强化学习的提法、HumanEval pass@1 达 91% 超过 GPT-4 裸跑基线。关键数字以论文摘要为准。</li>
+  <li>Xi et al., 2023. The Rise and Potential of Large Language Model Based Agents: A Survey（arXiv:2309.07864）：大脑 / 感知 / 行动三组件框架；Agent 方向评估难题的综述性讨论。</li>
+  <li>minimind（Apache 2.0）eval_llm.py：base 模型裸拼 <code>bos_token</code> + prompt（74 行）、chat 模型 <code>apply_chat_template</code>（76 行），作为「无 Agent 单轮问答」的代码对照。</li>
+  <li>本手册第 12 章（解码机制）、12.4 节（结构化输出）、14.1 节（Prompt 工程）、14.2 节（思维链）、14.3 节（RAG）、14.4 节（Function Calling）：Agent 各零件的机制出处。</li>
+</ul>
+
+</article>
+      <div class="footer-nav"><a class="prev" href="ch14_4_function_calling.html" title="14.4 Function Calling：让模型学会「打电话」">← 上一节：14.4 Function Calling：让模型学会「打电话」</a><a class="next" href="ch90_1_vectors_rotation.html" title="A.1 向量、矩阵与旋转：RoPE 的数学底座">下一节：A.1 向量、矩阵与旋转：RoPE 的数学底座 →</a></div>
+    </div>
+  </div>
+</div>
+<script>
+// Sidebar toggle 全局脚本，所有页面共享
+function toggleNav(el){
+  el.classList.toggle('collapsed');
+  const children = el.nextElementSibling;
+  if(children && children.classList.contains('nav-children')){
+    children.classList.toggle('collapsed');
+    children.style.maxHeight = children.classList.contains('collapsed') ? '0' : '2000px';
+  }
+}
+
+// 图片点击放大/拖拽/滚轮缩放
+(function(){
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  function openZoom(src){
+    if(overlay) return;
+    overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
+    img=document.createElement('img'); img.src=src; img.draggable=false;
+    overlay.appendChild(img); document.body.appendChild(overlay);
+    scale=1; translateX=0; translateY=0; updateTransform();
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('wheel', onWheel, {passive:false});
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup', onMouseUp);
+    overlay.addEventListener('mouseleave', onMouseUp);
+  }
+  function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
+  function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
+  function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
+  });
+})();
+</script>
+
+</body>
+</html>

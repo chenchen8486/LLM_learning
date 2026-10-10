@@ -1,0 +1,427 @@
+<article class="content">
+<h1>14.2 思维链：让模型把中间步骤写出来</h1>
+<p class="subtitle">本页范围：第 14 章第 2 节　|　整理时间：2026-10-10</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>同一个模型、同一份权重，做小学数学应用题时直接给答案错误百出，先把中间推理步骤写出来再作答，正确率却能翻好几倍。这些多生成的 token 究竟改变了什么？</td></tr>
+      <tr><td>本节主张</td><td>思维链（Chain-of-Thought, CoT）不改任何权重，只在 prompt 里示范或诱发「先写过程、后写答案」的输出格式。它的本质是给模型发一张计算草稿纸：自回归模型每生成一个 token 都要做一次完整前向，中间步骤越多，摊到这道题上的推理时算力越大，且每步的中间结果落笔进入上下文，后续步骤可以直接引用。</td></tr>
+      <tr><td>一句话结论</td><td>Few-shot CoT 让 PaLM 540B 在 GSM8K 上从 17.9% 升到 58.1%；Zero-shot CoT 凭一句「Let's think step by step」让 MultiArith 从 17.7% 升到 78.7%；自洽性与 ToT 把单条链扩展成多路径投票与树搜索，RLVR（第 11 章）则把长思维链直接训进权重。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>Chain-of-Thought</span><span>Few-shot CoT</span><span>Zero-shot CoT</span><span>自洽性</span><span>Tree of Thoughts</span><span>推理时扩展</span><span>GSM8K</span><span>草稿纸</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　14.1 节讲了 prompt 是模型唯一的输入通道，一切「用法」最终都落实到往这条通道里写什么。本节讲这条通道上最出名的一篇「文章」：思维链——在问题与答案之间，让模型先把中间推理步骤写出来。一个 2022 年的尴尬事实是：当时的大模型做小学数学应用题，直接给答案时正确率惨不忍睹；而同一个模型、同一份权重，只要先写几步过程，正确率能翻好几倍。这些多生成的 token 到底买到了什么，是本节要拆开的黑盒。</p>
+
+<p>　　本节按「为什么有效 → 怎么用 → 怎么演进」的主线展开，路线图如下：</p>
+
+<ol>
+  <li><strong>一步到位的答案为什么容易错</strong>（14.2.1）：从自回归生成的算力分配说起，看懂「草稿纸」到底补上了什么；</li>
+  <li><strong>Few-shot CoT：示例里带上推理过程</strong>（14.2.2）：原始论文的做法，以及 PaLM 540B 在 GSM8K 上的战绩；</li>
+  <li><strong>Zero-shot CoT：「Let's think step by step」一句话的威力</strong>（14.2.3）：不写示例，一句触发句引出推理的两阶段流程；</li>
+  <li><strong>变体与演进：自洽性多数投票、ToT 树搜索、到第 11 章 RLVR 的内化</strong>（14.2.4）：从一条链到一群链、到一棵树，再到把链训进权重。</li>
+</ol>
+
+<p>　　读完本节，应该能说清思维链为什么属于「推理时扩展」家族（13.6 节），并能判断什么样的任务值得为它多付 token。</p>
+
+<p>　　逐节展开之前，先看一眼本节内容在 LLM 生命周期中的位置（图 1）。这张图有个容易看错的地方：第 14 章不是生命周期的新一站，而是架在推理部署之上的使用层——模型本体到这一站为止，本章在它之上做文章。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS142cot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrG142cot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练数据：</text>
+    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">收集 · 清洗 · 配比</text>
+    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 1 章）</text>
+    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">预训练：</text>
+    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">海量语料自监督</text>
+    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 6 章）</text>
+    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">训练工程：</text>
+    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">并行 · 精度 · 稳定</text>
+    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 7 章）</text>
+    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">中间训练：</text>
+    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">收口 · 长上下文</text>
+    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 8 章）</text>
+    <rect x="560" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">SFT：</text>
+    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#555555">学会对话格式</text>
+    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 9 章）</text>
+    <rect x="380" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">偏好对齐：</text>
+    <text x="455" y="202" font-size="11" fill="#555555" text-anchor="middle">RLHF / DPO</text>
+    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 10 章）</text>
+    <rect x="200" y="152" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">推理训练：</text>
+    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#555555">RLVR / GRPO</text>
+    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#888888">（第 11 章）</text>
+    <rect x="20" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="95" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">推理与部署：</text>
+    <text x="95" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">解码 · 加速</text>
+    <text x="95" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
+    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS142cot)"/>
+    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS142cot)"/>
+    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS142cot)"/>
+    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS142cot)"/>
+    <line x1="560" y1="192" x2="534" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS142cot)"/>
+    <line x1="380" y1="192" x2="354" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS142cot)"/>
+    <line x1="200" y1="192" x2="174" y2="192" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS142cot)"/>
+    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
+    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
+    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
+  </svg>
+  <div class="diagram-caption">图 1：本节内容在 LLM 生命周期中的位置。从训练数据（第 1 章）到推理训练（第 11 章）是训练全程，推理与部署（第 12–13 章，紫框高亮）交出可服务的模型——模型本体到此为止。第 14 章应用范式不是生命周期的新一站，而是架在这一站之上的使用层：不改权重，只在输入输出的搭建上做文章。本节讲其中最关键的一招——思维链，让模型先把中间步骤写出来再作答。</div>
+</div>
+
+<h2>14.2.1 一步到位的答案为什么容易错</h2>
+
+<p>　　先用直觉破题。让一个人心算「3 盒铅笔、每盒 12 支、送出 5 支、还剩几支」，多数人能答对，因为数字小；换成「17 盒、每盒 24 支、送出 39 支」，心算出错率立刻上升——不是不会算，是中间量 17 × 24 = 408 没处放。给一张草稿纸把 408 写下来，剩下的 408 − 39 就是查表式的减法。思维链给模型的，正是这张草稿纸。</p>
+
+<p>　　落到机制上。第 12 章讲过，解码是逐 token 的自回归循环：每生成一个 token，整个模型做一次完整前向，新 token 接回上下文再算下一个。输出序列的概率按链式分解为：</p>
+
+<div class="formula-card">
+  \[ P(y \mid x) = \prod_{t=1}^{T} P\!\left(y_t \mid x,\, y_{&lt;t}\right) \tag{1} \]
+  <div class="formula-note">公式 (1)：自回归生成的链式分解——输出序列的概率拆成逐 token 条件概率的连乘，每个因子对应一次完整的前向计算。符号说明：\(x\) 是输入（问题与 prompt）；\(y\) 是输出 token 序列；\(T\) 是输出长度；\(y_t\) 是第 \(t\) 个输出 token；\(y_{&lt;t}\) 是它之前的全部输出，即生成第 \(t\) 步时模型能看到的上下文。直接回答时 \(T\) 只有个位数，思维链把 \(T\) 拉到几十上百，每个中间结果都写进 \(y_{&lt;t}\) 供后续步骤引用。数学基础见附录 A.12。</div>
+</div>
+
+<p>　　把两条路径代入公式 (1) 看 \(T\) 的差别。直接回答时，输出序列只有「31」这一两个 token：整道题的推理——识别数量关系、算出 3 × 12 = 36、再减 5——必须压进这 1～2 次前向里全部完成，而且中间结果 36 没有任何落笔之处，算出来也写不进 \(y_{&lt;t}\)，下一步看不到。思维链写法下，输出变成「每盒 12 支，3 盒共 36 支。送出 5 支，剩 31 支。所以答案是 31」这样几十上百个 token：每步推理独占若干次前向，算出的 36 白纸黑字进入上下文，后续步骤引用它时无需重算。图 2 把两条路径摆在一起对照：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 372" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrC142a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">同一道题的两条生成路径：直接回答 vs 思维链（问题：3 盒铅笔 × 每盒 12 支，送出 5 支，还剩几支？）</text>
+    <text x="16" y="92" font-size="12" font-weight="bold" fill="#4c1d95">直接回答</text>
+    <text x="16" y="110" font-size="10.5" fill="#888888">（常规写法）</text>
+    <rect x="120" y="58" width="250" height="92" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="245" y="80" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">输入：问题 token 序列</text>
+    <rect x="133" y="92" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <rect x="157" y="92" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <rect x="181" y="92" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <rect x="205" y="92" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <rect x="229" y="92" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <rect x="253" y="92" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <rect x="277" y="92" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <rect x="301" y="92" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <text x="333" y="108" font-size="13" fill="#6d28d9">…</text>
+    <text x="245" y="136" text-anchor="middle" font-size="10.5" fill="#555555">约 15 个 token（示意）</text>
+    <line x1="374" y1="104" x2="412" y2="104" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142a)"/>
+    <text x="393" y="94" text-anchor="middle" font-size="10.5" fill="#6d28d9">前向</text>
+    <rect x="416" y="58" width="190" height="92" rx="8" fill="#ffffff" stroke="#dc2626" stroke-width="2"/>
+    <text x="511" y="84" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#991b1b">输出：答案「31」</text>
+    <text x="511" y="106" text-anchor="middle" font-size="10.5" fill="#555555">约 2 个 token</text>
+    <text x="511" y="128" text-anchor="middle" font-size="10.5" fill="#991b1b">推理无落笔之处</text>
+    <rect x="636" y="50" width="308" height="108" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="652" y="74" font-size="11" font-weight="bold" fill="#991b1b">全部推理压进最后 1～2 次前向</text>
+    <text x="652" y="96" font-size="10.5" fill="#7f1d1d">中间量 36 算出来也写不进上下文，</text>
+    <text x="652" y="116" font-size="10.5" fill="#7f1d1d">下一步看不到，只能「一步到位」；</text>
+    <text x="652" y="136" font-size="10.5" fill="#7f1d1d">一步出错，全盘皆错</text>
+    <line x1="16" y1="182" x2="944" y2="182" stroke="#e5e7eb" stroke-width="1"/>
+    <text x="16" y="238" font-size="12" font-weight="bold" fill="#0e7490">思维链</text>
+    <text x="16" y="256" font-size="10.5" fill="#888888">（CoT 写法）</text>
+    <rect x="120" y="204" width="170" height="92" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="205" y="226" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">输入：同一问题</text>
+    <rect x="137" y="238" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <rect x="161" y="238" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <rect x="185" y="238" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <rect x="209" y="238" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <rect x="233" y="238" width="20" height="20" fill="#ddd6fe" stroke="#6d28d9"/>
+    <text x="261" y="254" font-size="13" fill="#6d28d9">…</text>
+    <text x="205" y="282" text-anchor="middle" font-size="10.5" fill="#555555">约 15 token</text>
+    <line x1="294" y1="250" x2="324" y2="250" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142a)"/>
+    <text x="309" y="240" text-anchor="middle" font-size="10.5" fill="#6d28d9">前向</text>
+    <rect x="328" y="204" width="210" height="92" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="433" y="226" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#0e7490">步骤 1：3 × 12 = 36</text>
+    <text x="433" y="248" text-anchor="middle" font-size="10.5" fill="#555555">约 8 个 token，每个一次前向</text>
+    <text x="433" y="270" text-anchor="middle" font-size="10.5" fill="#0e7490">36 落笔进入上下文</text>
+    <line x1="542" y1="250" x2="572" y2="250" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142a)"/>
+    <text x="557" y="240" text-anchor="middle" font-size="10.5" fill="#6d28d9">续写</text>
+    <rect x="576" y="204" width="190" height="92" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="671" y="226" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#0e7490">步骤 2：36 − 5 = 31</text>
+    <text x="671" y="248" text-anchor="middle" font-size="10.5" fill="#555555">直接引用上一步的 36</text>
+    <text x="671" y="270" text-anchor="middle" font-size="10.5" fill="#555555">答案在过程中算完</text>
+    <line x1="770" y1="250" x2="800" y2="250" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142a)"/>
+    <rect x="804" y="204" width="140" height="92" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="874" y="232" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#15803d">输出：答案</text>
+    <text x="874" y="254" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#15803d">「31」</text>
+    <text x="874" y="276" text-anchor="middle" font-size="10.5" fill="#555555">约 2 个 token</text>
+    <text x="16" y="334" font-size="10.5" fill="#6b7280">token 数为示意；关键不在步数多少，在于推理过程显性占用了生成步数——每步一次完整前向（第 12 章），中间结果进入后续步的上下文（呼应 13.6 节推理时扩展）</text>
+  </svg>
+  <div class="diagram-caption">图 2：直接回答与思维链的 token 级对比。上排直接回答：约 15 个输入 token 经最后 1～2 次前向直接吐出答案，中间量 36 无处落笔，一步算错全盘皆错；下排思维链：步骤 1 算出 36 并写入上下文，步骤 2 直接引用它完成 36 − 5 = 31，答案在过程中自然算完。每个生成的 token 都消耗一次完整前向，思维链把推理时算力摊到了更多步上。</div>
+</div>
+
+<p>　　这张草稿纸买到的其实是两样东西。第一是<strong>算力摊销</strong>：生成 100 个 token 就做 100 次前向，推理时花在题目上的计算量随输出长度线性增长——这正是 13.6 节「推理时扩展」的核心交易，思维链是这个家族里成本最低的一员，不需要搜索、不需要多次调用，只是让输出变长。第二是<strong>中间结果的持久化</strong>：Transformer 没有读写外部存储的能力，上下文是它唯一的工作记忆，把 36 写出来，等于把中间变量存进了唯一能存的地方。</p>
+
+<div class="highlight-box info">
+  注释：草稿纸不是白给的。输出 token 越多，延迟与 API 费用越高，KV Cache（13.2 节）的占用也越大。对事实问答、常识闲聊这类一步就能答的题，思维链增益很小甚至徒增成本；它真正发力的是多步算术、逻辑推理、代码调试这类「过程比答案长」的任务。CoT 原始论文的实验同样集中在算术、常识与符号推理三类基准上。
+</div>
+
+<h2>14.2.2 Few-shot CoT：示例里带上推理过程</h2>
+
+<p>　　思维链的原始出处是 Wei et al. 2022（arXiv:2201.11903，NeurIPS 2022）。做法是对 few-shot prompting（14.1 节：把示例写进 prompt，不做梯度更新）的一处改造——示例的答案部分不再只给结果，而是手写一段自然语言的推理过程，最后再接新问题。模型续写时模仿示例的格式，自己先生成推理、再给出答案。</p>
+
+<div class="term-card">
+  <div class="term-name">
+    <span class="term-zh">思维链 Chain-of-Thought</span>
+    <span class="term-en">chain-of-thought = 思维链条；问题与答案之间的中间推理步骤串</span>
+  </div>
+  <div class="term-body">
+    <p>思维链是在问题与最终答案之间插入的一串自然语言中间推理步骤。它可以写在 prompt 示例里由人提供（few-shot CoT），也可以用触发句诱发模型自己生成（zero-shot CoT，14.2.3）。它不引入任何新参数、新模块，只改变输出文本的形状：先过程、后结论。效果集中体现在多步推理任务上，且模型规模要够大才显现（论文称之为规模涌现的能力，6.5 节讲过涌现现象）。</p>
+    <div class="term-analogy">像数学考试从「只写答案」改成「写解题过程」：过程落在纸上，下一步（模型自己的下一个 token）才能看清现在在算什么、上一步算出了什么。</div>
+  </div>
+</div>
+
+<p>　　整套 prompt 的结构如图 3 所示：开头是几个人手编写的「问题 → 推理过程 → 答案」示例，末尾接新问题并留白，模型从留白处续写。由于示例里每个答案都带着推理过程，模型续写时也会先写推理、再写结论。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrC142b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">Few-shot CoT 的 prompt 结构：示例里写好推理过程，模型照着格式续写</text>
+    <rect x="20" y="46" width="560" height="32" rx="6" fill="#6d28d9"/>
+    <text x="300" y="67" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff">prompt 文本（模型唯一的输入通道，见 14.1 节）</text>
+    <rect x="20" y="88" width="560" height="106" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="36" y="110" font-size="11.5" font-weight="bold" fill="#4c1d95">示例 1（人手编写）</text>
+    <text x="36" y="132" font-size="11" fill="#333333">Q：小明有 3 盒铅笔，每盒 12 支，送出 5 支，还剩几支？</text>
+    <text x="36" y="154" font-size="11" fill="#0891b2">A：每盒 12 支，3 盒共 3 × 12 = 36 支；送出 5 支，剩 36 − 5 = 31 支。</text>
+    <text x="36" y="176" font-size="11" fill="#333333">所以答案是 31。</text>
+    <rect x="20" y="204" width="560" height="66" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="36" y="226" font-size="11.5" font-weight="bold" fill="#4c1d95">示例 2（同格式）</text>
+    <text x="36" y="248" font-size="11" fill="#555555">Q：……　A：先算 …… 再算 …… 所以答案是 ……</text>
+    <text x="300" y="296" text-anchor="middle" font-size="16" fill="#9ca3af">⋮</text>
+    <rect x="20" y="306" width="560" height="76" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="36" y="330" font-size="11.5" font-weight="bold" fill="#92400e">新问题（等模型来答）</text>
+    <text x="36" y="352" font-size="11" fill="#333333">Q：一本书打 8 折后卖 24 元，原价是多少？　A：</text>
+    <text x="36" y="372" font-size="10.5" fill="#92400e">A 后面留白，模型从这里开始续写</text>
+    <line x1="584" y1="344" x2="626" y2="344" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142b)"/>
+    <rect x="630" y="288" width="140" height="112" rx="8" fill="#6d28d9"/>
+    <text x="700" y="330" text-anchor="middle" font-size="16" font-weight="bold" fill="#ffffff">LLM</text>
+    <text x="700" y="354" text-anchor="middle" font-size="10.5" fill="#ede9fe">逐 token 续写</text>
+    <text x="700" y="374" text-anchor="middle" font-size="10.5" fill="#ede9fe">权重一行不动</text>
+    <line x1="774" y1="344" x2="806" y2="344" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142b)"/>
+    <rect x="810" y="288" width="140" height="112" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="880" y="310" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#0e7490">模型输出</text>
+    <text x="880" y="332" text-anchor="middle" font-size="10.5" fill="#333333">8 折 = 原价 × 0.8</text>
+    <text x="880" y="352" text-anchor="middle" font-size="10.5" fill="#0891b2">24 ÷ 0.8 = 30</text>
+    <text x="880" y="372" text-anchor="middle" font-size="10.5" fill="#333333">所以答案是 30</text>
+    <text x="880" y="392" text-anchor="middle" font-size="10.5" fill="#555555">先过程后结论</text>
+    <text x="16" y="424" font-size="10.5" fill="#6b7280">示例为手写模板、数量通常个位数；模型模仿的是「这种题要这样写过程」的格式，真正生成的推理是它自己的</text>
+  </svg>
+  <div class="diagram-caption">图 3：Few-shot CoT 的 prompt 结构与生成结果。左侧堆叠的是纯文本输入：若干手写示例（每个示例的答案带完整推理过程）加一个新问题；右侧模型照常逐 token 续写，因为示例立了「先写过程」的格式，输出的答案自然带上推理步骤（青色文字为推理过程）。整条链路不动权重、不改解码算法，只在输入文本上做文章。</div>
+</div>
+
+<p>　　战绩方面，论文报告：PaLM 540B（谷歌的 5400 亿参数模型）在 GSM8K（约 8500 道小学数学应用题组成的基准）上，标准 few-shot prompting 的正确率是 17.9%，换成 few-shot CoT 后达到 58.1%，刷新当时的纪录。注意这个对比的构成：同一模型、同一权重、同一任务，唯一差别是示例里有没有推理过程——提升全部来自输出文本形状的改变。</p>
+
+<p>　　论文同时给了一条重要限定：思维链是<strong>规模涌现的能力</strong>。参数量不到百 B 量级时，加 CoT 示例的收益不稳定，有时反而不如直接作答——小模型写出的「推理」常常只是格式模仿，步骤本身算错，错过程自然导出错答案。这解释了为什么它在 GPT-3（1750 亿参数）时代没有立刻成为显学，也提醒选型时的顺序：模型不够强，先换更大的模型，再谈 CoT。</p>
+
+<p>　　工程实现上，few-shot CoT 不需要任何新代码，它只是更长的输入文本。以 minimind（Apache 2.0）为例：eval_llm.py 中 base 模型（pretrain 权重）把输入裸拼成 bos_token + prompt（74 行），chat 模型走 apply_chat_template 套对话模板（76 行）；无论哪种拼法，CoT 示例都只是拼进输入的文本，模型权重一行不动。边界也要说清：minimind 只有约 6400 万参数，训练语料不含 CoT 示范，用它实测思维链效果并不合适——这里引它只为说明「prompt 拼装」这一层机制。</p>
+
+<h2>14.2.3 Zero-shot CoT：「Let's think step by step」一句话的威力</h2>
+
+<p>　　Few-shot CoT 的门槛在于示例要人手写，换一类任务就得重写一批。Kojima et al. 2022（arXiv:2205.11916，NeurIPS 2022）发现连示例都可以省掉：在问题后面追加一句「Let's think step by step」（让我们一步一步思考），模型就会自发分步推理。这就是 zero-shot CoT——不给任何示例，一句话把模型调到「写解题过程」的格式上。</p>
+
+<p>　　论文的原始评测走两阶段流程，图 4 给出了完整链路：第一阶段，问题加触发句输入模型，生成分步推理文本；第二阶段，把「问题 + 刚生成的推理 + 答案提取句」拼成新输入，模型续写出格式干净的最终答案，方便程序自动判分。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 320" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrC142c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">Zero-shot CoT 的两阶段流程：触发句引出推理，再把推理拼回去提取干净答案（arXiv:2205.11916）</text>
+    <rect x="20" y="54" width="300" height="90" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="36" y="78" font-size="11.5" font-weight="bold" fill="#92400e">阶段 1 输入</text>
+    <text x="36" y="100" font-size="10.5" fill="#333333">问题原文 + 触发句</text>
+    <text x="36" y="122" font-size="10.5" fill="#333333">「Let's think step by step」</text>
+    <line x1="324" y1="99" x2="356" y2="99" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142c)"/>
+    <rect x="360" y="54" width="110" height="90" rx="8" fill="#6d28d9"/>
+    <text x="415" y="94" text-anchor="middle" font-size="14" font-weight="bold" fill="#ffffff">LLM</text>
+    <text x="415" y="116" text-anchor="middle" font-size="10.5" fill="#ede9fe">生成推理</text>
+    <line x1="474" y1="99" x2="506" y2="99" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142c)"/>
+    <rect x="510" y="54" width="230" height="90" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="625" y="78" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#0e7490">分步推理文本</text>
+    <text x="625" y="100" text-anchor="middle" font-size="10.5" fill="#333333">「原价 × 0.8 = 24，</text>
+    <text x="625" y="122" text-anchor="middle" font-size="10.5" fill="#333333">所以原价 = 24 ÷ 0.8 = 30」</text>
+    <line x1="625" y1="148" x2="625" y2="178" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142c)"/>
+    <text x="640" y="168" font-size="10.5" fill="#6d28d9">拼接</text>
+    <rect x="380" y="182" width="360" height="92" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="396" y="206" font-size="11.5" font-weight="bold" fill="#92400e">阶段 2 输入</text>
+    <text x="396" y="228" font-size="10.5" fill="#333333">问题 + 阶段 1 的推理 + 提取句</text>
+    <text x="396" y="250" font-size="10.5" fill="#333333">「Therefore, the answer (arabic numerals) is」</text>
+    <line x1="376" y1="228" x2="296" y2="228" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142c)"/>
+    <rect x="180" y="182" width="110" height="92" rx="8" fill="#6d28d9"/>
+    <text x="235" y="220" text-anchor="middle" font-size="14" font-weight="bold" fill="#ffffff">LLM</text>
+    <text x="235" y="242" text-anchor="middle" font-size="10.5" fill="#ede9fe">续写答案</text>
+    <line x1="176" y1="228" x2="156" y2="228" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142c)"/>
+    <rect x="20" y="182" width="130" height="92" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="85" y="212" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#15803d">最终答案</text>
+    <text x="85" y="234" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#15803d">「30」</text>
+    <text x="85" y="256" text-anchor="middle" font-size="10.5" fill="#555555">格式干净可判分</text>
+    <text x="16" y="306" font-size="10.5" fill="#6b7280">提取句按论文给出的写法；两阶段也可合并成一次调用，论文分两步走是为了让最终答案格式统一、便于自动判分</text>
+  </svg>
+  <div class="diagram-caption">图 4：Zero-shot CoT 的两阶段流程。阶段 1 用触发句诱发模型生成分步推理（青色框）；阶段 2 把问题、推理与提取句「Therefore, the answer (arabic numerals) is」拼成新输入，让模型续写出格式统一的最终答案（绿色框），便于自动判分。两阶段都是普通的前向生成，区别只在输入文本怎么拼。</div>
+</div>
+
+<p>　　效果方面，论文报告在 MultiArith（需要多步算术的应用题基准）上，标准 zero-shot  prompting 的正确率为 17.7%，zero-shot CoT 达到 78.7%——一句话换来了约 61 个百分点的提升。论文还对比了多句备选触发句，效果差异悬殊，「Let's think step by step」居首。</p>
+
+<p>　　为什么一句话能管用？机制层面没有严格证明，主流解释是<strong>格式触发</strong>：预训练语料里有海量带解题过程的文本（教材、题库、论坛答疑），触发句把生成引向这部分分布——这正是 14.1 节「往训练分布上靠」的同一个道理。触发句之间的效果差异也支持这个解释：它撬动的是模型已有的格式记忆，而不是凭空造出能力。</p>
+
+<div class="highlight-box info">
+  注释：触发句对模型规模同样敏感，论文报告的收益随规模增长，小模型上加这句话往往只是徒增输出长度。另外，今天经过指令微调（第 9 章）与推理训练（第 11 章）的模型大多已被训成「遇事自动分步」，手工触发句逐渐退出日常——zero-shot CoT 的历史意义在于第一次证明「过程」本身可以被一句文本诱发。
+</div>
+
+<h2>14.2.4 变体与演进：自洽性多数投票、ToT 树搜索、到第 11 章 RLVR 的内化</h2>
+
+<p>　　单条思维链有三块明显短板：一条链可能算错、走到一半不能回头、格式要靠 prompt 诱发。CoT 家族的后续演进恰好各补一块。</p>
+
+<p>　　<strong>自洽性：多链投票，补「可能算错」</strong>。Wang et al. 2022（arXiv:2203.11171，ICLR 2023）的做法：同一问题用温度采样（12.2 节）生成多条相互独立的思维链，再对最终答案做多数投票。GSM8K 上它比单链 CoT 再提 17.9 个点。图 5 给出机制示意；投票为什么有效、温度怎么选等展开内容在 13.6 节（推理时扩展）已讲过，这里只定位它在 CoT 家族中的位置：从「写一条链」到「写一群链」，代价是同一题要生成多份完整推理。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 352" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrC142d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">自洽性（Self-Consistency）：同一问题采样多条独立思维链，答案少数服从多数（arXiv:2203.11171）</text>
+    <rect x="20" y="136" width="170" height="84" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="105" y="164" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">同一道问题</text>
+    <text x="105" y="186" text-anchor="middle" font-size="10.5" fill="#333333">Q：……</text>
+    <text x="105" y="206" text-anchor="middle" font-size="10.5" fill="#555555">（温度采样，12.2 节）</text>
+    <line x1="194" y1="178" x2="246" y2="88" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142d)"/>
+    <line x1="194" y1="178" x2="246" y2="180" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142d)"/>
+    <line x1="194" y1="178" x2="246" y2="272" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142d)"/>
+    <rect x="250" y="56" width="330" height="64" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="266" y="80" font-size="11.5" font-weight="bold" fill="#0e7490">思维链 A</text>
+    <text x="266" y="102" font-size="10.5" fill="#333333">3 × 12 = 36，36 − 5 = 31　→　31</text>
+    <rect x="250" y="148" width="330" height="64" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="266" y="172" font-size="11.5" font-weight="bold" fill="#0e7490">思维链 B</text>
+    <text x="266" y="194" font-size="10.5" fill="#333333">12 + 12 + 12 = 36，再减 5　→　31</text>
+    <rect x="250" y="240" width="330" height="64" rx="8" fill="#ffffff" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="266" y="264" font-size="11.5" font-weight="bold" fill="#991b1b">思维链 C</text>
+    <text x="266" y="286" font-size="10.5" fill="#991b1b">中间一步算错　→　30（错）</text>
+    <line x1="584" y1="88" x2="634" y2="168" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142d)"/>
+    <line x1="584" y1="180" x2="634" y2="190" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142d)"/>
+    <line x1="584" y1="272" x2="634" y2="212" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142d)"/>
+    <rect x="638" y="146" width="150" height="100" rx="8" fill="#6d28d9"/>
+    <text x="713" y="178" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">多数投票</text>
+    <text x="713" y="200" text-anchor="middle" font-size="10.5" fill="#ede9fe">31：2 票</text>
+    <text x="713" y="220" text-anchor="middle" font-size="10.5" fill="#ede9fe">30：1 票</text>
+    <line x1="792" y1="196" x2="824" y2="196" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142d)"/>
+    <rect x="828" y="140" width="116" height="112" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="886" y="168" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#15803d">最终答案</text>
+    <text x="886" y="190" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#15803d">「31」</text>
+    <text x="886" y="212" text-anchor="middle" font-size="10.5" fill="#555555">比单链 CoT</text>
+    <text x="886" y="234" text-anchor="middle" font-size="10.5" fill="#555555">+17.9 点</text>
+    <text x="16" y="330" font-size="10.5" fill="#6b7280">多条链由温度采样产生多样性；投票为什么有效、温度怎么选，13.6 节（推理时扩展）已展开，此处只定位家族位置</text>
+  </svg>
+  <div class="diagram-caption">图 5：自洽性的多链投票机制。同一道问题经温度采样生成多条独立思维链，链 A、B 殊途同归算出 31，链 C 中途算错得到 30；多数投票后 31 胜出。单条链的随机错误被群体稀释，前提是错误不集中——GSM8K 上较单链 CoT 提升 17.9 个点（arXiv:2203.11171，机制详见 13.6 节）。</div>
+</div>
+
+<p>　　<strong>ToT：树搜索，补「不能回头」</strong>。自洽性仍在「整链」层面做事后汇总，Yao et al. 2023（arXiv:2305.10601，NeurIPS 2023）的 Tree of Thoughts（ToT，思维树）把搜索引进了推理过程内部：每个「思考」是一个中间状态（部分解），模型给每个状态自评打分，搜索算法据此决定展开哪个分支、剪掉哪条死路，必要时回溯。论文在 24 点游戏（Game of 24：用 4 个数字经加减乘除凑出 24）上报告，同一个 GPT-4（OpenAI 的旗舰模型）用 CoT 提示只解出 4%，用 ToT 达到 74%。图 6 给出一次搜索的示意。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 390" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrC142e" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+    </defs>
+    <text x="16" y="26" font-size="13" font-weight="bold" fill="#4c1d95">Tree of Thoughts（ToT）：一条链升级成一棵树——中间思考分叉、模型自评、搜索剪枝（Game of 24）</text>
+    <rect x="400" y="50" width="170" height="54" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="485" y="72" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#92400e">目标：凑出 24</text>
+    <text x="485" y="92" text-anchor="middle" font-size="10.5" fill="#333333">当前数字：4 5 6 10</text>
+    <line x1="485" y1="104" x2="220" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142e)"/>
+    <line x1="485" y1="104" x2="485" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142e)"/>
+    <line x1="485" y1="104" x2="750" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142e)"/>
+    <rect x="120" y="148" width="200" height="60" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="220" y="170" text-anchor="middle" font-size="11" font-weight="bold" fill="#0e7490">思考：5 × 6 = 30</text>
+    <text x="220" y="190" text-anchor="middle" font-size="10.5" fill="#333333">剩余数字：30 4 10</text>
+    <rect x="385" y="148" width="200" height="60" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="485" y="170" text-anchor="middle" font-size="11" font-weight="bold" fill="#92400e">思考：10 − 6 = 4</text>
+    <text x="485" y="190" text-anchor="middle" font-size="10.5" fill="#333333">剩余数字：4 4 5</text>
+    <rect x="650" y="148" width="200" height="60" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 3"/>
+    <text x="750" y="170" text-anchor="middle" font-size="11" font-weight="bold" fill="#6b7280">思考：4 + 5 = 9</text>
+    <text x="750" y="190" text-anchor="middle" font-size="10.5" fill="#6b7280">剩余数字：9 6 10</text>
+    <text x="220" y="228" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#15803d">自评：有戏，展开</text>
+    <text x="485" y="228" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#b45309">自评：一般，暂存</text>
+    <text x="750" y="228" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#dc2626">自评：没戏，剪枝 ✗</text>
+    <line x1="220" y1="208" x2="220" y2="248" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142e)"/>
+    <rect x="120" y="252" width="200" height="60" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="220" y="274" text-anchor="middle" font-size="11" font-weight="bold" fill="#0e7490">思考：30 − 10 = 20</text>
+    <text x="220" y="294" text-anchor="middle" font-size="10.5" fill="#333333">剩余数字：20 4</text>
+    <line x1="324" y1="282" x2="368" y2="282" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrC142e)"/>
+    <rect x="372" y="252" width="180" height="60" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="462" y="274" text-anchor="middle" font-size="11" font-weight="bold" fill="#15803d">20 + 4 = 24</text>
+    <text x="462" y="294" text-anchor="middle" font-size="10.5" fill="#15803d">凑成 24，找到解 ✓</text>
+    <rect x="640" y="252" width="304" height="116" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="656" y="276" font-size="10.5" fill="#333333">节点 = 一个中间思考（部分解）</text>
+    <text x="656" y="297" font-size="10.5" fill="#333333">模型给每个节点自评打分</text>
+    <text x="656" y="318" font-size="10.5" fill="#333333">搜索（BFS/DFS）决定展开与剪枝</text>
+    <text x="656" y="342" font-size="11" font-weight="bold" fill="#4c1d95">Game of 24：CoT 4% → ToT 74%</text>
+    <text x="16" y="380" font-size="10.5" fill="#6b7280">数字来自 ToT 论文（GPT-4，arXiv:2305.10601）；与自洽性的差别：投票是事后汇总，树搜索在推理过程内部做决策</text>
+  </svg>
+  <div class="diagram-caption">图 6：ToT 在 24 点游戏上的一次搜索。根节点是原始数字 4、5、6、10；第一层分叉出三个候选思考，模型自评后展开「5 × 6 = 30」一支、剪掉「4 + 5 = 9」一支（灰色虚线框）；继续展开得到 30 − 10 = 20，最终 20 + 4 = 24 找到解。单链 CoT 走错一步只能错到底，ToT 靠自评与回溯在过程内部纠错。</div>
+</div>
+
+<p>　　<strong>RLVR 内化：补「要靠 prompt 诱发」</strong>。到这里为止，推理都是「借」来的——格式靠示例或触发句诱发，稳定性看运气。第 11 章的 RLVR（可验证奖励强化学习）走了另一条路：用「最终答案对不对」这个可自动验证的信号做强化学习，把「先想后答」的长思维链直接训进权重（11.4 节长思维链）。今天的推理模型不再需要任何触发句，思考成了本能。CoT 家族的演进至此收拢：prompt 层的技巧负责「诱发」，训练层的方法负责「内化」。</p>
+
+<div class="highlight-box">
+  思维链的本质：不改一个权重，只改变输出文本的形状，就把「一步到位」的赌博拆成一串可检查的小步。它是推理时扩展（13.6 节）家族中成本最低的一员——用更多输出 token 换更高正确率；自洽性与 ToT 在同一方向上加码（更多链、更深的搜索），RLVR（第 11 章）则把这笔交易内化进训练。
+</div>
+
+<div class="socratic-card">
+  <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
+  <div class="socratic-qa">
+    <div class="sc-q">同一个模型，为什么把中间步骤写出来就能大幅提高数学题正确率？</div>
+    <div class="sc-key">两个机制叠加：算力摊销——每个生成的 token 都是一次完整前向，输出越长，推理时花在题目上的计算量越大；中间结果持久化——算出的中间量（如 36）写进上下文，后续步骤直接引用而不必重算。本质是推理时扩展家族里最便宜的一笔交易：只加长输出，不改权重、不改解码算法。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">Few-shot CoT 与 Zero-shot CoT 的区别和共同前提是什么？</div>
+    <div class="sc-key">区别只在诱发方式：前者在 prompt 里放手写的推理示例（Wei et al. 2022），后者只加一句触发句「Let's think step by step」（Kojima et al. 2022）；两者都不改权重。共同前提是模型规模要够——论文均报告小规模下收益不稳定，因为写出像样的格式不等于算对每一步。</div>
+  </div>
+  <div class="socratic-qa">
+    <div class="sc-q">自洽性、ToT、RLVR 分别补上了单条思维链的哪块短板？</div>
+    <div class="sc-key">单链可能算错——自洽性用多链采样加多数投票稀释随机错误（13.6 节）；单链不能回头——ToT 把中间思考变成可自评、可剪枝、可回溯的搜索树；单链要靠 prompt 诱发——RLVR（第 11 章）用可验证奖励把长思维链直接训进权重，从脚手架变成能力。</div>
+  </div>
+</div>
+
+<h2>参考来源</h2>
+<ul>
+  <li>Wei et al., 2022. Chain-of-Thought Prompting Elicits Reasoning in Large Language Models（few-shot CoT 原始论文，arXiv:2201.11903，NeurIPS 2022）：示例中手写推理过程的做法、PaLM 540B 在 GSM8K 上 17.9% → 58.1%、思维链为规模涌现能力的论断。</li>
+  <li>Kojima et al., 2022. Large Language Models are Zero-Shot Reasoners（zero-shot CoT 原始论文，arXiv:2205.11916，NeurIPS 2022）：「Let's think step by step」触发句、两阶段答案提取流程（提取句 "Therefore, the answer (arabic numerals) is"）、MultiArith 上 17.7% → 78.7%、多句触发句效果对比。</li>
+  <li>Wang et al., 2022. Self-Consistency Improves Chain of Thought Reasoning in Language Models（自洽性原始论文，arXiv:2203.11171，ICLR 2023）：多条独立思维链采样 + 最终答案多数投票、GSM8K 上较单链 CoT 提升 17.9 个点；机制展开见本手册 13.6 节。</li>
+  <li>Yao et al., 2023. Tree of Thoughts: Deliberate Problem Solving with Large Language Models（ToT 原始论文，arXiv:2305.10601，NeurIPS 2023）：思考作为中间状态、模型自评打分、搜索剪枝与回溯，Game of 24 上同一 GPT-4 由 CoT 的 4% 提升至 ToT 的 74%。</li>
+  <li>minimind（Apache 2.0），eval_llm.py：base 模型裸拼 bos_token + prompt（74 行）与 apply_chat_template（76 行）两种输入拼装方式，作为「CoT 只是更长的输入文本」的实现参照；minimind 不含 CoT 训练数据，不作效果参照。</li>
+  <li>本手册 12.1–12.2 节（逐 token 解码与温度采样）、13.6 节（推理时扩展与自洽性机制）、6.5 节（涌现能力）、附录 A.12（条件概率与链式分解）。</li>
+</ul>
+
+</article>

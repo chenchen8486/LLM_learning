@@ -324,6 +324,27 @@ tr:last-child td{border-bottom:none}
   </div>
 </div>
 <div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 13 章 推理系统与部署</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch13_1_inference_cost.html">13.1 推理的成本结构：显存、算力、带宽谁先成为瓶颈</a>
+<a class="nav-link" href="ch13_2_kv_cache.html">13.2 KV Cache：用显存换速度的核心缓存</a>
+<a class="nav-link" href="ch13_3_serving_systems.html">13.3 服务化：连续批处理与 PagedAttention</a>
+<a class="nav-link" href="ch13_4_quantization.html">13.4 量化：FP16 到 INT4 的压缩术</a>
+<a class="nav-link" href="ch13_5_distillation.html">13.5 蒸馏：大模型教小模型</a>
+<a class="nav-link" href="ch13_6_speculative_scaling.html">13.6 投机采样与推理时扩展：无损加速与多花计算的两端</a>
+  </div>
+</div>
+<div class="nav-group">
+  <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>第 14 章 应用范式</span></div>
+  <div class="nav-children collapsed">
+    <a class="nav-link" href="ch14_1_prompt_engineering.html">14.1 Prompt 工程：不改权重的编程方式</a>
+<a class="nav-link" href="ch14_2_cot.html">14.2 思维链：让模型把中间步骤写出来</a>
+<a class="nav-link" href="ch14_3_rag.html">14.3 RAG：给模型外挂一个资料库</a>
+<a class="nav-link" href="ch14_4_function_calling.html">14.4 Function Calling：让模型学会「打电话」</a>
+<a class="nav-link" href="ch14_5_agent.html">14.5 Agent：规划、工具与多步执行循环</a>
+  </div>
+</div>
+<div class="nav-group">
   <div class="nav-toggle collapsed" onclick="toggleNav(this)"><span class="arrow">▼</span><span>附录 数学与深度学习基础速览</span></div>
   <div class="nav-children collapsed">
     <a class="nav-link" href="ch90_1_vectors_rotation.html">A.1 向量、矩阵与旋转：RoPE 的数学底座</a>
@@ -554,7 +575,7 @@ tr:last-child td{border-bottom:none}
 <p>　　缩印只是第一步。压缩后的位置变成了小数（比如原来位置 100 和 101 变成 25.0 和 25.25），相邻 token 之间的距离被拉近了 \(s\) 倍，模型需要一点练习来适应这种“更密的刻度”。PI 论文给出的处方是：在新刻度上<strong>少量继续训练</strong>，论文实验中约千步量级即可让模型在长上下文上稳定下来。与之对照，什么都不做的直接外推在论文实验中完全失效，插值加微调则大幅改善。</p>
 
 <div class="highlight-box info">
-  注：PI 并非免费的午餐。位置刻度被压缩后，模型区分“相邻 token”的分辨率也随之下降，就像缩印后的乐谱，紧挨着的音符更难看清谁是谁。这个代价正是后面 NTK 与 YaRN 要解决的问题。
+  注释：PI 并非免费的午餐。位置刻度被压缩后，模型区分“相邻 token”的分辨率也随之下降，就像缩印后的乐谱，紧挨着的音符更难看清谁是谁。这个代价正是后面 NTK 与 YaRN 要解决的问题。
 </div>
 
 <h2>3.5.3 从 NTK 到 YaRN：按频段区别对待</h2>

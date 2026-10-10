@@ -228,6 +228,17 @@ PAGES = {
     "ch12_3_stopping": ("life", "P8"),
     "ch12_4_structured_output": ("life", "P8"),
     "ch12_5_decoding_practice": ("life", "P8"),
+    "ch13_1_inference_cost": ("life", "P8"),
+    "ch13_2_kv_cache": ("life", "P8"),
+    "ch13_3_serving_systems": ("life", "P8"),
+    "ch13_4_quantization": ("life", "P8"),
+    "ch13_5_distillation": ("life", "P8"),
+    "ch13_6_speculative_scaling": ("life", "P8"),
+    "ch14_1_prompt_engineering": ("life", "P8"),
+    "ch14_2_cot": ("life", "P8"),
+    "ch14_3_rag": ("life", "P8"),
+    "ch14_4_function_calling": ("life", "P8"),
+    "ch14_5_agent": ("life", "P8"),
 }
 
 
