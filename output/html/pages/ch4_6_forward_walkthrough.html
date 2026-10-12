@@ -313,9 +313,9 @@
 <p>　　<strong>第 2 小步，Q/K/V 投影。</strong>三个不带偏置的线性层各自乘一个权重矩阵：</p>
 
 <ul>
-  <li>Q 投影：权重 <code>[768, 768]</code>，<code>[10, 768]</code> → <code>[10, 768]</code>，再按头拆成 <code>[10, 8, 96]</code>（8 个头，每头 96 维）；</li>
-  <li>K 投影：权重 <code>[768, 384]</code>，→ <code>[10, 384]</code>，拆成 <code>[10, 4, 96]</code>；</li>
-  <li>V 投影：权重 <code>[768, 384]</code>，→ <code>[10, 384]</code>，拆成 <code>[10, 4, 96]</code>。</li>
+  <li>Q 投影：（<code>[10, 768]</code> × 权重 <code>[768, 768]</code>）→ <code>[10, 768]</code>，再按列切成 8 段得 <code>[10, 8, 96]</code>（8 个头，每头 96 维）；</li>
+  <li>K 投影：（<code>[10, 768]</code> × 权重 <code>[768, 384]</code>）→ <code>[10, 384]</code>，切成 4 段得 <code>[10, 4, 96]</code>；</li>
+  <li>V 投影：（<code>[10, 768]</code> × 权重 <code>[768, 384]</code>）→ <code>[10, 384]</code>，切成 4 段得 <code>[10, 4, 96]</code>。</li>
 </ul>
 
 <p>　　768 拆成 8×96，384 拆成 4×96：Q 有 8 个头，K 和 V 只有 4 个头。这就是 GQA（分组查询注意力），每 2 个 Q 头共享同一组 K/V。注意按头拆分只改"看待数据的方式"，不复制、不计算，96×8 还是那 768 个数。</p>
@@ -608,10 +608,10 @@
 <p>　　先做第二次 RMSNorm（<code>post_attention_layernorm</code>），形状不变。然后 FFN 的三个矩阵依次登场：</p>
 
 <ul>
-  <li>gate 投影：权重 <code>[768, 2432]</code>，<code>[10, 768]</code> → <code>[10, 2432]</code>；</li>
-  <li>up 投影：权重 <code>[768, 2432]</code>，<code>[10, 768]</code> → <code>[10, 2432]</code>；</li>
+  <li>gate 投影：（<code>[10, 768]</code> × 权重 <code>[768, 2432]</code>）→ <code>[10, 2432]</code>；</li>
+  <li>up 投影：（<code>[10, 768]</code> × 权重 <code>[768, 2432]</code>）→ <code>[10, 2432]</code>；</li>
   <li>SiLU 门控相乘：两路 <code>[10, 2432]</code> 逐元素相乘 → <code>[10, 2432]</code>；</li>
-  <li>down 投影：权重 <code>[2432, 768]</code>，<code>[10, 2432]</code> → <code>[10, 768]</code>。</li>
+  <li>down 投影：（<code>[10, 2432]</code> × 权重 <code>[2432, 768]</code>）→ <code>[10, 768]</code>。</li>
 </ul>
 
 <div class="formula-card">
@@ -701,7 +701,7 @@
 
 <ol>
   <li><strong>最终 RMSNorm</strong>（<code>self.norm</code>）：<code>[10, 768]</code> → <code>[10, 768]</code>，收尾再稳一次数值；</li>
-  <li><strong>输出投影</strong>：乘共享嵌入表 <code>[6400, 768]</code> 的转置，<code>[10, 768]</code> → <code>[10, 6400]</code>。每个位置得到 6400 个分数，对应词表里每个 token 的"得票"；</li>
+  <li><strong>输出投影</strong>：乘共享嵌入表 <code>[6400, 768]</code> 的转置，即（<code>[10, 768]</code> × <code>[768, 6400]</code>）→ <code>[10, 6400]</code>。每个位置得到 6400 个分数，对应词表里每个 token 的"得票"；</li>
   <li><strong>取最后位置 + softmax</strong>：预测下一个词只需要最后一个位置的分数 <code>[6400]</code>，softmax 后得到 6400 个和为 1 的概率，即模型对"下一个 token 是谁"的回答。</li>
 </ol>
 
