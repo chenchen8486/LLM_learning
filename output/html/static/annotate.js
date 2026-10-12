@@ -20,7 +20,7 @@
     green:  'rgba(74, 222, 128, 0.32)',
     pink:   'rgba(244, 114, 182, 0.30)',
     blue:   'rgba(96, 165, 250, 0.32)',
-    red:    'rgba(239, 68, 68, 0.28)'
+    red:    'rgba(255, 0, 0, 0.36)'
   };
   var COLOR_NAMES = { yellow: '黄', green: '绿', pink: '粉', blue: '蓝', red: '红' };
 

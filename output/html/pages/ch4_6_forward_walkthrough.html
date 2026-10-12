@@ -451,7 +451,7 @@
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 720 370" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+  <svg viewBox="0 0 720 412" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
     <defs>
       <marker id="arrG46" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
@@ -538,8 +538,35 @@
     <line x1="424" y1="204" x2="494" y2="204" stroke="#ddd6fe" stroke-width="0.8"/>
     <line x1="424" y1="211" x2="494" y2="211" stroke="#ddd6fe" stroke-width="0.8"/>
     <text x="459" y="234" text-anchor="middle" font-size="10" fill="#6d28d9">W 2 [10, 10]</text>
-    <text x="459" y="262" text-anchor="middle" font-size="14" fill="#94a3b8">⋮</text>
-    <text x="459" y="286" text-anchor="middle" font-size="10" fill="#94a3b8">共 8 张</text>
+    <text x="459" y="246" text-anchor="middle" font-size="14" fill="#94a3b8">⋮</text>
+    <rect x="424" y="261" width="70" height="70" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <rect x="431" y="261" width="7" height="7" fill="#e5e7eb"/>
+    <rect x="438" y="261" width="7" height="7" fill="#e5e7eb"/>
+    <rect x="438" y="268" width="7" height="7" fill="#e5e7eb"/>
+    <path d="M 431 261 H 494 V 275 H 445 V 268 H 431 Z" fill="none" stroke="#c2410c" stroke-width="1.5" stroke-dasharray="3 2"/>
+    <line x1="431" y1="261" x2="431" y2="331" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="438" y1="261" x2="438" y2="331" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="445" y1="261" x2="445" y2="331" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="452" y1="261" x2="452" y2="331" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="459" y1="261" x2="459" y2="331" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="466" y1="261" x2="466" y2="331" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="473" y1="261" x2="473" y2="331" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="480" y1="261" x2="480" y2="331" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="487" y1="261" x2="487" y2="331" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="424" y1="268" x2="494" y2="268" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="424" y1="275" x2="494" y2="275" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="424" y1="282" x2="494" y2="282" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="424" y1="289" x2="494" y2="289" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="424" y1="296" x2="494" y2="296" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="424" y1="303" x2="494" y2="303" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="424" y1="310" x2="494" y2="310" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="424" y1="317" x2="494" y2="317" stroke="#ddd6fe" stroke-width="0.8"/>
+    <line x1="424" y1="324" x2="494" y2="324" stroke="#ddd6fe" stroke-width="0.8"/>
+    <text x="459" y="370" text-anchor="middle" font-size="10" fill="#64748b">W<tspan dy="2" font-size="8">i</tspan><tspan dy="-2">&#160;=&#160;softmax（掩码（Q</tspan><tspan dy="2" font-size="8">i</tspan><tspan dy="-2">&#160;·&#160;K</tspan><tspan dy="2" font-size="8">i</tspan><tspan dy="-6" font-size="8">T</tspan><tspan dy="4">&#160;÷&#160;√96）），每行和为 1，由当前句子现场算出</tspan></text>
+    <!-- 底行配对箭头：K 组 4 -> W 8，W 8 -> 输出头 8 -->
+    <line x1="350" y1="296" x2="420" y2="296" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrGC46)"/>
+    <line x1="494" y1="296" x2="554" y2="296" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrG46)"/>
+    <text x="524" y="282" text-anchor="middle" font-size="10" fill="#64748b">× V 组 4</text>
     <!-- ×V → 输出头 -->
     <line x1="494" y1="89" x2="554" y2="84" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrG46)"/>
     <line x1="494" y1="183" x2="554" y2="164" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrG46)"/>
@@ -551,15 +578,22 @@
     <rect x="560" y="146" width="100" height="36" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
     <text x="610" y="163" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">输出头 2</text>
     <text x="610" y="176" text-anchor="middle" font-size="9.5" fill="#64748b">[10, 96]</text>
-    <text x="610" y="232" text-anchor="middle" font-size="14" fill="#94a3b8">⋮</text>
-    <text x="610" y="266" text-anchor="middle" font-size="10.5" fill="#64748b">8 段 → 拼回 [10, 768]</text>
+    <text x="610" y="240" text-anchor="middle" font-size="14" fill="#94a3b8">⋮</text>
+    <rect x="560" y="278" width="100" height="36" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="610" y="295" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">输出头 8</text>
+    <text x="610" y="308" text-anchor="middle" font-size="9.5" fill="#64748b">[10, 96]</text>
+    <text x="610" y="340" text-anchor="middle" font-size="10.5" fill="#64748b">8 段 → 拼回 [10, 768]</text>
     <!-- 底注 -->
-    <text x="30" y="356" font-size="10.5" fill="#64748b">每张权重表为 10×10 实格：Q 头 × 本组 K 的转置 ÷√96 → 掩码（红色虚线上三角 = −∞）→ softmax；再乘本组 V 得该头输出（第 5–8 小步）</text>
+    <text x="30" y="398" font-size="10.5" fill="#64748b">每张权重表为 10×10 实格：Q 头 × 本组 K 的转置 ÷√96 → 掩码（红色虚线上三角 = −∞）→ softmax；再乘本组 V 得该头输出（第 5–8 小步）</text>
   </svg>
   <div class="diagram-caption">图 6：GQA 的配对打分（第 5–8 小步）。8 个 Q 头两两成组，分别与 4 组共享 K/V 中的一组配对：Q 头乘本组 K 的转置、除以 √96、加因果掩码、softmax 得 10×10 权重表，再乘本组 V 得该头输出 [10, 96]；8 段输出在第 9 小步拼回 [10, 768]。每个头内部的四步与 4.2 节图 2 完全相同——GQA 没有改变注意力的算法，只是让 K/V 的组数减半，参数与 KV Cache 显存随之减半（5.2 节细讲）。</div>
 </div>
 
-<p>　　<strong>第 9 小步，拼头与输出投影。</strong>把 8 个头按位拼回 <code>[10, 768]</code>，再过输出投影矩阵（<code>[768, 768]</code>）混合一遍，输出仍是 <code>[10, 768]</code>。</p>
+<p>　　<strong>第 9 小步，拼头与输出投影。</strong>拼接是第 2 小步"按列切段"的逆操作：头 1 的 96 维放回第 1–96 列，头 2 的放回第 97–192 列，依序各回各位，恢复原状 <code>[10, 768]</code>。但注意，此刻 8 份结果只是物理上挨着，彼此还没说过话——头 1 的发现只躺在前 96 维里，头 2 的躺在第 97–192 维里，井水不犯河水。真正的融合靠紧接着的输出投影：乘上 <code>[768, 768]</code> 的 W_O，输出的<strong>每一维</strong>都是全部 768 个输入维度的加权和，8 个头的发现这才被加权揉进每个位置的新向量，输出仍是 <code>[10, 768]</code>。</p>
+
+<p>　　举个例子。句子「那只猫追蝴蝶，因为它饿了」读到「它」时：头 1 可能专攻指代，把「猫」的内容拉了进来；头 3 专攻因果，拉进来的是「饿」；头 5 盯着动作，拉进来的是「追」。拼接之后，「它」的 768 维向量里，第 1 段装着"我是猫"、第 3 段装着"我饿了"、第 5 段装着"我在追"，互不干扰。过 W_O 之后，这些线索被混合成一个整体——下一层看到的「它」，不再是词典里那个孤零零的代词，而是"那只饿着肚子追蝴蝶的猫"。至于每个头的发现该听几成，W_O 的权重全是训练里学出来的：对下游任务有用的头，权重自然越调越大。</p>
+
+<p>　　<strong>所以这步在干嘛：</strong>拼接只是"各回各位"，W_O 才是"开会汇总"。从这一刻起，8 个头分头打听到的东西汇成一股，交给残差加法，流向这一层的后半层。</p>
 
 <p>　　<strong>第 10 小步，残差相加。</strong>注意力的输出与这一半层的输入直接相加：两个 <code>[10, 768]</code> 逐元素加，结果还是 <code>[10, 768]</code>。</p>
 
