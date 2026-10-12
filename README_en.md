@@ -21,6 +21,7 @@ No clone, no install — just open the sidebar and read chapter by chapter:
 - **Mechanisms, not jargon** — every term gets a minimal working explanation, key formulas are annotated symbol by symbol, and abstract mechanisms come with original diagrams.
 - **Code-checked** — mechanism descriptions are verified against the PyTorch implementation of [minimind](https://github.com/jingyaogong/minimind), with file names and line numbers cited.
 - **Prerequisites included** — a 13-section appendix covers vectors and rotation, dot products and cosine similarity, softmax and temperature, cross-entropy and perplexity, backpropagation, activation and normalization functions, power laws and log scales, and more.
+- **Personal highlighting** — select any text to highlight it marker-style in five colors, with recolor, delete, clear-all, and JSON export/import. Annotations live only in your browser's localStorage: never uploaded, never committed.
 
 ## Preview
 
@@ -76,6 +77,7 @@ LLM_learning/
     ├── build.py            # build script
     ├── template.html       # page shell
     ├── static/global.css   # global styles
+    ├── static/annotate.js  # in-page highlighter (data stays in the browser)
     ├── pages/              # source fragments (handbook content)
     └── ch*.html            # build output (openable offline)
 ```

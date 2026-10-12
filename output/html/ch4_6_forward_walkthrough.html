@@ -11,6 +11,7 @@
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
   onload="renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script defer src="static/annotate.js"></script>
 <style>
 /* ==========================================
    LLM 机制学习手册 — 全局公共样式
@@ -410,9 +411,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <h3 class="doc-meta-title">快速浏览</h3>
   <table class="doc-meta">
     <tbody>
-      <tr><td>核心问题</td><td>一个 batch 的 token 编号送进 Transformer，到吐出下一个词的概率分布，中间每一步张量到底长什么样？</td></tr>
+      <tr><td>核心问题</td><td>一句话的 token 编号送进 Transformer，到吐出下一个词的概率分布，中间每一步张量到底长什么样？</td></tr>
       <tr><td>本节主张</td><td>拿 minimind-3（64M 参数）的真实配置当解剖对象，把前向过程拆到毫米级：每个操作的输入输出形状都写出来，参数量与计算量也一笔一笔算清。</td></tr>
-      <tr><td>一句话结论</td><td>全程只有三处形状变化：主干恒为 [B, T, 768]，注意力内部按头重排（768 → 8×96），FFN 升到 2432 再压回；最后投影到 6400 维词表，softmax 得到概率。</td></tr>
+      <tr><td>一句话结论</td><td>全程只有三处形状变化：主干恒为 [T, 768]，注意力内部按头重排（768 → 8×96），FFN 升到 2432 再压回；最后投影到 6400 维词表，softmax 得到概率。</td></tr>
       <tr><td>关键词</td><td>
         <div class="keywords"><span>前向传播</span><span>张量形状</span><span>minimind</span><span>GQA</span><span>SwiGLU</span><span>输出投影</span></div>
       </td></tr>
@@ -423,13 +424,13 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 <p>　　前几节把 Transformer 的零件逐个讲了一遍：多头注意力、因果掩码、归一化、前馈网络、残差连接。零件认识不等于会装机，这一节做本章的收官练习：把一台<strong>真实可运行的小模型</strong>放上解剖台，从输入到输出走一遍完整前向（即顺着输入算到输出的一次计算，与训练时的反向传播相对，详见附录 A.5），每一步张量的形状都写出来。走完这一遍，你对"模型读一句话"这件事的认识会精确到毫米。解剖分四刀：</p>
 
 <ol>
-  <li><strong>设定：拿一台真模型当解剖对象</strong>（4.6.1）：以 minimind-3（64M 档小模型）的规格为解剖实例，Embedding 查表把 <code>[1, 10]</code> 变成 <code>[1, 10, 768]</code>；</li>
-  <li><strong>一层 Block 的毫米级走查</strong>（4.6.2）：前半层自注意力十小步、后半层 FFN 四步，主干形状全程 <code>[1, 10, 768]</code> 不变；</li>
+  <li><strong>设定：拿一台真模型当解剖对象</strong>（4.6.1）：以 minimind-3（64M 档小模型）的规格为解剖实例，Embedding 查表把 <code>[10]</code> 变成 <code>[10, 768]</code>；</li>
+  <li><strong>一层 Block 的毫米级走查</strong>（4.6.2）：前半层自注意力十小步、后半层 FFN 四步，主干形状全程 <code>[10, 768]</code> 不变；</li>
   <li><strong>收尾：从向量到下一个词的概率</strong>（4.6.3）：最终 RMSNorm、输出投影到 6400 维词表、softmax 得到概率分布；</li>
   <li><strong>参数量与计算量总账</strong>（4.6.4）：63.9M 参数约七成在 FFN，一次前向约 1.3 GFLOPs，这笔账决定了第 5 章变体的靶子。</li>
 </ol>
 
-<p>　　读完本节，你应该能随手画出一条张量从 <code>[1, 10]</code> 走到 <code>[1, 6400]</code> 的形状路线图，也能说清参数和算力分别花在了哪里。</p>
+<p>　　读完本节，你应该能随手画出一条张量从 <code>[10]</code> 走到 <code>[6400]</code> 的形状路线图，也能说清参数和算力分别花在了哪里。</p>
 
 <p>　　上解剖台之前，先看一眼本节在整条链路中的位置：这一节走查的是链路中段到出口——Transformer 层与输出投影两个紫框的完整内部。心里有图 1 这张地图，后面二十多步的毫米级走查，每一步都知道自己走到哪一站：</p>
 
@@ -528,37 +529,39 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <rect x="360" y="64" width="560" height="394" rx="10" fill="#fdfdff" stroke="#6d28d9" stroke-width="1.5"/>
     <text x="380" y="90" font-size="12.5" font-weight="bold" fill="#4c1d95">块内一步不漏（每层相同，对应 4.6.2 的十小步）</text>
     <text x="380" y="122" font-size="11.5" fill="#333">1. RMSNorm（进注意力前）</text>
-    <text x="900" y="122" text-anchor="end" font-size="11" fill="#6d28d9">[3,768] → [3,768]</text>
+    <text x="900" y="122" text-anchor="end" font-size="11" fill="#6d28d9">[3, 768] → [3, 768]</text>
     <text x="380" y="156" font-size="11.5" fill="#333">2. Q/K/V 投影</text>
-    <text x="900" y="156" text-anchor="end" font-size="11" fill="#6d28d9">Q [3,8,96]，K/V [3,4,96]</text>
+    <text x="900" y="156" text-anchor="end" font-size="11" fill="#6d28d9">Q [3, 8, 96]，K/V [3, 4, 96]</text>
     <text x="380" y="190" font-size="11.5" fill="#333">3. QK-Norm + RoPE 旋转（注入位置）</text>
     <text x="900" y="190" text-anchor="end" font-size="11" fill="#6d28d9">形状不变</text>
     <text x="380" y="224" font-size="11.5" fill="#333">4. K/V 复制对齐，按头重排</text>
-    <text x="900" y="224" text-anchor="end" font-size="11" fill="#6d28d9">[8,3,96]</text>
+    <text x="900" y="224" text-anchor="end" font-size="11" fill="#6d28d9">[8, 3, 96]</text>
     <text x="380" y="258" font-size="11.5" fill="#333">5. Q 乘 K 的转置，除以 √96</text>
-    <text x="900" y="258" text-anchor="end" font-size="11" fill="#6d28d9">分数 [8,3,3]</text>
+    <text x="900" y="258" text-anchor="end" font-size="11" fill="#6d28d9">分数 [8, 3, 3]</text>
     <text x="380" y="292" font-size="11.5" fill="#333">6. 因果掩码 + softmax（上三角归零）</text>
-    <text x="900" y="292" text-anchor="end" font-size="11" fill="#6d28d9">[8,3,3]</text>
+    <text x="900" y="292" text-anchor="end" font-size="11" fill="#6d28d9">[8, 3, 3]</text>
     <text x="380" y="326" font-size="11.5" fill="#333">7. 按权重加权求和 V</text>
-    <text x="900" y="326" text-anchor="end" font-size="11" fill="#6d28d9">[8,3,96]</text>
+    <text x="900" y="326" text-anchor="end" font-size="11" fill="#6d28d9">[8, 3, 96]</text>
     <text x="380" y="360" font-size="11.5" fill="#333">8. 拼 8 头 + 输出投影混合</text>
-    <text x="900" y="360" text-anchor="end" font-size="11" fill="#6d28d9">[3,768]</text>
+    <text x="900" y="360" text-anchor="end" font-size="11" fill="#6d28d9">[3, 768]</text>
     <text x="380" y="394" font-size="11.5" fill="#333">9. 残差相加</text>
-    <text x="900" y="394" text-anchor="end" font-size="11" fill="#6d28d9">[3,768]</text>
+    <text x="900" y="394" text-anchor="end" font-size="11" fill="#6d28d9">[3, 768]</text>
     <text x="380" y="428" font-size="11.5" fill="#333">10. RMSNorm → FFN 768→2432→768 → 残差相加</text>
-    <text x="900" y="428" text-anchor="end" font-size="11" fill="#6d28d9">[3,768]</text>
-    <text x="480" y="498" text-anchor="middle" font-size="11.5" fill="#666">示例序列长取 3（与图 1 同一句话），正文账表用 T=10，形状规律相同：主干恒为 [B, T, 768]，仅注意力内部按头重排、FFN 内部升维、出口投影到 6400</text>
+    <text x="900" y="428" text-anchor="end" font-size="11" fill="#6d28d9">[3, 768]</text>
+    <text x="480" y="498" text-anchor="middle" font-size="11.5" fill="#666">示例序列长取 3（与图 1 同一句话），正文账表用 T=10，形状规律相同：主干恒为 [T, 768]，仅注意力内部按头重排、FFN 内部升维、出口投影到 6400</text>
   </svg>
-  <div class="diagram-caption">图 2：一条序列从 token ID 到概率分布的逐步形状流（minimind 默认配置；示例序列长取 3 与图 1 一致，正文账表用 T=10，规律相同）。主链五步：Embedding 出 [3,768]，8 层块内部十小步只在注意力里按头重排（768 ↔ 8×96）、在 FFN 里升维（768→2432→768），主干始终是 [3,768]；塔顶输出投影复用 Embedding 权重表投到 [3,6400]，只取最后位置的 6400 个分数过 softmax，得到下一个 token。</div>
+  <div class="diagram-caption">图 2：一条序列从 token ID 到概率分布的逐步形状流（minimind 默认配置；示例序列长取 3 与图 1 一致，正文账表用 T=10，规律相同）。主链五步：Embedding 出 [3, 768]，8 层块内部十小步只在注意力里按头重排（768 ↔ 8×96）、在 FFN 里升维（768→2432→768），主干始终是 [3, 768]；塔顶输出投影复用 Embedding 权重表投到 [3, 6400]，只取最后位置的 6400 个分数过 softmax，得到下一个 token。</div>
 </div>
 
 <h2>4.6.1 设定：拿一台真模型当解剖对象</h2>
 
 <p>　　解剖对象是 minimind-3 的 64M 档：一台可实际运行的最小规格 LLM，全部数字取自其公开实现（出处见参考来源），不是举例编造。关键规格一段说清：词表 6400（模型认识的 token 总数）；主干宽度 \(d=768\)（每个 token 的向量宽度）；8 层 Block；注意力 8 个 Q 头配 4 组 K/V 头（GQA 分组，每头 96 维，即 768÷8，第 5 章细讲）；FFN 中间宽 2432；RoPE 按最大位置 32768、基底频率 1e6 预计算；输入嵌入表与输出投影共享同一份权重。这些数字就是后面每一步形状的来源。</p>
 
-<p>　　输入设定为 batch 大小 \(B=1\)、序列长度 \(T=10\)：假设"床前明月光，疑是地上霜"这类一句话经分词器得到 10 个 token ID，拼成形状为 <code>[1, 10]</code> 的整数张量。取 \(B=1\) 纯粹是为了看着清爽，batch 维只是"几句话一起算"，多加几句不改变任何一步的形状规律。</p>
+<p>　　输入设定为序列长度 \(T=10\)：假设"床前明月光，疑是地上霜"这类一句话经分词器得到 10 个 token ID，拼成形状为 <code>[10]</code> 的整数张量。</p>
 
-<p>　　第一步是 <strong>Embedding 查表</strong>。Embedding 层本质是一张 <code>[6400, 768]</code> 的大表，10 个 token ID 各取一行，得到 <code>[1, 10, 768]</code>。这步没有矩阵乘法，就是按编号取货。取出的 10 个 768 维向量，就是接下来所有计算的原料。</p>
+<p>　　形状约定先说清楚：本页所有张量形状都按论文的习惯写，只保留序列长度与特征维，省略 batch 维。batch 维是「几句话一起算」的并行维度，PyTorch 实现里排在形状最前面（本例 \(B=1\)），它不参与任何一步计算，也不改变任何一步的形状规律。读者回头对照 minimind 源码时，把本页每个形状的前面补一维 batch 即可对上。</p>
+
+<p>　　第一步是 <strong>Embedding 查表</strong>。Embedding 层本质是一张 <code>[6400, 768]</code> 的大表，10 个 token ID 各取一行，得到 <code>[10, 768]</code>。这步没有矩阵乘法，就是按编号取货。取出的 10 个 768 维向量，就是接下来所有计算的原料。</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -577,7 +580,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <rect x="30" y="120" width="70" height="24" rx="4" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
     <text x="65" y="136" text-anchor="middle" font-size="11.5" fill="#333">1405</text>
     <text x="65" y="164" text-anchor="middle" font-size="13" fill="#94a3b8">⋮</text>
-    <text x="65" y="196" text-anchor="middle" font-size="11" fill="#6d28d9">输入 ID [1, 10]</text>
+    <text x="65" y="196" text-anchor="middle" font-size="11" fill="#6d28d9">输入 ID [10]</text>
     <!-- ID → 表行 箭头 -->
     <line x1="100" y1="72" x2="231" y2="60" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrE46)"/>
     <line x1="100" y1="102" x2="231" y2="114" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrE46)"/>
@@ -615,11 +618,11 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <line x1="455" y1="173" x2="605" y2="173" stroke="#ddd6fe" stroke-width="1"/>
     <line x1="455" y1="187" x2="605" y2="187" stroke="#ddd6fe" stroke-width="1"/>
     <line x1="455" y1="201" x2="605" y2="201" stroke="#ddd6fe" stroke-width="1"/>
-    <text x="530" y="235" text-anchor="middle" font-size="11" fill="#6d28d9">输出 [1, 10, 768]</text>
+    <text x="530" y="235" text-anchor="middle" font-size="11" fill="#6d28d9">输出 [10, 768]</text>
     <text x="530" y="252" text-anchor="middle" font-size="10" fill="#9ca3af">恰好 10 行：10 个 token 各 768 维</text>
     <text x="30" y="288" font-size="10.5" fill="#64748b">查表不是矩阵乘法：ID 只是行号，取出即得；整张表是训练学出来的参数</text>
   </svg>
-  <div class="diagram-caption">图 3：Embedding 查表的结构视角。输入是 10 个整数 ID（形状 [1, 10]），每个 ID 在 [6400, 768] 的嵌入表中指一行；按行号取出 10 个 768 维向量叠起来，输出 [1, 10, 768]。注意两框的行数关系：嵌入表实际有 6400 行（图中密行加 ⋮ 是压缩示意），输出恰好 10 行（逐行可数）。这一步没有矩阵乘法，纯按编号取货；表本身是训练学出来的参数（占全部参数的 7.7%，见 4.6.4）。</div>
+  <div class="diagram-caption">图 3：Embedding 查表的结构视角。输入是 10 个整数 ID（形状 [10]），每个 ID 在 [6400, 768] 的嵌入表中指一行；按行号取出 10 个 768 维向量叠起来，输出 [10, 768]。注意两框的行数关系：嵌入表实际有 6400 行（图中密行加 ⋮ 是压缩示意），输出恰好 10 行（逐行可数）。这一步没有矩阵乘法，纯按编号取货；表本身是训练学出来的参数（占全部参数的 7.7%，见 4.6.4）。</div>
 </div>
 
 <p>　　<strong>所以这步在干嘛：</strong>把离散的 token 编号翻译成连续向量，模型从此只在向量世界里做运算，整数编号本身不再参与。</p>
@@ -628,7 +631,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <h2>4.6.2 一层 Block 的毫米级走查</h2>
 
-<p>　　一层 Block 分前后两半：前半层是自注意力，后半层是前馈网络，两半都是"先归一化、再计算、最后残差相加"的 Pre-Norm 结构。先把这层全貌画出来（图 4）——它与 4.5 节图 3 右塔、4.4 节图 4 是同一个架构；后面每个小步都是这张地图的局部放大。记住主干形状 <code>[1, 10, 768]</code>。</p>
+<p>　　一层 Block 分前后两半：前半层是自注意力，后半层是前馈网络，两半都是"先归一化、再计算、最后残差相加"的 Pre-Norm 结构。先把这层全貌画出来（图 4）——它与 4.5 节图 3 右塔、4.4 节图 4 是同一个架构；后面每个小步都是这张地图的局部放大。记住主干形状 <code>[10, 768]</code>。</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -642,7 +645,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
       </marker>
     </defs>
     <text x="30" y="30" font-size="14" font-weight="bold" fill="#4c1d95">一层 Block 的全貌（Pre-Norm）——与 4.5 节图 3 右塔同一架构</text>
-    <text x="30" y="53" font-size="11" fill="#64748b">自下而上读；每个半层 = 先 RMSNorm → 再计算 → 最后残差相加；形状全程 [1, 10, 768]</text>
+    <text x="30" y="53" font-size="11" fill="#64748b">自下而上读；每个半层 = 先 RMSNorm → 再计算 → 最后残差相加；形状全程 [10, 768]</text>
 
     <!-- Block 容器 -->
     <rect x="90" y="70" width="540" height="556" rx="14" fill="#faf9ff" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="6 4"/>
@@ -665,7 +668,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <!-- 输出 -->
     <line x1="360" y1="182" x2="360" y2="140" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB46)"/>
     <rect x="255" y="96" width="210" height="40" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="360" y="112" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">输出 [1, 10, 768]</text>
+    <text x="360" y="112" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">输出 [10, 768]</text>
     <text x="360" y="128" text-anchor="middle" font-size="10" fill="#666">送下一层</text>
 
     <!-- 后半层：⊕2 / FFN / RMSNorm -->
@@ -696,7 +699,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <!-- 输入 -->
     <line x1="360" y1="580" x2="360" y2="550" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrB46)"/>
     <rect x="255" y="580" width="210" height="36" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="360" y="603" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">输入 x [1, 10, 768]</text>
+    <text x="360" y="603" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">输入 x [10, 768]</text>
   </svg>
   <div class="diagram-caption">图 4：一层 Block 的全貌（Pre-Norm，与 4.5 节图 3 右塔、4.4 节图 4 同一架构，数字为 minimind-3 规格）。自下而上：前半层先 RMSNorm、过掩码多头自注意力、残差相加；后半层先 RMSNorm、过 SwiGLU FFN、再残差相加；两条青色旁路把各半层的输入原样送到加法点。本图是 4.6.2 的地图：前半层的投影与打分细节放大见图 5、图 6，后半层 FFN 放大见图 7。</div>
 </div>
@@ -707,7 +710,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <div class="formula-card">
   \[ \mathrm{RMSNorm}(x) = \frac{x}{\sqrt{\frac{1}{d}\sum_{i=1}^{d} x_i^2 + \epsilon}} \odot \gamma \tag{1} \]
-  <div class="formula-note">公式 (1)：逐位置独立进行，\(d=768\)，\(\epsilon=10^{-6}\)，\(\gamma\) 是 768 个可学习参数。只调数值大小，不动形状：进 <code>[1, 10, 768]</code>，出 <code>[1, 10, 768]</code>。符号说明：\(x\) 是某个位置的 768 维向量，\(x_i\) 是它的第 \(i\) 个分量；\(\frac{1}{d}\sum_{i=1}^{d} x_i^2\) 是全部分量平方的均值，开根号就是均方根；\(\odot\) 表示逐分量相乘，\(\gamma\) 对每个维度各给一个可学习的缩放系数。</div>
+  <div class="formula-note">公式 (1)：逐位置独立进行，\(d=768\)，\(\epsilon=10^{-6}\)，\(\gamma\) 是 768 个可学习参数。只调数值大小，不动形状：进 <code>[10, 768]</code>，出 <code>[10, 768]</code>。符号说明：\(x\) 是某个位置的 768 维向量，\(x_i\) 是它的第 \(i\) 个分量；\(\frac{1}{d}\sum_{i=1}^{d} x_i^2\) 是全部分量平方的均值，开根号就是均方根；\(\odot\) 表示逐分量相乘，\(\gamma\) 对每个维度各给一个可学习的缩放系数。</div>
 </div>
 
 <p>　　<strong>所以这步在干嘛：</strong>把每个向量调到标准尺度。不同位置的向量数值可能差好几个数量级，先拉平再投影，后面的矩阵乘法数值才稳定。</p>
@@ -715,9 +718,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 <p>　　<strong>第 2 小步，Q/K/V 投影。</strong>三个不带偏置的线性层各自乘一个权重矩阵：</p>
 
 <ul>
-  <li>Q 投影：权重 <code>[768, 768]</code>，<code>[1, 10, 768]</code> → <code>[1, 10, 768]</code>，再按头拆成 <code>[1, 10, 8, 96]</code>（8 个头，每头 96 维）；</li>
-  <li>K 投影：权重 <code>[768, 384]</code>，→ <code>[1, 10, 384]</code>，拆成 <code>[1, 10, 4, 96]</code>；</li>
-  <li>V 投影：权重 <code>[768, 384]</code>，→ <code>[1, 10, 384]</code>，拆成 <code>[1, 10, 4, 96]</code>。</li>
+  <li>Q 投影：权重 <code>[768, 768]</code>，<code>[10, 768]</code> → <code>[10, 768]</code>，再按头拆成 <code>[10, 8, 96]</code>（8 个头，每头 96 维）；</li>
+  <li>K 投影：权重 <code>[768, 384]</code>，→ <code>[10, 384]</code>，拆成 <code>[10, 4, 96]</code>；</li>
+  <li>V 投影：权重 <code>[768, 384]</code>，→ <code>[10, 384]</code>，拆成 <code>[10, 4, 96]</code>。</li>
 </ul>
 
 <p>　　768 拆成 8×96，384 拆成 4×96：Q 有 8 个头，K 和 V 只有 4 个头。这就是 GQA（分组查询注意力），每 2 个 Q 头共享同一组 K/V。注意按头拆分只改"看待数据的方式"，不复制、不计算，96×8 还是那 768 个数。</p>
@@ -734,6 +737,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
       </marker>
     </defs>
     <text x="30" y="28" font-size="13" font-weight="bold" fill="#4c1d95">Q/K/V 投影与分头：同一个 X 乘三个权重矩阵（GQA：Q 8 头，K/V 各 4 组）</text>
+    <text x="30" y="46" font-size="10" fill="#64748b">按列切段 = 沿列方向连续等分（768 → 8 段 × 96，384 → 4 段 × 96）：纯视角重排，不复制、不计算，段内还是原来那些数</text>
     <!-- 左：X 主干 -->
     <rect x="30" y="150" width="90" height="110" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
     <line x1="30" y1="161" x2="120" y2="161" stroke="#ddd6fe" stroke-width="1"/>
@@ -748,7 +752,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <line x1="60" y1="150" x2="60" y2="260" stroke="#ddd6fe" stroke-width="1"/>
     <line x1="90" y1="150" x2="90" y2="260" stroke="#ddd6fe" stroke-width="1"/>
     <text x="112" y="208" text-anchor="end" font-size="10" fill="#94a3b8">…</text>
-    <text x="75" y="282" text-anchor="middle" font-size="11" fill="#6d28d9">X [1, 10, 768]</text>
+    <text x="75" y="282" text-anchor="middle" font-size="11" fill="#6d28d9">X [10, 768]</text>
     <!-- 三个权重矩阵 -->
     <line x1="120" y1="205" x2="206" y2="92" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrQ46)"/>
     <line x1="120" y1="205" x2="206" y2="188" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrQC46)"/>
@@ -767,18 +771,31 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <line x1="274" y1="188" x2="356" y2="188" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrQC46)"/>
     <line x1="274" y1="294" x2="356" y2="294" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrQC46)"/>
     <rect x="360" y="60" width="110" height="64" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="415" y="97" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">Q [1, 10, 768]</text>
+    <line x1="373.75" y1="60" x2="373.75" y2="124" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="387.50" y1="60" x2="387.50" y2="124" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="401.25" y1="60" x2="401.25" y2="124" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="415.00" y1="60" x2="415.00" y2="124" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="428.75" y1="60" x2="428.75" y2="124" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="442.50" y1="60" x2="442.50" y2="124" stroke="#c4b5fd" stroke-width="1"/>
+    <line x1="456.25" y1="60" x2="456.25" y2="124" stroke="#c4b5fd" stroke-width="1"/>
+    <text x="415" y="97" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">Q [10, 768]</text>
     <rect x="360" y="166" width="110" height="44" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-    <text x="415" y="193" text-anchor="middle" font-size="11" font-weight="bold" fill="#155e75">K [1, 10, 384]</text>
+    <line x1="387.50" y1="166" x2="387.50" y2="210" stroke="#67e8f9" stroke-width="1"/>
+    <line x1="415.00" y1="166" x2="415.00" y2="210" stroke="#67e8f9" stroke-width="1"/>
+    <line x1="442.50" y1="166" x2="442.50" y2="210" stroke="#67e8f9" stroke-width="1"/>
+    <text x="415" y="193" text-anchor="middle" font-size="11" font-weight="bold" fill="#155e75">K [10, 384]</text>
     <rect x="360" y="272" width="110" height="44" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-    <text x="415" y="299" text-anchor="middle" font-size="11" font-weight="bold" fill="#155e75">V [1, 10, 384]</text>
+    <line x1="387.50" y1="272" x2="387.50" y2="316" stroke="#67e8f9" stroke-width="1"/>
+    <line x1="415.00" y1="272" x2="415.00" y2="316" stroke="#67e8f9" stroke-width="1"/>
+    <line x1="442.50" y1="272" x2="442.50" y2="316" stroke="#67e8f9" stroke-width="1"/>
+    <text x="415" y="299" text-anchor="middle" font-size="11" font-weight="bold" fill="#155e75">V [10, 384]</text>
     <!-- 分头 -->
     <line x1="470" y1="92" x2="548" y2="92" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrQ46)"/>
     <line x1="470" y1="188" x2="548" y2="188" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrQC46)"/>
     <line x1="470" y1="294" x2="548" y2="294" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrQC46)"/>
-    <text x="510" y="82" text-anchor="middle" font-size="10" fill="#64748b">按头拆</text>
-    <text x="510" y="178" text-anchor="middle" font-size="10" fill="#64748b">按头拆</text>
-    <text x="510" y="284" text-anchor="middle" font-size="10" fill="#64748b">按头拆</text>
+    <text x="510" y="82" text-anchor="middle" font-size="10" fill="#64748b">按列切段</text>
+    <text x="510" y="178" text-anchor="middle" font-size="10" fill="#64748b">按列切段</text>
+    <text x="510" y="284" text-anchor="middle" font-size="10" fill="#64748b">按列切段</text>
     <!-- Q 8 头 -->
     <rect x="556" y="60" width="13" height="64" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
     <rect x="573" y="60" width="13" height="64" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
@@ -788,20 +805,20 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <rect x="641" y="60" width="13" height="64" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
     <rect x="658" y="60" width="13" height="64" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
     <rect x="675" y="60" width="13" height="64" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/>
-    <text x="622" y="146" text-anchor="middle" font-size="10.5" fill="#6d28d9">8 个 Q 头 · 各 [1, 10, 96]</text>
+    <text x="622" y="146" text-anchor="middle" font-size="10.5" fill="#6d28d9">8 个 Q 头 · 各 [10, 96]</text>
     <!-- K/V 各 4 组 -->
     <rect x="556" y="166" width="13" height="44" fill="#cffafe" stroke="#0891b2" stroke-width="1"/>
     <rect x="585" y="166" width="13" height="44" fill="#cffafe" stroke="#0891b2" stroke-width="1"/>
     <rect x="614" y="166" width="13" height="44" fill="#cffafe" stroke="#0891b2" stroke-width="1"/>
     <rect x="643" y="166" width="13" height="44" fill="#cffafe" stroke="#0891b2" stroke-width="1"/>
-    <text x="622" y="232" text-anchor="middle" font-size="10.5" fill="#155e75">K 4 组 · 各 [1, 10, 96]</text>
+    <text x="622" y="232" text-anchor="middle" font-size="10.5" fill="#155e75">K 4 组 · 各 [10, 96]</text>
     <rect x="556" y="272" width="13" height="44" fill="#cffafe" stroke="#0891b2" stroke-width="1"/>
     <rect x="585" y="272" width="13" height="44" fill="#cffafe" stroke="#0891b2" stroke-width="1"/>
     <rect x="614" y="272" width="13" height="44" fill="#cffafe" stroke="#0891b2" stroke-width="1"/>
     <rect x="643" y="272" width="13" height="44" fill="#cffafe" stroke="#0891b2" stroke-width="1"/>
-    <text x="622" y="338" text-anchor="middle" font-size="10.5" fill="#155e75">V 4 组 · 各 [1, 10, 96]</text>
+    <text x="622" y="338" text-anchor="middle" font-size="10.5" fill="#155e75">V 4 组 · 各 [10, 96]</text>
   </svg>
-  <div class="diagram-caption">图 5：第 2 小步的矩阵视角。X [1,10,768] 分别乘 W_Q [768,768] 与 W_K、W_V [768,384]，得到 Q [1,10,768]（按头拆成 8 份）和 K、V [1,10,384]（各拆成 4 组），每份 96 维。GQA 的要点在右侧一目了然：Q 头数是 K/V 组数的两倍，下一步打分时每 2 个 Q 头共用一组 K/V（图 6）。</div>
+  <div class="diagram-caption">图 5：第 2 小步的矩阵视角。X [10, 768] 分别乘 W_Q [768, 768] 与 W_K、W_V [768, 384]，得到 Q [10, 768]（按列切成 8 段，矩形内的竖线就是切口）和 K、V [10, 384]（各切成 4 段），每段 96 维。GQA 的要点在右侧一目了然：Q 头数是 K/V 组数的两倍，下一步打分时每 2 个 Q 头共用一组 K/V（图 6）。对照 4.3 节图 2：那里"X 复制 8 份、每头各配一套投影矩阵"是机制视角，实现上就是乘一个拼接起来的大 W_Q 再按列切段——W_Q 的 768 个输出列早已按头排好序，切出的第 i 段正是第 i 个头的投影结果，两种说法描述同一套计算。</div>
 </div>
 
 <div class="highlight-box info">
@@ -810,20 +827,20 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　<strong>所以这步在干嘛：</strong>同一句话被打包成 8 份不同的"问法"（Q）和 4 组"标签加内容"（K/V），每个头从自己的视角去理解这句话。</p>
 
-<p>　　<strong>第 3 小步，QK-Norm 与 RoPE 旋转。</strong>minimind 先对每个头的 Q、K 各做一次 96 维 RMSNorm（一个稳定注意力的小技巧），再把第 4.6.1 节备好的 <code>[10, 96]</code> 余弦/正弦表广播成 <code>[10, 1, 96]</code>，按 RoPE 的旋转规则旋进 Q 和 K。两小步都不改形状：Q 仍 <code>[1, 10, 8, 96]</code>，K 仍 <code>[1, 10, 4, 96]</code>。RoPE 的原理（为什么旋转等于注入位置）在第 3.4 节已经讲透，这里只认形状。</p>
+<p>　　<strong>第 3 小步，QK-Norm 与 RoPE 旋转。</strong>minimind 先对每个头的 Q、K 各做一次 96 维 RMSNorm（一个稳定注意力的小技巧），再把第 4.6.1 节备好的 <code>[10, 96]</code> 余弦/正弦表广播成 <code>[10, 1, 96]</code>，按 RoPE 的旋转规则旋进 Q 和 K。两小步都不改形状：Q 仍 <code>[10, 8, 96]</code>，K 仍 <code>[10, 4, 96]</code>。RoPE 的原理（为什么旋转等于注入位置）在第 3.4 节已经讲透，这里只认形状。</p>
 
 <p>　　<strong>所以这步在干嘛：</strong>给每个头里的向量按位置编号"拧一个角度"。同一个词出现在第 2 个位置和第 9 个位置，旋转后的向量就不一样了，模型由此感知先后顺序。</p>
 
-<p>　　<strong>第 4 小步，对齐头数。</strong>打分前把 K/V 的 4 个头复制成 8 个（每组各复制 2 份），再把三个张量的"头"维都挪到第 2 维：Q/K/V 统一成 <code>[1, 8, 10, 96]</code>。挪维度是为了下一步能对每个头单独做矩阵乘法。</p>
+<p>　　<strong>第 4 小步，对齐头数。</strong>打分前把 K/V 的 4 个头复制成 8 个（每组各复制 2 份），再把三个张量的"头"维都挪到第 2 维：Q/K/V 统一成 <code>[8, 10, 96]</code>。挪维度是为了下一步能对每个头单独做矩阵乘法。</p>
 
 <p>　　<strong>第 5 小步，计算注意力分数。</strong>每个头内部，Q 乘 K 的转置，再除以 \(\sqrt{d_k}\)： </p>
 
 <div class="formula-card">
   \[ \mathrm{Attention}(Q,K,V)=\mathrm{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_k}}\right)V \tag{2} \]
-  <div class="formula-note">公式 (2)：与原论文（Vaswani et al., 2017）公式 (1) 逐字一致。本例 \(d_k = 96\)，\(\sqrt{96} \approx 9.80\)。<code>[1, 8, 10, 96] @ [1, 8, 96, 10]</code> 得到分数 <code>[1, 8, 10, 10]</code>：每个头一张 10×10 的"亲密度表"，第 \(i\) 行第 \(j\) 列表示位置 \(i\) 对位置 \(j\) 的关注程度（归一化之前）。符号说明：\(Q,K,V\) 是第 2–4 小步备好的查询、键、值张量，均已按头重排为 <code>[1, 8, 10, 96]</code>；\(K^{\top}\) 表示交换 \(K\) 的最后两维；softmax 在最后一维上做，把每行分数归一化成和为 1 的权重；乘 \(V\) 即按权重加权求和。</div>
+  <div class="formula-note">公式 (2)：与原论文（Vaswani et al., 2017）公式 (1) 逐字一致。本例 \(d_k = 96\)，\(\sqrt{96} \approx 9.80\)。<code>[8, 10, 96] @ [8, 96, 10]</code> 得到分数 <code>[8, 10, 10]</code>：每个头一张 10×10 的"亲密度表"，第 \(i\) 行第 \(j\) 列表示位置 \(i\) 对位置 \(j\) 的关注程度（归一化之前）。符号说明：\(Q,K,V\) 是第 2–4 小步备好的查询、键、值张量，均已按头重排为 <code>[8, 10, 96]</code>；\(K^{\top}\) 表示交换 \(K\) 的最后两维；softmax 在最后一维上做，把每行分数归一化成和为 1 的权重；乘 \(V\) 即按权重加权求和。</div>
 </div>
 
-<p>　　<strong>第 6 小步，加因果掩码。</strong>给分数加上一个上三角（不含主对角线）全为 \(-\infty\) 的 10×10 矩阵，形状不变，仍是 <code>[1, 8, 10, 10]</code>。</p>
+<p>　　<strong>第 6 小步，加因果掩码。</strong>给分数加上一个上三角（不含主对角线）全为 \(-\infty\) 的 10×10 矩阵，形状不变，仍是 <code>[8, 10, 10]</code>。</p>
 
 <div class="highlight-box danger">
   因果掩码是自回归模型的硬约束：位置 \(i\) 只允许看第 1 到第 \(i\) 个位置。被填 \(-\infty\) 的格子经 softmax 后权重精确等于 0，未来信息被物理封死，不存在"稍微看一点"的中间态。训练与推理都受这条约束。
@@ -831,9 +848,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　<strong>所以这步在干嘛：</strong>第 5、6 小步合起来，是让每个位置算清楚"在我之前的这些位置里，我该听谁的话"，并且不许偷看答案。</p>
 
-<p>　　<strong>第 7 小步，softmax。</strong>对 <code>[1, 8, 10, 10]</code> 的最后一维做 softmax，每行变成一组和为 1 的权重。分数从此有了概率的含义：位置 \(i\) 该把百分之几的注意力分给位置 \(j\)。</p>
+<p>　　<strong>第 7 小步，softmax。</strong>对 <code>[8, 10, 10]</code> 的最后一维做 softmax，每行变成一组和为 1 的权重。分数从此有了概率的含义：位置 \(i\) 该把百分之几的注意力分给位置 \(j\)。</p>
 
-<p>　　<strong>第 8 小步，加权求和 V。</strong>权重矩阵乘 V：<code>[1, 8, 10, 10] @ [1, 8, 10, 96]</code> → <code>[1, 8, 10, 96]</code>。位置 \(i\) 的新向量，是所有（允许的）位置的 V 按权重调和出来的混合体。</p>
+<p>　　<strong>第 8 小步，加权求和 V。</strong>权重矩阵乘 V：<code>[8, 10, 10] @ [8, 10, 96]</code> → <code>[8, 10, 96]</code>。位置 \(i\) 的新向量，是所有（允许的）位置的 V 按权重调和出来的混合体。</p>
 
 <p>　　<strong>所以这步在干嘛：</strong>第 7、8 小步是"按票数收内容"：先决定听谁的话各占几成，再按比例把各位置的内容调和成每个位置的新向量。</p>
 
@@ -940,21 +957,21 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <text x="610" y="163" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">输出头 2</text>
     <text x="610" y="176" text-anchor="middle" font-size="9.5" fill="#64748b">[10, 96]</text>
     <text x="610" y="232" text-anchor="middle" font-size="14" fill="#94a3b8">⋮</text>
-    <text x="610" y="266" text-anchor="middle" font-size="10.5" fill="#64748b">8 段 → 拼回 [1, 10, 768]</text>
+    <text x="610" y="266" text-anchor="middle" font-size="10.5" fill="#64748b">8 段 → 拼回 [10, 768]</text>
     <!-- 底注 -->
     <text x="30" y="356" font-size="10.5" fill="#64748b">每张权重表为 10×10 实格：Q 头 × 本组 K 的转置 ÷√96 → 掩码（红色虚线上三角 = −∞）→ softmax；再乘本组 V 得该头输出（第 5–8 小步）</text>
   </svg>
-  <div class="diagram-caption">图 6：GQA 的配对打分（第 5–8 小步）。8 个 Q 头两两成组，分别与 4 组共享 K/V 中的一组配对：Q 头乘本组 K 的转置、除以 √96、加因果掩码、softmax 得 10×10 权重表，再乘本组 V 得该头输出 [10,96]；8 段输出在第 9 小步拼回 [1,10,768]。每个头内部的四步与 4.2 节图 2 完全相同——GQA 没有改变注意力的算法，只是让 K/V 的组数减半，参数与 KV Cache 显存随之减半（5.2 节细讲）。</div>
+  <div class="diagram-caption">图 6：GQA 的配对打分（第 5–8 小步）。8 个 Q 头两两成组，分别与 4 组共享 K/V 中的一组配对：Q 头乘本组 K 的转置、除以 √96、加因果掩码、softmax 得 10×10 权重表，再乘本组 V 得该头输出 [10, 96]；8 段输出在第 9 小步拼回 [10, 768]。每个头内部的四步与 4.2 节图 2 完全相同——GQA 没有改变注意力的算法，只是让 K/V 的组数减半，参数与 KV Cache 显存随之减半（5.2 节细讲）。</div>
 </div>
 
-<p>　　<strong>第 9 小步，拼头与输出投影。</strong>把 8 个头按位拼回 <code>[1, 10, 768]</code>，再过输出投影矩阵（<code>[768, 768]</code>）混合一遍，输出仍是 <code>[1, 10, 768]</code>。</p>
+<p>　　<strong>第 9 小步，拼头与输出投影。</strong>把 8 个头按位拼回 <code>[10, 768]</code>，再过输出投影矩阵（<code>[768, 768]</code>）混合一遍，输出仍是 <code>[10, 768]</code>。</p>
 
-<p>　　<strong>第 10 小步，残差相加。</strong>注意力的输出与这一半层的输入直接相加：两个 <code>[1, 10, 768]</code> 逐元素加，结果还是 <code>[1, 10, 768]</code>。</p>
+<p>　　<strong>第 10 小步，残差相加。</strong>注意力的输出与这一半层的输入直接相加：两个 <code>[10, 768]</code> 逐元素加，结果还是 <code>[10, 768]</code>。</p>
 
 <p>　　<strong>所以这步在干嘛：</strong>新信息叠加在原向量上，原始信息一点不少。深层网络堆几十上百层还能训练得动，残差连接居首功（第 4.4 节）。</p>
 
 <div class="highlight-box info">
-  工程实现里，第 5 到 8 小步通常由一个融合算子（FlashAttention 类）一步算完，数学结果与分步计算完全等价，只是不把 <code>[1, 8, 10, 10]</code> 的完整分数矩阵显式存下来。本文拆开来走，是为了让你看清里面发生了什么。
+  工程实现里，第 5 到 8 小步通常由一个融合算子（FlashAttention 类）一步算完，数学结果与分步计算完全等价，只是不把 <code>[8, 10, 10]</code> 的完整分数矩阵显式存下来。本文拆开来走，是为了让你看清里面发生了什么。
 </div>
 
 <h3>后半层：前馈网络</h3>
@@ -962,15 +979,15 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 <p>　　先做第二次 RMSNorm（<code>post_attention_layernorm</code>），形状不变。然后 FFN 的三个矩阵依次登场：</p>
 
 <ul>
-  <li>gate 投影：权重 <code>[768, 2432]</code>，<code>[1, 10, 768]</code> → <code>[1, 10, 2432]</code>；</li>
-  <li>up 投影：权重 <code>[768, 2432]</code>，<code>[1, 10, 768]</code> → <code>[1, 10, 2432]</code>；</li>
-  <li>SiLU 门控相乘：两路 <code>[1, 10, 2432]</code> 逐元素相乘 → <code>[1, 10, 2432]</code>；</li>
-  <li>down 投影：权重 <code>[2432, 768]</code>，<code>[1, 10, 2432]</code> → <code>[1, 10, 768]</code>。</li>
+  <li>gate 投影：权重 <code>[768, 2432]</code>，<code>[10, 768]</code> → <code>[10, 2432]</code>；</li>
+  <li>up 投影：权重 <code>[768, 2432]</code>，<code>[10, 768]</code> → <code>[10, 2432]</code>；</li>
+  <li>SiLU 门控相乘：两路 <code>[10, 2432]</code> 逐元素相乘 → <code>[10, 2432]</code>；</li>
+  <li>down 投影：权重 <code>[2432, 768]</code>，<code>[10, 2432]</code> → <code>[10, 768]</code>。</li>
 </ul>
 
 <div class="formula-card">
   \[ \mathrm{FFN}(x) = \mathrm{down}\!\big(\mathrm{SiLU}(\mathrm{gate}(x)) \odot \mathrm{up}(x)\big) \tag{3} \]
-  <div class="formula-note">公式 (3)：SwiGLU 结构，三个投影矩阵均无偏置项。\(\mathrm{SiLU}(z) = z \cdot \mathrm{sigmoid}(z)\)。升维到 2432 再压回 768，形状一进一出都是 <code>[1, 10, 768]</code>。符号说明：\(\mathrm{gate},\mathrm{up},\mathrm{down}\) 分别是门控、上路、降维三个线性投影，权重形状（乘法方向：输入维 × 输出维）依次是 <code>[768, 2432]</code>、<code>[768, 2432]</code>、<code>[2432, 768]</code>；\(\odot\) 是逐元素相乘，SiLU 处理过的 gate 路充当闸门，控制 up 路每个数值放行多少。</div>
+  <div class="formula-note">公式 (3)：SwiGLU 结构，三个投影矩阵均无偏置项。\(\mathrm{SiLU}(z) = z \cdot \mathrm{sigmoid}(z)\)。升维到 2432 再压回 768，形状一进一出都是 <code>[10, 768]</code>。符号说明：\(\mathrm{gate},\mathrm{up},\mathrm{down}\) 分别是门控、上路、降维三个线性投影，权重形状（乘法方向：输入维 × 输出维）依次是 <code>[768, 2432]</code>、<code>[768, 2432]</code>、<code>[2432, 768]</code>；\(\odot\) 是逐元素相乘，SiLU 处理过的 gate 路充当闸门，控制 up 路每个数值放行多少。</div>
 </div>
 
 <div class="diagram">
@@ -994,11 +1011,11 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <line x1="20" y1="190" x2="90" y2="190" stroke="#ddd6fe" stroke-width="1"/>
     <line x1="20" y1="200" x2="90" y2="200" stroke="#ddd6fe" stroke-width="1"/>
     <text x="66" y="164" text-anchor="end" font-size="10" fill="#94a3b8">…</text>
-    <text x="55" y="232" text-anchor="middle" font-size="11" fill="#6d28d9">x [1, 10, 768]</text>
+    <text x="55" y="232" text-anchor="middle" font-size="11" fill="#6d28d9">x [10, 768]</text>
     <!-- 扇出到两路 -->
     <line x1="90" y1="160" x2="136" y2="92" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrF46)"/>
     <line x1="90" y1="160" x2="136" y2="238" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrF46)"/>
-    <!-- W_gate / W_up（[768,2432]：行少列多，画成横扁） -->
+    <!-- W_gate / W_up（[768, 2432]：行少列多，画成横扁） -->
     <text x="172" y="50" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#4c1d95">W_gate</text>
     <rect x="140" y="72" width="64" height="40" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
     <text x="172" y="130" text-anchor="middle" font-size="9.5" fill="#64748b">[768, 2432]</text>
@@ -1009,10 +1026,10 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <line x1="204" y1="92" x2="256" y2="92" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrF46)"/>
     <line x1="204" y1="238" x2="256" y2="238" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrF46)"/>
     <rect x="260" y="60" width="130" height="64" rx="5" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="325" y="88" text-anchor="middle" font-size="11" font-weight="bold" fill="#92400e">gate 路 [1, 10, 2432]</text>
+    <text x="325" y="88" text-anchor="middle" font-size="11" font-weight="bold" fill="#92400e">gate 路 [10, 2432]</text>
     <text x="325" y="108" text-anchor="middle" font-size="10" fill="#92400e">先过 SiLU 闸门</text>
     <rect x="260" y="206" width="130" height="64" rx="5" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="325" y="234" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">up 路 [1, 10, 2432]</text>
+    <text x="325" y="234" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">up 路 [10, 2432]</text>
     <text x="325" y="254" text-anchor="middle" font-size="10" fill="#64748b">原样内容</text>
     <!-- 门控相乘 -->
     <line x1="390" y1="92" x2="436" y2="146" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrF46)"/>
@@ -1037,26 +1054,26 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <line x1="620" y1="160" x2="690" y2="160" stroke="#c4b5fd" stroke-width="1"/>
     <line x1="620" y1="170" x2="690" y2="170" stroke="#c4b5fd" stroke-width="1"/>
     <line x1="620" y1="180" x2="690" y2="180" stroke="#c4b5fd" stroke-width="1"/>
-    <text x="655" y="212" text-anchor="middle" font-size="11" fill="#6d28d9">输出 [1, 10, 768]</text>
+    <text x="655" y="212" text-anchor="middle" font-size="11" fill="#6d28d9">输出 [10, 768]</text>
     <text x="30" y="308" font-size="10.5" fill="#64748b">⊙ 是逐元素相乘，不是矩阵乘法：gate 路经 SiLU 后充当闸门，控制 up 路每个数值放行多少</text>
   </svg>
-  <div class="diagram-caption">图 7：后半层 FFN 的矩阵视角（SwiGLU）。输入 [1,10,768] 同时乘 W_gate 与 W_up（均 [768,2432]）升到 2432 维；gate 路先过 SiLU 再与 up 路逐元素相乘（门控筛选）；最后乘 W_down [2432,768] 压回 [1,10,768]。对比 4.4 节原论文的两矩阵 ReLU 版 FFN：这里多了一路 gate 投影当闸门，三层投影全无偏置。</div>
+  <div class="diagram-caption">图 7：后半层 FFN 的矩阵视角（SwiGLU）。输入 [10, 768] 同时乘 W_gate 与 W_up（均 [768, 2432]）升到 2432 维；gate 路先过 SiLU 再与 up 路逐元素相乘（门控筛选）；最后乘 W_down [2432, 768] 压回 [10, 768]。对比 4.4 节原论文的两矩阵 ReLU 版 FFN：这里多了一路 gate 投影当闸门，三层投影全无偏置。</div>
 </div>
 
-<p>　　最后再做一次残差相加，一层 Block 结束。整个 Block 进 <code>[1, 10, 768]</code>，出 <code>[1, 10, 768]</code>。</p>
+<p>　　最后再做一次残差相加，一层 Block 结束。整个 Block 进 <code>[10, 768]</code>，出 <code>[10, 768]</code>。</p>
 
 <p>　　<strong>所以这步在干嘛：</strong>把每个位置的向量升到 2432 维"展开加工"，用门控筛掉没用的成分，再压回 768 维。注意每个位置是独立过 FFN 的，位置之间互不交流；跨位置的信息交换只发生在注意力那半层。</p>
 
-<p>　　同样的 Block 一共堆 8 层，结构完全相同、参数各自独立。从第 2 层到第 8 层，主干形状始终是 <code>[1, 10, 768]</code>，一层层改变的只有数值——每层都在上一层的理解之上再加工一轮。</p>
+<p>　　同样的 Block 一共堆 8 层，结构完全相同、参数各自独立。从第 2 层到第 8 层，主干形状始终是 <code>[10, 768]</code>，一层层改变的只有数值——每层都在上一层的理解之上再加工一轮。</p>
 
 <h2>4.6.3 收尾：从向量到下一个词的概率</h2>
 
 <p>　　8 层全部走完后，还有三小步：</p>
 
 <ol>
-  <li><strong>最终 RMSNorm</strong>（<code>self.norm</code>）：<code>[1, 10, 768]</code> → <code>[1, 10, 768]</code>，收尾再稳一次数值；</li>
-  <li><strong>输出投影</strong>：乘共享嵌入表 <code>[6400, 768]</code> 的转置，<code>[1, 10, 768]</code> → <code>[1, 10, 6400]</code>。每个位置得到 6400 个分数，对应词表里每个 token 的"得票"；</li>
-  <li><strong>取最后位置 + softmax</strong>：预测下一个词只需要最后一个位置的分数 <code>[1, 6400]</code>，softmax 后得到 6400 个和为 1 的概率，即模型对"下一个 token 是谁"的回答。</li>
+  <li><strong>最终 RMSNorm</strong>（<code>self.norm</code>）：<code>[10, 768]</code> → <code>[10, 768]</code>，收尾再稳一次数值；</li>
+  <li><strong>输出投影</strong>：乘共享嵌入表 <code>[6400, 768]</code> 的转置，<code>[10, 768]</code> → <code>[10, 6400]</code>。每个位置得到 6400 个分数，对应词表里每个 token 的"得票"；</li>
+  <li><strong>取最后位置 + softmax</strong>：预测下一个词只需要最后一个位置的分数 <code>[6400]</code>，softmax 后得到 6400 个和为 1 的概率，即模型对"下一个 token 是谁"的回答。</li>
 </ol>
 
 <div class="highlight-box info">
@@ -1084,7 +1101,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <line x1="30" y1="170" x2="110" y2="170" stroke="#ddd6fe" stroke-width="1"/>
     <line x1="30" y1="180" x2="110" y2="180" stroke="#ddd6fe" stroke-width="1"/>
     <text x="100" y="144" text-anchor="end" font-size="10" fill="#94a3b8">…</text>
-    <text x="70" y="212" text-anchor="middle" font-size="11" fill="#6d28d9">主干 [1, 10, 768]</text>
+    <text x="70" y="212" text-anchor="middle" font-size="11" fill="#6d28d9">主干 [10, 768]</text>
     <!-- 乘法 -->
     <line x1="110" y1="140" x2="124" y2="140" stroke="#6d28d9" stroke-width="1.6" marker-end="url(#arrO46)"/>
     <circle cx="140" cy="140" r="13" fill="#6d28d9"/>
@@ -1120,11 +1137,11 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <line x1="450" y1="174" x2="660" y2="174" stroke="#ddd6fe" stroke-width="1"/>
     <line x1="450" y1="187" x2="660" y2="187" stroke="#ddd6fe" stroke-width="1"/>
     <rect x="451" y="187" width="208" height="13" fill="#c4b5fd"/>
-    <text x="555" y="222" text-anchor="middle" font-size="11" fill="#6d28d9">分数 [1, 10, 6400]</text>
-    <text x="555" y="256" text-anchor="middle" font-size="10.5" fill="#4c1d95">只取最后一行 [1, 6400] → softmax → 概率分布</text>
+    <text x="555" y="222" text-anchor="middle" font-size="11" fill="#6d28d9">分数 [10, 6400]</text>
+    <text x="555" y="256" text-anchor="middle" font-size="10.5" fill="#4c1d95">只取最后一行 [6400] → softmax → 概率分布</text>
     <text x="30" y="286" font-size="10.5" fill="#64748b">每一行是词表 6400 个 token 的打分（logits）；预测下一个词只用最后一个位置（紫色行），其余 9 行本步用不到</text>
   </svg>
-  <div class="diagram-caption">图 8：塔顶收尾的矩阵视角。最终 RMSNorm 后的主干 [1,10,768] 乘共享嵌入表的转置 [768,6400]，每个位置得到词表全部 6400 个 token 的分数 [1,10,6400]；预测下一个词只需最后一行 [1,6400]，softmax 归一后就是概率分布。投影用的就是图 3 那张嵌入表（转置复用，不另占参数），这也是 6400 这个数字在一头一尾各出现一次的原因。</div>
+  <div class="diagram-caption">图 8：塔顶收尾的矩阵视角。最终 RMSNorm 后的主干 [10, 768] 乘共享嵌入表的转置 [768, 6400]，每个位置得到词表全部 6400 个 token 的分数 [10, 6400]；预测下一个词只需最后一行 [6400]，softmax 归一后就是概率分布。投影用的就是图 3 那张嵌入表（转置复用，不另占参数），这也是 6400 这个数字在一头一尾各出现一次的原因。</div>
 </div>
 
 <div class="term-card">
@@ -1139,40 +1156,40 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　<strong>所以这步在干嘛：</strong>把 768 维的"理解结果"翻译回词表世界：6400 个候选 token 各得一个概率，概率最高（或被采样中）的那个接在序列末尾，整个流程再重复一遍——这就是自回归生成的最小循环。</p>
 
-<p>　　把全过程压缩成一张账表，方便随时回看（B=1、T=10、 minimind-3 默认配置）：</p>
+<p>　　把全过程压缩成一张账表，方便随时回看（T=10，minimind-3 默认配置）：</p>
 
 <div class="table-wrap">
   <table>
     <thead><tr><th>步骤</th><th>操作</th><th>输入形状</th><th>输出形状</th></tr></thead>
     <tbody>
-      <tr><td>1</td><td>输入 token ID</td><td>—</td><td><code>[1, 10]</code></td></tr>
-      <tr><td>2</td><td>Embedding 查表</td><td><code>[1, 10]</code></td><td><code>[1, 10, 768]</code></td></tr>
-      <tr><td>3</td><td>RMSNorm（每层第一次）</td><td><code>[1, 10, 768]</code></td><td><code>[1, 10, 768]</code></td></tr>
-      <tr><td>4</td><td>Q / K / V 投影</td><td><code>[1, 10, 768]</code></td><td><code>[1,10,768]</code> / <code>[1,10,384]</code> / <code>[1,10,384]</code></td></tr>
-      <tr><td>5</td><td>view 分头</td><td>上一步结果</td><td>Q <code>[1,10,8,96]</code>，K/V <code>[1,10,4,96]</code></td></tr>
-      <tr><td>6</td><td>QK-Norm + RoPE 旋转</td><td><code>[1,10,8,96]</code> 等</td><td>形状不变</td></tr>
-      <tr><td>7</td><td>K/V 复制对齐 + 按头重排</td><td>K/V <code>[1,10,4,96]</code></td><td>Q/K/V 均 <code>[1,8,10,96]</code></td></tr>
-      <tr><td>8</td><td>\(QK^{\top}/\sqrt{96}\)</td><td><code>[1,8,10,96]</code></td><td><code>[1,8,10,10]</code></td></tr>
-      <tr><td>9</td><td>因果掩码 + softmax</td><td><code>[1,8,10,10]</code></td><td><code>[1,8,10,10]</code></td></tr>
-      <tr><td>10</td><td>加权求和 V</td><td><code>[1,8,10,10] × [1,8,10,96]</code></td><td><code>[1,8,10,96]</code></td></tr>
-      <tr><td>11</td><td>拼头（重排 + 拼接）</td><td><code>[1,8,10,96]</code></td><td><code>[1,10,768]</code></td></tr>
-      <tr><td>12</td><td>输出投影</td><td><code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
-      <tr><td>13</td><td>残差相加</td><td>两个 <code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
-      <tr><td>14</td><td>RMSNorm（每层第二次）</td><td><code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
-      <tr><td>15</td><td>gate / up 投影</td><td><code>[1,10,768]</code></td><td>两个 <code>[1,10,2432]</code></td></tr>
-      <tr><td>16</td><td>\(\mathrm{SiLU}(\mathrm{gate}) \odot \mathrm{up}\)</td><td>两个 <code>[1,10,2432]</code></td><td><code>[1,10,2432]</code></td></tr>
-      <tr><td>17</td><td>down 投影</td><td><code>[1,10,2432]</code></td><td><code>[1,10,768]</code></td></tr>
-      <tr><td>18</td><td>残差相加</td><td>两个 <code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
-      <tr><td>19</td><td>步骤 3–18 重复 8 层</td><td><code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
-      <tr><td>20</td><td>最终 RMSNorm</td><td><code>[1,10,768]</code></td><td><code>[1,10,768]</code></td></tr>
-      <tr><td>21</td><td>输出投影</td><td><code>[1,10,768]</code></td><td><code>[1,10,6400]</code></td></tr>
-      <tr><td>22</td><td>取最后位置 + softmax</td><td><code>[1,6400]</code></td><td><code>[1,6400]</code> 概率分布</td></tr>
+      <tr><td>1</td><td>输入 token ID</td><td>—</td><td><code>[10]</code></td></tr>
+      <tr><td>2</td><td>Embedding 查表</td><td><code>[10]</code></td><td><code>[10, 768]</code></td></tr>
+      <tr><td>3</td><td>RMSNorm（每层第一次）</td><td><code>[10, 768]</code></td><td><code>[10, 768]</code></td></tr>
+      <tr><td>4</td><td>Q / K / V 投影</td><td><code>[10, 768]</code></td><td><code>[10, 768]</code> / <code>[10, 384]</code> / <code>[10, 384]</code></td></tr>
+      <tr><td>5</td><td>view 分头</td><td>上一步结果</td><td>Q <code>[10, 8, 96]</code>，K/V <code>[10, 4, 96]</code></td></tr>
+      <tr><td>6</td><td>QK-Norm + RoPE 旋转</td><td><code>[10, 8, 96]</code> 等</td><td>形状不变</td></tr>
+      <tr><td>7</td><td>K/V 复制对齐 + 按头重排</td><td>K/V <code>[10, 4, 96]</code></td><td>Q/K/V 均 <code>[8, 10, 96]</code></td></tr>
+      <tr><td>8</td><td>\(QK^{\top}/\sqrt{96}\)</td><td><code>[8, 10, 96]</code></td><td><code>[8, 10, 10]</code></td></tr>
+      <tr><td>9</td><td>因果掩码 + softmax</td><td><code>[8, 10, 10]</code></td><td><code>[8, 10, 10]</code></td></tr>
+      <tr><td>10</td><td>加权求和 V</td><td><code>[8, 10, 10] × [8, 10, 96]</code></td><td><code>[8, 10, 96]</code></td></tr>
+      <tr><td>11</td><td>拼头（重排 + 拼接）</td><td><code>[8, 10, 96]</code></td><td><code>[10, 768]</code></td></tr>
+      <tr><td>12</td><td>输出投影</td><td><code>[10, 768]</code></td><td><code>[10, 768]</code></td></tr>
+      <tr><td>13</td><td>残差相加</td><td>两个 <code>[10, 768]</code></td><td><code>[10, 768]</code></td></tr>
+      <tr><td>14</td><td>RMSNorm（每层第二次）</td><td><code>[10, 768]</code></td><td><code>[10, 768]</code></td></tr>
+      <tr><td>15</td><td>gate / up 投影</td><td><code>[10, 768]</code></td><td>两个 <code>[10, 2432]</code></td></tr>
+      <tr><td>16</td><td>\(\mathrm{SiLU}(\mathrm{gate}) \odot \mathrm{up}\)</td><td>两个 <code>[10, 2432]</code></td><td><code>[10, 2432]</code></td></tr>
+      <tr><td>17</td><td>down 投影</td><td><code>[10, 2432]</code></td><td><code>[10, 768]</code></td></tr>
+      <tr><td>18</td><td>残差相加</td><td>两个 <code>[10, 768]</code></td><td><code>[10, 768]</code></td></tr>
+      <tr><td>19</td><td>步骤 3–18 重复 8 层</td><td><code>[10, 768]</code></td><td><code>[10, 768]</code></td></tr>
+      <tr><td>20</td><td>最终 RMSNorm</td><td><code>[10, 768]</code></td><td><code>[10, 768]</code></td></tr>
+      <tr><td>21</td><td>输出投影</td><td><code>[10, 768]</code></td><td><code>[10, 6400]</code></td></tr>
+      <tr><td>22</td><td>取最后位置 + softmax</td><td><code>[6400]</code></td><td><code>[6400]</code> 概率分布</td></tr>
     </tbody>
   </table>
 </div>
 
 <div class="highlight-box">
-  全程的形状变化只有三种：主干恒为 \([B, T, 768]\)；注意力内部按头重排（768 ↔ 8×96）；FFN 内部升维（768 → 2432 → 768）。最后一次性投影到 6400 维词表。抓住"主干不变"这条纲，再深的网络走查起来也不会迷路。
+  全程的形状变化只有三种：主干恒为 \([T, 768]\)；注意力内部按头重排（768 ↔ 8×96）；FFN 内部升维（768 → 2432 → 768）。最后一次性投影到 6400 维词表。抓住"主干不变"这条纲，再深的网络走查起来也不会迷路。
 </div>
 
 <p>　　走查完毕，把 22 步钉在同一张图上收账（图 9）。它与 4.6.2–4.6.3 的逐小步讲解、4.6.4 的形状账表共享同一套编号，卡在哪一步就回哪一节复查：</p>
@@ -1192,23 +1209,23 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <!-- 每行：序号 chip + 操作 + 形状 -->
     <circle cx="44" cy="96" r="12" fill="#64748b"/><text x="44" y="100" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">1</text>
     <text x="70" y="100" font-size="12" fill="#333">输入：token ID 序列</text>
-    <text x="688" y="100" text-anchor="end" font-size="11" fill="#6d28d9">[1, 10]</text>
+    <text x="688" y="100" text-anchor="end" font-size="11" fill="#6d28d9">[10]</text>
 
     <circle cx="44" cy="138" r="12" fill="#64748b"/><text x="44" y="142" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">2</text>
     <text x="70" y="142" font-size="12" fill="#333">Embedding 查表<tspan fill="#9ca3af" font-size="10">　（图 3）</tspan></text>
-    <text x="688" y="142" text-anchor="end" font-size="11" fill="#6d28d9">→ [1, 10, 768]</text>
+    <text x="688" y="142" text-anchor="end" font-size="11" fill="#6d28d9">→ [10, 768]</text>
 
     <circle cx="44" cy="196" r="12" fill="#6d28d9"/><text x="44" y="200" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">3</text>
     <text x="70" y="200" font-size="12" fill="#333">RMSNorm（前半层入口）</text>
-    <text x="688" y="200" text-anchor="end" font-size="11" fill="#6d28d9">[1, 10, 768] 不变</text>
+    <text x="688" y="200" text-anchor="end" font-size="11" fill="#6d28d9">[10, 768] 不变</text>
 
     <circle cx="44" cy="238" r="12" fill="#6d28d9"/><text x="44" y="242" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">4</text>
     <text x="70" y="242" font-size="12" fill="#333">Q / K / V 投影<tspan fill="#9ca3af" font-size="10">　（图 5）</tspan></text>
-    <text x="688" y="242" text-anchor="end" font-size="11" fill="#6d28d9">→ [1,10,768] / [1,10,384] / [1,10,384]</text>
+    <text x="688" y="242" text-anchor="end" font-size="11" fill="#6d28d9">→ [10, 768] / [10, 384] / [10, 384]</text>
 
     <circle cx="44" cy="280" r="12" fill="#6d28d9"/><text x="44" y="284" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">5</text>
     <text x="70" y="284" font-size="12" fill="#333">按头拆分</text>
-    <text x="688" y="284" text-anchor="end" font-size="11" fill="#6d28d9">Q [1,10,8,96]，K/V [1,10,4,96]</text>
+    <text x="688" y="284" text-anchor="end" font-size="11" fill="#6d28d9">Q [10, 8, 96]，K/V [10, 4, 96]</text>
 
     <circle cx="44" cy="322" r="12" fill="#6d28d9"/><text x="44" y="326" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">6</text>
     <text x="70" y="326" font-size="12" fill="#333">QK-Norm + RoPE 旋转</text>
@@ -1216,65 +1233,65 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
     <circle cx="44" cy="364" r="12" fill="#6d28d9"/><text x="44" y="368" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">7</text>
     <text x="70" y="368" font-size="12" fill="#333">K/V 复制 ×2，按头重排</text>
-    <text x="688" y="368" text-anchor="end" font-size="11" fill="#6d28d9">三者均 [1, 8, 10, 96]</text>
+    <text x="688" y="368" text-anchor="end" font-size="11" fill="#6d28d9">三者均 [8, 10, 96]</text>
 
     <circle cx="44" cy="406" r="12" fill="#6d28d9"/><text x="44" y="410" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">8</text>
     <text x="70" y="410" font-size="12" fill="#333">QKᵀ 打分 ÷ √96<tspan fill="#9ca3af" font-size="10">　（图 6）</tspan></text>
-    <text x="688" y="410" text-anchor="end" font-size="11" fill="#6d28d9">→ [1, 8, 10, 10]</text>
+    <text x="688" y="410" text-anchor="end" font-size="11" fill="#6d28d9">→ [8, 10, 10]</text>
 
     <circle cx="44" cy="448" r="12" fill="#6d28d9"/><text x="44" y="452" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">9</text>
     <text x="70" y="452" font-size="12" fill="#333">因果掩码 + softmax</text>
-    <text x="688" y="452" text-anchor="end" font-size="11" fill="#6d28d9">[1, 8, 10, 10] 不变</text>
+    <text x="688" y="452" text-anchor="end" font-size="11" fill="#6d28d9">[8, 10, 10] 不变</text>
 
     <circle cx="44" cy="490" r="12" fill="#6d28d9"/><text x="44" y="494" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">10</text>
     <text x="70" y="494" font-size="12" fill="#333">权重 × V<tspan fill="#9ca3af" font-size="10">　（图 6）</tspan></text>
-    <text x="688" y="494" text-anchor="end" font-size="11" fill="#6d28d9">→ [1, 8, 10, 96]</text>
+    <text x="688" y="494" text-anchor="end" font-size="11" fill="#6d28d9">→ [8, 10, 96]</text>
 
     <circle cx="44" cy="532" r="12" fill="#6d28d9"/><text x="44" y="536" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">11</text>
     <text x="70" y="536" font-size="12" fill="#333">拼 8 头</text>
-    <text x="688" y="536" text-anchor="end" font-size="11" fill="#6d28d9">→ [1, 10, 768]</text>
+    <text x="688" y="536" text-anchor="end" font-size="11" fill="#6d28d9">→ [10, 768]</text>
 
     <circle cx="44" cy="574" r="12" fill="#6d28d9"/><text x="44" y="578" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">12</text>
     <text x="70" y="578" font-size="12" fill="#333">输出投影</text>
-    <text x="688" y="578" text-anchor="end" font-size="11" fill="#6d28d9">→ [1, 10, 768]</text>
+    <text x="688" y="578" text-anchor="end" font-size="11" fill="#6d28d9">→ [10, 768]</text>
 
     <circle cx="44" cy="616" r="12" fill="#6d28d9"/><text x="44" y="620" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">13</text>
     <text x="70" y="620" font-size="12" fill="#333">残差相加（前半层结束）</text>
-    <text x="688" y="620" text-anchor="end" font-size="11" fill="#6d28d9">[1, 10, 768] 不变</text>
+    <text x="688" y="620" text-anchor="end" font-size="11" fill="#6d28d9">[10, 768] 不变</text>
 
     <circle cx="44" cy="658" r="12" fill="#d97706"/><text x="44" y="662" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">14</text>
     <text x="70" y="662" font-size="12" fill="#333">RMSNorm（后半层入口）</text>
-    <text x="688" y="662" text-anchor="end" font-size="11" fill="#6d28d9">[1, 10, 768] 不变</text>
+    <text x="688" y="662" text-anchor="end" font-size="11" fill="#6d28d9">[10, 768] 不变</text>
 
     <circle cx="44" cy="700" r="12" fill="#d97706"/><text x="44" y="704" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">15</text>
     <text x="70" y="704" font-size="12" fill="#333">gate / up 投影<tspan fill="#9ca3af" font-size="10">　（图 7）</tspan></text>
-    <text x="688" y="704" text-anchor="end" font-size="11" fill="#6d28d9">→ 两个 [1, 10, 2432]</text>
+    <text x="688" y="704" text-anchor="end" font-size="11" fill="#6d28d9">→ 两个 [10, 2432]</text>
 
     <circle cx="44" cy="742" r="12" fill="#d97706"/><text x="44" y="746" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">16</text>
     <text x="70" y="746" font-size="12" fill="#333">SiLU(gate) ⊙ up</text>
-    <text x="688" y="746" text-anchor="end" font-size="11" fill="#6d28d9">→ [1, 10, 2432]</text>
+    <text x="688" y="746" text-anchor="end" font-size="11" fill="#6d28d9">→ [10, 2432]</text>
 
     <circle cx="44" cy="784" r="12" fill="#d97706"/><text x="44" y="788" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">17</text>
     <text x="70" y="788" font-size="12" fill="#333">down 投影</text>
-    <text x="688" y="788" text-anchor="end" font-size="11" fill="#6d28d9">→ [1, 10, 768]</text>
+    <text x="688" y="788" text-anchor="end" font-size="11" fill="#6d28d9">→ [10, 768]</text>
 
     <circle cx="44" cy="826" r="12" fill="#d97706"/><text x="44" y="830" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">18</text>
     <text x="70" y="830" font-size="12" fill="#333">残差相加（一层 Block 结束）</text>
-    <text x="688" y="830" text-anchor="end" font-size="11" fill="#6d28d9">[1, 10, 768] 不变</text>
+    <text x="688" y="830" text-anchor="end" font-size="11" fill="#6d28d9">[10, 768] 不变</text>
 
     <circle cx="44" cy="908" r="12" fill="#0891b2"/><text x="44" y="912" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">20</text>
     <text x="70" y="912" font-size="12" fill="#333">最终 RMSNorm</text>
-    <text x="688" y="912" text-anchor="end" font-size="11" fill="#6d28d9">[1, 10, 768] 不变</text>
+    <text x="688" y="912" text-anchor="end" font-size="11" fill="#6d28d9">[10, 768] 不变</text>
 
     <circle cx="44" cy="950" r="12" fill="#0891b2"/><text x="44" y="954" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">21</text>
     <text x="70" y="954" font-size="12" fill="#333">输出投影 · 共享嵌入表ᵀ<tspan fill="#9ca3af" font-size="10">　（图 8）</tspan></text>
-    <text x="688" y="954" text-anchor="end" font-size="11" fill="#6d28d9">→ [1, 10, 6400]</text>
+    <text x="688" y="954" text-anchor="end" font-size="11" fill="#6d28d9">→ [10, 6400]</text>
 
     <circle cx="44" cy="992" r="12" fill="#0891b2"/><text x="44" y="996" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">22</text>
     <text x="70" y="996" font-size="12" fill="#333">取最后一行 + softmax</text>
-    <text x="688" y="996" text-anchor="end" font-size="11" fill="#6d28d9">→ [1, 6400] 概率分布</text>
+    <text x="688" y="996" text-anchor="end" font-size="11" fill="#6d28d9">→ [6400] 概率分布</text>
   </svg>
-  <div class="diagram-caption">图 9：一次前向的完整步骤总账（编号与 4.6.4 账表一致）。token ID 经 Embedding 成 [1,10,768] 后进入 8 层相同的 Block：前半层做掩码自注意力（第 3–13 步，形状只在头维和 10×10 权重表之间折返），后半层做 SwiGLU FFN（第 14–18 步，升维 2432 再压回）；塔顶经最终 RMSNorm、共享嵌入表转置投影到 [1,10,6400]，取最后一行 softmax 得下一个词的概率。主干从头到尾恒为 [1,10,768]——抓住这条纲，全流程不迷路。</div>
+  <div class="diagram-caption">图 9：一次前向的完整步骤总账（编号与 4.6.4 账表一致）。token ID 经 Embedding 成 [10, 768] 后进入 8 层相同的 Block：前半层做掩码自注意力（第 3–13 步，形状只在头维和 10×10 权重表之间折返），后半层做 SwiGLU FFN（第 14–18 步，升维 2432 再压回）；塔顶经最终 RMSNorm、共享嵌入表转置投影到 [10, 6400]，取最后一行 softmax 得下一个词的概率。主干从头到尾恒为 [10, 768]——抓住这条纲，全流程不迷路。</div>
 </div>
 
 <h2>4.6.4 参数量与计算量总账</h2>
@@ -1309,13 +1326,13 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　两点提醒。第一，这条经验式忽略了注意力分数那一步（\(2 h T^2 d_k\) 次运算）：本例 \(T=10\)，它只占约 0.1%，可以忽略；但它随 \(T\) 平方增长，序列一长就不可忽略，这是第 7 章（训练算力）和第 13 章（长序列推理、KV Cache）要正面处理的问题。第二，1.3 GFLOPs 听起来大，一块普通 GPU 每秒能算几十 TFLOPs，这台 64M 小模型前向一次只是眨眼功夫；真正的成本在训练时要对万亿 token 反复前向加反向，那是第 6、7 章的主题。</p>
 
-<p>　　至此，从 <code>[1, 10]</code> 的整数编号到 <code>[1, 6400]</code> 的概率分布，每一步的形状、每一类参数的去向、每一份算力的花销都摆在了台面上。第 5 章将看到，RMSNorm、SwiGLU、GQA 这些"现代变体"为什么能全面取代原论文的初代设计——你已经有了评判它们的全部基础。</p>
+<p>　　至此，从 <code>[10]</code> 的整数编号到 <code>[6400]</code> 的概率分布，每一步的形状、每一类参数的去向、每一份算力的花销都摆在了台面上。第 5 章将看到，RMSNorm、SwiGLU、GQA 这些"现代变体"为什么能全面取代原论文的初代设计——你已经有了评判它们的全部基础。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
   <div class="socratic-qa">
     <div class="sc-q">为什么张量中途多出"头"这一维，最后又消失了？</div>
-    <div class="sc-key">多头是让 8 组注意力并行看待同一句子：按头拆分把 768 维变成 8×96 分别计算，算完再拼回 768 维。这些操作只重排数据，不产生新数值，所以主干形状始终 <code>[B, T, 768]</code>。</div>
+    <div class="sc-key">多头是让 8 组注意力并行看待同一句子：按头拆分把 768 维变成 8×96 分别计算，算完再拼回 768 维。这些操作只重排数据，不产生新数值，所以主干形状始终 <code>[T, 768]</code>。</div>
   </div>
   <div class="socratic-qa">
     <div class="sc-q">6400 这个数字在全流程出现两次，分别在哪里？</div>
@@ -1330,7 +1347,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 <h2>参考来源</h2>
 <ul>
   <li>Vaswani et al., 2017. Attention Is All You Need（arXiv:1706.03762）：本文公式 (2) 与该文公式 (1) 逐字核对一致，嵌入/输出权重共享出自其 3.4 节，对照 ref_paper 中文译稿核实。本页正文所称「原论文」即此篇。</li>
-  <li>minimind 工程（jingyaogong/minimind，Apache 2.0）：本页全部规格数字、参数拆解与张量形状以其 minimind-3（64M 档）实现及官方规格表为准（词表 6400、8 层、768 维、8 个 Q 头、4 组 KV 头、FFN 中间宽 2432）。正文只讲算法与形状，代码细节不在页面内引用。</li>
+  <li>minimind 工程（jingyaogong/minimind，Apache 2.0）：本页全部规格数字、参数拆解与张量形状以其 minimind-3（64M 档）实现及官方规格表为准（词表 6400、8 层、768 维、8 个 Q 头、4 组 KV 头、FFN 中间宽 2432）。正文只讲算法与形状，代码细节不在页面内引用。注意代码里的张量形状比本页多一维 batch（本例 B=1），对照时把本页每个形状前面补上这一维即可。</li>
   <li>Kaplan et al., 2020. Scaling Laws for Neural Language Models（arXiv:2001.08361）：前向计算量 \(C \approx 2NT\) 的经验估算出自该文表 1，本文公式 (4) 另用逐模块手算交叉验证。</li>
   <li>Zhang &amp; Sennrich, 2019. Root Mean Square Layer Normalization（arXiv:1910.07467）：公式 (1) RMSNorm 的出处，实现细节以 minimind 源码为准。</li>
   <li>Su et al., 2021. RoFormer: Enhanced Transformer with Rotary Position Embedding（arXiv:2104.09864）：RoPE 原始论文，旋转原理详见本手册 3.4 节。</li>
