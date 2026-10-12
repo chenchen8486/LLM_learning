@@ -273,7 +273,7 @@
         <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
       </marker>
     </defs>
-    <!-- 画法与 4.4 节图 2 一致：数据自下而上；每个子层组 = 白框（上为绿色「残差+归一化」条、下为子层本体）；虚线大框 = 一层 -->
+    <!-- 画法与 4.4 节图 2 一致：数据自下而上；每个子层组 = 白框；虚线大框 = 一层。左塔（Post-Norm）白框内：上为「残差+层归一化」绿条、下为子层本体；右塔（Pre-Norm）白框内三件式：上「⊕ 残差」条、中子层、下「RMSNorm 前置」条 -->
     <text x="165" y="30" text-anchor="middle" font-size="15" font-weight="bold" fill="#4c1d95">原论文解码器层（2017）</text>
     <text x="815" y="30" text-anchor="middle" font-size="15" font-weight="bold" fill="#155e75">现代 LLM Block（GPT 系）</text>
 
@@ -314,43 +314,49 @@
     <text x="165" y="409" text-anchor="middle" font-size="10.5" fill="#666">d_model = 512 · 正弦位置编码加在输入嵌入上</text>
 
     <!-- 左·输入 -->
-    <line x1="165" y1="430" x2="165" y2="418" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP)"/>
+    <line x1="165" y1="430" x2="165" y2="372" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrP)"/>
     <rect x="50" y="430" width="230" height="28" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
     <text x="165" y="448" text-anchor="middle" font-size="11.5" fill="#333">输入：已生成前缀（右移一位）</text>
 
-    <!-- 右塔：现代 LLM Block（同样画法，Pre-Norm 体现在绿条文字） -->
+    <!-- 右塔：现代 LLM Block（Pre-Norm 由白框内三件式的空间顺序直接体现） -->
     <rect x="685" y="44" width="260" height="372" rx="12" fill="#f5f3ff" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6 4"/>
     <text x="815" y="68" text-anchor="middle" font-size="12" font-weight="bold" fill="#0891b2">Block ×N（2 个子层组，自下而上）</text>
 
-    <!-- 右·FFN 组（与左塔子层 3 组同高度） -->
+    <!-- 右·FFN 组（与左塔子层 3 组同高度；Pre-Norm：自下而上 RMSNorm → 子层 → ⊕） -->
     <rect x="700" y="84" width="230" height="84" rx="8" fill="#ffffff" stroke="#0891b2" stroke-width="2"/>
-    <rect x="710" y="92" width="210" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
-    <text x="815" y="107" text-anchor="middle" font-size="11" fill="#047857">残差连接 + RMSNorm（前置）</text>
-    <line x1="815" y1="122" x2="815" y2="114" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrC)"/>
-    <rect x="710" y="122" width="210" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/>
-    <text x="815" y="141" text-anchor="middle" font-size="13" fill="#333">前馈网络 FFN</text>
-    <text x="815" y="158" text-anchor="middle" font-size="10.5" fill="#155e75">SwiGLU 门控（5.1 节）</text>
+    <rect x="710" y="88" width="210" height="16" rx="5" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="815" y="100" text-anchor="middle" font-size="10.5" fill="#047857">⊕ 残差连接</text>
+    <line x1="815" y1="112" x2="815" y2="106" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrC)"/>
+    <rect x="710" y="112" width="210" height="28" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="815" y="124" text-anchor="middle" font-size="12" fill="#333">前馈网络 FFN</text>
+    <text x="815" y="136" text-anchor="middle" font-size="9.5" fill="#155e75">SwiGLU 门控（5.1 节）</text>
+    <line x1="815" y1="148" x2="815" y2="142" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrC)"/>
+    <rect x="710" y="148" width="210" height="16" rx="5" fill="#d1fae5" stroke="#059669" stroke-width="1.2"/>
+    <text x="815" y="160" text-anchor="middle" font-size="10.5" fill="#047857">RMSNorm（前置）</text>
 
     <!-- 右·被删除的槽位（与左塔子层 2 组同高度） -->
     <rect x="700" y="184" width="230" height="84" rx="8" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5 4"/>
     <text x="815" y="226" text-anchor="middle" font-size="12" fill="#dc2626">交叉注意力槽位</text>
     <text x="815" y="244" text-anchor="middle" font-size="10.5" fill="#dc2626">（随编码器一并删除）</text>
 
-    <!-- 右·注意力组（与左塔子层 1 组同高度） -->
+    <!-- 右·注意力组（与左塔子层 1 组同高度；Pre-Norm：自下而上 RMSNorm → 子层 → ⊕） -->
     <line x1="815" y1="284" x2="815" y2="170" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrC)"/>
     <rect x="700" y="284" width="230" height="84" rx="8" fill="#ffffff" stroke="#0891b2" stroke-width="2"/>
-    <rect x="710" y="292" width="210" height="22" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
-    <text x="815" y="307" text-anchor="middle" font-size="11" fill="#047857">残差连接 + RMSNorm（前置）</text>
-    <line x1="815" y1="322" x2="815" y2="314" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrC)"/>
-    <rect x="710" y="322" width="210" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/>
-    <text x="815" y="341" text-anchor="middle" font-size="13" fill="#333">掩码多头自注意力</text>
-    <text x="815" y="358" text-anchor="middle" font-size="10.5" fill="#155e75">RoPE 位置 + GQA（5.2 节）</text>
+    <rect x="710" y="288" width="210" height="16" rx="5" fill="#ecfdf5" stroke="#059669" stroke-width="1.2"/>
+    <text x="815" y="300" text-anchor="middle" font-size="10.5" fill="#047857">⊕ 残差连接</text>
+    <line x1="815" y1="312" x2="815" y2="306" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrC)"/>
+    <rect x="710" y="312" width="210" height="28" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.2"/>
+    <text x="815" y="324" text-anchor="middle" font-size="12" fill="#333">掩码多头自注意力</text>
+    <text x="815" y="336" text-anchor="middle" font-size="9.5" fill="#155e75">RoPE 位置 + GQA（5.2 节）</text>
+    <line x1="815" y1="348" x2="815" y2="342" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrC)"/>
+    <rect x="710" y="348" width="210" height="16" rx="5" fill="#d1fae5" stroke="#059669" stroke-width="1.2"/>
+    <text x="815" y="360" text-anchor="middle" font-size="10.5" fill="#047857">RMSNorm（前置）</text>
 
     <text x="815" y="392" text-anchor="middle" font-size="11.5" fill="#155e75">每层 2 子层 × N 层（minimind：N=8）</text>
     <text x="815" y="409" text-anchor="middle" font-size="10.5" fill="#666">塔顶再过一道 RMSNorm · RoPE 融在注意力内部</text>
 
     <!-- 右·输入 -->
-    <line x1="815" y1="430" x2="815" y2="418" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrC)"/>
+    <line x1="815" y1="430" x2="815" y2="372" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrC)"/>
     <rect x="700" y="430" width="230" height="28" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
     <text x="815" y="448" text-anchor="middle" font-size="11.5" fill="#333">输入：已生成前缀</text>
 
@@ -363,7 +369,7 @@
     <line x1="285" y1="326" x2="695" y2="326" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrP)"/>
     <text x="490" y="310" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6d28d9">保留 · 换零件：MHA → GQA + RoPE</text>
   </svg>
-  <div class="diagram-caption">图 3：原论文解码器层（左）与现代 LLM block（右）的并排对照，画法沿用 4.4 节图 2 的约定——数据自下而上，每个白框是一个子层组，绿色条是该子层外的「残差 + 归一化」包装。两组保留的子层与一条水平箭头一一对应：子层本体保留但内部零件换代（MHA → GQA + RoPE、ReLU → SwiGLU），包装里的归一化从 LayerNorm 后置（Post-Norm）换成 RMSNorm 前置（Pre-Norm）；中间一层在右侧只剩红色虚线槽位——交叉注意力随编码器一并删除，每层从 3 个子层瘦身为 2 个。</div>
+  <div class="diagram-caption">图 3：原论文解码器层（左）与现代 LLM block（右）的并排对照，数据自下而上，每个白框是一个子层组。两组保留的子层与一条水平箭头一一对应：子层本体保留但内部零件换代（MHA → GQA + RoPE、ReLU → SwiGLU）；中间一层在右侧只剩红色虚线槽位——交叉注意力随编码器一并删除，每层从 3 个子层瘦身为 2 个。白框内部结构承载着最关键的一处差异：左塔每组「子层在下、残差+层归一化条在上」（Post-Norm：先计算，相加之后再归一化）；右塔每组自下而上是「RMSNorm 条 → 子层 → ⊕ 残差条」（Pre-Norm：先归一化再计算，最后相加，与 4.4 节图 4 同一画法）——归一化的位置从空间结构上一眼可辨。</div>
 </div>
 
 <div class="table-wrap">
