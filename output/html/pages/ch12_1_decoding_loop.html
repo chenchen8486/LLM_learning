@@ -29,7 +29,56 @@
 
 <p>　　读完本节，应该能手算一步解码的概率、说清贪心退化的成因，并独立读懂 minimind generate 函数的每一行。这套循环是 12.2 到 12.5 节所有话题（采样参数、停止条件、结构化输出、调参实践）共同的舞台。</p>
 
-<p>　　逐节展开之前，先把一步解码与它的自回归回路整体看一眼：一段 prompt 进去，模型每推一步算了什么，结果又怎样接回自己身上？心里有这张图，后面每一个环节都知道自己站在哪：</p>
+<p>　　逐节展开之前，分两层看这件事。先看全景（图 1）：一次完整生成，就是把同一步解码循环往复——prompt 进去，每跑一步吐出一个新 token，接回输入末尾再跑下一步，直到产出结束符或撞到长度上限。再把这一步放大（图 2）：看清模型每推一步内部到底算了什么。心里有这两层地图，后面每一个环节都知道自己站在哪：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 960 270" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrM121" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrRL121" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+      </marker>
+    </defs>
+    <text x="24" y="28" font-size="13" font-weight="bold" fill="#4c1d95">全景：一次完整生成 = 把「一步解码」循环往复</text>
+    <!-- 输入 -->
+    <rect x="24" y="64" width="170" height="90" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="109" y="88" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">输入 prompt</text>
+    <text x="109" y="108" text-anchor="middle" font-size="11" fill="#555555">分词后的 token ID</text>
+    <text x="109" y="128" text-anchor="middle" font-size="10" fill="#888888">「北京是中国的」</text>
+    <line x1="194" y1="109" x2="236" y2="109" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM121)"/>
+    <!-- 一步解码黑盒 -->
+    <rect x="240" y="50" width="210" height="118" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="345" y="76" text-anchor="middle" font-size="13" font-weight="bold" fill="#ffffff">一步解码</text>
+    <text x="345" y="97" text-anchor="middle" font-size="11" fill="#ede9fe">logits → 修正 → softmax → 选词</text>
+    <text x="345" y="118" text-anchor="middle" font-size="10.5" fill="#ede9fe">内部放大见图 2</text>
+    <text x="345" y="140" text-anchor="middle" font-size="10.5" fill="#ede9fe">每跑一步吐出 1 个 token</text>
+    <line x1="450" y1="109" x2="486" y2="109" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM121)"/>
+    <!-- 新 token -->
+    <rect x="490" y="64" width="150" height="90" rx="8" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="565" y="88" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">新 token</text>
+    <text x="565" y="114" text-anchor="middle" font-size="13" fill="#333333">「首」</text>
+    <text x="565" y="134" text-anchor="middle" font-size="10" fill="#888888">再来一步是「都」</text>
+    <line x1="640" y1="109" x2="676" y2="109" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM121)"/>
+    <!-- 停止判断 -->
+    <rect x="680" y="50" width="170" height="118" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="765" y="76" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#92400e">停止判断</text>
+    <text x="765" y="97" text-anchor="middle" font-size="11" fill="#555555">产出结束符 eos？</text>
+    <text x="765" y="117" text-anchor="middle" font-size="11" fill="#555555">或撞到长度上限？</text>
+    <text x="765" y="140" text-anchor="middle" font-size="11" font-weight="bold" fill="#92400e">是 → 生成结束</text>
+    <!-- 章节指路标签 -->
+    <text x="345" y="190" text-anchor="middle" font-size="10.5" fill="#6b7280">修正参数（温度 / top-k / top-p）→ 12.2 节</text>
+    <text x="765" y="190" text-anchor="middle" font-size="10.5" fill="#6b7280">停止条件细则 → 12.3 节</text>
+    <!-- 自回归回路 -->
+    <polyline points="565,158 565,220 109,220 109,158" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrRL121)"/>
+    <text x="337" y="240" text-anchor="middle" font-size="11.5" fill="#dc2626">自回归：新 token 接回输入末尾，再从头跑一遍</text>
+  </svg>
+  <div class="diagram-caption">图 1：一次生成的全景。prompt 分词成 token ID 后进入模型，一步解码吐出一个新 token，新 token 接回输入末尾再来一遍（红色自回归回路），直到产出结束符 eos 或撞到长度上限才停。「一步解码」在这里是黑盒，其内部四环节（logits → 修正 → softmax → 选词）由图 2 放大；黑盒上挂的解码参数与终点处的停止规则，分别是 12.2 节与 12.3 节的话题。</div>
+</div>
+
+<p>　　全景里的黑盒内部长什么样？把它放大到毫米级：一段 prompt 进去，模型每推一步算了什么、张量是什么形状、结果又怎样接回自己身上？</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -45,7 +94,7 @@
         <path d="M0,0 L10,5 L0,10 z" fill="#d97706"/>
       </marker>
     </defs>
-    <text x="24" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：一步解码与红色自回归回路（数字为 minimind 默认配置，行号指 model_minimind.py）</text>
+    <text x="24" y="26" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：「一步解码」黑盒的内部（数字为 minimind 默认配置，行号指 model_minimind.py）</text>
     <!-- 主链：输入 -->
     <rect x="20" y="60" width="130" height="120" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
     <text x="85" y="86" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">输入</text>
@@ -92,7 +141,7 @@
     <polyline points="872,196 872,292 85,292 85,186" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrR121loop)"/>
     <text x="478" y="312" text-anchor="middle" font-size="10.5" fill="#dc2626">自回归回路：新 token 接回输入末尾逐步重复，直到产出 eos 或撞 max_new_tokens=8192（284、288–290 行）</text>
   </svg>
-  <div class="diagram-caption">图 1：推理部署站的局部放大——一步解码的完整链路（数字均为 minimind 默认配置，行号指 model_minimind.py）。prompt 的 token ID 序列 [B, N] 进入 MiniMind 前向（8 层 Transformer 块、hidden 768、词表 6400、约 63.9M 参数），末位位置吐出词表大小的 logits [B, 6400]；修正链依次做温度除法（T=0.85）、top_k=50 截尾、top_p=0.85 截尾，softmax 归一后由 multinomial 抽出一个新 token [B, 1]；新 token 沿红色自回归回路接回输入末尾，循环直到产出 eos 或撞 max_new_tokens=8192 上限。琥珀色注释框是本节的 KV Cache 预告：第 2 步起只把新 token 送进前向，机制细节第 13 章展开。12.1.1 到 12.1.4 会逐块讲清这张图的每个环节。</div>
+  <div class="diagram-caption">图 2：图 1 黑盒的局部放大——一步解码的完整链路（数字均为 minimind 默认配置，行号指 model_minimind.py）。prompt 的 token ID 序列 [B, N] 进入 MiniMind 前向（8 层 Transformer 块、hidden 768、词表 6400、约 63.9M 参数），末位位置吐出词表大小的 logits [B, 6400]；修正链依次做温度除法（T=0.85）、top_k=50 截尾、top_p=0.85 截尾，softmax 归一后由 multinomial 抽出一个新 token [B, 1]；新 token 沿红色自回归回路接回输入末尾，循环直到产出 eos 或撞 max_new_tokens=8192 上限。琥珀色注释框是本节的 KV Cache 预告：第 2 步起只把新 token 送进前向，机制细节第 13 章展开。12.1.1 到 12.1.4 会逐块讲清这张图的每个环节。</div>
 </div>
 
 <h2>12.1.1 一步解码的解剖：logits → 修正 → softmax → 选词</h2>
@@ -117,7 +166,7 @@
   <div class="formula-note">公式 (1)：带温度的 softmax——把词表大小的 logits 向量折算成概率分布，所有候选的概率为正且总和为 1。符号说明：\(z_i\) 是第 \(i\) 个候选 token 的 logit（模型输出的原始打分，已做过修正链处理）；\(T\) 是温度（temperature），\(T &lt; 1\) 放大分数差距让分布变尖锐，\(T &gt; 1\) 抹平差距让分布变平坦，机理见附录 A.3；\(V\) 是词表大小，minimind 为 6400；\(p_i\) 是第 \(i\) 个 token 被选中的概率。选词时，argmax 取 \(p_i\) 最大的那个，multinomial 按 \(p_i\) 抽签。</div>
 </div>
 
-<p>　　用一个能手算的小例把四个环节串起来。设某一步只有 4 个候选值得关注（其余 6396 个 token 的分数低到可以忽略）：「的」「是」「在」「了」，模型给出的 logits 依次是 4.0、3.0、1.0、0.0。按 minimind 的默认温度 0.85 修正，四个分数变成 4.71、3.53、1.18、0.00；再过 softmax，概率为 74.3%、22.9%、2.2%、0.7%。最后的选词有两条路线：multinomial 抽样按概率抽签——74.3% 抽中「的」、22.9% 抽中「是」、约 2.9% 翻到后两名；argmax 则不看概率直接锁定最高分，必然选中「的」。这段分数之旅画出来就是图 2：</p>
+<p>　　用一个能手算的小例把四个环节串起来。设某一步只有 4 个候选值得关注（其余 6396 个 token 的分数低到可以忽略）：「的」「是」「在」「了」，模型给出的 logits 依次是 4.0、3.0、1.0、0.0。按 minimind 的默认温度 0.85 修正，四个分数变成 4.71、3.53、1.18、0.00；再过 softmax，概率为 74.3%、22.9%、2.2%、0.7%。最后的选词有两条路线：multinomial 抽样按概率抽签——74.3% 抽中「的」、22.9% 抽中「是」、约 2.9% 翻到后两名；argmax 则不看概率直接锁定最高分，必然选中「的」。这段分数之旅画出来就是图 3：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -180,7 +229,7 @@
     <text x="36" y="286" font-size="11.5" font-weight="bold" fill="#15803d">④ 选词（二选一）：multinomial 按概率抽签——74.3% 抽中「的」、22.9% 抽中「是」、约 2.9% 翻到后两名</text>
     <text x="36" y="306" font-size="10.5" fill="#555555">argmax 路线不看概率、锁定最高分：每步必中「的」——12.1.2 就讲这为什么反而出问题</text>
   </svg>
-  <div class="diagram-caption">图 2：一步解码的数值小例。四个候选 token 的原始打分（logits）先除以温度 0.85，再由 softmax 折算成概率；选词在 multinomial 抽签与 argmax 锁定最高分之间二选一。作为对照：不除温度（相当于 T=1）时四个概率是 69.6%、25.6%、3.5%、1.3%——T &lt; 1 会让分布更尖锐，这正是 12.2 节的主题。本例为聚焦「打分 → 概率 → 选词」只演示温度一站，top-k 与 top-p 的截断动作留到 12.2 节图示。</div>
+  <div class="diagram-caption">图 3：一步解码的数值小例。四个候选 token 的原始打分（logits）先除以温度 0.85，再由 softmax 折算成概率；选词在 multinomial 抽签与 argmax 锁定最高分之间二选一。作为对照：不除温度（相当于 T=1）时四个概率是 69.6%、25.6%、3.5%、1.3%——T &lt; 1 会让分布更尖锐，这正是 12.2 节的主题。本例为聚焦「打分 → 概率 → 选词」只演示温度一站，top-k 与 top-p 的截断动作留到 12.2 节图示。</div>
 </div>
 
 <p>　　小例里第二环节只做了一步温度除法，完整的修正链还包括 top-k、top-p 截断与重复惩罚，它们各自的作用与相互顺序是 12.2 节的专章内容。本节的焦点是骨架：无论修正链多长，一步解码的两端永远是「模型出 logits」和「选出一个 token」。</p>
