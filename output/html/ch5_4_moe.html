@@ -433,76 +433,77 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　读完本节，你应该能说清 MoE 凭什么“拿显存换计算”，以及它与前几节的改进为什么是正交的。它牵出的专家并行、路由通信等工程问题，分别留到第 7 章和第 13 章展开。</p>
 
-<p>　　本节动的还是块里的前馈子层：不改它的内部结构，改它的组织方式。把前馈子层放大来看，一个 token 进去，几个专家谁上场、怎么算、出来时什么形状？把 minimind 的 MoE 前馈单独拆开看：</p>
+<p>　　本节动的还是块里的前馈子层：不改它的内部结构，改它的组织方式。把 block 里的这一格放大对照：左边是 4.6 节已经走完的 dense FFN，右边是 minimind 替换后的 MoE 层——一个 token 进去，几个专家谁上场、怎么算、出来时什么形状？</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 760 442" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+  <svg viewBox="0 0 760 500" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
     <defs>
       <marker id="arrE54" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
       </marker>
     </defs>
-    <text x="20" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：minimind 的 MoE 前馈——输入 768 维，4 个专家只激活 1 个，输出仍为 768 维</text>
-    <!-- 输入 -->
-    <rect x="20" y="96" width="120" height="64" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="80" y="122" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#333">输入 x</text>
-    <text x="80" y="142" text-anchor="middle" font-size="11" fill="#555">768 维，一个 token</text>
-    <line x1="140" y1="128" x2="166" y2="128" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE54)"/>
-    <!-- 路由器 -->
-    <rect x="168" y="84" width="156" height="88" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="246" y="110" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">路由器 router</text>
-    <text x="246" y="130" text-anchor="middle" font-size="11" fill="#555">Linear(768 → 4)</text>
-    <text x="246" y="149" text-anchor="middle" font-size="11" fill="#555">softmax 打出 4 个分数</text>
-    <line x1="324" y1="128" x2="350" y2="128" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE54)"/>
-    <!-- 打分条 -->
-    <rect x="352" y="56" width="176" height="146" rx="10" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
-    <text x="440" y="78" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">打分（示意）</text>
-    <text x="372" y="101" font-size="10.5" fill="#666">s1</text><rect x="392" y="90" width="56" height="14" rx="3" fill="#d1d5db"/>
-    <text x="372" y="127" font-size="10.5" fill="#6d28d9">s2</text><rect x="392" y="116" width="112" height="14" rx="3" fill="#6d28d9"/>
-    <text x="372" y="153" font-size="10.5" fill="#666">s3</text><rect x="392" y="142" width="72" height="14" rx="3" fill="#d1d5db"/>
-    <text x="372" y="179" font-size="10.5" fill="#666">s4</text><rect x="392" y="168" width="40" height="14" rx="3" fill="#d1d5db"/>
-    <line x1="440" y1="202" x2="440" y2="224" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE54)"/>
-    <!-- top-1 -->
-    <rect x="352" y="228" width="176" height="56" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="440" y="250" text-anchor="middle" font-size="12" font-weight="bold" fill="#4c1d95">top-1：只留最高分</text>
-    <text x="440" y="269" text-anchor="middle" font-size="10.5" fill="#555">其余 3 个专家本轮不计算</text>
-    <!-- 专家列 -->
-    <path d="M 528 256 C 548 256 544 148 556 148" fill="none" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#arrE54)"/>
-    <line x1="528" y1="250" x2="556" y2="86" stroke="#d1d5db" stroke-width="1.2"/>
-    <line x1="528" y1="258" x2="556" y2="216" stroke="#d1d5db" stroke-width="1.2"/>
-    <line x1="528" y1="262" x2="556" y2="282" stroke="#d1d5db" stroke-width="1.2"/>
-    <rect x="560" y="56" width="186" height="52" rx="8" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.2" stroke-dasharray="5 4"/>
-    <text x="653" y="78" text-anchor="middle" font-size="11" fill="#9ca3af">专家 1：FFN 768→2432→768</text>
-    <text x="653" y="96" text-anchor="middle" font-size="10.5" fill="#9ca3af">本轮不计算</text>
-    <rect x="560" y="122" width="186" height="52" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
-    <text x="653" y="144" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">专家 2：FFN 768→2432→768</text>
-    <text x="653" y="162" text-anchor="middle" font-size="10.5" fill="#4c1d95">被选中，真正计算</text>
-    <rect x="560" y="188" width="186" height="52" rx="8" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.2" stroke-dasharray="5 4"/>
-    <text x="653" y="210" text-anchor="middle" font-size="11" fill="#9ca3af">专家 3：FFN 768→2432→768</text>
-    <text x="653" y="228" text-anchor="middle" font-size="10.5" fill="#9ca3af">本轮不计算</text>
-    <rect x="560" y="254" width="186" height="52" rx="8" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.2" stroke-dasharray="5 4"/>
-    <text x="653" y="276" text-anchor="middle" font-size="11" fill="#9ca3af">专家 4：FFN 768→2432→768</text>
-    <text x="653" y="294" text-anchor="middle" font-size="10.5" fill="#9ca3af">本轮不计算</text>
-    <!-- 输出 -->
-    <path d="M 746 148 L 758 148 L 758 372 L 748 372" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE54)"/>
-    <rect x="560" y="344" width="186" height="58" rx="10" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
-    <text x="653" y="368" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#ffffff">输出 y = 权重 × 专家2(x)</text>
-    <text x="653" y="388" text-anchor="middle" font-size="10.5" fill="#ede9fe">768 维，形状与输入相同</text>
-    <!-- 辅助损失 -->
-    <rect x="20" y="200" width="250" height="84" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/>
-    <text x="145" y="222" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#333">训练时的约束：辅助损失</text>
-    <text x="145" y="241" text-anchor="middle" font-size="10.5" fill="#555">负载均衡损失系数 5e-4</text>
-    <text x="145" y="259" text-anchor="middle" font-size="10.5" fill="#555">把 token 摊平到 4 个专家</text>
-    <text x="145" y="276" text-anchor="middle" font-size="10.5" fill="#888">（5.4.4，防“追星”）</text>
-    <!-- dense 对照 -->
-    <rect x="20" y="330" width="380" height="88" rx="10" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5 4"/>
-    <text x="210" y="352" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#6b7280">对照：稠密（dense）前馈</text>
-    <text x="210" y="371" text-anchor="middle" font-size="10.5" fill="#6b7280">每个 token 流过全部 FFN 参数</text>
-    <text x="210" y="389" text-anchor="middle" font-size="10.5" fill="#6b7280">MoE 的 FFN 参数总量约为 dense 的 4 倍</text>
-    <text x="210" y="406" text-anchor="middle" font-size="10.5" fill="#6b7280">而单 token 计算量相同（只过 1 个专家）</text>
+    <text x="20" y="26" font-size="13" font-weight="bold" fill="#4c1d95">一格 FFN 的替换：dense → MoE（对照 4.6 节图 7）</text>
+    <text x="20" y="44" font-size="10" fill="#64748b">接口不变：进 768 维、出 768 维，主干与塔顶输出头（4.6 节图 8）都不用改；右图每个专家与左图同构（768→2432→768 SwiGLU）</text>
+    <!-- 左栏：dense FFN -->
+    <rect x="20" y="56" width="340" height="430" rx="12" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6 4"/>
+    <text x="190" y="78" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">原来：dense FFN（每个 token 全量算）</text>
+    <rect x="110" y="90" width="160" height="30" rx="6" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/>
+    <text x="190" y="109" text-anchor="middle" font-size="10.5" fill="#9ca3af">前半层：注意力（略）</text>
+    <line x1="190" y1="120" x2="190" y2="134" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrE54)"/>
+    <rect x="40" y="134" width="300" height="266" rx="10" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="190" y="152" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">后半层：FFN（对照 4.6 节图 7）</text>
+    <rect x="130" y="164" width="120" height="22" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="190" y="179" text-anchor="middle" font-size="9.5" fill="#92400e">x 向量 [1, 768]</text>
+    <text x="190" y="202" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">×</text>
+    <rect x="100" y="210" width="180" height="26" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="190" y="227" text-anchor="middle" font-size="9" fill="#4c1d95">W_gate、W_up 矩阵 [768, 2432]</text>
+    <text x="190" y="252" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">＝</text>
+    <rect x="80" y="260" width="220" height="26" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="190" y="277" text-anchor="middle" font-size="9" fill="#4c1d95">SiLU(gate) ⊙ up ＝ 筛选后 [1, 2432]</text>
+    <text x="190" y="302" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">×</text>
+    <rect x="110" y="310" width="160" height="26" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="190" y="327" text-anchor="middle" font-size="9" fill="#4c1d95">W_down 矩阵 [2432, 768]</text>
+    <text x="190" y="352" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">＝</text>
+    <rect x="130" y="360" width="120" height="22" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="190" y="375" text-anchor="middle" font-size="9.5" fill="#4c1d95">y 向量 [1, 768]</text>
+    <text x="190" y="424" text-anchor="middle" font-size="10.5" fill="#6b7280">每个 token 都流过全部 FFN 参数</text>
+    <text x="190" y="442" text-anchor="middle" font-size="10.5" fill="#6b7280">≈ 560 万个（768×2432×3）</text>
+    <!-- 中间替换箭头 -->
+    <text x="380" y="258" text-anchor="middle" font-size="10" font-weight="bold" fill="#4c1d95">替换</text>
+    <line x1="362" y1="271" x2="398" y2="271" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrE54)"/>
+    <text x="380" y="292" text-anchor="middle" font-size="9" fill="#64748b">接口不变</text>
+    <!-- 右栏：MoE -->
+    <rect x="400" y="56" width="340" height="430" rx="12" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6 4"/>
+    <text x="570" y="78" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">现在：MoE 前馈（minimind：4 专家 top-1）</text>
+    <rect x="490" y="90" width="160" height="30" rx="6" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/>
+    <text x="570" y="109" text-anchor="middle" font-size="10.5" fill="#9ca3af">前半层：注意力（略）</text>
+    <line x1="570" y1="120" x2="570" y2="134" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrE54)"/>
+    <rect x="420" y="134" width="300" height="310" rx="10" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="570" y="152" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">后半层：换成 MoE 层</text>
+    <rect x="510" y="164" width="120" height="22" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="570" y="179" text-anchor="middle" font-size="9.5" fill="#92400e">x 向量 [1, 768]</text>
+    <text x="570" y="202" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">×</text>
+    <rect x="480" y="210" width="180" height="40" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="570" y="226" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#4c1d95">路由器 W_g 矩阵 [768, 4]</text>
+    <text x="570" y="242" text-anchor="middle" font-size="9" fill="#64748b">softmax 4 个分数</text>
+    <line x1="570" y1="250" x2="570" y2="268" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrE54)"/>
+    <text x="580" y="264" font-size="9" fill="#64748b">top-1：只激活最高分</text>
+    <rect x="450" y="272" width="240" height="24" rx="5" fill="#f9fafb" stroke="#d1d5db" stroke-width="1" stroke-dasharray="5 4"/>
+    <text x="570" y="288" text-anchor="middle" font-size="8.5" fill="#9ca3af">专家 1：FFN 768→2432→768（同左），本轮不算</text>
+    <rect x="450" y="300" width="240" height="24" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="570" y="316" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#4c1d95">专家 2：FFN 768→2432→768（同左），真正计算</text>
+    <rect x="450" y="328" width="240" height="24" rx="5" fill="#f9fafb" stroke="#d1d5db" stroke-width="1" stroke-dasharray="5 4"/>
+    <text x="570" y="344" text-anchor="middle" font-size="8.5" fill="#9ca3af">专家 3：FFN 768→2432→768（同左），本轮不算</text>
+    <rect x="450" y="356" width="240" height="24" rx="5" fill="#f9fafb" stroke="#d1d5db" stroke-width="1" stroke-dasharray="5 4"/>
+    <text x="570" y="372" text-anchor="middle" font-size="8.5" fill="#9ca3af">专家 4：FFN 768→2432→768（同左），本轮不算</text>
+    <text x="570" y="396" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">＝</text>
+    <rect x="455" y="398" width="230" height="34" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="570" y="412" text-anchor="middle" font-size="9" fill="#4c1d95">y = 专家2(x) 向量 [1, 768]</text>
+    <text x="570" y="426" text-anchor="middle" font-size="8.5" fill="#64748b">top-1 权重归一化为 1</text>
+    <text x="570" y="462" text-anchor="middle" font-size="10.5" fill="#6b7280">参数 4 套 ≈ 2240 万，单 token 只算 1 套 ≈ 560 万</text>
   </svg>
-  <div class="diagram-caption">图 1：minimind 的 MoE 前馈层（默认配置：4 个专家、top-1 激活）。768 维输入经路由器 Linear(768→4) 加 softmax 打出 4 个分数（分数条为示意），只有最高分专家真正执行 FFN（768→2432→768，与 5.1 节的 SwiGLU 前馈同构），输出按路由权重加权后仍是 768 维；训练时附加系数 5e-4 的负载均衡损失。配置数字均出自 minimind 源码与正文。</div>
+  <div class="diagram-caption">图 1：一格 FFN 的替换对照（minimind 配置：4 专家、top-1）。左：dense FFN，每个 token 流过全部 ≈560 万参数（与 4.6 节图 7 同构）；右：同一位置换成路由器 \(W_g\) [768, 4] 加 4 个与左图同构的专家 FFN，softmax 打分后只有最高分专家真正计算，top-1 时选中分数归一化后为 1，输出就是该专家的计算结果（top-k≥2 时才按归一化分数加权，见 5.4.2 公式 2 与 minimind 源码 `model_minimind.py`）。接口不变：进 768 维出 768 维，主干与塔顶输出头（4.6 节图 8）都不用改；FFN 参数变 4 套（≈2240 万），单 token 计算量不变（≈560 万）。训练时的负载均衡损失见 5.4.4。</div>
 </div>
 
 <h2>5.4.1 稠密模型的天花板与“稀疏”想法</h2>
