@@ -15,6 +15,12 @@ No clone, no install — just open the sidebar and read chapter by chapter:
 
 **https://chenchen8486.github.io/LLM_learning/**
 
+<div align="center">
+  <img src="assets/transformer-detailed-2.gif" alt="Transformer attention animation" width="720"/>
+  <br/>
+  <sub>Attention mechanism, animated (visuals in the style of 3Blue1Brown, "Attention in transformers")</sub>
+</div>
+
 ## What makes it different
 
 - **Full pipeline, no gaps** — follows the LLM lifecycle: data collection and cleaning, tokenization, embeddings and positional encoding, Transformer architecture, pre-training, mid-training, post-training (SFT / preference alignment / reasoning training), decoding, inference serving, application patterns, and multimodal extensions.

@@ -9,6 +9,12 @@
 
 　　在线直接看（推荐，无需克隆）：<https://chenchen8486.github.io/LLM_learning/>。从侧边栏按章节顺序阅读即可。
 
+<div align="center">
+  <img src="assets/transformer-detailed-2.gif" alt="Transformer 注意力机制动画" width="720"/>
+  <br/>
+  <sub>注意力机制动画示意（画面风格引自 3Blue1Brown《Attention in transformers》）</sub>
+</div>
+
 ![手册预览：LLM 全链路全景](assets/figure-pipeline.png)
 
 ![手册预览：Transformer 两塔架构](assets/figure-architecture.png)
