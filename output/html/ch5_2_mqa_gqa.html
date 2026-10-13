@@ -421,75 +421,18 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<p>　　上一节改造的是归一化与前馈，本节轮到注意力本身。不过要动的不是注意力的算法，而是它的存储方式：推理时模型逐 token 生成，每蹦一个 token 都要回头翻全部历史的 K、V，这份 KV 缓存随层数、头数、序列长线性膨胀，既是显存大户，也是解码速度的瓶颈。本节沿「存几份 K、V」这条主线，把同一种注意力的三种存储档位从极端到折中逐一摆开：</p>
+<p>　　上一节改造的是归一化与前馈，本节轮到注意力本身。不过要动的不是注意力的算法，而是它的存储方式：推理时模型逐 token 生成，每蹦一个 token 都要回头翻全部历史的 K、V，这份 KV 缓存（KV Cache）随层数、头数、序列长线性膨胀，既是显存大户，也是解码速度的瓶颈。本节沿「存几份 K、V」这条主线，把多头注意力（MHA，Multi-Head Attention）的三种存储档位从极端到折中逐一摆开：</p>
 
 <ol>
   <li><strong>显存瓶颈从哪来：KV 缓存账本</strong>（5.2.1）：先算清每生成一个 token 要往显存写多少字节，找到最顺手的下刀处；</li>
-  <li><strong>MQA：一刀砍到 1 组</strong>（5.2.2）：全体查询头合雇一名秘书，缓存缩到 1/h，速度快了，质量却有可测损失；</li>
-  <li><strong>GQA：折中的分组艺术</strong>（5.2.3）：「几个头合看一份」变成连续可调的旋钮，GQA-8 实测质量接近 MHA、速度接近 MQA；</li>
-  <li><strong>三者对照：一张表看清</strong>（5.2.4）：同一套配置下三档缓存、质量与代表模型的全景对照，附接线方式示意图（图 3）。</li>
+  <li><strong>MQA（Multi-Query Attention，多查询注意力）：一刀砍到 1 组</strong>（5.2.2）：全体查询头合雇一名秘书，缓存缩到 1/h，速度快了，质量却有可测损失；</li>
+  <li><strong>GQA（Grouped-Query Attention，分组查询注意力）：折中的分组艺术</strong>（5.2.3）：「几个头合看一份」变成连续可调的旋钮，GQA-8 实测质量接近 MHA、速度接近 MQA；</li>
+  <li><strong>三者对照：一张表看清</strong>（5.2.4）：同一套配置下三档缓存、质量与代表模型的全景对照，附接线方式示意图（图 2）。</li>
 </ol>
 
-<p>　　读完本节，你应该能独立算出一个模型的 KV 缓存账，并说清为什么 Llama 2/3 和 minimind 都把旋钮停在 GQA 这一档。还想继续往下压，就得改变注意力的结构本身了，那是 5.3 节 MLA 的故事。</p>
+<p>　　读完本节，你应该能独立算出一个模型的 KV 缓存账，并说清为什么 Llama 2/3 和 minimind 都把旋钮停在 GQA 这一档。还想继续往下压，就得改变注意力的结构本身了，那是 5.3 节多头潜在注意力（MLA，Multi-head Latent Attention）的故事。</p>
 
-<p>　　逐档摆开之前，先看一眼本节内容在整条链路中的位置。第 4 章把 Transformer 块的骨架搭好了，本章是对块内部的改造，本节动的是注意力子层里 K、V 的存储份数。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
-
-<div class="diagram">
-  <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
-    <defs>
-      <marker id="arrS52mqagqa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
-      </marker>
-      <marker id="arrG52mqagqa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
-      </marker>
-    </defs>
-    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
-    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
-    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
-    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
-    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
-    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
-    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
-    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
-    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
-    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
-    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">注入「第几格」</text>
-    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.2–3.5 节）</text>
-    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
-    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
-    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">注意力与前馈 ×N</text>
-    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
-    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
-    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
-    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
-    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
-    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
-    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
-    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
-    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
-    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS52mqagqa)"/>
-    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS52mqagqa)"/>
-    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS52mqagqa)"/>
-    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS52mqagqa)"/>
-    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG52mqagqa)"/>
-    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG52mqagqa)"/>
-    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG52mqagqa)"/>
-    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
-    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
-    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
-    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
-    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
-  </svg>
-  <div class="diagram-caption">图 1：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）切成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，再经输出投影算出各 token 的概率（第 4 章），采样出下一个 token（第 12 章）并接回输入循环。第 5 章是对这个紫框内部的改造：本节不动注意力的算法，只改块内 K、V 向量的存储份数，把推理时的 KV 缓存压下来。</div>
-</div>
-
-<p>　　这个紫框里的注意力子层放大之后，三种方案的差别落在哪？每个 token 到底要往缓存里写多少个数？把 MHA、GQA、MQA 摆到同一把尺上量：</p>
+<p>　　第 4 章搭好了 Transformer 块的骨架，本节改造的是块内注意力子层里 K、V 的存储份数，不动注意力算法本身。把注意力子层放大来看，三种方案的差别落在哪？每个 token 到底要往缓存里写多少个数？把 MHA、GQA、MQA 摆到同一把尺上量：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -547,7 +490,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <text x="380" y="364" text-anchor="middle" font-size="11" fill="#666">口径：K、V 各存一份，每份 = K/V 组数 × 头维度 96（minimind 与正文示例同）；层数与序列长度对三者是相同倍数，此处只比单层单 token。</text>
     <text x="380" y="382" text-anchor="middle" font-size="11" fill="#666">缓存越小，每步解码从显存搬运的数据越少：MHA → GQA-4 → MQA 依次减半再除以 4。</text>
   </svg>
-  <div class="diagram-caption">图 2：同一层内三种注意力方案每个 token 要存进 KV 缓存的数据量。MHA 存 8 组 K/V，K、V 各 8×96=768 个数，合计 2×768；GQA-4 是 minimind 的默认配置，8 个查询头分 4 组，合计 2×384=768 个数，比 MHA 省一半；MQA 全体共享 1 组，合计 2×96=192 个数。组数就是正文公式 (1) 里的 h_kv，注意力算法本身三者完全一样，差别只在存几份。</div>
+  <div class="diagram-caption">图 1：同一层内三种注意力方案每个 token 要存进 KV 缓存的数据量。MHA 存 8 组 K/V，K、V 各 8×96=768 个数，合计 2×768；GQA-4 是 minimind 的默认配置，8 个查询头分 4 组，合计 2×384=768 个数，比 MHA 省一半；MQA 全体共享 1 组，合计 2×96=192 个数。组数就是正文公式 (1) 里的 h_kv，注意力算法本身三者完全一样，差别只在存几份。</div>
 </div>
 
 <h2>5.2.1 显存瓶颈从哪来：KV 缓存账本</h2>
@@ -652,7 +595,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<p>　　Llama 2 70B 的 GQA-8 是同一旋钮上的另一档：64 个查询头分 8 组，缓存同样降到 1/8，而实测质量与 MHA 基本持平。组数越少缓存越小、质量损失越大，这就是三者关系的全部。三者的接线方式看图 3 更直观：</p>
+<p>　　Llama 2 70B 的 GQA-8 是同一旋钮上的另一档：64 个查询头分 8 组，缓存同样降到 1/8，而实测质量与 MHA 基本持平。组数越少缓存越小、质量损失越大，这就是三者关系的全部。三者的接线方式看图 2 更直观：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -739,7 +682,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <rect x="392" y="321" width="12" height="12" fill="#ecfeff" stroke="#0891b2"/>
     <text x="410" y="331" font-size="12" fill="#555">K/V 组（每个 token 都要存）</text>
   </svg>
-  <div class="diagram-caption">图 3：三种注意力中查询头与 K/V 组的连接关系（以 8 个查询头为例）。K/V 组数就是每个 token 要存进 KV 缓存的份数：MHA 存 8 份，GQA-4 存 4 份，MQA 只存 1 份。右图的 GQA-4 正是 minimind 的实际配置。</div>
+  <div class="diagram-caption">图 2：三种注意力中查询头与 K/V 组的连接关系（以 8 个查询头为例）。K/V 组数就是每个 token 要存进 KV 缓存的份数：MHA 存 8 份，GQA-4 存 4 份，MQA 只存 1 份。右图的 GQA-4 正是 minimind 的实际配置。</div>
 </div>
 
 <div class="highlight-box">

@@ -433,129 +433,70 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　读完本节，你应该能说清 MLA 与 GQA 的本质区别，以及 DeepSeek-V2「缓存减少 93.3%、吞吐提升 5.76 倍」这两个数字从哪来。</p>
 
-<p>　　按「为什么压、怎么压、暗礁怎么绕、账怎么算」展开之前，先看一眼本节内容在整条链路中的位置。第 4 章把 Transformer 块的骨架搭好了，本章是对块内部的改造，本节动的仍是注意力子层：不改算法，改 K、V 的存储形态。心里有图 1 这张地图，后面每一节都知道自己站在哪：</p>
+<p>　　第 4 章搭好了 Transformer 块的骨架，本节动的仍是其中的注意力子层：不改算法，改 K、V 的存储形态。把块内的注意力放大来看，MLA 的压缩与展开怎么走？输入是什么形状、缓存里到底留几个数？把 MLA 的浓缩–展开通道单独拆开看：</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
-    <defs>
-      <marker id="arrS53mla" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
-      </marker>
-      <marker id="arrG53mla" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
-      </marker>
-    </defs>
-    <rect x="20" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="95" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">原始文本：</text>
-    <text x="95" y="86" text-anchor="middle" font-size="11" fill="#555555">「我爱中国」</text>
-    <text x="95" y="104" text-anchor="middle" font-size="10" fill="#888888">（输入起点）</text>
-    <rect x="200" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="275" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">分词器：</text>
-    <text x="275" y="86" text-anchor="middle" font-size="11" fill="#555555">切成 token ID 序列</text>
-    <text x="275" y="104" text-anchor="middle" font-size="10" fill="#888888">（第 2 章）</text>
-    <rect x="380" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="455" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">Embedding 层：</text>
-    <text x="455" y="86" text-anchor="middle" font-size="11" fill="#555555">查表：ID → 词向量</text>
-    <text x="455" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.1 节）</text>
-    <rect x="560" y="36" width="150" height="80" rx="8" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="635" y="64" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">位置编码：</text>
-    <text x="635" y="86" text-anchor="middle" font-size="11" fill="#555555">注入「第几格」</text>
-    <text x="635" y="104" text-anchor="middle" font-size="10" fill="#888888">（3.2–3.5 节）</text>
-    <rect x="560" y="152" width="150" height="80" rx="8" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
-    <text x="635" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">Transformer 层：</text>
-    <text x="635" y="202" text-anchor="middle" font-size="11" fill="#ede9fe">注意力与前馈 ×N</text>
-    <text x="635" y="220" text-anchor="middle" font-size="10" fill="#d8b4fe">（本节主角）</text>
-    <rect x="380" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
-    <text x="455" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">输出投影：</text>
-    <text x="455" y="202" text-anchor="middle" font-size="11" fill="#6b7280">算各 token 的概率</text>
-    <text x="455" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 4 章）</text>
-    <rect x="200" y="152" width="150" height="80" rx="8" fill="#fafafa" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>
-    <text x="275" y="180" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#6b7280">采样：</text>
-    <text x="275" y="202" text-anchor="middle" font-size="11" fill="#6b7280">吐出下一个 token</text>
-    <text x="275" y="220" text-anchor="middle" font-size="10" fill="#9ca3af">（第 12 章）</text>
-    <line x1="170" y1="76" x2="196" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS53mla)"/>
-    <line x1="350" y1="76" x2="376" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS53mla)"/>
-    <line x1="530" y1="76" x2="556" y2="76" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS53mla)"/>
-    <line x1="635" y1="116" x2="635" y2="148" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrS53mla)"/>
-    <line x1="560" y1="192" x2="534" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG53mla)"/>
-    <line x1="380" y1="192" x2="354" y2="192" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrG53mla)"/>
-    <path d="M 200 192 C 110 200, 95 170, 95 118" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrG53mla)"/>
-    <text x="140" y="248" text-anchor="middle" font-size="10.5" fill="#6b7280">生成的新 token 接回输入，继续循环（自回归，第 12 章）</text>
-    <rect x="200" y="292" width="18" height="11" rx="2" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.2"/>
-    <text x="226" y="302" font-size="10.5" fill="#555">实线框：已讲章节</text>
-    <rect x="412" y="292" width="18" height="11" rx="2" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>
-    <text x="438" y="302" font-size="10.5" fill="#6b7280">虚线框：后续章节</text>
-  </svg>
-  <div class="diagram-caption">图 1：Transformer 层在 LLM 前向链路中的位置。文本经分词（第 2 章）切成 token ID，Embedding 查表换成词向量（3.1 节），注入位置信息（3.2–3.5 节）后进入 Transformer 层，再经输出投影算出各 token 的概率（第 4 章），采样出下一个 token（第 12 章）并接回输入循环。第 5 章是对这个紫框内部的改造：上一节靠「共享」省缓存，本节更进一步，把块内注意力要存的 K、V 压成一份低维隐向量。</div>
-</div>
-
-<p>　　这个紫框里的注意力放大之后，MLA 的压缩与展开怎么走？输入是什么形状、缓存里到底留几个数？把 MLA 的浓缩–展开通道单独拆开看：</p>
-
-<div class="diagram">
-  <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 760 430" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+  <svg viewBox="0 0 760 440" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
     <defs>
       <marker id="arrM53" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
       </marker>
-      <marker id="arrM53g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
-      </marker>
     </defs>
-    <text x="20" y="28" font-size="13" font-weight="bold" fill="#4c1d95">局部放大：MLA 的浓缩–展开——输入 h_t（5120 维），缓存只留 512＋64＝576 个数（DeepSeek-V2 配置）</text>
+    <text x="20" y="27" font-size="14" font-weight="bold" fill="#4c1d95">MLA 的浓缩–展开形状流（DeepSeek-V2 配置）</text>
+    <text x="20" y="46" font-size="11" fill="#6b7280">输入 h<tspan dy="2.5" font-size="8">t</tspan><tspan dy="-2.5">：</tspan>5120 维，缓存只留 512＋64＝576 个数</text>
     <!-- 输入 h_t -->
-    <rect x="20" y="88" width="140" height="72" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="90" y="114" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">输入 h_t</text>
+    <rect x="20" y="88" width="140" height="72" rx="10" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="90" y="114" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">输入 h<tspan dy="3" font-size="9">t</tspan></text>
     <text x="90" y="134" text-anchor="middle" font-size="11" fill="#555">5120 维（上一层输出）</text>
     <!-- 主通道：下投影 -->
     <line x1="160" y1="112" x2="192" y2="100" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
     <rect x="196" y="56" width="160" height="66" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="276" y="80" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">下投影 W^DKV</text>
+    <text x="276" y="80" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">下投影 W<tspan dy="-6" font-size="9">DKV</tspan></text>
     <text x="276" y="99" text-anchor="middle" font-size="11" fill="#555">5120 → 512，一次压缩</text>
     <text x="276" y="115" text-anchor="middle" font-size="10.5" fill="#888">内容段，128 头共用</text>
     <line x1="356" y1="89" x2="384" y2="89" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
+    <!-- 进缓存组（虚线框包住两个缓存框） -->
+    <rect x="378" y="46" width="192" height="226" rx="12" fill="none" stroke="#0891b2" stroke-width="1.2" stroke-dasharray="6 4" opacity="0.55"/>
     <rect x="388" y="52" width="172" height="74" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="2.5"/>
-    <text x="474" y="76" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#155e75">隐向量 c_t^KV</text>
+    <text x="474" y="76" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#155e75">隐向量 c<tspan dy="3" font-size="9">t</tspan><tspan dy="-9" font-size="9">KV</tspan></text>
     <text x="474" y="95" text-anchor="middle" font-size="11" fill="#155e75">512 维「浓缩液」</text>
-    <text x="474" y="113" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">进缓存 ①</text>
+    <text x="474" y="113" text-anchor="middle" font-size="11" font-weight="bold" fill="#0891b2">我就是缓存 ①</text>
     <!-- 位置支路 -->
     <path d="M 90 160 L 90 229 L 192 229" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
     <rect x="196" y="196" width="160" height="66" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="276" y="220" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">W^KR 投影 ＋ RoPE</text>
+    <text x="276" y="220" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">W<tspan dy="-6" font-size="9">KR</tspan><tspan dy="6"> 投影 ＋ RoPE</tspan></text>
     <text x="276" y="239" text-anchor="middle" font-size="11" fill="#555">位置段单独算（5.3.3）</text>
     <text x="276" y="255" text-anchor="middle" font-size="10.5" fill="#888">不进压缩通道</text>
     <line x1="356" y1="229" x2="384" y2="229" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
     <rect x="388" y="196" width="172" height="66" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="2.5"/>
-    <text x="474" y="220" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#155e75">位置 key k_t^R</text>
+    <text x="474" y="220" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#155e75">位置 key k<tspan dy="3" font-size="9">t</tspan><tspan dy="-9" font-size="9">R</tspan></text>
     <text x="474" y="239" text-anchor="middle" font-size="11" fill="#155e75">64 维，全头共享</text>
-    <text x="474" y="255" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">进缓存 ②</text>
+    <text x="474" y="255" text-anchor="middle" font-size="11" font-weight="bold" fill="#0891b2">我就是缓存 ②</text>
     <!-- 用时展开 -->
     <path d="M 560 70 C 585 62 590 62 600 64" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
     <rect x="604" y="38" width="146" height="56" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="677" y="60" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">上投影 W_i^UK → K_i</text>
+    <text x="677" y="60" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">上投影 W<tspan dy="2.5" font-size="8.5">i</tspan><tspan dy="-8.5" font-size="8.5">UK</tspan><tspan dy="6"> → K</tspan><tspan dy="2.5" font-size="8.5">i</tspan></text>
     <text x="677" y="79" text-anchor="middle" font-size="10.5" fill="#555">128 头各自一份，各 128 维</text>
     <path d="M 560 112 C 585 128 590 136 600 140" fill="none" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
     <rect x="604" y="112" width="146" height="56" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="677" y="134" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">上投影 W_i^UV → V_i</text>
+    <text x="677" y="134" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#4c1d95">上投影 W<tspan dy="2.5" font-size="8.5">i</tspan><tspan dy="-8.5" font-size="8.5">UV</tspan><tspan dy="6"> → V</tspan><tspan dy="2.5" font-size="8.5">i</tspan></text>
     <text x="677" y="153" text-anchor="middle" font-size="10.5" fill="#555">128 头各自一份，各 128 维</text>
-    <!-- 缓存合计 -->
-    <line x1="474" y1="126" x2="474" y2="292" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrM53g)"/>
-    <line x1="520" y1="262" x2="520" y2="282" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="5 4"/>
-    <path d="M 520 282 L 520 300 L 478 300" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrM53g)"/>
-    <rect x="330" y="296" width="230" height="64" rx="10" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
-    <text x="445" y="322" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">每层每 token 缓存合计</text>
-    <text x="445" y="344" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">512 ＋ 64 ＝ 576 个数</text>
+    <!-- 缓存组 → 合计 -->
+    <line x1="474" y1="276" x2="474" y2="292" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrM53)"/>
+    <rect x="359" y="296" width="230" height="64" rx="10" fill="#6d28d9" stroke="#4c1d95" stroke-width="2"/>
+    <text x="474" y="322" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff">每层每 token 缓存合计</text>
+    <text x="474" y="344" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#ffffff"><tspan fill="#fecaca">① 512</tspan> ＋ <tspan fill="#fecaca">② 64</tspan> ＝ 576 个数</text>
     <!-- MHA 对照 -->
-    <rect x="20" y="290" width="250" height="70" rx="10" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5 4"/>
-    <text x="145" y="312" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#6b7280">对照 MHA（同层同 token）</text>
-    <text x="145" y="331" text-anchor="middle" font-size="11" fill="#6b7280">128 头 × 128 维 × K、V 两份</text>
-    <text x="145" y="349" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#6b7280">＝ 32768 个数</text>
+    <rect x="20" y="296" width="250" height="64" rx="10" fill="#fafafa" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <text x="145" y="317" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#6b7280">对照 MHA（同层同 token）</text>
+    <text x="145" y="334" text-anchor="middle" font-size="11" fill="#6b7280">128 头 × 128 维 × K、V 两份</text>
+    <text x="145" y="351" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#6b7280">＝ 32768 个数</text>
     <!-- 底部说明 -->
-    <text x="380" y="392" text-anchor="middle" font-size="11.5" fill="#666">576 对 32768，缓存缩到约 1/57；用时展开的 K、V 各不相同，头的多样性保住（GQA 共享则逐元素相同）。</text>
-    <text x="380" y="414" text-anchor="middle" font-size="11.5" fill="#666">推理时上投影还可被「吸收」进相邻矩阵，连展开动作都省掉（5.3.4）。</text>
+    <text x="380" y="400" text-anchor="middle" font-size="11.5" fill="#666">576 对 32768，缓存缩到约 1/57；用时展开的 K、V 各不相同，头的多样性保住（GQA 共享则逐元素相同）。</text>
+    <text x="380" y="422" text-anchor="middle" font-size="11.5" fill="#666">推理时上投影还可被「吸收」进相邻矩阵，连展开动作都省掉（5.3.4）。</text>
   </svg>
-  <div class="diagram-caption">图 2：MLA 的浓缩–展开形状流（DeepSeek-V2 配置）。输入是 5120 维的 token 表示 h_t：主通道经下投影压成 512 维隐向量，位置支路单独算出 64 维共享 key，两者合计 576 个数就是每层每 token 要缓存的全部；需要某个头的 K、V 时，用该头自己的上投影从隐向量展开成 128 维向量，128 个头的展开结果互不相同。数字均出自正文：512、64、576、32768 与 1/57 的口径与 5.3.2、5.3.3、5.3.5 节一致。</div>
+  <div class="diagram-caption">图 1：MLA 的浓缩–展开形状流（DeepSeek-V2 配置）。输入是 5120 维的 token 表示 \(h_t\)：主通道经下投影压成 512 维隐向量，位置支路单独算出 64 维共享 key，两者合计 576 个数就是每层每 token 要缓存的全部；需要某个头的 K、V 时，用该头自己的上投影从隐向量展开成 128 维向量，128 个头的展开结果互不相同。数字均出自正文：512、64、576、32768 与 1/57 的口径与 5.3.2、5.3.3、5.3.5 节一致。</div>
 </div>
 
 <h2>5.3.1 GQA 之后还能怎么省：从「共享」到「压缩」</h2>
@@ -607,22 +548,22 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <!-- 输入 h_t -->
     <rect x="20" y="160" width="130" height="80" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
     <text x="85" y="192" text-anchor="middle" font-size="15" fill="#333">token 表示</text>
-    <text x="85" y="216" text-anchor="middle" font-size="12" fill="#666">h_t（5120 维）</text>
+    <text x="85" y="216" text-anchor="middle" font-size="12" fill="#666">h<tspan dy="2.5" font-size="8.5">t</tspan><tspan dy="-2.5">（5120 维）</tspan></text>
     <!-- 下投影 -->
     <rect x="200" y="160" width="130" height="80" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
     <text x="265" y="192" text-anchor="middle" font-size="15" fill="#333">下投影压缩</text>
-    <text x="265" y="216" text-anchor="middle" font-size="12" fill="#666">c = W^DKV · h_t</text>
+    <text x="265" y="216" text-anchor="middle" font-size="12" fill="#666">c<tspan dy="2.5" font-size="8.5">t</tspan><tspan dy="-9" font-size="8.5">KV</tspan><tspan dy="6.5"> = W</tspan><tspan dy="-6" font-size="8.5">DKV</tspan><tspan dy="6"> · h</tspan><tspan dy="2.5" font-size="8.5">t</tspan></text>
     <!-- 隐向量（缓存） -->
     <rect x="390" y="160" width="150" height="80" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="2.5"/>
     <text x="465" y="188" text-anchor="middle" font-size="15" fill="#333">低维隐向量</text>
-    <text x="465" y="210" text-anchor="middle" font-size="12" fill="#666">c_t^KV（512 维）</text>
+    <text x="465" y="210" text-anchor="middle" font-size="12" fill="#666">c<tspan dy="2.5" font-size="8.5">t</tspan><tspan dy="-9" font-size="8.5">KV</tspan><tspan dy="6.5">（512 维）</tspan></text>
     <text x="465" y="228" text-anchor="middle" font-size="12" fill="#dc2626">推理时只缓存它</text>
     <!-- 上投影到 K / V -->
     <rect x="590" y="80" width="150" height="70" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="665" y="108" text-anchor="middle" font-size="14" fill="#333">上投影 W^UK</text>
+    <text x="665" y="108" text-anchor="middle" font-size="14" fill="#333">上投影 W<tspan dy="3" font-size="10">i</tspan><tspan dy="-10" font-size="10">UK</tspan></text>
     <text x="665" y="130" text-anchor="middle" font-size="12" fill="#666">128 个头各自的 K</text>
     <rect x="590" y="250" width="150" height="70" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="665" y="278" text-anchor="middle" font-size="14" fill="#333">上投影 W^UV</text>
+    <text x="665" y="278" text-anchor="middle" font-size="14" fill="#333">上投影 W<tspan dy="3" font-size="10">i</tspan><tspan dy="-10" font-size="10">UV</tspan></text>
     <text x="665" y="300" text-anchor="middle" font-size="12" fill="#666">128 个头各自的 V</text>
     <!-- 箭头 -->
     <line x1="150" y1="200" x2="200" y2="200" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr5)"/>
@@ -639,7 +580,92 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
     <!-- 底部说明 -->
     <text x="380" y="385" text-anchor="middle" font-size="13" fill="#666">浓缩液存缓存，K、V 用时现展开：缓存从 32768 个数缩到 576 个数。</text>
   </svg>
-  <div class="diagram-caption">图 3：MLA 的浓缩–展开流程。\(h_t\) 经下投影压成 512 维隐向量存入缓存，各头的 K、V 由各自的上投影从隐向量临时展开，不再逐头缓存。</div>
+  <div class="diagram-caption">图 2：MLA 的浓缩–展开流程。\(h_t\) 经下投影压成 512 维隐向量存入缓存，各头的 K、V 由各自的上投影从隐向量临时展开，不再逐头缓存。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 760 520" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="arrS53" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="arrT53" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#d97706"/>
+      </marker>
+    </defs>
+    <text x="30" y="26" font-size="13" font-weight="bold" fill="#4c1d95">矩阵视角：一次下投影替代 128 份逐头投影，缓存只留 ①＋②（DeepSeek-V2 配置，画法同 4.6 节图 5）</text>
+    <text x="30" y="44" font-size="10" fill="#64748b">推理单步：每新生成 1 个 token 走一遍下面流程；紫色＝学好的权重矩阵（存在模型参数里，不占缓存），青色＝要进缓存的向量，灰色＝用时现算、算完就扔</text>
+    <!-- 输入 h_t -->
+    <rect x="36" y="70" width="46" height="190" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <line x1="36" y1="94" x2="82" y2="94" stroke="#fde68a" stroke-width="1"/>
+    <line x1="36" y1="118" x2="82" y2="118" stroke="#fde68a" stroke-width="1"/>
+    <line x1="36" y1="142" x2="82" y2="142" stroke="#fde68a" stroke-width="1"/>
+    <line x1="36" y1="166" x2="82" y2="166" stroke="#fde68a" stroke-width="1"/>
+    <line x1="36" y1="190" x2="82" y2="190" stroke="#fde68a" stroke-width="1"/>
+    <line x1="36" y1="214" x2="82" y2="214" stroke="#fde68a" stroke-width="1"/>
+    <line x1="36" y1="238" x2="82" y2="238" stroke="#fde68a" stroke-width="1"/>
+    <text x="59" y="62" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">token 表示 h<tspan dy="3" font-size="9">t</tspan></text>
+    <text x="59" y="274" text-anchor="middle" font-size="10" fill="#666">[5120]</text>
+    <!-- 下投影 -->
+    <line x1="82" y1="160" x2="126" y2="160" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrS53)"/>
+    <rect x="130" y="85" width="58" height="150" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="159" y="155" text-anchor="middle" font-size="11" font-weight="bold" fill="#4c1d95">W<tspan dy="-5.5" font-size="8">DKV</tspan></text>
+    <text x="159" y="172" text-anchor="middle" font-size="9" fill="#64748b">下投影</text>
+    <text x="159" y="249" text-anchor="middle" font-size="9" fill="#64748b">[5120, 512]</text>
+    <!-- 隐向量（缓存①） -->
+    <line x1="188" y1="160" x2="236" y2="160" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrS53)"/>
+    <rect x="240" y="130" width="46" height="60" fill="#ecfeff" stroke="#0891b2" stroke-width="2.5"/>
+    <text x="263" y="208" text-anchor="middle" font-size="10" fill="#155e75">c<tspan dy="2.5" font-size="7.5">t</tspan><tspan dy="-8" font-size="7.5">KV</tspan><tspan dy="5.5"> [512]</tspan></text>
+    <text x="263" y="224" text-anchor="middle" font-size="10" fill="#dc2626">进缓存 ①</text>
+    <!-- 上投影到 K（头 i） -->
+    <path d="M286,145 C330,120 352,108 372,102" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrS53)"/>
+    <rect x="376" y="60" width="42" height="80" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="397" y="96" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#4c1d95">W<tspan dy="2.5" font-size="7">i</tspan><tspan dy="-8" font-size="7">UK</tspan></text>
+    <text x="397" y="110" text-anchor="middle" font-size="8.5" fill="#64748b">上投影</text>
+    <text x="397" y="152" text-anchor="middle" font-size="8.5" fill="#64748b">[512, 128]</text>
+    <line x1="418" y1="100" x2="456" y2="100" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrS53)"/>
+    <rect x="460" y="80" width="30" height="40" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+    <text x="475" y="132" text-anchor="middle" font-size="9" fill="#475569">k<tspan dy="2" font-size="7">i</tspan><tspan dy="-2"> [128]</tspan></text>
+    <!-- 上投影到 V（头 i） -->
+    <path d="M286,175 C330,200 352,212 372,218" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrS53)"/>
+    <rect x="376" y="178" width="42" height="80" fill="#ffffff" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="397" y="214" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#4c1d95">W<tspan dy="2.5" font-size="7">i</tspan><tspan dy="-8" font-size="7">UV</tspan></text>
+    <text x="397" y="228" text-anchor="middle" font-size="8.5" fill="#64748b">上投影</text>
+    <text x="397" y="270" text-anchor="middle" font-size="8.5" fill="#64748b">[512, 128]</text>
+    <line x1="418" y1="218" x2="456" y2="218" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrS53)"/>
+    <rect x="460" y="198" width="30" height="40" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+    <text x="475" y="250" text-anchor="middle" font-size="9" fill="#475569">v<tspan dy="2" font-size="7">i</tspan><tspan dy="-2"> [128]</tspan></text>
+    <!-- 右侧注记 -->
+    <text x="516" y="88" font-size="11" font-weight="bold" fill="#4c1d95">× 128 个头</text>
+    <text x="516" y="106" font-size="10" fill="#64748b">每个头有自己的 W<tspan dy="2.5" font-size="7.5">i</tspan><tspan dy="-8" font-size="7.5">UK</tspan><tspan dy="5.5">、W</tspan><tspan dy="2.5" font-size="7.5">i</tspan><tspan dy="-8" font-size="7.5">UV</tspan><tspan dy="5.5">，</tspan></text>
+    <text x="516" y="122" font-size="10" fill="#64748b">展开出的 K、V 各不相同</text>
+    <text x="516" y="206" font-size="10" fill="#dc2626">K、V 用时现展开</text>
+    <text x="516" y="222" font-size="10" fill="#dc2626">不进缓存</text>
+    <!-- 位置支路（缓存②） -->
+    <path d="M59,260 L59,330 L106,330" fill="none" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrT53)"/>
+    <rect x="110" y="300" width="38" height="60" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
+    <text x="129" y="333" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#92400e">W<tspan dy="-4.5" font-size="7">KR</tspan></text>
+    <text x="129" y="372" text-anchor="middle" font-size="8.5" fill="#64748b">[5120, 64]</text>
+    <line x1="148" y1="330" x2="188" y2="330" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrT53)"/>
+    <rect x="192" y="310" width="74" height="40" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="229" y="334" text-anchor="middle" font-size="10" fill="#92400e">RoPE 旋转</text>
+    <line x1="266" y1="330" x2="304" y2="330" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrT53)"/>
+    <rect x="308" y="316" width="26" height="28" fill="#ecfeff" stroke="#0891b2" stroke-width="2.5"/>
+    <text x="321" y="358" text-anchor="middle" font-size="9" fill="#155e75">k<tspan dy="2" font-size="7">t</tspan><tspan dy="-7.5" font-size="7">R</tspan><tspan dy="5.5"> [64]</tspan></text>
+    <text x="321" y="373" text-anchor="middle" font-size="10" fill="#dc2626">进缓存 ②</text>
+    <text x="352" y="326" font-size="10" fill="#64748b">位置支路：单独从 h<tspan dy="2.5" font-size="7.5">t</tspan><tspan dy="-2.5"> 算出的 64 维共享 key，</tspan></text>
+    <text x="352" y="342" font-size="10" fill="#64748b">128 个头共用一份（5.3.3 节详讲）</text>
+    <!-- 缓存对比横条 -->
+    <text x="36" y="406" font-size="12.5" font-weight="bold" fill="#333">每层每 token 要缓存的数（横条长度按真实数量成比例）：</text>
+    <text x="36" y="432" font-size="11" fill="#4c1d95">MHA：128 头 ×（K＋V）× 128 维 ＝ 32768 个</text>
+    <rect x="36" y="438" width="624" height="22" rx="3" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="652" y="453" text-anchor="end" font-size="10" fill="#4c1d95">32768 个数</text>
+    <text x="36" y="482" font-size="11" fill="#155e75">MLA：① 512 ＋ ② 64 ＝ 576 个 ≈ MHA 的 1/57</text>
+    <rect x="36" y="488" width="11" height="22" rx="2" fill="#67e8f9" stroke="#0891b2" stroke-width="1.5"/>
+    <text x="54" y="503" font-size="10" fill="#155e75">576 个数（① 为主，② 只占 64）</text>
+  </svg>
+  <div class="diagram-caption">图 3：MLA 的矩阵视角。一份 \(h_t\) [5120] 乘下投影矩阵 \(W^{DKV}\) [5120, 512]（公式 1）压成 512 维隐向量 ①，位置支路经 \(W^{KR}\) 加 RoPE 得 64 维共享 key ②（公式 3，5.3.3 节），①＋②＝576 个数就是每层每 token 要缓存的全部；128 个头的 K、V 用时才从 ① 乘各头自己的 \(W_i^{UK}\)、\(W_i^{UV}\) [512, 128]（公式 2）现展开（灰色），不进缓存。底部横条按真实数量成比例：MHA 每 token 每层存 32768 个数，MLA 只存 576 个，约 1/57。紫色权重矩阵存在模型参数里，不占 KV 缓存，这就是 MLA 省缓存的全部机关。</div>
 </div>
 
 <div class="highlight-box">
