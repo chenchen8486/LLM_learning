@@ -560,65 +560,76 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
-  <svg viewBox="0 0 760 340" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+  <svg viewBox="0 0 760 570" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
     <defs>
       <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
       </marker>
-      <marker id="arrC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
-      </marker>
     </defs>
-    <!-- token -->
-    <rect x="12" y="138" width="118" height="64" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-    <text x="71" y="164" text-anchor="middle" font-size="13" fill="#333">token：咳嗽</text>
-    <text x="71" y="186" text-anchor="middle" font-size="11" fill="#666">病人上门</text>
-    <line x1="130" y1="170" x2="172" y2="170" stroke="#6d28d9" stroke-width="2" marker-end="url(#arr)"/>
-    <!-- router -->
-    <rect x="176" y="130" width="136" height="80" rx="10" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-    <text x="244" y="156" text-anchor="middle" font-size="13" fill="#333">路由器 Router</text>
-    <text x="244" y="176" text-anchor="middle" font-size="11" fill="#666">打分 → softmax</text>
-    <text x="244" y="194" text-anchor="middle" font-size="11" fill="#666">选出 top-2</text>
-    <!-- expert column label -->
-    <text x="500" y="20" text-anchor="middle" font-size="12" fill="#666">8 个专家 FFN：结构相同，参数各自独立</text>
-    <!-- router to experts: unchosen thin gray -->
-    <line x1="312" y1="170" x2="428" y2="44" stroke="#d1d5db" stroke-width="1"/>
-    <line x1="312" y1="170" x2="428" y2="116" stroke="#d1d5db" stroke-width="1"/>
-    <line x1="312" y1="170" x2="428" y2="152" stroke="#d1d5db" stroke-width="1"/>
-    <line x1="312" y1="170" x2="428" y2="188" stroke="#d1d5db" stroke-width="1"/>
-    <line x1="312" y1="170" x2="428" y2="260" stroke="#d1d5db" stroke-width="1"/>
-    <line x1="312" y1="170" x2="428" y2="296" stroke="#d1d5db" stroke-width="1"/>
-    <!-- router to experts: chosen thick purple -->
-    <line x1="312" y1="170" x2="428" y2="80" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#arr)"/>
-    <line x1="312" y1="170" x2="428" y2="224" stroke="#6d28d9" stroke-width="2.5" marker-end="url(#arr)"/>
-    <!-- experts row 1..8 -->
-    <rect x="430" y="30" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
-    <text x="500" y="48" text-anchor="middle" font-size="11" fill="#9ca3af">专家1 未出诊</text>
-    <rect x="430" y="66" width="140" height="28" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
-    <text x="500" y="84" text-anchor="middle" font-size="11" fill="#4c1d95">专家2 呼吸科 0.35</text>
-    <rect x="430" y="102" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
-    <text x="500" y="120" text-anchor="middle" font-size="11" fill="#9ca3af">专家3 未出诊</text>
-    <rect x="430" y="138" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
-    <text x="500" y="156" text-anchor="middle" font-size="11" fill="#9ca3af">专家4 未出诊</text>
-    <rect x="430" y="174" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
-    <text x="500" y="192" text-anchor="middle" font-size="11" fill="#9ca3af">专家5 未出诊</text>
-    <rect x="430" y="210" width="140" height="28" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
-    <text x="500" y="228" text-anchor="middle" font-size="11" fill="#4c1d95">专家6 感染科 0.28</text>
-    <rect x="430" y="246" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
-    <text x="500" y="264" text-anchor="middle" font-size="11" fill="#9ca3af">专家7 未出诊</text>
-    <rect x="430" y="282" width="140" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db" stroke-width="1"/>
-    <text x="500" y="300" text-anchor="middle" font-size="11" fill="#9ca3af">专家8 未出诊</text>
-    <!-- experts to output -->
-    <line x1="570" y1="80" x2="626" y2="152" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
-    <line x1="570" y1="224" x2="626" y2="188" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC)"/>
-    <rect x="630" y="130" width="118" height="80" rx="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-    <text x="689" y="156" text-anchor="middle" font-size="12" fill="#333">加权求和输出</text>
-    <text x="689" y="177" text-anchor="middle" font-size="10" fill="#666">0.56·E2 的结果</text>
-    <text x="689" y="194" text-anchor="middle" font-size="10" fill="#666">+ 0.44·E6 的结果</text>
-    <!-- bottom note -->
-    <text x="380" y="330" text-anchor="middle" font-size="11" fill="#666">未出诊的 6 个专家本次完全不计算——省下的就是这部分算力</text>
+    <text x="30" y="26" font-size="13" font-weight="bold" fill="#4c1d95">8 选 2 的打分现场：token「咳嗽」走一遍（Mixtral 风格，结构同图 1 右栏）</text>
+    <text x="30" y="44" font-size="10" fill="#64748b">形状与图 1 相同：x [1, 768] × W_g [768, 8] → softmax 8 个分数 → top-2 加权输出；每个专家内部就是图 1 那套 FFN（768→2432→768）</text>
+    <!-- 输入 -->
+    <rect x="310" y="60" width="140" height="24" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="380" y="76" text-anchor="middle" font-size="9.5" fill="#92400e">x 向量 [1, 768]</text>
+    <text x="380" y="98" text-anchor="middle" font-size="10" fill="#666">token：咳嗽</text>
+    <text x="380" y="126" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">×</text>
+    <!-- 路由器 -->
+    <rect x="290" y="134" width="180" height="44" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="152" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#4c1d95">路由器 W_g 矩阵 [768, 8]</text>
+    <text x="380" y="168" text-anchor="middle" font-size="9" fill="#64748b">softmax 8 个分数</text>
+    <text x="380" y="196" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">＝</text>
+    <!-- 打分面板 -->
+    <rect x="40" y="204" width="680" height="272" rx="10" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+    <text x="380" y="226" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">s = softmax(W_g·x)：8 个分数（横条按真实分数成比例）→ top-2</text>
+    <!-- 行 1 -->
+    <text x="138" y="257" text-anchor="end" font-size="9.5" fill="#9ca3af">专家 1</text>
+    <rect x="148" y="246" width="6" height="14" rx="2" fill="#d1d5db"/>
+    <text x="160" y="257" font-size="9" fill="#9ca3af">0.02</text>
+    <text x="480" y="257" font-size="9" fill="#9ca3af">本轮不算</text>
+    <!-- 行 2（选中） -->
+    <rect x="46" y="266" width="666" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="138" y="285" text-anchor="end" font-size="9.5" font-weight="bold" fill="#4c1d95">专家 2（呼吸科）</text>
+    <rect x="148" y="272" width="105" height="14" rx="2" fill="#6d28d9"/>
+    <text x="259" y="285" font-size="9" font-weight="bold" fill="#4c1d95">0.35</text>
+    <text x="480" y="285" font-size="9" font-weight="bold" fill="#4c1d95">选中：归一化 0.35/0.63 → 0.56</text>
+    <!-- 行 3 -->
+    <text x="138" y="313" text-anchor="end" font-size="9.5" fill="#9ca3af">专家 3</text>
+    <rect x="148" y="302" width="3" height="14" rx="2" fill="#d1d5db"/>
+    <text x="157" y="313" font-size="9" fill="#9ca3af">0.01</text>
+    <text x="480" y="313" font-size="9" fill="#9ca3af">本轮不算</text>
+    <!-- 行 4 -->
+    <text x="138" y="341" text-anchor="end" font-size="9.5" fill="#9ca3af">专家 4</text>
+    <rect x="148" y="330" width="24" height="14" rx="2" fill="#d1d5db"/>
+    <text x="178" y="341" font-size="9" fill="#9ca3af">0.08</text>
+    <text x="480" y="341" font-size="9" fill="#9ca3af">本轮不算</text>
+    <!-- 行 5 -->
+    <text x="138" y="369" text-anchor="end" font-size="9.5" fill="#9ca3af">专家 5</text>
+    <rect x="148" y="358" width="30" height="14" rx="2" fill="#d1d5db"/>
+    <text x="184" y="369" font-size="9" fill="#9ca3af">0.10</text>
+    <text x="480" y="369" font-size="9" fill="#9ca3af">本轮不算</text>
+    <!-- 行 6（选中） -->
+    <rect x="46" y="378" width="666" height="26" rx="5" fill="#f5f3fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="138" y="397" text-anchor="end" font-size="9.5" font-weight="bold" fill="#4c1d95">专家 6（感染科）</text>
+    <rect x="148" y="384" width="84" height="14" rx="2" fill="#6d28d9"/>
+    <text x="238" y="397" font-size="9" font-weight="bold" fill="#4c1d95">0.28</text>
+    <text x="480" y="397" font-size="9" font-weight="bold" fill="#4c1d95">选中：归一化 0.28/0.63 → 0.44</text>
+    <!-- 行 7 -->
+    <text x="138" y="425" text-anchor="end" font-size="9.5" fill="#9ca3af">专家 7</text>
+    <rect x="148" y="414" width="45" height="14" rx="2" fill="#d1d5db"/>
+    <text x="199" y="425" font-size="9" fill="#9ca3af">0.15</text>
+    <text x="480" y="425" font-size="9" fill="#9ca3af">本轮不算</text>
+    <!-- 行 8 -->
+    <text x="138" y="453" text-anchor="end" font-size="9.5" fill="#9ca3af">专家 8</text>
+    <rect x="148" y="442" width="3" height="14" rx="2" fill="#d1d5db"/>
+    <text x="157" y="453" font-size="9" fill="#9ca3af">0.01</text>
+    <text x="480" y="453" font-size="9" fill="#9ca3af">本轮不算</text>
+    <!-- 输出 -->
+    <text x="380" y="496" text-anchor="middle" font-size="14" font-weight="bold" fill="#6d28d9">＝</text>
+    <rect x="180" y="504" width="400" height="26" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="380" y="521" text-anchor="middle" font-size="10" fill="#4c1d95">y = 0.56·专家2(x) ＋ 0.44·专家6(x) 向量 [1, 768]</text>
+    <text x="380" y="556" text-anchor="middle" font-size="10" fill="#64748b">未选中的 6 个专家本轮完全不计算——省下的就是这部分算力；科室名为帮助理解的类比（见下方注释框）</text>
   </svg>
-  <div class="diagram-caption">图 2：token「咳嗽」经路由器对 8 个专家打分，得分最高的专家 2（0.35）与专家 6（0.28）被点亮并参与计算，输出按归一化后的分数加权求和；其余 6 个专家本轮完全不计算。</div>
+  <div class="diagram-caption">图 2：8 选 2 的打分现场（Mixtral 风格，结构同图 1 右栏）。token「咳嗽」的 \(x\) [1, 768] 乘路由器 \(W_g\) [768, 8]，softmax 打出 8 个分数（横条按真实分数成比例，数值出自 5.4.2 正文示例）；top-2 选中专家 2（0.35）与专家 6（0.28），两个分数归一化为 0.56、0.44 后加权求和，输出仍是 [1, 768]。未选中的 6 个专家本轮完全不计算；每个专家内部就是图 1 那套 FFN。</div>
 </div>
 
 <div class="highlight-box info">
