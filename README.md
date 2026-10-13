@@ -15,10 +15,6 @@
   <sub>注意力机制动画示意（画面风格引自 3Blue1Brown《Attention in transformers》）</sub>
 </div>
 
-![手册预览：LLM 全链路全景](assets/figure-pipeline.png)
-
-![手册预览：Transformer 两塔架构](assets/figure-architecture.png)
-
 ## 这套手册有什么不一样
 
 - 全链路，不跳步：按 LLM 生命周期组织，第 0 章到第 15 章覆盖数据 → 分词 → 词向量与位置编码 → 架构 → 预训练 → 中间训练 → 后训练（SFT / 偏好对齐 / 推理训练）→ 推理与后处理 → 部署优化 → 应用范式 → 多模态，一条主线走完。

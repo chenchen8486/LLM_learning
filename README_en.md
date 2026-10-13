@@ -29,12 +29,6 @@ No clone, no install — just open the sidebar and read chapter by chapter:
 - **Prerequisites included** — a 13-section appendix covers vectors and rotation, dot products and cosine similarity, softmax and temperature, cross-entropy and perplexity, backpropagation, activation and normalization functions, power laws and log scales, and more.
 - **Personal highlighting** — select any text to highlight it marker-style in five colors, with recolor, delete, clear-all, and JSON export/import. Annotations live only in your browser's localStorage: never uploaded, never committed.
 
-## Preview
-
-![Handbook preview: the full LLM pipeline](assets/figure-pipeline.png)
-
-![Handbook preview: the Transformer two-tower architecture](assets/figure-architecture.png)
-
 ## Table of contents
 
 ```
