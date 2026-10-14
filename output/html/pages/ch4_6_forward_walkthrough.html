@@ -943,6 +943,386 @@
   <div class="diagram-caption">图 9：一次前向的完整步骤总账（兼作形状账表）。token ID 经 Embedding 成 [10, 768] 后进入 8 层相同的 Block：前半层做掩码自注意力（第 3–13 步，形状只在头维和 10×10 权重表之间折返），后半层做 SwiGLU FFN（第 14–18 步，升维 2432 再压回）；塔顶经最终 RMSNorm、共享嵌入表转置投影到 [10, 6400]，取最后一行 softmax 得下一个词的概率。主干从头到尾恒为 [10, 768]——抓住这条纲，全流程不迷路。</div>
 </div>
 
+<p>　　图 9 是文字账，同一笔账再画成张量流全景（图 10）：每个张量画成带形状的块，每笔参数画成橙色矩阵，矩阵乘、逐元素乘、残差加逐步排开，编号与图 9 一一对应。自上而下读一遍，就是这台小模型把 10 个 token 变成下一个词的概率的完整过程：</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 1140 2130" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+<defs><marker id="arrT46" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/></marker><marker id="arrC46" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/></marker></defs>
+<text x="40" y="34" text-anchor="start" font-size="14.5" fill="#4c1d95" font-weight="bold">一次前向的张量流全景：每个张量、每笔参数、每步运算（编号与图 9 一一对应）</text>
+<g font-size="11" fill="#555">
+  <rect x="40" y="46" width="14" height="14" fill="#ede9fe" stroke="#6d28d9"/><text x="60" y="58">数据张量</text>
+  <rect x="140" y="46" width="14" height="14" fill="#fef3c7" stroke="#d97706"/><text x="160" y="58">参数矩阵（训练学好的）</text>
+  <rect x="320" y="46" width="14" height="14" fill="#f3f4f6" stroke="#6b7280"/><text x="340" y="58">掩码</text>
+  <rect x="400" y="46" width="14" height="14" fill="#ecfeff" stroke="#0891b2"/><text x="420" y="58">概率输出</text>
+  <text x="510" y="58">× ＝ 矩阵乘法　⊙ 逐元素乘　⊕ 残差加　箭头 ＝ 函数 / 变换</text>
+</g>
+<circle cx="120" cy="103" r="12" fill="#64748b"/><text x="120" y="107" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">1</text>
+<rect x="440" y="90" width="24" height="24" rx="3" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/><rect x="467" y="90" width="24" height="24" rx="3" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/><rect x="494" y="90" width="24" height="24" rx="3" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/><rect x="521" y="90" width="24" height="24" rx="3" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/><rect x="548" y="90" width="24" height="24" rx="3" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/><rect x="575" y="90" width="24" height="24" rx="3" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/><rect x="602" y="90" width="24" height="24" rx="3" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/><rect x="629" y="90" width="24" height="24" rx="3" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/><rect x="656" y="90" width="24" height="24" rx="3" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/><rect x="683" y="90" width="24" height="24" rx="3" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/>
+<text x="452" y="107" text-anchor="middle" font-size="9.5" fill="#555">BOS</text>
+<text x="479" y="107" text-anchor="middle" font-size="9.5" fill="#555">我</text>
+<text x="506" y="107" text-anchor="middle" font-size="9.5" fill="#555">爱</text>
+<text x="533" y="107" text-anchor="middle" font-size="9.5" fill="#555">大</text>
+<text x="560" y="107" text-anchor="middle" font-size="9.5" fill="#555">语</text>
+<text x="587" y="107" text-anchor="middle" font-size="9.5" fill="#555">言</text>
+<text x="614" y="107" text-anchor="middle" font-size="9.5" fill="#555">模</text>
+<text x="641" y="107" text-anchor="middle" font-size="9.5" fill="#555">型</text>
+<text x="668" y="107" text-anchor="middle" font-size="9.5" fill="#555">…</text>
+<text x="695" y="107" text-anchor="middle" font-size="9.5" fill="#555">EOS</text>
+<text x="570" y="140" text-anchor="middle" font-size="11.5" fill="#64748b">输入：token ID [10]</text>
+<circle cx="120" cy="218" r="12" fill="#64748b"/><text x="120" y="222" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">2</text>
+<g>
+      <path d="M200,130 L207,123 L297,123 L290,130 Z" fill="#fde68a" stroke="#d97706" stroke-width="1"/>
+      <path d="M290,130 L297,123 L297,299 L290,306 Z" fill="#fcd34d" stroke="#d97706" stroke-width="1"/>
+      <rect x="200" y="130" width="90" height="176" rx="5" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    </g>
+<line x1="204" y1="140" x2="286" y2="140" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="149" x2="286" y2="149" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="158" x2="286" y2="158" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="167" x2="286" y2="167" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="176" x2="286" y2="176" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="185" x2="286" y2="185" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="194" x2="286" y2="194" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="203" x2="286" y2="203" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="212" x2="286" y2="212" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="221" x2="286" y2="221" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="230" x2="286" y2="230" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="239" x2="286" y2="239" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="248" x2="286" y2="248" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="257" x2="286" y2="257" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="266" x2="286" y2="266" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="275" x2="286" y2="275" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="284" x2="286" y2="284" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="204" y1="293" x2="286" y2="293" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<text x="245" y="330" text-anchor="middle" font-size="11" fill="#b45309">嵌入表 [6400, 768]</text>
+<text x="245" y="346" text-anchor="middle" font-size="10" fill="#b45309">（参数，按行号取）</text>
+<path d="M510,118 L510,160 L550,176" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT46)"/>
+<path d="M292,200 L460,200" fill="none" stroke="#d97706" stroke-width="1.5" stroke-dasharray="5 3"/>
+<g>
+      <path d="M470,176 L477,169 L677,169 L670,176 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M670,176 L677,169 L677,203 L670,210 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="470" y="176" width="200" height="34" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<line x1="478" y1="180" x2="478" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="490" y1="180" x2="490" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="502" y1="180" x2="502" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="514" y1="180" x2="514" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="526" y1="180" x2="526" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="538" y1="180" x2="538" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="550" y1="180" x2="550" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="562" y1="180" x2="562" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="574" y1="180" x2="574" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="586" y1="180" x2="586" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="598" y1="180" x2="598" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="610" y1="180" x2="610" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="622" y1="180" x2="622" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="634" y1="180" x2="634" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="646" y1="180" x2="646" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<line x1="658" y1="180" x2="658" y2="206" stroke="#6d28d9" stroke-width="0.4" opacity="0.35"/>
+<text x="570" y="197" text-anchor="middle" font-size="12" fill="#4c1d95" font-weight="bold">X　[10, 768]</text>
+<text x="682" y="190" text-anchor="start" font-size="10.5" fill="#64748b">按 ID 取行（查表，无矩阵乘法）</text>
+<rect x="60" y="240" width="1020" height="990" rx="14" fill="#faf8ff" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="570" y="266" text-anchor="middle" font-size="13" fill="#6d28d9" font-weight="bold">一层 Block（第 3–18 步）· 结构相同共 8 层、参数各自独立</text>
+<circle cx="120" cy="322" r="12" fill="#6d28d9"/><text x="120" y="326" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">3</text>
+<line x1="570" y1="217" x2="570" y2="282" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT46)"/>
+<text x="586" y="256" text-anchor="start" font-size="11" fill="#64748b">RMSNorm</text>
+<g>
+      <path d="M470,288 L477,281 L677,281 L670,288 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M670,288 L677,281 L677,315 L670,322 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="470" y="288" width="200" height="34" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<text x="570" y="309" text-anchor="middle" font-size="12" fill="#4c1d95" font-weight="bold">X'　[10, 768]</text>
+<circle cx="120" cy="396" r="12" fill="#6d28d9"/><text x="120" y="400" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">4</text>
+<path d="M570,329 L210,352" fill="none" stroke="#6d28d9" stroke-width="1.2"/>
+<g>
+      <path d="M178,356 L185,349 L249,349 L242,356 Z" fill="#fde68a" stroke="#d97706" stroke-width="1"/>
+      <path d="M242,356 L249,349 L249,413 L242,420 Z" fill="#fcd34d" stroke="#d97706" stroke-width="1"/>
+      <rect x="178" y="356" width="64" height="64" rx="5" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    </g>
+<text x="210" y="346" text-anchor="middle" font-size="10.5" fill="#b45309">W_Q [768, 768]</text>
+<text x="164" y="392" text-anchor="middle" font-size="14" fill="#6d28d9">×</text>
+<text x="164" y="446" text-anchor="middle" font-size="14" fill="#6d28d9">＝</text>
+<g>
+      <path d="M110,432 L117,425 L317,425 L310,432 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M310,432 L317,425 L317,455 L310,462 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="110" y="432" width="200" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<line x1="135" y1="434" x2="135" y2="460" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="160" y1="434" x2="160" y2="460" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="185" y1="434" x2="185" y2="460" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="210" y1="434" x2="210" y2="460" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="235" y1="434" x2="235" y2="460" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="260" y1="434" x2="260" y2="460" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="285" y1="434" x2="285" y2="460" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<text x="210" y="451" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">Q　[10, 768]</text>
+<path d="M570,329 L570,352" fill="none" stroke="#6d28d9" stroke-width="1.2"/>
+<g>
+      <path d="M538,356 L545,349 L609,349 L602,356 Z" fill="#fde68a" stroke="#d97706" stroke-width="1"/>
+      <path d="M602,356 L609,349 L609,381 L602,388 Z" fill="#fcd34d" stroke="#d97706" stroke-width="1"/>
+      <rect x="538" y="356" width="64" height="32" rx="5" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    </g>
+<text x="570" y="346" text-anchor="middle" font-size="10.5" fill="#b45309">W_K [768, 384]</text>
+<text x="524" y="376" text-anchor="middle" font-size="14" fill="#6d28d9">×</text>
+<text x="524" y="414" text-anchor="middle" font-size="14" fill="#6d28d9">＝</text>
+<g>
+      <path d="M520,400 L527,393 L627,393 L620,400 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M620,400 L627,393 L627,423 L620,430 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="520" y="400" width="100" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<line x1="545" y1="402" x2="545" y2="428" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="570" y1="402" x2="570" y2="428" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="595" y1="402" x2="595" y2="428" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<text x="570" y="419" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">K　[10, 384]</text>
+<path d="M570,329 L930,352" fill="none" stroke="#6d28d9" stroke-width="1.2"/>
+<g>
+      <path d="M898,356 L905,349 L969,349 L962,356 Z" fill="#fde68a" stroke="#d97706" stroke-width="1"/>
+      <path d="M962,356 L969,349 L969,381 L962,388 Z" fill="#fcd34d" stroke="#d97706" stroke-width="1"/>
+      <rect x="898" y="356" width="64" height="32" rx="5" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    </g>
+<text x="930" y="346" text-anchor="middle" font-size="10.5" fill="#b45309">W_V [768, 384]</text>
+<text x="884" y="376" text-anchor="middle" font-size="14" fill="#6d28d9">×</text>
+<text x="884" y="414" text-anchor="middle" font-size="14" fill="#6d28d9">＝</text>
+<g>
+      <path d="M880,400 L887,393 L987,393 L980,400 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M980,400 L987,393 L987,423 L980,430 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="880" y="400" width="100" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<line x1="905" y1="402" x2="905" y2="428" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="930" y1="402" x2="930" y2="428" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="955" y1="402" x2="955" y2="428" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<text x="930" y="419" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">V　[10, 384]</text>
+<text x="1070" y="418" text-anchor="middle" font-size="10" fill="#64748b">竖线 = 按头切口</text>
+<circle cx="120" cy="478" r="12" fill="#6d28d9"/><text x="120" y="482" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">5</text>
+<text x="150" y="482" text-anchor="start" font-size="11.5" fill="#333">按头拆分：Q [10, 8, 96]，K / V [10, 4, 96]</text>
+<circle cx="120" cy="512" r="12" fill="#6d28d9"/><text x="120" y="516" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">6</text>
+<text x="150" y="516" text-anchor="start" font-size="11.5" fill="#333">QK-Norm + RoPE 旋转 Q、K（形状不变，3.4 节）</text>
+<circle cx="120" cy="556" r="12" fill="#6d28d9"/><text x="120" y="560" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">7</text>
+<text x="150" y="560" text-anchor="start" font-size="11.5" fill="#333">K / V 复制 ×2 与 Q 配对，三者重排为 [8, 10, 96]（GQA，5.2 节）</text>
+<circle cx="120" cy="636" r="12" fill="#6d28d9"/><text x="120" y="640" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">8</text>
+<text x="340" y="622" text-anchor="middle" font-size="11" fill="#4c1d95">Q [8,10,96]</text>
+<text x="340" y="646" text-anchor="middle" font-size="15" fill="#6d28d9">×</text>
+<text x="340" y="668" text-anchor="middle" font-size="11" fill="#4c1d95">Kᵀ [8,96,10]</text>
+<text x="340" y="694" text-anchor="middle" font-size="11" fill="#64748b">÷ √96</text>
+<text x="392" y="650" text-anchor="middle" font-size="15" fill="#6d28d9">＝</text>
+<g><rect x="430" y="606" width="8" height="8" fill="#6d28d9" opacity="0.62"/><rect x="439" y="606" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="448" y="606" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="457" y="606" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="466" y="606" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="475" y="606" width="8" height="8" fill="#6d28d9" opacity="0.81"/><rect x="430" y="615" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="439" y="615" width="8" height="8" fill="#6d28d9" opacity="0.81"/><rect x="448" y="615" width="8" height="8" fill="#6d28d9" opacity="0.34"/><rect x="457" y="615" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="466" y="615" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="475" y="615" width="8" height="8" fill="#6d28d9" opacity="0.62"/><rect x="430" y="624" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="439" y="624" width="8" height="8" fill="#6d28d9" opacity="0.62"/><rect x="448" y="624" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="457" y="624" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="466" y="624" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="475" y="624" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="430" y="633" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="439" y="633" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="448" y="633" width="8" height="8" fill="#6d28d9" opacity="0.81"/><rect x="457" y="633" width="8" height="8" fill="#6d28d9" opacity="0.34"/><rect x="466" y="633" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="475" y="633" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="430" y="642" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="439" y="642" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="448" y="642" width="8" height="8" fill="#6d28d9" opacity="0.62"/><rect x="457" y="642" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="466" y="642" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="475" y="642" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="430" y="651" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="439" y="651" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="448" y="651" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="457" y="651" width="8" height="8" fill="#6d28d9" opacity="0.81"/><rect x="466" y="651" width="8" height="8" fill="#6d28d9" opacity="0.34"/><rect x="475" y="651" width="8" height="8" fill="#6d28d9" opacity="0.71"/></g>
+<g><rect x="437" y="599" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="446" y="599" width="8" height="8" fill="#6d28d9" opacity="0.62"/><rect x="455" y="599" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="464" y="599" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="473" y="599" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="482" y="599" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="437" y="608" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="446" y="608" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="455" y="608" width="8" height="8" fill="#6d28d9" opacity="0.81"/><rect x="464" y="608" width="8" height="8" fill="#6d28d9" opacity="0.34"/><rect x="473" y="608" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="482" y="608" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="437" y="617" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="446" y="617" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="455" y="617" width="8" height="8" fill="#6d28d9" opacity="0.62"/><rect x="464" y="617" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="473" y="617" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="482" y="617" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="437" y="626" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="446" y="626" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="455" y="626" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="464" y="626" width="8" height="8" fill="#6d28d9" opacity="0.81"/><rect x="473" y="626" width="8" height="8" fill="#6d28d9" opacity="0.34"/><rect x="482" y="626" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="437" y="635" width="8" height="8" fill="#6d28d9" opacity="0.34"/><rect x="446" y="635" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="455" y="635" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="464" y="635" width="8" height="8" fill="#6d28d9" opacity="0.62"/><rect x="473" y="635" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="482" y="635" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="437" y="644" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="446" y="644" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="455" y="644" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="464" y="644" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="473" y="644" width="8" height="8" fill="#6d28d9" opacity="0.81"/><rect x="482" y="644" width="8" height="8" fill="#6d28d9" opacity="0.34"/></g>
+<g><rect x="444" y="592" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="453" y="592" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="462" y="592" width="8" height="8" fill="#6d28d9" opacity="0.62"/><rect x="471" y="592" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="480" y="592" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="489" y="592" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="444" y="601" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="453" y="601" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="462" y="601" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="471" y="601" width="8" height="8" fill="#6d28d9" opacity="0.81"/><rect x="480" y="601" width="8" height="8" fill="#6d28d9" opacity="0.34"/><rect x="489" y="601" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="444" y="610" width="8" height="8" fill="#6d28d9" opacity="0.34"/><rect x="453" y="610" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="462" y="610" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="471" y="610" width="8" height="8" fill="#6d28d9" opacity="0.62"/><rect x="480" y="610" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="489" y="610" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="444" y="619" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="453" y="619" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="462" y="619" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="471" y="619" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="480" y="619" width="8" height="8" fill="#6d28d9" opacity="0.81"/><rect x="489" y="619" width="8" height="8" fill="#6d28d9" opacity="0.34"/><rect x="444" y="628" width="8" height="8" fill="#6d28d9" opacity="0.81"/><rect x="453" y="628" width="8" height="8" fill="#6d28d9" opacity="0.34"/><rect x="462" y="628" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="471" y="628" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="480" y="628" width="8" height="8" fill="#6d28d9" opacity="0.62"/><rect x="489" y="628" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="444" y="637" width="8" height="8" fill="#6d28d9" opacity="0.62"/><rect x="453" y="637" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="462" y="637" width="8" height="8" fill="#6d28d9" opacity="0.53"/><rect x="471" y="637" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="480" y="637" width="8" height="8" fill="#6d28d9" opacity="0.43"/><rect x="489" y="637" width="8" height="8" fill="#6d28d9" opacity="0.81"/></g>
+<rect x="444" y="592" width="54" height="54" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="510" y="626" text-anchor="start" font-size="11" fill="#4c1d95">注意力分数</text>
+<text x="510" y="644" text-anchor="start" font-size="11.5" fill="#4c1d95" font-weight="bold">[8, 10, 10]</text>
+<text x="510" y="662" text-anchor="start" font-size="10" fill="#64748b">（8 个打分表堆叠）</text>
+<circle cx="120" cy="756" r="12" fill="#6d28d9"/><text x="120" y="760" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">9</text>
+<g><rect x="250" y="722" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="259" y="722" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="268" y="722" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="277" y="722" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="286" y="722" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="295" y="722" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="250" y="731" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="259" y="731" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="268" y="731" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="277" y="731" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="286" y="731" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="295" y="731" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="250" y="740" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="259" y="740" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="268" y="740" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="277" y="740" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="286" y="740" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="295" y="740" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="250" y="749" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="259" y="749" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="268" y="749" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="277" y="749" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="286" y="749" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="295" y="749" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="250" y="758" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="259" y="758" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="268" y="758" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="277" y="758" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="286" y="758" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="295" y="758" width="8" height="8" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/><rect x="250" y="767" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="259" y="767" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="268" y="767" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="277" y="767" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="286" y="767" width="8" height="8" fill="#9ca3af" opacity="0.85"/><rect x="295" y="767" width="8" height="8" fill="#9ca3af" opacity="0.85"/></g>
+<rect x="250" y="722" width="54" height="54" fill="none" stroke="#6b7280" stroke-width="1.5"/>
+<text x="277" y="800" text-anchor="middle" font-size="10.5" fill="#6b7280">因果掩码</text>
+<text x="277" y="814" text-anchor="middle" font-size="9.5" fill="#6b7280">（上三角封 -∞）</text>
+<text x="330" y="752" text-anchor="middle" font-size="15" fill="#6d28d9">＋</text>
+<text x="360" y="752" text-anchor="middle" font-size="14" fill="#6d28d9">→</text>
+<text x="398" y="742" text-anchor="middle" font-size="11" fill="#64748b">softmax</text>
+<text x="398" y="762" text-anchor="middle" font-size="9.5" fill="#64748b">（按行归一）</text>
+<text x="446" y="752" text-anchor="middle" font-size="15" fill="#6d28d9">＝</text>
+<g><rect x="480" y="730" width="8" height="8" fill="#6d28d9" opacity="0.19"/><rect x="489" y="730" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="498" y="730" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="507" y="730" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="516" y="730" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="525" y="730" width="8" height="8" fill="#6d28d9" opacity="0.31"/><rect x="480" y="739" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="489" y="739" width="8" height="8" fill="#6d28d9" opacity="0.31"/><rect x="498" y="739" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="507" y="739" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="516" y="739" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="525" y="739" width="8" height="8" fill="#6d28d9" opacity="0.19"/><rect x="480" y="748" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="489" y="748" width="8" height="8" fill="#6d28d9" opacity="0.19"/><rect x="498" y="748" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="507" y="748" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="516" y="748" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="525" y="748" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="480" y="757" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="489" y="757" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="498" y="757" width="8" height="8" fill="#6d28d9" opacity="0.31"/><rect x="507" y="757" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="516" y="757" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="525" y="757" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="480" y="766" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="489" y="766" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="498" y="766" width="8" height="8" fill="#6d28d9" opacity="0.19"/><rect x="507" y="766" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="516" y="766" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="525" y="766" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="480" y="775" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="489" y="775" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="498" y="775" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="507" y="775" width="8" height="8" fill="#6d28d9" opacity="0.31"/><rect x="516" y="775" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="525" y="775" width="8" height="8" fill="#6d28d9" opacity="0.24"/></g>
+<g><rect x="487" y="723" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="496" y="723" width="8" height="8" fill="#6d28d9" opacity="0.19"/><rect x="505" y="723" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="514" y="723" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="523" y="723" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="532" y="723" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="487" y="732" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="496" y="732" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="505" y="732" width="8" height="8" fill="#6d28d9" opacity="0.31"/><rect x="514" y="732" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="523" y="732" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="532" y="732" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="487" y="741" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="496" y="741" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="505" y="741" width="8" height="8" fill="#6d28d9" opacity="0.19"/><rect x="514" y="741" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="523" y="741" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="532" y="741" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="487" y="750" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="496" y="750" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="505" y="750" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="514" y="750" width="8" height="8" fill="#6d28d9" opacity="0.31"/><rect x="523" y="750" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="532" y="750" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="487" y="759" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="496" y="759" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="505" y="759" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="514" y="759" width="8" height="8" fill="#6d28d9" opacity="0.19"/><rect x="523" y="759" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="532" y="759" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="487" y="768" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="496" y="768" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="505" y="768" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="514" y="768" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="523" y="768" width="8" height="8" fill="#6d28d9" opacity="0.31"/><rect x="532" y="768" width="8" height="8" fill="#6d28d9" opacity="0.90"/></g>
+<g><rect x="494" y="716" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="503" y="716" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="512" y="716" width="8" height="8" fill="#6d28d9" opacity="0.19"/><rect x="521" y="716" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="530" y="716" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="539" y="716" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="494" y="725" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="503" y="725" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="512" y="725" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="521" y="725" width="8" height="8" fill="#6d28d9" opacity="0.31"/><rect x="530" y="725" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="539" y="725" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="494" y="734" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="503" y="734" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="512" y="734" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="521" y="734" width="8" height="8" fill="#6d28d9" opacity="0.19"/><rect x="530" y="734" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="539" y="734" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="494" y="743" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="503" y="743" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="512" y="743" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="521" y="743" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="530" y="743" width="8" height="8" fill="#6d28d9" opacity="0.31"/><rect x="539" y="743" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="494" y="752" width="8" height="8" fill="#6d28d9" opacity="0.31"/><rect x="503" y="752" width="8" height="8" fill="#6d28d9" opacity="0.90"/><rect x="512" y="752" width="8" height="8" fill="#6d28d9" opacity="0.24"/><rect x="521" y="752" width="8" height="8" fill="#6d28d9" opacity="0.71"/><rect x="530" y="752" width="8" height="8" fill="#6d28d9" opacity="0.19"/><rect x="539" y="752" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="494" y="761" width="8" height="8" fill="#6d28d9" opacity="0.19"/><rect x="503" y="761" width="8" height="8" fill="#6d28d9" opacity="0.55"/><rect x="512" y="761" width="8" height="8" fill="#6d28d9" opacity="0.16"/><rect x="521" y="761" width="8" height="8" fill="#6d28d9" opacity="0.42"/><rect x="530" y="761" width="8" height="8" fill="#6d28d9" opacity="0.15"/><rect x="539" y="761" width="8" height="8" fill="#6d28d9" opacity="0.31"/></g>
+<rect x="494" y="716" width="54" height="54" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="566" y="740" text-anchor="start" font-size="11" fill="#4c1d95">注意力权重</text>
+<text x="566" y="758" text-anchor="start" font-size="11.5" fill="#4c1d95" font-weight="bold">[8, 10, 10]</text>
+<text x="566" y="776" text-anchor="start" font-size="10" fill="#64748b">（每行和为 1）</text>
+<circle cx="120" cy="886" r="12" fill="#6d28d9"/><text x="120" y="890" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">10</text>
+<text x="300" y="872" text-anchor="middle" font-size="11" fill="#4c1d95">权重 [8,10,10]</text>
+<text x="300" y="896" text-anchor="middle" font-size="15" fill="#6d28d9">×</text>
+<text x="300" y="918" text-anchor="middle" font-size="11" fill="#4c1d95">V [8,10,96]</text>
+<text x="352" y="890" text-anchor="middle" font-size="15" fill="#6d28d9">＝</text>
+<g><rect x="390" y="838" width="110" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><rect x="390" y="849" width="110" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><rect x="390" y="860" width="110" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><rect x="390" y="871" width="110" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><rect x="390" y="882" width="110" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><rect x="390" y="893" width="110" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><rect x="390" y="904" width="110" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/><rect x="390" y="915" width="110" height="8" rx="2" fill="#ede9fe" stroke="#6d28d9" stroke-width="1"/></g>
+<text x="516" y="870" text-anchor="start" font-size="11" fill="#4c1d95">8 个头输出</text>
+<text x="516" y="888" text-anchor="start" font-size="11.5" fill="#4c1d95" font-weight="bold">[8, 10, 96]</text>
+<text x="516" y="906" text-anchor="start" font-size="10" fill="#64748b">（每头 96 维，共 8 片）</text>
+<circle cx="120" cy="992" r="12" fill="#6d28d9"/><text x="120" y="996" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">11</text>
+<text x="410" y="976" text-anchor="middle" font-size="11" fill="#64748b">按列拼接</text>
+<text x="410" y="1002" text-anchor="middle" font-size="14" fill="#6d28d9">＝</text>
+<g>
+      <path d="M470,966 L477,959 L677,959 L670,966 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M670,966 L677,959 L677,989 L670,996 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="470" y="966" width="200" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<line x1="495" y1="968" x2="495" y2="994" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="520" y1="968" x2="520" y2="994" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="545" y1="968" x2="545" y2="994" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="570" y1="968" x2="570" y2="994" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="595" y1="968" x2="595" y2="994" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="620" y1="968" x2="620" y2="994" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<line x1="645" y1="968" x2="645" y2="994" stroke="#6d28d9" stroke-width="1" opacity="0.6"/>
+<text x="570" y="986" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">[10, 768]（8×96 拼回）</text>
+<circle cx="120" cy="1070" r="12" fill="#6d28d9"/><text x="120" y="1074" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">12</text>
+<g>
+      <path d="M310,1036 L317,1029 L373,1029 L366,1036 Z" fill="#fde68a" stroke="#d97706" stroke-width="1"/>
+      <path d="M366,1036 L373,1029 L373,1085 L366,1092 Z" fill="#fcd34d" stroke="#d97706" stroke-width="1"/>
+      <rect x="310" y="1036" width="56" height="56" rx="5" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    </g>
+<text x="338" y="1030" text-anchor="middle" font-size="10.5" fill="#b45309">W_O [768, 768]</text>
+<text x="394" y="1066" text-anchor="middle" font-size="14" fill="#6d28d9">×</text>
+<text x="394" y="1106" text-anchor="middle" font-size="14" fill="#6d28d9">＝</text>
+<g>
+      <path d="M470,1098 L477,1091 L677,1091 L670,1098 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M670,1098 L677,1091 L677,1121 L670,1128 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="470" y="1098" width="200" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<text x="570" y="1118" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">[10, 768]</text>
+<circle cx="120" cy="1150" r="12" fill="#6d28d9"/><text x="120" y="1154" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">13</text>
+<path d="M460,305 L85,305 L85,1166 L552,1166" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC46)"/>
+<text x="70" y="740" text-anchor="start" font-size="10.5" fill="#0891b2">残差①</text>
+<circle cx="570" cy="1166" r="14" fill="#fff" stroke="#6d28d9" stroke-width="2"/><text x="570" y="1171" text-anchor="middle" font-size="14" fill="#6d28d9">＋</text>
+<line x1="570" y1="1135" x2="570" y2="1150" stroke="#6d28d9" stroke-width="1.5"/>
+<g>
+      <path d="M470,1184 L477,1177 L677,1177 L670,1184 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M670,1184 L677,1177 L677,1207 L670,1214 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="470" y="1184" width="200" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<text x="570" y="1204" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">[10, 768]（前半层结束）</text>
+<circle cx="120" cy="1264" r="12" fill="#d97706"/><text x="120" y="1268" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">14</text>
+<line x1="570" y1="1221" x2="570" y2="1244" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT46)"/>
+<text x="586" y="1240" text-anchor="start" font-size="11" fill="#64748b">RMSNorm</text>
+<g>
+      <path d="M470,1250 L477,1243 L677,1243 L670,1250 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M670,1250 L677,1243 L677,1273 L670,1280 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="470" y="1250" width="200" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<text x="570" y="1270" text-anchor="middle" font-size="12" fill="#4c1d95" font-weight="bold">X''　[10, 768]</text>
+<circle cx="120" cy="1340" r="12" fill="#d97706"/><text x="120" y="1344" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">15</text>
+<path d="M570,1287 L380,1312" fill="none" stroke="#d97706" stroke-width="1.2"/>
+<g>
+      <path d="M324,1316 L331,1309 L443,1309 L436,1316 Z" fill="#fde68a" stroke="#d97706" stroke-width="1"/>
+      <path d="M436,1316 L443,1309 L443,1349 L436,1356 Z" fill="#fcd34d" stroke="#d97706" stroke-width="1"/>
+      <rect x="324" y="1316" width="112" height="40" rx="5" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    </g>
+<text x="380" y="1310" text-anchor="middle" font-size="10.5" fill="#b45309">W_gate [768, 2432]</text>
+<text x="310" y="1340" text-anchor="middle" font-size="14" fill="#d97706">×</text>
+<text x="310" y="1392" text-anchor="middle" font-size="14" fill="#d97706">＝</text>
+<g>
+      <path d="M250,1366 L257,1359 L517,1359 L510,1366 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M510,1366 L517,1359 L517,1389 L510,1396 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="250" y="1366" width="260" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<path d="M570,1287 L760,1312" fill="none" stroke="#d97706" stroke-width="1.2"/>
+<g>
+      <path d="M704,1316 L711,1309 L823,1309 L816,1316 Z" fill="#fde68a" stroke="#d97706" stroke-width="1"/>
+      <path d="M816,1316 L823,1309 L823,1349 L816,1356 Z" fill="#fcd34d" stroke="#d97706" stroke-width="1"/>
+      <rect x="704" y="1316" width="112" height="40" rx="5" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    </g>
+<text x="760" y="1310" text-anchor="middle" font-size="10.5" fill="#b45309">W_up [768, 2432]</text>
+<text x="690" y="1340" text-anchor="middle" font-size="14" fill="#d97706">×</text>
+<text x="690" y="1392" text-anchor="middle" font-size="14" fill="#d97706">＝</text>
+<g>
+      <path d="M630,1366 L637,1359 L897,1359 L890,1366 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M890,1366 L897,1359 L897,1389 L890,1396 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="630" y="1366" width="260" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<text x="380" y="1386" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">gate　[10, 2432]</text>
+<text x="760" y="1386" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">up　[10, 2432]</text>
+<circle cx="120" cy="1464" r="12" fill="#d97706"/><text x="120" y="1468" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">16</text>
+<path d="M380,1403 L380,1424 L510,1424" fill="none" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrT46)"/>
+<text x="380" y="1416" text-anchor="middle" font-size="10.5" fill="#64748b">SiLU</text>
+<path d="M760,1403 L760,1424 L630,1424" fill="none" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrT46)"/>
+<text x="570" y="1446" text-anchor="middle" font-size="15" fill="#d97706">⊙</text>
+<g>
+      <path d="M440,1456 L447,1449 L707,1449 L700,1456 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M700,1456 L707,1449 L707,1479 L700,1486 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="440" y="1456" width="260" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<text x="570" y="1476" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">SiLU(gate) ⊙ up　[10, 2432]</text>
+<circle cx="120" cy="1544" r="12" fill="#d97706"/><text x="120" y="1548" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">17</text>
+<g>
+      <path d="M280,1508 L287,1501 L331,1501 L324,1508 Z" fill="#fde68a" stroke="#d97706" stroke-width="1"/>
+      <path d="M324,1508 L331,1501 L331,1597 L324,1604 Z" fill="#fcd34d" stroke="#d97706" stroke-width="1"/>
+      <rect x="280" y="1508" width="44" height="96" rx="5" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    </g>
+<text x="302" y="1502" text-anchor="middle" font-size="10.5" fill="#b45309">W_down [2432, 768]</text>
+<text x="342" y="1552" text-anchor="middle" font-size="14" fill="#d97706">×</text>
+<path d="M326,1556 L360,1556" fill="none" stroke="#d97706" stroke-width="1.2"/>
+<text x="394" y="1582" text-anchor="middle" font-size="14" fill="#d97706">＝</text>
+<line x1="570" y1="1493" x2="570" y2="1560" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrT46)"/>
+<g>
+      <path d="M470,1566 L477,1559 L677,1559 L670,1566 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M670,1566 L677,1559 L677,1589 L670,1596 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="470" y="1566" width="200" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<text x="570" y="1586" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">[10, 768]</text>
+<circle cx="120" cy="1652" r="12" fill="#d97706"/><text x="120" y="1656" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">18</text>
+<path d="M680,1199 L1055,1199 L1055,1640 L588,1640" fill="none" stroke="#0891b2" stroke-width="2" marker-end="url(#arrC46)"/>
+<text x="1040" y="1430" text-anchor="end" font-size="10.5" fill="#0891b2">残差②</text>
+<line x1="570" y1="1603" x2="570" y2="1624" stroke="#6d28d9" stroke-width="1.5"/>
+<circle cx="570" cy="1640" r="14" fill="#fff" stroke="#6d28d9" stroke-width="2"/><text x="570" y="1645" text-anchor="middle" font-size="14" fill="#6d28d9">＋</text>
+<g>
+      <path d="M470,1658 L477,1651 L677,1651 L670,1658 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M670,1658 L677,1651 L677,1681 L670,1688 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="470" y="1658" width="200" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<text x="570" y="1678" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">[10, 768]（一层 Block 输出）</text>
+<text x="150" y="1224" text-anchor="start" font-size="11" fill="#6d28d9">第 19 步：以上 16 步为一层，回到容器顶部换一套独立参数再来，共 8 层</text>
+<circle cx="120" cy="1776" r="12" fill="#0891b2"/><text x="120" y="1780" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">20</text>
+<line x1="570" y1="1695" x2="570" y2="1756" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrT46)"/>
+<text x="586" y="1730" text-anchor="start" font-size="11" fill="#64748b">最终 RMSNorm</text>
+<g>
+      <path d="M470,1762 L477,1755 L677,1755 L670,1762 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M670,1762 L677,1755 L677,1785 L670,1792 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="470" y="1762" width="200" height="30" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<text x="570" y="1782" text-anchor="middle" font-size="11.5" fill="#4c1d95" font-weight="bold">[10, 768]</text>
+<circle cx="120" cy="1880" r="12" fill="#0891b2"/><text x="120" y="1884" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">21</text>
+<g>
+      <path d="M150,1830 L157,1823 L377,1823 L370,1830 Z" fill="#fde68a" stroke="#d97706" stroke-width="1"/>
+      <path d="M370,1830 L377,1823 L377,1867 L370,1874 Z" fill="#fcd34d" stroke="#d97706" stroke-width="1"/>
+      <rect x="150" y="1830" width="220" height="44" rx="5" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    </g>
+<line x1="158" y1="1834" x2="158" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="168" y1="1834" x2="168" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="178" y1="1834" x2="178" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="188" y1="1834" x2="188" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="198" y1="1834" x2="198" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="208" y1="1834" x2="208" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="218" y1="1834" x2="218" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="228" y1="1834" x2="228" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="238" y1="1834" x2="238" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="248" y1="1834" x2="248" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="258" y1="1834" x2="258" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="268" y1="1834" x2="268" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="278" y1="1834" x2="278" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="288" y1="1834" x2="288" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="298" y1="1834" x2="298" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="308" y1="1834" x2="308" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="318" y1="1834" x2="318" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="328" y1="1834" x2="328" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="338" y1="1834" x2="338" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="348" y1="1834" x2="348" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<line x1="358" y1="1834" x2="358" y2="1870" stroke="#d97706" stroke-width="0.5" opacity="0.5"/>
+<text x="260" y="1898" text-anchor="middle" font-size="10.5" fill="#b45309">共享嵌入表ᵀ [768, 6400]（参数，图 3 同一张表转置复用）</text>
+<text x="390" y="1856" text-anchor="middle" font-size="15" fill="#6d28d9">×</text>
+<path d="M570,1799 L570,1824" stroke="#6d28d9" stroke-width="1.5" fill="none"/>
+<text x="500" y="1856" text-anchor="middle" font-size="15" fill="#6d28d9">＝</text>
+<g>
+      <path d="M540,1830 L547,1823 L947,1823 L940,1830 Z" fill="#ddd6fe" stroke="#6d28d9" stroke-width="1"/>
+      <path d="M940,1830 L947,1823 L947,1857 L940,1864 Z" fill="#c4b5fd" stroke="#6d28d9" stroke-width="1"/>
+      <rect x="540" y="1830" width="400" height="34" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    </g>
+<text x="740" y="1852" text-anchor="middle" font-size="12" fill="#4c1d95" font-weight="bold">logits　[10, 6400]</text>
+<circle cx="120" cy="1980" r="12" fill="#0891b2"/><text x="120" y="1984" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#ffffff">22</text>
+<rect x="547" y="1852" width="386" height="10" fill="none" stroke="#0891b2" stroke-width="2"/>
+<text x="970" y="1846" text-anchor="start" font-size="10.5" fill="#0891b2">取最后一行</text>
+<line x1="740" y1="1871" x2="740" y2="1920" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrC46)"/>
+<g>
+      <path d="M540,1926 L547,1919 L947,1919 L940,1926 Z" fill="#cffafe" stroke="#0891b2" stroke-width="1"/>
+      <path d="M940,1926 L947,1919 L947,1939 L940,1946 Z" fill="#a5f3fc" stroke="#0891b2" stroke-width="1"/>
+      <rect x="540" y="1926" width="400" height="20" rx="5" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+    </g>
+<text x="740" y="1941" text-anchor="middle" font-size="11" fill="#0e7490" font-weight="bold">最后位置分数　[6400]</text>
+<line x1="740" y1="1953" x2="740" y2="1984" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arrC46)"/>
+<text x="756" y="1972" text-anchor="start" font-size="11" fill="#64748b">softmax</text>
+<rect x="540" y="2047" width="5" height="3" fill="#0891b2" opacity="0.39"/><rect x="546" y="2046" width="5" height="4" fill="#0891b2" opacity="0.40"/><rect x="552" y="2045" width="5" height="5" fill="#0891b2" opacity="0.41"/><rect x="558" y="2044" width="5" height="6" fill="#0891b2" opacity="0.42"/><rect x="564" y="2047" width="5" height="3" fill="#0891b2" opacity="0.39"/><rect x="570" y="2046" width="5" height="4" fill="#0891b2" opacity="0.40"/><rect x="576" y="2045" width="5" height="5" fill="#0891b2" opacity="0.41"/><rect x="582" y="2047" width="5" height="3" fill="#0891b2" opacity="0.39"/><rect x="588" y="2046" width="5" height="4" fill="#0891b2" opacity="0.40"/><rect x="594" y="2044" width="5" height="6" fill="#0891b2" opacity="0.42"/><rect x="600" y="2043" width="5" height="7" fill="#0891b2" opacity="0.43"/><rect x="606" y="2044" width="5" height="6" fill="#0891b2" opacity="0.41"/><rect x="612" y="2042" width="5" height="8" fill="#0891b2" opacity="0.44"/><rect x="618" y="2040" width="5" height="10" fill="#0891b2" opacity="0.46"/><rect x="624" y="2040" width="5" height="10" fill="#0891b2" opacity="0.46"/><rect x="630" y="2037" width="5" height="13" fill="#0891b2" opacity="0.49"/><rect x="636" y="2034" width="5" height="16" fill="#0891b2" opacity="0.53"/><rect x="642" y="2031" width="5" height="19" fill="#0891b2" opacity="0.56"/><rect x="648" y="2031" width="5" height="19" fill="#0891b2" opacity="0.55"/><rect x="654" y="2029" width="5" height="21" fill="#0891b2" opacity="0.58"/><rect x="660" y="2028" width="5" height="22" fill="#0891b2" opacity="0.59"/><rect x="666" y="2031" width="5" height="19" fill="#0891b2" opacity="0.56"/><rect x="672" y="2031" width="5" height="19" fill="#0891b2" opacity="0.56"/><rect x="678" y="2032" width="5" height="18" fill="#0891b2" opacity="0.55"/><rect x="684" y="2033" width="5" height="17" fill="#0891b2" opacity="0.54"/><rect x="690" y="2038" width="5" height="12" fill="#0891b2" opacity="0.49"/><rect x="696" y="2039" width="5" height="11" fill="#0891b2" opacity="0.47"/><rect x="702" y="2040" width="5" height="10" fill="#0891b2" opacity="0.46"/><rect x="708" y="2044" width="5" height="6" fill="#0891b2" opacity="0.42"/><rect x="714" y="2044" width="5" height="6" fill="#0891b2" opacity="0.42"/><rect x="720" y="2044" width="5" height="6" fill="#0891b2" opacity="0.42"/><rect x="726" y="2043" width="5" height="7" fill="#0891b2" opacity="0.43"/><rect x="732" y="2046" width="5" height="4" fill="#0891b2" opacity="0.40"/><rect x="738" y="2045" width="5" height="5" fill="#0891b2" opacity="0.40"/><rect x="744" y="2045" width="5" height="5" fill="#0891b2" opacity="0.41"/><rect x="750" y="2047" width="5" height="3" fill="#0891b2" opacity="0.39"/><rect x="756" y="2046" width="5" height="4" fill="#0891b2" opacity="0.40"/><rect x="762" y="2045" width="5" height="5" fill="#0891b2" opacity="0.41"/><rect x="768" y="2044" width="5" height="6" fill="#0891b2" opacity="0.42"/><rect x="774" y="2047" width="5" height="3" fill="#0891b2" opacity="0.39"/><rect x="780" y="2046" width="5" height="4" fill="#0891b2" opacity="0.40"/><rect x="786" y="2045" width="5" height="5" fill="#0891b2" opacity="0.41"/><rect x="792" y="2047" width="5" height="3" fill="#0891b2" opacity="0.39"/><rect x="798" y="2046" width="5" height="4" fill="#0891b2" opacity="0.40"/><rect x="804" y="2044" width="5" height="6" fill="#0891b2" opacity="0.42"/><rect x="810" y="2042" width="5" height="8" fill="#0891b2" opacity="0.44"/><rect x="816" y="2043" width="5" height="7" fill="#0891b2" opacity="0.43"/><rect x="822" y="2039" width="5" height="11" fill="#0891b2" opacity="0.48"/><rect x="828" y="2033" width="5" height="17" fill="#0891b2" opacity="0.54"/><rect x="834" y="2030" width="5" height="20" fill="#0891b2" opacity="0.57"/><rect x="840" y="2024" width="5" height="26" fill="#0891b2" opacity="0.64"/><rect x="846" y="2019" width="5" height="31" fill="#0891b2" opacity="0.69"/><rect x="852" y="2016" width="5" height="34" fill="#0891b2" opacity="0.72"/><rect x="858" y="2020" width="5" height="30" fill="#0891b2" opacity="0.67"/><rect x="864" y="2023" width="5" height="27" fill="#0891b2" opacity="0.64"/><rect x="870" y="2028" width="5" height="22" fill="#0891b2" opacity="0.59"/><rect x="876" y="2036" width="5" height="14" fill="#0891b2" opacity="0.51"/><rect x="882" y="2039" width="5" height="11" fill="#0891b2" opacity="0.47"/><rect x="888" y="2041" width="5" height="9" fill="#0891b2" opacity="0.45"/><rect x="894" y="2042" width="5" height="8" fill="#0891b2" opacity="0.44"/><rect x="900" y="2046" width="5" height="4" fill="#0891b2" opacity="0.40"/><rect x="906" y="2045" width="5" height="5" fill="#0891b2" opacity="0.40"/><rect x="912" y="2045" width="5" height="5" fill="#0891b2" opacity="0.41"/><rect x="918" y="2047" width="5" height="3" fill="#0891b2" opacity="0.39"/>
+<text x="740" y="2072" text-anchor="middle" font-size="12" fill="#0e7490" font-weight="bold">概率分布 [6400]　→　采样得下一个 token</text>
+</svg>
+  <div class="diagram-caption">图 10：一次前向的张量流全景（编号与图 9 一一对应）。紫色块是数据张量（标注形状），橙色块是参数矩阵：token ID 按行查嵌入表得 X [10, 768]（第 1–2 步）；Block 内，X 分别乘 W_Q / W_K / W_V 得 Q [10, 768] 与 K / V [10, 384]（竖线是按头切口，第 4–5 步），Q 乘 K 转置打分 [8, 10, 10]、加因果掩码过 softmax 得权重、再乘 V 并拼回 8 头（第 8–11 步），过 W_O 加残差收口前半层；后半层双路升维 [10, 2432]、SiLU 门控相乘后乘 W_down 压回，再加残差（第 14–18 步），以上为一层、共堆 8 层。塔顶乘共享嵌入表转置得 logits [10, 6400]，只取最后一行过 softmax 就是下一个词的概率分布（第 20–22 步）。两处设计巧思值得回看：嵌入表在一头一尾各出现一次（转置复用，不另占参数），主干恒为 [10, 768]、宽度只在头维与 2432 之间折返。</div>
+</div>
+
 <h2>4.6.4 参数量与计算量总账</h2>
 
 <p>　　形状清楚了，再算两笔账：参数存在哪，算力花在哪。参数量按 4.6.1 节的真实配置逐模块算（所有线性层都无偏置）：</p>
@@ -1066,7 +1446,7 @@
     <text x="360" y="352" text-anchor="middle" font-size="10.5" fill="#6d28d9">接回句尾，循环吐字：汗 → 滴 → 禾 → 下 → 土 → 。→ EOS 停止</text>
     <text x="30" y="368" font-size="10.5" fill="#64748b">decode 每步只进 1 个新 token，与"26 个全部重算"数学完全等价——缓存删掉的是注定不变的重算</text>
   </svg>
-  <div class="diagram-caption">图 10：推理的两个阶段。Prefill 把整段输入一次算完，同时把每层每位置的 K/V 存入缓存；Decode 每步只送新 token 进网络，注意力通过缓存看到全部历史（打分 [8, 1, 26]），采样出的 token 接回句尾进入下一步，直到 EOS。两阶段共用同一套参数、同一套前向数学。</div>
+  <div class="diagram-caption">图 11：推理的两个阶段。Prefill 把整段输入一次算完，同时把每层每位置的 K/V 存入缓存；Decode 每步只送新 token 进网络，注意力通过缓存看到全部历史（打分 [8, 1, 26]），采样出的 token 接回句尾进入下一步，直到 EOS。两阶段共用同一套参数、同一套前向数学。</div>
 </div>
 
 <p>　　<strong>总账：</strong>这次请求共 1 次 prefill（25 个 token）加 6 次 decode（每次 1 个），合计 7 次前向。模型并没有把整句诗背出来再写——每个字都是看完已有全部内容后现场投出的一票，能答对是因为这类诗句的接续模式在训练时被压进了参数。</p>
