@@ -1,0 +1,168 @@
+<article class="content">
+<h1>A.14 方差、协方差与“两两点积方阵”：从数据波动到注意力分数</h1>
+<p class="subtitle">本页范围：附录 A 第 14 节　|　整理时间：2026-10-14</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>RMSNorm、LayerNorm 里“除以标准差”的标准差到底是什么？4.3 节那张 QKᵀ 打分矩阵，和统计里的协方差矩阵是不是一回事？</td></tr>
+      <tr><td>本节主张</td><td>方差是“一组数离均值多远”的尺子，标准差开平方把单位换回来；协方差回答“两个变量怎么一起变”，排成矩阵就是 XᵀX。而注意力的 QKᵀ 与协方差矩阵只是同属“两两点积排成方阵”的二阶矩家族——它是 Gram 矩阵（相似度矩阵）的学习版，不是协方差。</td></tr>
+      <tr><td>一句话结论</td><td>归一化用的是方差（除波动），注意力打分用的是学出来的相似度（QKᵀ）——一个家族，两码事。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>方差</span><span>标准差</span><span>协方差</span><span>协方差矩阵</span><span>Gram 矩阵</span><span>QKᵀ</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　4.3 节图 6 那张 10×10 的注意力权重矩阵，长相很像统计学里的协方差矩阵：都是“两两配对算一个关系值，排成一个方阵”。这个直觉抓到了真东西，但两个矩阵并不是一回事。本节先把地基打好——方差（一组数自己散得多开）与协方差（两组数怎么一起变），再把三个“长得像”的矩阵摆在一起对比，讲清它们各自回答什么问题。</p>
+
+<ol>
+  <li><strong>方差与标准差：一组数离均值有多远</strong>（A.14.1）：为什么要平方、为什么要开根号，归一化除的就是它；</li>
+  <li><strong>协方差与协方差矩阵：两个变量怎么“一起变”</strong>（A.14.2）：正相关、负相关、无关三种形态，矩阵形式 XᵀX；</li>
+  <li><strong>三个“两两点积方阵”对比</strong>（A.14.3）：XᵀX、XXᵀ、QKᵀ 长得像，回答的问题完全不同——QKᵀ 是 Gram 矩阵的学习版，不是协方差。</li>
+</ol>
+
+<p>　　读完应能讲清两件事：归一化公式里“除以标准差”除的是什么；注意力打分矩阵与协方差矩阵像在哪、差在哪。</p>
+
+<h2>A.14.1 方差与标准差：一组数离均值有多远</h2>
+
+<p>　　两组数据平均值相同，性质可能天差地别：一组全挤在均值旁边，一组东一个西一个。只说“平均是多少”装不下这个差别，还需要一把“离散程度”的尺子。自然的想法是把每个数与均值的偏差加起来，但正负偏差会互相抵消（偏左 2 和偏右 2 相加得 0），所以先平方再平均——平方后偏差都是正数，而且偏得越远惩罚越重。这就是方差：</p>
+
+<div class="formula-card">
+  \[ \operatorname{Var}(x) = \frac{1}{n}\sum_{i=1}^{n}(x_i - \mu)^2, \qquad \mu = \frac{1}{n}\sum_{i=1}^{n} x_i \tag{1} \]
+  <div class="formula-note">公式 (1)：方差＝偏差平方的平均。符号说明：\(x_i\) 是第 \(i\) 个数据；\(n\) 是数据个数；\(\mu\) 是均值；\(\sum\) 是求和。严谨的无偏估计分母用 \(n-1\)，数据量大时与 \(n\) 几乎无差，本书不再区分。</div>
+</div>
+
+<p>　　方差有个小毛病：单位被平方了。身高的单位是厘米，方差的单位就是“平方厘米”，没法直接和身高比较。开平方把单位换回来，得到标准差：</p>
+
+<div class="formula-card">
+  \[ \sigma = \sqrt{\operatorname{Var}(x)} \tag{2} \]
+  <div class="formula-note">公式 (2)：标准差＝方差开平方，单位与原始数据一致。符号说明：\(\sigma\) 是标准差，读作“这组数典型地偏离均值多远”。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <text x="665" y="68" text-anchor="end" font-size="12.5" fill="#4c1d95">σ 小：挤在均值附近</text>
+    <line x1="130" y1="80" x2="670" y2="80" stroke="#94a3b8" stroke-width="1.2"/>
+    <line x1="395" y1="56" x2="395" y2="104" stroke="#dc2626" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <g fill="#6d28d9">
+      <circle cx="372" cy="80" r="4.2"/><circle cx="381" cy="80" r="4.2"/><circle cx="388" cy="80" r="4.2"/>
+      <circle cx="393" cy="80" r="4.2"/><circle cx="397" cy="80" r="4.2"/><circle cx="401" cy="80" r="4.2"/>
+      <circle cx="406" cy="80" r="4.2"/><circle cx="411" cy="80" r="4.2"/><circle cx="418" cy="80" r="4.2"/>
+    </g>
+    <text x="665" y="158" text-anchor="end" font-size="12.5" fill="#4c1d95">σ 大：离均值散得开</text>
+    <line x1="130" y1="170" x2="670" y2="170" stroke="#94a3b8" stroke-width="1.2"/>
+    <line x1="395" y1="146" x2="395" y2="194" stroke="#dc2626" stroke-width="1.2" stroke-dasharray="5 4"/>
+    <g fill="#6d28d9">
+      <circle cx="210" cy="170" r="4.2"/><circle cx="268" cy="170" r="4.2"/><circle cx="318" cy="170" r="4.2"/>
+      <circle cx="362" cy="170" r="4.2"/><circle cx="388" cy="170" r="4.2"/><circle cx="402" cy="170" r="4.2"/>
+      <circle cx="428" cy="170" r="4.2"/><circle cx="478" cy="170" r="4.2"/><circle cx="545" cy="170" r="4.2"/>
+    </g>
+    <text x="402" y="50" font-size="12" fill="#dc2626">μ（两组均值相同）</text>
+    <text x="400" y="232" text-anchor="middle" font-size="11.5" fill="#64748b">均值一样，散布不同：方差量的就是“围绕均值摊得多开”</text>
+  </svg>
+  <div class="diagram-caption">图 1：方差大小的直觉对比。两组数据均值相同（红色虚线），上面一组全挤在均值附近（σ 小），下面一组摊得开（σ 大）。方差大不代表均值大，只代表波动大。</div>
+</div>
+
+<p>　　本书里方差与标准差出场最多的地方是归一化。LayerNorm 对每行向量“减均值、除以标准差”，把数据拉回均值为 0、波动为 1 的温和区间；RMSNorm 更省事，不减均值，直接除以均方根（root mean square，各分量平方平均再开根号），把典型量级压回 1 附近（4.4 节、5.1 节）。训练稳定性也靠方差把控：初始化权重时按方差控制量级，让每层的输入输出波动既不萎缩消失也不累积爆炸（第 7 章）。</p>
+
+<h2>A.14.2 协方差与协方差矩阵：两个变量怎么“一起变”</h2>
+
+<p>　　方差只管一个变量自己的散布。换成两个变量——比如一批人的身高与体重——更有意义的问题是：它们怎么一起动？x 偏大的时候 y 是不是也偏大？把两个偏差乘起来再平均，就是协方差：</p>
+
+<div class="formula-card">
+  \[ \operatorname{Cov}(x, y) = \frac{1}{n}\sum_{i=1}^{n}(x_i - \mu_x)(y_i - \mu_y) \tag{3} \]
+  <div class="formula-note">公式 (3)：协方差＝两个变量偏差的乘积的平均。符号说明：\(x_i, y_i\) 是第 \(i\) 个样本的两个变量；\(\mu_x, \mu_y\) 是各自均值。结果为正：x 大时 y 倾向也大（正相关）；为负：一个涨另一个跌（负相关）；接近 0：各走各的（线性无关）。</div>
+</div>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <rect x="30" y="20" width="190" height="190" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>
+    <g fill="#6d28d9">
+      <circle cx="58" cy="176" r="3.6"/><circle cx="75" cy="172" r="3.6"/><circle cx="95" cy="176" r="3.6"/>
+      <circle cx="115" cy="150" r="3.6"/><circle cx="135" cy="141" r="3.6"/><circle cx="155" cy="126" r="3.6"/>
+      <circle cx="175" cy="110" r="3.6"/><circle cx="193" cy="96" r="3.6"/><circle cx="205" cy="80" r="3.6"/>
+    </g>
+    <text x="125" y="238" text-anchor="middle" font-size="12" fill="#4c1d95">Cov &gt; 0：x 涨，y 跟着涨</text>
+    <rect x="265" y="20" width="190" height="190" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>
+    <g fill="#6d28d9">
+      <circle cx="300" cy="80" r="3.6"/><circle cx="330" cy="122" r="3.6"/><circle cx="360" cy="94" r="3.6"/>
+      <circle cx="390" cy="142" r="3.6"/><circle cx="420" cy="84" r="3.6"/><circle cx="308" cy="160" r="3.6"/>
+      <circle cx="348" cy="152" r="3.6"/><circle cx="382" cy="62" r="3.6"/><circle cx="412" cy="170" r="3.6"/>
+      <circle cx="338" cy="62" r="3.6"/><circle cx="402" cy="118" r="3.6"/><circle cx="370" cy="182" r="3.6"/>
+    </g>
+    <text x="360" y="238" text-anchor="middle" font-size="12" fill="#4c1d95">Cov ≈ 0：各走各的</text>
+    <rect x="500" y="20" width="190" height="190" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>
+    <g fill="#6d28d9">
+      <circle cx="525" cy="58" r="3.6"/><circle cx="545" cy="76" r="3.6"/><circle cx="565" cy="70" r="3.6"/>
+      <circle cx="585" cy="96" r="3.6"/><circle cx="605" cy="106" r="3.6"/><circle cx="625" cy="122" r="3.6"/>
+      <circle cx="645" cy="136" r="3.6"/><circle cx="665" cy="152" r="3.6"/><circle cx="680" cy="168" r="3.6"/>
+    </g>
+    <text x="595" y="238" text-anchor="middle" font-size="12" fill="#4c1d95">Cov &lt; 0：x 涨，y 反而跌</text>
+  </svg>
+  <div class="diagram-caption">图 2：协方差的三种形态。点云斜向上，协方差为正；乱成一团，接近 0；斜向下，为负。注意协方差只捕捉“直线式的一起变”，曲线式的关联它测不出来。</div>
+</div>
+
+<p>　　变量一多，就要两两配对算协方差。把 n 个样本、d 个变量排成矩阵 X（n 行 d 列），先逐列减去均值（这步叫中心化，记作 \(X_c\)），再做矩阵乘法，所有协方差一次算齐：</p>
+
+<div class="formula-card">
+  \[ C = \frac{1}{n-1}\, X_c^{\top} X_c \tag{4} \]
+  <div class="formula-note">公式 (4)：协方差矩阵。符号说明：\(X_c\) 是中心化后的数据矩阵（n 个样本 × d 个变量，下标 c 表示 centered，已减均值）；\(X_c^{\top}\) 是它的转置；\(C\) 是 d×d 方阵，第 (i, j) 格是第 i 维与第 j 维的协方差。两个特征：对角线上是各变量自己的方差；矩阵必然对称（i 与 j 的协方差等于 j 与 i 的）。分母 \(n-1\) 是样本无偏估计的惯例。</div>
+</div>
+
+<p>　　说句实话：协方差矩阵在 LLM 主干里并不直接出场，它属于 PCA、白化那一路的经典方法。讲它是为了下一节的对比——很多人看到注意力的 QKᵀ 会脱口而出“这不就是协方差矩阵吗”，值得把这层误会拆开。</p>
+
+<h2>A.14.3 三个“两两点积方阵”：XᵀX、XXᵀ、QKᵀ</h2>
+
+<p>　　三个矩阵乘积摆在一起：\(X_c^{\top} X_c\)、\(X X^{\top}\)、\(Q K^{\top}\)。写法像亲兄弟，回答的问题却完全不同。关键在于乘的方向：数据矩阵 X 是“n 个样本 × d 个特征”，转置放左边还是右边，决定了乘出来的方阵在比较什么。</p>
+
+<p>　　<strong>XᵀX（d×d）：特征×特征，回答“两个维度怎么一起变”。</strong>转置放左边，样本维被消掉，留下特征维。第 (i, j) 格是“第 i 维特征与第 j 维特征在所有样本上的联动程度”——中心化之后，它就是协方差矩阵。它是数据的固定统计量：数据给定，矩阵就定了，没有可学的东西。</p>
+
+<p>　　<strong>XXᵀ（n×n）：样本×样本，回答“两个样本有多像”。</strong>转置放右边，特征维被消掉，留下样本维。第 (i, j) 格是“第 i 个样本的向量与第 j 个样本的向量的点积”——点积越大越相似（A.2 节）。这个矩阵在机器学习里叫 Gram 矩阵（格拉姆矩阵），是核矩阵的最简形态。注意它不做中心化，是未中心化的二阶矩。</p>
+
+<p>　　<strong>QKᵀ（n×n）：token×token，回答“第 i 个 token 该听第 j 个 token 多少”。</strong>4.3 节图 6 那张打分矩阵就是它。把它展开看：</p>
+
+<div class="formula-card">
+  \[ Q K^{\top} = (X W_Q)(X W_K)^{\top} = X \, W_Q W_K^{\top} X^{\top} \tag{5} \]
+  <div class="formula-note">公式 (5)：注意力打分矩阵的展开。符号说明：\(X\) 是输入矩阵（n 个 token × d 维）；\(W_Q, W_K\) 是训练学出来的投影矩阵；\(Q K^{\top}\) 是 n×n 方阵，第 (i, j) 格是“token i 的 query 与 token j 的 key 的匹配分”。</div>
+</div>
+
+<p>　　形状上它和 Gram 矩阵一样是“样本×样本的点积方阵”，但中间夹着一个学出来的 \(W_Q W_K^{\top}\)——相似度的度量标准本身是可训练的。模型在训练中自己决定“按什么标准算像”：哪些维度该放大、哪些该压掉、哪些组合值得关注。换句话说，Gram 矩阵用天生的点积比相似，QKᵀ 用学出来的点积比相似。只有当 \(W_Q = W_K = I\)（单位矩阵，不做任何投影）时，QKᵀ 才退化成普通的 Gram 矩阵。</p>
+
+<p>　　回到开头的疑问：QKᵀ 与协方差矩阵是不是一回事？不是，差别有三层。其一，比较对象不同：协方差矩阵比的是特征×特征，QKᵀ 比的是 token×token。其二，预处理不同：协方差必须先减均值（中心化），QKᵀ 不减。其三，来源不同：协方差是数据的固定统计量，QKᵀ 的度量标准 \(W_Q, W_K\) 是训练产物。另外还有两个形态差别：协方差矩阵必然对称，QKᵀ 一般不对称（query 与 key 走不同投影，i 听 j 的分不等于 j 听 i 的分），加上因果掩码后更是下三角阵；协方差矩阵的对角线是“方差”，QKᵀ 的对角线只是“token 自己听自己的分”，没有方差含义。</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>对比项</th><th>协方差矩阵 X_cᵀX_c</th><th>Gram 矩阵 XXᵀ</th><th>注意力分数 QKᵀ</th></tr></thead>
+    <tbody>
+      <tr><td>方阵尺寸</td><td>d×d（特征×特征）</td><td>n×n（样本×样本）</td><td>n×n（token×token）</td></tr>
+      <tr><td>回答的问题</td><td>两个维度怎么一起变</td><td>两个样本有多像</td><td>token i 该听 token j 多少</td></tr>
+      <tr><td>是否中心化</td><td>是（先减均值）</td><td>否</td><td>否</td></tr>
+      <tr><td>度量标准</td><td>固定统计量</td><td>天生点积</td><td>学出来的投影（W_Q、W_K）</td></tr>
+      <tr><td>是否对称</td><td>必然对称</td><td>必然对称</td><td>一般不对称，掩码后为下三角</td></tr>
+      <tr><td>对角线含义</td><td>各维度的方差</td><td>样本与自身的点积</td><td>token 自己听自己的分</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　一句话收束：三者像，是因为同属“两两点积排成方阵”的二阶矩家族；但不是一回事——协方差矩阵做数据统计（总结特征间的共变），QKᵀ 做信息路由（决定 token 之间谁听谁、听多少）。</p>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>章节</th><th>用到本节什么</th></tr></thead>
+    <tbody>
+      <tr><td>4.2 / 4.3 注意力</td><td>QKᵀ 打分矩阵是 Gram 式相似度的学习版，与协方差矩阵的“像与不像”</td></tr>
+      <tr><td>4.4 / 5.1 归一化</td><td>LayerNorm 减均值除标准差，RMSNorm 除均方根，除的都是“波动尺子”</td></tr>
+      <tr><td>第 7 章 预训练工程</td><td>初始化按方差控制权重量级，让各层波动不消失、不爆炸</td></tr>
+      <tr><td>A.2 点积与 √d</td><td>用方差推出点积标准差为 √d，缩放因子的来历</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</article>

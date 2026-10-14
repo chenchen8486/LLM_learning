@@ -1,0 +1,124 @@
+<article class="content">
+<h1>A.15 Q、K、V 的出处：从信息检索到注意力</h1>
+<p class="subtitle">本页范围：附录 A 第 15 节　|　整理时间：2026-10-14</p>
+
+<div class="doc-meta-card">
+  <h3 class="doc-meta-title">快速浏览</h3>
+  <table class="doc-meta">
+    <tbody>
+      <tr><td>核心问题</td><td>注意力里的 query、key、value 三个名字是从哪来的？它们原本是什么意思，为什么偏偏借这三个词？</td></tr>
+      <tr><td>本节主张</td><td>三个词出自信息检索与数据库：query 是检索词，key 是索引，value 是内容。注意力把“拿检索词匹配索引、取出内容”这套硬检索软化成可微的加权平均；2014 年 Bahdanau 的对齐机制还没有这三个名字，2016 年 key-value 记忆网络把键值结构引入深度学习，2017 年 Transformer 论文正式定名。</td></tr>
+      <tr><td>一句话结论</td><td>Q、K、V 不是数学符号，是一套检索隐喻——会问、会索引、会取货。</td></tr>
+      <tr><td>关键词</td><td>
+        <div class="keywords"><span>query</span><span>key</span><span>value</span><span>信息检索</span><span>键值对</span><span>注意力简史</span></div>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　4.2 节讲过，每个 token 的向量会被投影派生出三种角色：query 负责提问，key 负责应答，value 负责供货。这三个名字不是数学家随手定的符号，而是从另一个行业整建制借来的——信息检索。把借来的原义搞清楚，注意力的一切公式都会变得好读。</p>
+
+<ol>
+  <li><strong>三个词的本行：信息检索与数据库</strong>（A.15.1）：query 是检索词、key 是索引、value 是内容，三者分工是什么；</li>
+  <li><strong>注意力怎么借用：把硬检索软化</strong>（A.15.2）：不取最高分一条，改成按分加权平均，检索过程因此可微、可训练；</li>
+  <li><strong>一段历史线：名字是哪一年定的</strong>（A.15.3）：2014 对齐机制、2016 键值记忆网络、2017 Transformer 定名。</li>
+</ol>
+
+<p>　　读完应能讲清两件事：query、key、value 各自的本义与分工；这套术语从信息检索进入注意力机制的经过。</p>
+
+<h2>A.15.1 三个词的本行：信息检索与数据库</h2>
+
+<p>　　打开任何一个搜索引擎，三个角色一个不少。你输入的那句话叫 query（检索词、查询）；搜索引擎事先给每个网页建好的索引（标题词、关键词、标签）叫 key（键）；索引背后那份你真正想看的网页正文，叫 value（值、内容）。数据库与编程语言里的字典是同一套结构：<code>d[key]</code> 取出 value，SQL 里 <code>WHERE key = query</code> 挑出对应的行。</p>
+
+<p>　　为什么要拆成 key 和 value 两份？因为“好查”与“有用”是两件事。网页标题适合被检索（短、规整、覆盖主题），正文才是要读的内容；把索引与内容分开，系统就能用轻量的 key 快速定位，再交出背后的 value。key 负责“被找到”，value 负责“被拿走”，query 负责“说出你要什么”。</p>
+
+<div class="diagram">
+  <span class="diagram-tag">原创示意图 · 非论文原图</span>
+  <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">
+    <defs>
+      <marker id="qArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#6d28d9"/>
+      </marker>
+      <marker id="vArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/>
+      </marker>
+    </defs>
+    <rect x="50" y="125" width="150" height="64" rx="6" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.8"/>
+    <text x="125" y="151" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#4c1d95">query = 检索词</text>
+    <text x="125" y="172" text-anchor="middle" font-size="11.5" fill="#4c1d95">“北京今天天气”</text>
+    <g stroke="#6d28d9" stroke-width="1.3" opacity="0.55" fill="none">
+      <path d="M200,150 L306,53" marker-end="url(#qArr)"/>
+      <path d="M200,157 L306,119" marker-end="url(#qArr)"/>
+      <path d="M200,163 L306,185" marker-end="url(#qArr)"/>
+      <path d="M200,170 L306,251" marker-end="url(#qArr)"/>
+    </g>
+    <text x="385" y="18" text-anchor="middle" font-size="11" fill="#64748b">key = 索引（决定能不能被查到）</text>
+    <rect x="310" y="30" width="150" height="46" rx="5" fill="#ede9fe" stroke="#6d28d9" stroke-width="2"/>
+    <text x="385" y="58" text-anchor="middle" font-size="12" fill="#4c1d95">key：天气</text>
+    <text x="472" y="58" font-size="12" fill="#b45309">匹配分 0.85</text>
+    <rect x="310" y="96" width="150" height="46" rx="5" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
+    <text x="385" y="124" text-anchor="middle" font-size="12" fill="#475569">key：北京旅游</text>
+    <text x="472" y="124" font-size="12" fill="#94a3b8">0.40</text>
+    <rect x="310" y="162" width="150" height="46" rx="5" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
+    <text x="385" y="190" text-anchor="middle" font-size="12" fill="#475569">key：天气预报</text>
+    <text x="472" y="190" font-size="12" fill="#94a3b8">0.62</text>
+    <rect x="310" y="228" width="150" height="46" rx="5" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
+    <text x="385" y="256" text-anchor="middle" font-size="12" fill="#475569">key：美食</text>
+    <text x="472" y="256" font-size="12" fill="#94a3b8">0.05</text>
+    <path d="M460,53 L588,124" stroke="#0891b2" stroke-width="1.8" fill="none" marker-end="url(#vArr)"/>
+    <rect x="540" y="126" width="150" height="86" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.8"/>
+    <text x="615" y="152" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#0e7490">value = 正文内容</text>
+    <text x="615" y="173" text-anchor="middle" font-size="11.5" fill="#0e7490">晴，26℃，东南风 3 级</text>
+    <text x="615" y="192" text-anchor="middle" font-size="11.5" fill="#0e7490">（查到后要拿走的东西）</text>
+    <text x="360" y="292" text-anchor="middle" font-size="11.5" fill="#64748b">硬检索：只取匹配分最高的那一条，其余全部丢弃</text>
+  </svg>
+  <div class="diagram-caption">图 1：信息检索里的三个角色。query（检索词）与每条记录的 key（索引）算匹配分，取最高分那条，交出它的 value（正文）。key 负责“被找到”，value 负责“被拿走”——“好查”与“有用”因此分离。</div>
+</div>
+
+<h2>A.15.2 注意力怎么借用：把硬检索软化</h2>
+
+<p>　　注意力机制把检索的三步原样保留——提问、匹配、取货——只改动一处：不再只取最高分那一条，而是把所有匹配分送进 softmax 变成权重（A.3 节），对全部 value 做加权平均。硬检索变软检索。这一软带来决定性好处：整个取货过程连续可微，梯度能顺着权重流回每个 key、每条 value，检索策略因此可以被训练。</p>
+
+<p>　　对照 4.2 节“我爱猫”的手算例：token“猫”的 query 就是它的检索词，向全句提问“你跟我有多相关”；每个位置的 key 是挂出来的索引牌，与 query 点积得匹配分（我 0.507、爱 0.186、自己 0.307）；value 是牌后面的货，按权重掺成“猫”的新向量。一张映射表把两个世界对齐：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>信息检索</th><th>注意力机制</th><th>分工</th></tr></thead>
+    <tbody>
+      <tr><td>query：检索词</td><td>Q：本 token 的提问向量</td><td>说出“我要什么”</td></tr>
+      <tr><td>key：索引</td><td>K：各位置的应答向量</td><td>决定“能不能被查到”</td></tr>
+      <tr><td>匹配分</td><td>QKᵀ 点积打分（÷√d，A.2 节）</td><td>相关程度量化</td></tr>
+      <tr><td>取最高分一条</td><td>softmax 成权重，全部 value 加权平均</td><td>硬检索软化，可微可训练</td></tr>
+      <tr><td>value：正文内容</td><td>V：各位置的内容向量</td><td>被拿走、被掺起来的货</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>　　这张表也解释了 4.2 节的一个设计：为什么 key 和 value 要用两个不同的投影矩阵分别产生，而不是同一个向量兼任？原因就在本行——索引与内容天生是两份东西，被查到的方式（key）与被打包的内容（value）理应分开优化。</p>
+
+<h2>A.15.3 一段历史线：名字是哪一年定的</h2>
+
+<p>　　<strong>2014 年，机制已生，名字未有。</strong>Bahdanau 等在神经机器翻译中提出对齐机制：decoder 的当前状态与 encoder 每个位置的隐状态算一个“对齐分数”（alignment score），softmax 归一化后对各隐状态加权求和，再拿去做翻译。计算流程已经是地道的注意力，但论文通篇用的是隐状态、对齐分数这类说法，没有 query、key、value 这三个名字。</p>
+
+<p>　　<strong>2016 年，键值分离进入深度学习。</strong>Miller 等提出 Key-Value Memory Networks，把外部记忆（比如一批百科文档）的每个条目拆成两份：key 部分负责与问题做匹配，value 部分负责提供组装答案的素材。“key 用于检索、value 用于读取”的分工，从信息检索正式搬进了神经网络。</p>
+
+<p>　　<strong>2017 年，三个名字定死。</strong>Vaswani 等的《Attention Is All You Need》在开篇定义里直接写道：注意力函数是“把一个 query 和一组 key-value 对映射为一个输出”（本书 ref_paper 目录有该论文原文），三个名字自此成为标准术语。论文进一步明确 self-attention（自注意力）的做法：Q、K、V 由同一个序列各自投影而来——“self”指的是三者同源。顺带防一个混淆：这个 self 与统计里的 auto（如 auto-covariance 自协方差）毫无关系，前者说“Q、K、V 来自同一序列”，后者是时序信号的概念，本书不展开。</p>
+
+<p>　　一句话收束：记住检索隐喻，Q、K、V 就不再是三个抽象符号——query 会问，key 会索引，value 会取货；注意力就是一场可以训练的软检索。</p>
+
+<h3>本书用在哪</h3>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>章节</th><th>用到本节什么</th></tr></thead>
+    <tbody>
+      <tr><td>4.2 注意力机制</td><td>Q、K、V 三种角色的本义与分工，软硬检索之别</td></tr>
+      <tr><td>4.3 多头注意力</td><td>每个头各自一套 Q、K、V 投影，相当于多路并行检索</td></tr>
+      <tr><td>5.2 / 5.3 MQA、GQA、MLA</td><td>省显存省的正是 key 与 value 的缓存（KV Cache），“索引与内容”两份都要压</td></tr>
+      <tr><td>13.2 KV Cache</td><td>推理时缓存的是历史 token 的 key 与 value，query 只用当前这一份</td></tr>
+      <tr><td>A.14 三矩阵对比</td><td>QKᵀ 这张打分矩阵与协方差、Gram 矩阵的“像与不像”</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</article>
