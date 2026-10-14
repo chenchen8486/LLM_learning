@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -525,9 +519,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　读图 1 时抓住三个分段就够了：左边四个框解决"拿什么喂模型、用什么骨架"的问题；中间紫色一段是模型的成长史，从预训练到后训练，占去绝大多数算力和工期；右边灰色一段回答"训完之后怎么用、怎么衡量好不好"。</p>
 
-<div class="highlight-box">
-  核心结论：LLM 没有单一的一次"炼成"时刻，它是多阶段流水线的产物，每个阶段只解决一类问题。本手册的章节与图 1 上的框一一对应，学任何一章时都可以回到这里定位。
-</div>
+<p>　　核心结论：LLM 没有单一的一次"炼成"时刻，它是多阶段流水线的产物，每个阶段只解决一类问题。本手册的章节与图 1 上的框一一对应，学任何一章时都可以回到这里定位。</p>
 
 <h2>0.2.2 训练四阶段：学什么，产出什么</h2>
 
@@ -567,13 +559,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box info">
-  关于"第几阶段"的口径：Karpathy 的总结按"预训练 → SFT → RLHF → RLVR"把 RLVR 称为第四阶段；本手册按数据流把中间训练单独成章（第 8 章），于是强化学习整体排在第四。两种口径说的是同一条流水线，差别只在中间训练是否单独计数。
-</div>
+<p>　　关于"第几阶段"的口径：Karpathy 的总结按"预训练 → SFT → RLHF → RLVR"把 RLVR 称为第四阶段；本手册按数据流把中间训练单独成章（第 8 章），于是强化学习整体排在第四。两种口径说的是同一条流水线，差别只在中间训练是否单独计数。</p>
 
-<div class="highlight-box">
-  核心结论：前三个阶段的本质都是"模仿"——模仿语料、模仿指令样例；只有第四阶段让模型在奖励信号下自己探索。推理能力能被训出来，关键就在这一步从模仿到试错的切换。
-</div>
+<p>　　核心结论：前三个阶段的本质都是"模仿"——模仿语料、模仿指令样例；只有第四阶段让模型在奖励信号下自己探索。推理能力能被训出来，关键就在这一步从模仿到试错的切换。</p>
 
 <h2>0.2.3 模型形态演进链：base → instruct → reasoning</h2>
 

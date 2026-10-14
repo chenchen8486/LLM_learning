@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -603,9 +597,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　缩印只是第一步。压缩后的位置变成了小数（比如原来位置 100 和 101 变成 25.0 和 25.25），相邻 token 之间的距离被拉近了 \(s\) 倍，模型需要一点练习来适应这种“更密的刻度”。PI 论文给出的处方是：在新刻度上<strong>少量继续训练</strong>，论文实验中约千步量级即可让模型在长上下文上稳定下来。与之对照，什么都不做的直接外推在论文实验中完全失效，插值加微调则大幅改善。</p>
 
-<div class="highlight-box info">
-  注释：PI 并非免费的午餐。位置刻度被压缩后，模型区分“相邻 token”的分辨率也随之下降，就像缩印后的乐谱，紧挨着的音符更难看清谁是谁。这个代价正是后面 NTK 与 YaRN 要解决的问题。
-</div>
+<p>　　注释：PI 并非免费的午餐。位置刻度被压缩后，模型区分“相邻 token”的分辨率也随之下降，就像缩印后的乐谱，紧挨着的音符更难看清谁是谁。这个代价正是后面 NTK 与 YaRN 要解决的问题。</p>
 
 <h2>3.5.3 从 NTK 到 YaRN：按频段区别对待</h2>
 
@@ -652,9 +644,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　注意最后这个数字：改刻度本身只要几行代码，但让模型真正学会在 128K 长度上组织信息，仍然要烧掉预训练零头规模的算力。而且这 800B token 里<strong>长文档的配比被显著上调</strong>——如果续训数据还是一堆短文本，模型压根没机会练习“第 10 万个 token 回看第 3 万个 token”这种动作。这正是第 1 章讲的数据配比问题在训练后期的一次返场，整套“预训练之后再针对性补训”的流程，就是第 8 章中间训练（Mid-training）的核心内容。</p>
 
-<div class="highlight-box">
-  长上下文扩展的通用配方：先用 PI / NTK / YaRN 类方法改位置编码的刻度，把乐谱缩印到模型熟悉的版面；再用长文档配比上调的数据继续训练，拿长曲子集训。缩印让模型“读得下”，集训让模型“读得懂”，两步缺一不可。
-</div>
+<p>　　长上下文扩展的通用配方：先用 PI / NTK / YaRN 类方法改位置编码的刻度，把乐谱缩印到模型熟悉的版面；再用长文档配比上调的数据继续训练，拿长曲子集训。缩印让模型“读得下”，集训让模型“读得懂”，两步缺一不可。</p>
 
 <p>　　至此第 3 章收尾：token 变成向量、向量带上位置、位置还能弹性扩展。下一章进入 Transformer 架构本体，看这些向量如何在注意力层里真正流动起来。</p>
 

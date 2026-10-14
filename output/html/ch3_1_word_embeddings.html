@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -701,13 +695,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="diagram-caption">图 3：词向量空间中，语义相近的词聚成一簇。动物的三个词彼此靠近，交通工具另成一簇，两簇之间距离明显更远。</div>
 </div>
 
-<div class="highlight-box danger">
-  不要试图解释词向量的单个维度。768 个数字里没有“第 5 维代表性别”这回事：语义分布在所有维度上，可解释的是方向（king→queen 与 man→woman 的差方向相近），不是孤立的坐标值。
-</div>
+<p>　　易错点：不要试图解释词向量的单个维度。768 个数字里没有“第 5 维代表性别”这回事：语义分布在所有维度上，可解释的是方向（king→queen 与 man→woman 的差方向相近），不是孤立的坐标值。</p>
 
-<div class="highlight-box info">
-  这些几何性质不是人工设计的。word2vec 用“拿周围的词预测中间的词（或反过来）”这一任务在海量语料上自动训练，语义规律是训练过程自然涌现的副产品。
-</div>
+<p>　　这些几何性质不是人工设计的。word2vec 用“拿周围的词预测中间的词（或反过来）”这一任务在海量语料上自动训练，语义规律是训练过程自然涌现的副产品。</p>
 
 <p>　　word2vec 是“先单独学词向量、再喂给下游模型”的两段式方案。现代 LLM 更彻底：词向量不单独学，直接作为网络的第一层，和整个模型一起训练。这就是 Embedding 层。</p>
 
@@ -724,17 +714,13 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="formula-note">公式 (2)：Embedding 的前向就是“按行号取一行”。没有矩阵乘法，没有非线性变换，只是内存里的一次随机访问。符号说明：\(\mathrm{id}_t\) 是第 \(t\) 个 token 的编号；\(\mathbf{E}\) 是 Embedding 矩阵，\(V \times d\) 表示它有 \(V\) 行（词表大小）、\(d\) 列（向量维度）；\(\mathbf{E}[\mathrm{id}_t]\) 表示取 \(\mathbf{E}\) 的第 \(\mathrm{id}_t\) 行；\(\mathbf{e}_t\) 是取出的结果，即第 \(t\) 个 token 的嵌入向量；\(\in \mathbb{R}^{d}\) 表示它是一个 \(d\) 维实数向量。</div>
 </div>
 
-<div class="highlight-box info">
-  数学上，查表等价于用 one-hot 向量左乘 \(\mathbf{E}\)：\(\mathbf{e}_t = \mathbf{o}_t^{\top}\mathbf{E}\)。实现上当然不做这次矩阵乘法，直接按行号索引——所以 Embedding 层几乎不耗算力，开销主要在显存。
-</div>
+<p>　　数学上，查表等价于用 one-hot 向量左乘 \(\mathbf{E}\)：\(\mathbf{e}_t = \mathbf{o}_t^{\top}\mathbf{E}\)。实现上当然不做这次矩阵乘法，直接按行号索引——所以 Embedding 层几乎不耗算力，开销主要在显存。</p>
 
 <p>　　这张表不是查字典查来的，而是训练出来的。矩阵 \(\mathbf{E}\) 的初始值是随机数，训练时语言模型的损失会沿着网络一路反向传播回这张表，逐行调整每个词向量。海量 token 喂下来，“语义相近则向量相近”的几何结构就被刻进了表里。和 word2vec 相比，它不用单独训练，学到的向量也完全服务于语言模型自己的目标。</p>
 
 <p>　　还有一个常见的省参数技巧。模型最后一层要把隐藏状态投影回词表、输出每个 token 的概率，用的矩阵尺寸是 \(d \times V\)，和 Embedding 恰好互为转置。许多模型干脆让这两处共享同一份参数，称为<strong>权重共享</strong>（tied embeddings）。\(V\) 很大时这能省下整整一张 \(V \times d\) 的表，而且实验表明共享往往不损性能，甚至有益（Press &amp; Wolf, 2017）。</p>
 
-<div class="highlight-box">
-  Embedding 层是三件事的合体：一张 \(V \times d\) 的查找表、一个与整个网络端到端训练的参数矩阵、（通常）与输出投影共享的权重。词向量的语义几何不是谁设计出来的，是语言模型训练目标在这张表上留下的痕迹。
-</div>
+<p>　　Embedding 层是三件事的合体：一张 \(V \times d\) 的查找表、一个与整个网络端到端训练的参数矩阵、（通常）与输出投影共享的权重。词向量的语义几何不是谁设计出来的，是语言模型训练目标在这张表上留下的痕迹。</p>
 
 <h2>3.1.4 minimind 实例：6400 行 × 768 列</h2>
 

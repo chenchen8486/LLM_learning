@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -442,9 +436,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　让模型「睁眼」的价值不只是多一类输入。第 11 章讲过推理能力，第 14 章讲过工具使用，而这些能力一旦延伸到视觉领域，就会组合出全新的形态：看着几何图形做证明、对着实验记录图表找异常、对照说明书照片一步步指导操作。视觉不是给模型「多一个功能」，而是给已有全部能力<strong>换一片更大的用武之地</strong>。</p>
 
-<div class="highlight-box info">
-  本手册的「多模态」以视觉为主线：视觉-语言模型（VLM）是目前技术最成熟、资料最充分的方向，其机制（编码、对齐、分词化）同样适用于音频等其他模态，只是视觉领域的论文与工程实践最完整。为守住「LLM 机制」这条主线，本章只讲<strong>理解</strong>（图像进、文本出），图像<strong>生成</strong>只在 15.6 节点到为止。
-</div>
+<p>　　本手册的「多模态」以视觉为主线：视觉-语言模型（VLM）是目前技术最成熟、资料最充分的方向，其机制（编码、对齐、分词化）同样适用于音频等其他模态，只是视觉领域的论文与工程实践最完整。为守住「LLM 机制」这条主线，本章只讲<strong>理解</strong>（图像进、文本出），图像<strong>生成</strong>只在 15.6 节点到为止。</p>
 
 <h2>15.1.2 模态鸿沟：像素与 token 的三重差异</h2>
 
@@ -564,9 +556,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　路线 C 最省事：视觉问题全部外包给现成视觉模型，LLM 只读它们的文字报告。但信息在「图像 → 文字报告」这一步被强行压缩，细节与不确定性尽失，本质是第 14.4 节工具调用的特例，本章不再展开。路线 A 把「翻译」做进了模型内部，细节保留完整、端到端可训练，是今天几乎所有开源与商用 VLM 的共同骨架——本章 15.2 到 15.5 节逐部件拆解它：视觉编码器 ViT（15.2）、模态对齐的对比学习与连接器（15.3、15.4）、把零件训成系统的训练流水线（15.5）。路线 B 更进一步，干脆取消「外挂编码器」，让图像从输入端就是 token，与文本同词表、同架构、同目标——这是正在发生的范式演进，15.6 节用它收束全章。</p>
 
-<div class="highlight-box">
-  全章主线一句话：多模态扩展的机制创新，全部浓缩在「图像 → token」这条转换链上——15.2 节讲怎么切，15.3–15.4 节讲怎么对齐，15.5 节讲怎么训，15.6 节讲怎么连「切」这件事也交给模型自己学。
-</div>
+<p>　　全章主线一句话：多模态扩展的机制创新，全部浓缩在「图像 → token」这条转换链上——15.2 节讲怎么切，15.3–15.4 节讲怎么对齐，15.5 节讲怎么训，15.6 节讲怎么连「切」这件事也交给模型自己学。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

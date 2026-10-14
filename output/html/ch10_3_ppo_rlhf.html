@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -612,9 +606,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　四模型同台直接解释了 RLHF 的第一笔账：<strong>显存</strong>。actor 与 critic 各带一份参数、梯度和 AdamW 优化器状态，ref 与 RM 各占一份推理态参数——同台上场的模型参数量大约是单个模型的四倍，其中 actor 和 critic 两份还要按第 7 章的口径乘上训练状态的倍数。预训练时一张卡喂一个模型，RLHF 时一台机器要喂四个，这是它「贵」的最直观来源。第二笔账「生成开销」留到 10.3.4 再算。</p>
 
-<div class="highlight-box">
-  RLHF 的四模型台账：actor 生成并唯一对外交付、ref 冻结当锚、RM 冻结当裁判、critic 随行评估局面。四个模型同时驻留显存、两个带训练状态，显存开销数倍于普通微调——这是 RLHF 成本的第一层原因。
-</div>
+<p>　　RLHF 的四模型台账：actor 生成并唯一对外交付、ref 冻结当锚、RM 冻结当裁判、critic 随行评估局面。四个模型同时驻留显存、两个带训练状态，显存开销数倍于普通微调——这是 RLHF 成本的第一层原因。</p>
 
 <h2>10.3.2 奖励信号设计：RM 分数减 KL 罚项</h2>
 
@@ -647,9 +639,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="formula-note">公式 (2)：PPO-ptx 的合并目标 = RLHF 奖励项 + 预训练梯度项，后者强迫模型在预训练语料上继续做语言建模，对冲遗忘。符号说明：\(\phi\) 是策略模型的参数；第一项与公式 (1) 相同，期望取自当前策略的采样分布；\(D_{\mathrm{pretrain}}\) 是预训练数据分布；\(\gamma\) 是预训练损失系数，控制「复习旧课」的强度；\(\beta\) 与公式 (1) 同为 KL 惩罚系数。论文报告 PPO-ptx 能消除公共基准上的性能回退，代价是偏好表现略有折损。</div>
 </div>
 
-<div class="highlight-box warn">
-  没有 KL 罚项的 RLHF 等于把训练完全交给一个有漏洞的裁判：策略会顺着 RM 的偏见狂奔，回答变长、变油、变得不像人话。KL 罚项把策略拴在 SFT 模型附近——\(\beta\) 大则保守（高分难拿），\(\beta\) 小则激进（易跑飞），它是 RLHF 最关键的旋钮之一。
-</div>
+<p>　　注意：没有 KL 罚项的 RLHF 等于把训练完全交给一个有漏洞的裁判：策略会顺着 RM 的偏见狂奔，回答变长、变油、变得不像人话。KL 罚项把策略拴在 SFT 模型附近——\(\beta\) 大则保守（高分难拿），\(\beta\) 小则激进（易跑飞），它是 RLHF 最关键的旋钮之一。</p>
 
 <h2>10.3.3 PPO 裁剪目标：小步更新，防止一步跨太远</h2>
 
@@ -727,9 +717,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box">
-  PPO 的核心就一句话：用 clip 把每步更新限制在旧策略附近的窄带里，换取「同一批数据可以放心更新好几轮」的自由。对比信任域方法 TRPO 的复杂约束求解，PPO 只用一行 min-clip 就拿到了差不多的稳定性——这是它成为 RLHF 标配算法的原因。
-</div>
+<p>　　PPO 的核心就一句话：用 clip 把每步更新限制在旧策略附近的窄带里，换取「同一批数据可以放心更新好几轮」的自由。对比信任域方法 TRPO 的复杂约束求解，PPO 只用一行 min-clip 就拿到了差不多的稳定性——这是它成为 RLHF 标配算法的原因。</p>
 
 <h2>10.3.4 工程代价：RLHF 为什么又贵又脆</h2>
 
@@ -753,9 +741,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　以上默认值均出自 train_ppo.py 第 311–335 行。旋钮多只是一半，另一半是实现细节：新旧策略的对数概率要逐 token 对齐（序列错位一位的老坑，见 9.3 节）、回答段的掩码要精确到 eos、价值与策略各有各的裁剪与早停。任何一处差一个位置，训练曲线不会报错，只是悄悄变差——这类 bug 最难排查。RLHF 训练曲线的抖动也远比 SFT 剧烈：奖励在涨不代表回答真好，可能只是 RM 又被钻了新空子，需要同时盯 reward、KL、clipfrac、回答长度等一整组指标（minimind 的日志就同时打印这六项，train_ppo.py:279–282）。</p>
 
-<div class="highlight-box info">
-  注释：贵与脆不是 RLHF 的实现失误，而是它的结构性代价——只要路线是「训一个 RM 当裁判、再用在线强化学习追着裁判跑」，四模型同台、在线采样、超参耦合就都躲不掉。想便宜稳定，得换路线，而不是调旋钮。
-</div>
+<p>　　注释：贵与脆不是 RLHF 的实现失误，而是它的结构性代价——只要路线是「训一个 RM 当裁判、再用在线强化学习追着裁判跑」，四模型同台、在线采样、超参耦合就都躲不掉。想便宜稳定，得换路线，而不是调旋钮。</p>
 
 <p>　　于是自然引出一个问题：能不能不训裁判、不跑强化学习循环，直接拿偏好数据调整模型？DPO 给出的回答是可以——在 KL 约束下，最优策略与奖励之间存在一个闭式的数学关系，能把「奖励」反解成「策略与参考模型的对数比」，RM 和 RL 循环被整个短路。10.4 节就讲这条捷径。</p>
 

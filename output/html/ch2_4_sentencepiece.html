@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -536,9 +530,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <li><strong>预分词往往不可逆</strong>。Moses 这类经典预分词会丢弃原始的空白信息：两个空格被压成一个、制表符和换行的区别被抹掉，分词之后再想还原原文已经做不到了。对代码、格式化文本这类空白本身就携带信息的场景，这是实打实的数据损失。（GPT-2 的正则预切只切段、不丢字符，仍然可逆，属于例外，2.4.5 节详述。）</li>
 </ul>
 
-<div class="highlight-box warn">
-  预分词不是一个无害的工程细节，它把“什么是词”这个语言学判断硬塞进了分词器，而这个判断对很多语言要么不成立、要么代价高昂。SentencePiece 的出发点就是把这个环节整个拿掉。
-</div>
+<p>　　注意：预分词不是一个无害的工程细节，它把“什么是词”这个语言学判断硬塞进了分词器，而这个判断对很多语言要么不成立、要么代价高昂。SentencePiece 的出发点就是把这个环节整个拿掉。</p>
 
 <h2>2.4.2 核心设计：把空格变成普通字符</h2>
 
@@ -629,9 +621,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　对照词级分词器：词表没收<code>龘</code>，只能输出 UNK 占位符，这个字到底是什么就彻底丢了。字节兜底的本质是——合并词条是捷径，单字节是保底；捷径可以没有，保底永远在，所以任何输入都拆得开。</p>
 
-<div class="highlight-box info">
-  注释：把 256 个字节想成 26 个英文字母。词典没收某个生僻词，照样能用字母逐个拼出来；字节级词表保证 256 个「字母」永远在场，合并词条只是省时拼法，删掉它保底拼法还在。
-</div>
+<p>　　注释：把 256 个字节想成 26 个英文字母。词典没收某个生僻词，照样能用字母逐个拼出来；字节级词表保证 256 个「字母」永远在场，合并词条只是省时拼法，删掉它保底拼法还在。</p>
 
 <div class="table-wrap">
   <table>
@@ -647,9 +637,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<div class="highlight-box info">
-  两条路线都解决了 OOV 问题，分歧只在工程哲学：SentencePiece 选择“取消预分词，把一切交给字符流”，tiktoken 选择“保留预分词，但把兜底粒度降到字节”。实践中两者都被大规模验证过，选哪个更多取决于生态与训练管线习惯。
-</div>
+<p>　　两条路线都解决了 OOV 问题，分歧只在工程哲学：SentencePiece 选择“取消预分词，把一切交给字符流”，tiktoken 选择“保留预分词，但把兜底粒度降到字节”。实践中两者都被大规模验证过，选哪个更多取决于生态与训练管线习惯。</p>
 
 <h2>2.4.6 图示：两条处理路线对比</h2>
 

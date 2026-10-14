@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -678,9 +672,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="diagram-caption">图 3：MLA 的矩阵视角。一份 \(h_t\) [1, 5120] 乘下投影矩阵 \(W^{DKV}\) [5120, 512]（公式 1）压成 512 维隐向量 ①，位置支路经 \(W^{KR}\) 加 RoPE 得 64 维共享 key ②（公式 3，5.3.3 节），①＋②＝576 个数就是每层每 token 要缓存的全部；128 个头的 K、V 用时才从 ① 乘各头自己的 \(W_i^{UK}\)、\(W_i^{UV}\) [512, 128]（公式 2）现展开（灰色），不进缓存。底部横条按真实数量成比例：MHA 每 token 每层存 32768 个数，MLA 只存 576 个，约 1/57。紫色权重矩阵存在模型参数里，不占 KV 缓存，这就是 MLA 省缓存的全部机关。</div>
 </div>
 
-<div class="highlight-box">
-  核心结论：MLA 每层每 token 的 KV 缓存从 MHA 的 \(2\,n_h d_h\) 个数（DeepSeek-V2 配置下 32768 个）降到 \(d_c + d_h^R\) 个数（512 + 64 = 576 个），约等于 GQA 只开 2.25 组的缓存量，而论文报告其性能强于 MHA。缓存与质量第一次不再此消彼长。
-</div>
+<p>　　核心结论：MLA 每层每 token 的 KV 缓存从 MHA 的 \(2\,n_h d_h\) 个数（DeepSeek-V2 配置下 32768 个）降到 \(d_c + d_h^R\) 个数（512 + 64 = 576 个），约等于 GQA 只开 2.25 组的缓存量，而论文报告其性能强于 MHA。缓存与质量第一次不再此消彼长。</p>
 
 <h2>5.3.3 位置与内容分家：decoupled RoPE</h2>
 
@@ -707,9 +699,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　这份 64 维的位置 key 全头共享，所以缓存里只需再加 64 个数。最终每层每 token 缓存总量是 \(512 + 64 = 576\) 个数，对照 MHA 的 32768 个，缩到约 1/57。<strong>所以这步在干嘛：RoPE 不肯被压缩，那就别难为它，单独给它开一间 64 维的小储藏室，主仓库继续放浓缩液。</strong></p>
 
-<div class="highlight-box info">
-  补充：Query 侧 MLA 也做了同款低秩压缩（\(c_t^{Q} = W^{DQ} h_t\)，DeepSeek-V2 中压缩到 1536 维），但 Query 不需要跨步缓存，这一压缩省的是参数量与训练显存，与 KV 缓存无关，知道即可。
-</div>
+<p>　　补充：Query 侧 MLA 也做了同款低秩压缩（\(c_t^{Q} = W^{DQ} h_t\)，DeepSeek-V2 中压缩到 1536 维），但 Query 不需要跨步缓存，这一压缩省的是参数量与训练显存，与 KV 缓存无关，知道即可。</p>
 
 <h2>5.3.4 推理加速：把上投影「吸收」掉</h2>
 
@@ -722,9 +712,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　V 侧同理：上投影 \(W_i^{UV}\) 可以被输出投影 \(W_i^{O}\) 吸收，先对 \(c_s^{KV}\) 加权求和，最后一次性映射回隐藏维度。这套操作论文里称为矩阵吸收（absorb）。吸收之后，推理全程打交道的只有隐向量，等效于只缓存、只读取那份 576 个数的浓缩液，省显存也省显存带宽。<strong>所以这步在干嘛：展开只是数学上的中间步骤，用结合律把它折叠掉，推理时连「冲茶粉」的动作都省了。</strong></p>
 
-<div class="highlight-box info">
-  注释：吸收技巧改变的是计算顺序，不改变计算结果，属于「免费」的加速。训练时参数仍需分开存储，吸收发生在推理部署阶段。
-</div>
+<p>　　注释：吸收技巧改变的是计算顺序，不改变计算结果，属于「免费」的加速。训练时参数仍需分开存储，吸收发生在推理部署阶段。</p>
 
 <h2>5.3.5 与 MHA / GQA / MQA 对照</h2>
 

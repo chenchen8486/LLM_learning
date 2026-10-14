@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -621,13 +615,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　另一个参照系是 Llama 3，它的课程更平缓：长上下文预训练分<strong>六个阶段</strong>，从最初的 8K 逐步扩到 128K，全程约 8000 亿 token。值得注意的是它的阶段晋级判据——不是步数到了就翻篇，而是每个长度都要训到两个条件同时满足：短上下文基准成绩完全恢复，且该长度下大海捞针测试全部答对。这个判据本身就预告了 8.3.4 的主题：长没长本事，要用考试来验。</p>
 
-<div class="highlight-box">
-  长上下文能力的主流获得方式是「后期唤醒」：预训练用短序列学知识与语言，中后期用少量 token 分阶段拉长。DeepSeek-V3 用不到预训练 1% 的 token 完成了 4K 到 128K 的扩展——先短后长不是妥协，是成本约束下的最优解。
-</div>
+<p>　　长上下文能力的主流获得方式是「后期唤醒」：预训练用短序列学知识与语言，中后期用少量 token 分阶段拉长。DeepSeek-V3 用不到预训练 1% 的 token 完成了 4K 到 128K 的扩展——先短后长不是妥协，是成本约束下的最优解。</p>
 
-<div class="highlight-box info">
-  DeepSeek 后来发布的 V3.1 把这套课程的剂量加大：32K 扩展阶段扩到 6300 亿 token（约 10 倍）、128K 阶段扩到 2090 亿 token。可见「少量 token 够用」的边界是活的——剂量越大，长上下文表现通常越扎实，成本也同步上涨。
-</div>
+<p>　　DeepSeek 后来发布的 V3.1 把这套课程的剂量加大：32K 扩展阶段扩到 6300 亿 token（约 10 倍）、128K 阶段扩到 2090 亿 token。可见「少量 token 够用」的边界是活的——剂量越大，长上下文表现通常越扎实，成本也同步上涨。</p>
 
 <h2>8.3.2 长上下文数据从哪来</h2>
 
@@ -650,9 +640,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　边界处理的代表手段是<strong>跨文档注意力掩码</strong>：在注意力计算时禁止一个位置去注意同序列里前一个文档的内容，从机制上切断「串台」。Llama 3 报告记录了它的实际效果：这个掩码在常规预训练中影响有限，但在长序列续训中很重要——序列越长，一条序列里挤进的异质文档越多，不相关上下文互相干扰的问题越被放大，掩码的价值也就越大。</p>
 
-<div class="highlight-box danger">
-  长序列续训时若沿用「随机拼接 + 不加掩码」的短文本打包习惯，模型会被迫在海量无关上下文的干扰中学习，远程依赖的信号被稀释。长上下文数据工程的三件套——长文档上采样、同主题拼接、跨文档掩码——解决的是同一个问题：让「远处的信息有用」这个信号在训练数据里真实存在。
-</div>
+<p>　　易错点：长序列续训时若沿用「随机拼接 + 不加掩码」的短文本打包习惯，模型会被迫在海量无关上下文的干扰中学习，远程依赖的信号被稀释。长上下文数据工程的三件套——长文档上采样、同主题拼接、跨文档掩码——解决的是同一个问题：让「远处的信息有用」这个信号在训练数据里真实存在。</p>
 
 <h2>8.3.3 合成长上下文数据：逼模型用上远距离信息</h2>
 
@@ -668,9 +656,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　这批合成样本还按长度分桶（16K / 32K / 64K / 128K），以便精细控制各长度档的训练配比。最让人意外的是用量：报告发现，只需把 <strong>0.1%</strong> 的合成长上下文数据混进原有的短上下文 SFT 数据，短任务与长任务的成绩就能同时保住。长上下文能力的维持，靠的不是堆量，是持续地「提醒」模型远处有信息可用。</p>
 
-<div class="highlight-box info">
-  合成数据的设计判据只有一条：任务必须依赖远距离信息。问答的答案要分散在全文，摘要要覆盖全局细节，代码任务要跨文件依赖——凡是只看局部就能混过去的任务，都练不出长上下文。
-</div>
+<p>　　合成数据的设计判据只有一条：任务必须依赖远距离信息。问答的答案要分散在全文，摘要要覆盖全局细节，代码任务要跨文件依赖——凡是只看局部就能混过去的任务，都练不出长上下文。</p>
 
 <h2>8.3.4 怎么证明长上下文真学会了</h2>
 
@@ -751,9 +737,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　RULER 用 13 个任务考了 17 个宣称长上下文的模型，结果给行业泼了一盆冷水：这些模型在原始 NIAH 上几乎满分，但随上下文变长、任务变难，成绩几乎全线大幅下滑；宣称支持 32K 以上的模型中，只有约一半能在 32K 长度上保住满意表现。「宣称的上下文长度」与「能可靠使用的上下文长度」，是两回事。</p>
 
-<div class="highlight-box warn">
-  平均困惑度证明不了长上下文能力。长文 PPL 被海量「只看局部就能预测」的 token 稀释，对远程依赖极不敏感。验收长上下文必须上直接考远程信息利用的测试：NIAH 测检索、RULER 测追踪聚合与抗噪问答，二者结合才算数。
-</div>
+<p>　　注意：平均困惑度证明不了长上下文能力。长文 PPL 被海量「只看局部就能预测」的 token 稀释，对远程依赖极不敏感。验收长上下文必须上直接考远程信息利用的测试：NIAH 测检索、RULER 测追踪聚合与抗噪问答，二者结合才算数。</p>
 
 <p>　　这也为解读技术报告提供了一把标尺：看到「支持 128K」的宣传时，先翻报告里有没有 NIAH 热力图、有没有 RULER 或同类硬基准的成绩，再看扩展阶段用了多少 token 训练——三者齐全，这个数字才站得住。</p>
 
@@ -773,9 +757,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box info">
-  本工程 minimind 恰是「没有长数据就没有长能力」的反面教材——它的预训练数据全部是短文本，<code>trainer/train_pretrain.py</code> 第 90 行 <code>--max_seq_len</code> 默认值仅 340 token。这个规模足够验证训练流程，但任何长上下文技巧（RoPE 插值、YaRN）在它身上都无从谈起：数据里根本没有长距离依赖可学。
-</div>
+<p>　　本工程 minimind 恰是「没有长数据就没有长能力」的反面教材——它的预训练数据全部是短文本，<code>trainer/train_pretrain.py</code> 第 90 行 <code>--max_seq_len</code> 默认值仅 340 token。这个规模足够验证训练流程，但任何长上下文技巧（RoPE 插值、YaRN）在它身上都无从谈起：数据里根本没有长距离依赖可学。</p>
 
 <h2>参考来源</h2>
 <ul>

@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -603,9 +597,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box">
-  RLVR 的裁判换代：打分从「学习型评委」换成「确定性程序」。RM 由数据训出来，训出来的评委就有可被钻营的盲区；规则是写死的程序，只认等价与通过。这从裁判端釜底抽薪地解决了 10.2 节 reward hacking 的漏洞，代价是适用范围被限制在有客观对错的任务上。
-</div>
+<p>　　RLVR 的裁判换代：打分从「学习型评委」换成「确定性程序」。RM 由数据训出来，训出来的评委就有可被钻营的盲区；规则是写死的程序，只认等价与通过。这从裁判端釜底抽薪地解决了 10.2 节 reward hacking 的漏洞，代价是适用范围被限制在有客观对错的任务上。</p>
 
 <p>　　格式奖励值得单独说一句。它管的不是对错，是「卷面」：思考段要包在指定标签里，答案要放在指定位置。表面看这是形式主义，实际是基础设施——思考段有了固定容器，人读得懂模型的推理过程，下游程序（评测脚本、数据筛选）也能稳定地把思考与答案拆开处理。11.4 节讲长思维链时会看到，这个不起眼的格式约定正是「思考可读、可解析」的前提。</p>
 
@@ -627,9 +619,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　回路的其余工程细节也值得圈点。采样是一轮里最耗时的一段：逐 token 自回归生成，最长 1024 token（217 行），所以 minimind 把采样做成可插拔的 rollout 引擎，默认 torch 实现，可换成专门的推理框架 sglang（233、273–283 行；推理引擎属于第 13 章的话题）。更新端沿用第 10 章的保险丝：裁剪半径 ε = 0.2、KL 罚项系数 β = 0.1，KL 的锚点是冻结的参考模型——从 SFT 权重 full_sft 原样复制一份，全程只推理不训练（267–272 行）。</p>
 
-<div class="highlight-box">
-  RLVR 与 10.3 节 RLHF 的回路同构，都是「采样 → 打分 → 优势 → 小步更新」四拍；差别只有两处：裁判从 RM 换成规则程序，基线从 critic 估值换成同题组均值（R1 与 minimind 的落地均如此）。两处合起来的效果是：训练台上又少了一个既要训练、又可能被骗的模型。
-</div>
+<p>　　RLVR 与 10.3 节 RLHF 的回路同构，都是「采样 → 打分 → 优势 → 小步更新」四拍；差别只有两处：裁判从 RM 换成规则程序，基线从 critic 估值换成同题组均值（R1 与 minimind 的落地均如此）。两处合起来的效果是：训练台上又少了一个既要训练、又可能被骗的模型。</p>
 
 <h2>11.2.3 谱系：从拒绝采样与 STaR 到 R1-Zero</h2>
 
@@ -685,9 +675,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　配方读完，一个事实浮出水面：minimind 这套奖励不算纯 RLVR。11.2.1 说纯 RLVR 的裁判只有规则，这里却把外部 RM 的分数也加了进去，是「规则 + RM」的混合配方。这恰是真实工程的常态：能写成规则的维度全部写成规则——长度、格式、去重，便宜、稳定、没法被讨好；写不成规则的开放维度（回答整体质量如何）才交给 RM 补位。R1 自己也一样：第二阶段给通用数据配了生成式 RM，把标准答案与模型回答一起喂给 DeepSeek-V3 评判（论文 §2.3.3、§2.3.4）。规则保底线、RM 管弹性，再配 KL 锚点防跑偏，这就是线上推理训练奖励设计的标准姿势。至于这些规则阈值会被模型怎样钻空子（思考注水、格式投机），11.5 节专门收账。</p>
 
-<div class="highlight-box info">
-  注释：minimind 是教学实现，它把工业界「规则 + RM」混合奖励的标准动作完整演示了一遍。读这份配方时多留意量级搭配——±0.5、+1.0、上限 0.5 都是手工定的直觉值，哪条规则说了算、规则与 RM 谁的分量重，这种平衡本身就是奖励设计的核心手艺。
-</div>
+<p>　　注释：minimind 是教学实现，它把工业界「规则 + RM」混合奖励的标准动作完整演示了一遍。读这份配方时多留意量级搭配——±0.5、+1.0、上限 0.5 都是手工定的直觉值，哪条规则说了算、规则与 RM 谁的分量重，这种平衡本身就是奖励设计的核心手艺。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

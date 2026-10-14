@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -575,9 +569,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="concept-card"><h4>算力浪费</h4><p>重复 token 消耗训练算力却不带来新信息。Lee 等人的实验显示，去重后的模型达到同等甚至更好精度所需的训练步数反而更少。</p></div>
 </div>
 
-<div class="highlight-box">
-  Lee 等人 2022 年的核心结论：对训练数据去重后，模型逐字复现训练数据的频率降低约 10 倍，下游性能不降反升。去重是少有的“删数据反而让模型更好”的工序。
-</div>
+<p>　　Lee 等人 2022 年的核心结论：对训练数据去重后，模型逐字复现训练数据的频率降低约 10 倍，下游性能不降反升。去重是少有的“删数据反而让模型更好”的工序。</p>
 
 <h2>1.3.2 精确去重：让重复者自动排到一起</h2>
 
@@ -682,9 +674,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　GPT-3 的做法是代表性案例：对训练语料做 <strong>13-gram 重叠检测</strong>，凡是与评测集出现 13 个连续词重叠的训练文档，一律剔除，防止基准成绩失真。这套思路和去重一脉相承，只是枪口对准的是题库。后续主流模型的技术报告里，去污染已成为数据管线的固定一站。</p>
 
-<div class="highlight-box">
-  一句话收束全节：精确去重抓逐字相同，近似去重抓改头换面，去污染守住考试公平。三道工序做完，数据才算备好——下一章就看这些干净的文本如何被切成 token。
-</div>
+<p>　　一句话收束全节：精确去重抓逐字相同，近似去重抓改头换面，去污染守住考试公平。三道工序做完，数据才算备好——下一章就看这些干净的文本如何被切成 token。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

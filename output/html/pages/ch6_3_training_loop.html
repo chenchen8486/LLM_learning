@@ -195,13 +195,9 @@
 
 <p>　　第 59–69 行的存盘动作也值得一看：每隔 1000 步把权重转成半精度（<code>v.half()</code>）存成 <code>out/pretrain_768.pth</code>，同时往 <code>checkpoints/</code> 目录写一份含优化器状态的完整检查点，训练中断后加 <code>--from_resume 1</code> 就能接着跑。一次预训练短则数小时、长则数月，checkpoint 是唯一的「存档点」，没有它，一次断电就意味着从头再来。</p>
 
-<div class="highlight-box info">
-  注意这段循环里没有「验证集」。预训练的数据量远大于模型能记住的规模，通常只训一两遍，过拟合不是主要矛盾，所以 minimind（和多数预训练脚本）不划分验证集，只用训练 loss 加周期性 checkpoint，效果交给训练后的下游评测确认。验证集的事在 6.3.3 还会回来讲。
-</div>
+<p>　　注意这段循环里没有「验证集」。预训练的数据量远大于模型能记住的规模，通常只训一两遍，过拟合不是主要矛盾，所以 minimind（和多数预训练脚本）不划分验证集，只用训练 loss 加周期性 checkpoint，效果交给训练后的下游评测确认。验证集的事在 6.3.3 还会回来讲。</p>
 
-<div class="highlight-box">
-  这七步是几乎所有 LLM 预训练脚本的共同骨架：换成 Megatron-LM 或工业界的内部代码，多的只是分布式、流水并行与容错机制，循环本身一模一样。读懂这二十行，就拿到了读一切训练脚本的钥匙。
-</div>
+<p>　　这七步是几乎所有 LLM 预训练脚本的共同骨架：换成 Megatron-LM 或工业界的内部代码，多的只是分布式、流水并行与容错机制，循环本身一模一样。读懂这二十行，就拿到了读一切训练脚本的钥匙。</p>
 
 <h2>6.3.2 labels 右移：「预测下一个 token」的代码形态</h2>
 
@@ -246,9 +242,7 @@ loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)</c
   <div class="formula-note">公式 (2)：下一个 token 预测的交叉熵——模型给正确下一个 token 的概率越高，\(\log\) 越接近 0，损失越小；整个序列取平均。符号说明：\(x_t\) 是序列第 \(t\) 个 token；\(x_{\le t}\) 表示位置 \(t\) 及其之前的全部 token（即模型能看到的历史）；\(P_\theta(x_{t+1} \mid x_{\le t})\) 是参数为 \(\theta\) 的模型在该历史下给正确 token 分配的概率，由 logits 过 softmax 得到；\(T\) 是参与计算的位置数。代码里的 <code>ignore_index=-100</code> 会把 padding 位置从求和与平均中剔除，让它们不算题、不计分。</div>
 </div>
 
-<div class="highlight-box danger">
-  两个易错点都藏在这两行代码里。其一，不要二次右移：minimind 的 labels 在数据集里不右移，右移由模型里的切片完成；如果有人在数据侧先把 labels 平移一格，模型再切一刀，预测和目标就错开两位，loss 会停在一个降不下去的高位。其二，padding 位必须置 -100：否则模型会被迫学习「句子结束后继续输出 PAD」，白白浪费容量。
-</div>
+<p>　　易错点：两个易错点都藏在这两行代码里。其一，不要二次右移：minimind 的 labels 在数据集里不右移，右移由模型里的切片完成；如果有人在数据侧先把 labels 平移一格，模型再切一刀，预测和目标就错开两位，loss 会停在一个降不下去的高位。其二，padding 位必须置 -100：否则模型会被迫学习「句子结束后继续输出 PAD」，白白浪费容量。</p>
 
 <p>　　一句话总结这一节：所谓「预测下一个 token」，代码里就是 labels 克隆输入、模型里错开一格、交叉熵打分，外加用 -100 把 padding 踢出考场。</p>
 
@@ -305,9 +299,7 @@ loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)</c
 
 <p>　　最后是训练 loss 与验证 loss 的关系。验证 loss 是在模型没见过的数据上算的同一个交叉熵：训练 loss 降、验证 loss 也降，说明学到的是通用规律；<strong>训练 loss 降而验证 loss 掉头向上，就是过拟合的经典信号</strong>——模型开始背诵训练集而不是学规律。不过在预训练阶段这个剧情很少上演：数据只过一两遍，模型还没来得及背。它真正的舞台是数据要反复过多遍的微调阶段（第 9 章会再用到这条判据）。</p>
 
-<div class="highlight-box warn">
-  读 loss 曲线时警惕「只看训练 loss」。训练 loss 单调下降只能证明模型在拟合训练数据，证明不了泛化。minimind 这类预训练脚本不内置验证集，补救手段是训完用评测脚本（如 <code>eval_llm.py</code>）和下游基准兜底；工业界大训练则会全程挂一条留出集的验证 loss。
-</div>
+<p>　　注意：读 loss 曲线时警惕「只看训练 loss」。训练 loss 单调下降只能证明模型在拟合训练数据，证明不了泛化。minimind 这类预训练脚本不内置验证集，补救手段是训完用评测脚本（如 <code>eval_llm.py</code>）和下游基准兜底；工业界大训练则会全程挂一条留出集的验证 loss。</p>
 
 <p>　　补一个换算关系：论文里常见的<strong>困惑度</strong>（perplexity，ppl）就是 \(\mathrm{ppl} = e^{\mathcal{L}}\)，把 loss 换回「平均在每个位置上面临多少个等概率候选」的直觉尺度。loss 从 8.76 降到 3，相当于候选从 6400 个收窄到约 20 个。</p>
 
@@ -337,9 +329,7 @@ loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)</c
   </div>
 </div>
 
-<div class="highlight-box info">
-  第 129 行有个反直觉的细节：<code>GradScaler(enabled=(args.dtype == 'float16'))</code>——只有选 float16 时才启用梯度缩放（防止 16 位下梯度下溢成 0），默认的 bfloat16 动态范围接近 32 位，不需要 scaler，此时 <code>scaler.scale(...)</code> 与 <code>scaler.step(...)</code> 是原样透传的安全壳。
-</div>
+<p>　　第 129 行有个反直觉的细节：<code>GradScaler(enabled=(args.dtype == 'float16'))</code>——只有选 float16 时才启用梯度缩放（防止 16 位下梯度下溢成 0），默认的 bfloat16 动态范围接近 32 位，不需要 scaler，此时 <code>scaler.scale(...)</code> 与 <code>scaler.step(...)</code> 是原样透传的安全壳。</p>
 
 <p>　　一句话总结：混合精度省显存、提速度，梯度累积用小显存伪造大 batch，两者合起来让 64M 模型能塞进一张消费级显卡。第 7 章会把它们和分布式并行放在一起细讲。</p>
 
@@ -371,9 +361,7 @@ loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)</c
 
 <p>　　两边对照着看，结论很直白：<strong>训练循环的代码不变，变的是每一项的规模，以及规模带来的工程难题</strong>。64M 模型一张消费卡、一杯咖啡的时间就能从随机权重跑到会说简单的话；175B 模型需要千卡集群、数月时间与数百万美元，还得养一支团队专门对付 spike、断训与硬件故障。从玩具到巨兽之间没有魔法，只有公式 (3) 里冷冰冰的乘法，以及第 7 章要讲的分布式工程。</p>
 
-<div class="highlight-box">
-  亲手跑一次 minimind 预训练的价值正在于此：同样的七步循环、同样的余弦学习率、同样的 checkpoint 机制，花一块六毛钱就能把 GPT-3 级别的训练流程完整体验一遍，把纸面知识变成手感。
-</div>
+<p>　　亲手跑一次 minimind 预训练的价值正在于此：同样的七步循环、同样的余弦学习率、同样的 checkpoint 机制，花一块六毛钱就能把 GPT-3 级别的训练流程完整体验一遍，把纸面知识变成手感。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

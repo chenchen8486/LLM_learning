@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -577,9 +571,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　难点只剩一个：<strong>token 对齐</strong>。语法按字符书写，模型按 token 生成，两者粒度错位——一个 token 可能横跨多个语法符号（<code>"age":</code> 恰好切成一个 token 时，一口气穿过「串内、收尾、冒号之后」三个状态），一个语法符号也可能要几个 token 才拼得出来。判定「这个 token 合法吗」，必须模拟它整段喂进状态机后停在哪里、会不会走进死路，这是各家约束解码实现的主要复杂度（12.4.3 节有展开）。</p>
 
-<div class="highlight-box">
-  三节串成一句话：格式先编译成状态机（或带栈的文法），解码每步由它划出合法集合，集合外置 −∞。模型决定「合法者之中谁更受青睐」，状态机决定「谁能出场」，两者各管一段，互不越界。
-</div>
+<p>　　三节串成一句话：格式先编译成状态机（或带栈的文法），解码每步由它划出合法集合，集合外置 −∞。模型决定「合法者之中谁更受青睐」，状态机决定「谁能出场」，两者各管一段，互不越界。</p>
 
 <h3>本书用在哪</h3>
 

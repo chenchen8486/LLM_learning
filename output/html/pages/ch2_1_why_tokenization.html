@@ -159,9 +159,7 @@
   <div class="concept-card"><h4>子词级（Subword）</h4><p><code>["Token", "ization", "Ġis", "Ġfun", "."]</code><br>5 个单元，常见词保留整词，长词拆成有意义的片段。</p></div>
 </div>
 
-<div class="highlight-box info">
-  注释：<code>Ġ</code> 是空格的特殊标识，<code>Ċ</code> 是换行符的特殊标识（byte-level 分词器的字节映射约定）。
-</div>
+<p>　　注释：<code>Ġ</code> 是空格的特殊标识，<code>Ċ</code> 是换行符的特殊标识（byte-level 分词器的字节映射约定）。</p>
 
 <h3>词级切分的问题：词表爆炸与 OOV</h3>
 
@@ -192,9 +190,7 @@
   <li>任何文本都能被表示，没有 OOV。</li>
 </ul>
 
-<div class="highlight-box">
-  子词切分让模型获得了一种“见字知意”的泛化能力：哪怕遇到训练时从未出现过的新词，只要它的片段在词表里，模型就能处理。这是 2016 年 Sennrich 等人把 BPE 引入神经机器翻译时解决的核心痛点。
-</div>
+<p>　　子词切分让模型获得了一种“见字知意”的泛化能力：哪怕遇到训练时从未出现过的新词，只要它的片段在词表里，模型就能处理。这是 2016 年 Sennrich 等人把 BPE 引入神经机器翻译时解决的核心痛点。</p>
 
 <h2>2.1.3 中文的特殊处境</h2>
 

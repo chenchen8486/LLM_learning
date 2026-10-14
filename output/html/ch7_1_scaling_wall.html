@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -642,13 +636,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　治激活有一招经典的时间换空间：<strong>梯度重计算</strong>（gradient checkpointing，Chen et al., 2016）。思路是只保存少数检查点处的激活，其余全部丢掉；backward 需要某段激活时，从最近的检查点把那段前向重新跑一遍。\(n\) 层网络的激活显存从 \(O(n)\) 降到 \(O(\sqrt{n})\)，代价是大约多算一次前向，总算力上涨约三成。显存不够算力凑，这笔交换在大模型训练里几乎必做。</p>
 
-<div class="highlight-box info">
-  梯度重计算的「检查点」与 6.3 节存盘的 checkpoint 不是一回事：前者是显存里少数几层的激活快照，反向时用来重放前向；后者是写到磁盘上的完整训练状态，用于断点续训。名字相同，各管各的。
-</div>
+<p>　　梯度重计算的「检查点」与 6.3 节存盘的 checkpoint 不是一回事：前者是显存里少数几层的激活快照，反向时用来重放前向；后者是写到磁盘上的完整训练状态，用于断点续训。名字相同，各管各的。</p>
 
-<div class="highlight-box">
-  本节第一把尺子：<strong>16 字节法则</strong>。混合精度 Adam 训练时，先按 16N 字节估算模型状态，再按 batch 与序列长估激活；装不进单卡，才轮到并行与各种省显存技术登场。70B 模型的 1.1 TB 对 80 GB，就是最典型的「装不下」。
-</div>
+<p>　　本节第一把尺子：<strong>16 字节法则</strong>。混合精度 Adam 训练时，先按 16N 字节估算模型状态，再按 batch 与序列长估激活；装不进单卡，才轮到并行与各种省显存技术登场。70B 模型的 1.1 TB 对 80 GB，就是最典型的「装不下」。</p>
 
 <h2>7.1.2 算力墙：训练一次要多少 FLOPs</h2>
 
@@ -671,9 +661,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<div class="highlight-box info">
-  NVIDIA 官网醒目标注的 1,979 TFLOPS 是带 2:4 结构化稀疏的数字，稠密峰值是它的一半。稀疏要求权重按特定格式裁剪才能兑现，通用训练一般吃不到，所以估算训练时间一律按稠密口径。1 TFLOPS 等于每秒 \(10^{12}\) 次浮点运算。
-</div>
+<p>　　NVIDIA 官网醒目标注的 1,979 TFLOPS 是带 2:4 结构化稀疏的数字，稠密峰值是它的一半。稀疏要求权重按特定格式裁剪才能兑现，通用训练一般吃不到，所以估算训练时间一律按稠密口径。1 TFLOPS 等于每秒 \(10^{12}\) 次浮点运算。</p>
 
 <p>　　峰值是理想值，真实训练还要打一个大大的折扣：计算单元要停下来等显存读写、等卡间通信、做非矩阵乘的杂活。实际能兑现的比例有个专门指标：</p>
 
@@ -697,9 +685,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　结论冷冰冰：100B 级模型配 1T token，一张 H100 要训几十年——一个人从入职干到退休，一张卡还没跑完。而同样的总算力摊到 1000 张卡上（仍按 40% MFU），时间立刻缩到约 18 天。单卡绝无可能，集群轻而易举，中间隔着的只是「并行」两个字。</p>
 
-<div class="highlight-box">
-  本节第二把尺子：先按 \(C \approx 6ND\) 算总量，再按 \(T \approx C / (R_{\text{peak}} \times \eta_{\text{MFU}})\) 算时间。100B × 1T 对单张 H100 是几十年，对千卡集群是几周——算力墙不是靠更快的单卡翻过去的，是靠把算力拼起来翻过去的。
-</div>
+<p>　　本节第二把尺子：先按 \(C \approx 6ND\) 算总量，再按 \(T \approx C / (R_{\text{peak}} \times \eta_{\text{MFU}})\) 算时间。100B × 1T 对单张 H100 是几十年，对千卡集群是几周——算力墙不是靠更快的单卡翻过去的，是靠把算力拼起来翻过去的。</p>
 
 <h2>7.1.3 并行技术地图：把一面墙拆给几百张卡</h2>
 
@@ -820,9 +806,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　实战中的大训练是组合拳：节点内 8 卡之间用张量并行加序列并行（通信密但带宽高），跨节点用流水线并行（通信少），最外层再套数据并行加 ZeRO——业界俗称 <strong>3D 并行</strong>。比如 7.1.1 那笔 70B 的账，一种典型拆法是 64 卡：节点内 8 路 TP，跨节点 8 路 PP，每卡只扛约 1.1B 参数对应的状态，1.1 TB 的大山就此化整为零。每种拆法的原理、通信量分析与 ZeRO 的三档细节，正是 7.2 与 7.3 的内容。</p>
 
-<div class="highlight-box info">
-  注意一个容易混淆的点：数据并行治的是算力墙（更多卡同时搬），对显存墙毫无帮助——每张卡仍要存全量模型状态。单卡装不下的模型，堆再多数据并行也装不下，必须上 TP、PP 或 ZeRO。选并行方案的第一步，永远是先分清自己在翻哪面墙。
-</div>
+<p>　　注意一个容易混淆的点：数据并行治的是算力墙（更多卡同时搬），对显存墙毫无帮助——每张卡仍要存全量模型状态。单卡装不下的模型，堆再多数据并行也装不下，必须上 TP、PP 或 ZeRO。选并行方案的第一步，永远是先分清自己在翻哪面墙。</p>
 
 <h2>7.1.4 minimind 对照：64M 参数为什么单卡能跑</h2>
 

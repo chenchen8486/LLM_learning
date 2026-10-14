@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -531,13 +525,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　效果会不会打折？论文在多种网络结构和多个任务上的实验答案是：不会。RMSNorm 与 LayerNorm 效果相当，而运行时间明显减少——论文摘要报告的口径是<strong>在不同模型上运行时间减少 7%~64%</strong>，即最高约六成提速。</p>
 
-<div class="highlight-box info">
-  提速幅度与模型结构相关，论文实验中提速最明显的场景含有较重的循环网络部分。在现代 LLM 里，RMSNorm 的价值更多体现在统计量少算一次、算子更简单、便于融合加速，而不是端到端快六成。
-</div>
+<p>　　提速幅度与模型结构相关，论文实验中提速最明显的场景含有较重的循环网络部分。在现代 LLM 里，RMSNorm 的价值更多体现在统计量少算一次、算子更简单、便于融合加速，而不是端到端快六成。</p>
 
-<div class="highlight-box danger">
-  RMSNorm 的输出均值不是 0。推公式或写代码时，如果下意识假设"归一化之后一定零均值"，在 RMSNorm 这里会翻车：它只做缩放，不做对中。
-</div>
+<p>　　易错点：RMSNorm 的输出均值不是 0。推公式或写代码时，如果下意识假设"归一化之后一定零均值"，在 RMSNorm 这里会翻车：它只做缩放，不做对中。</p>
 
 <div class="term-card">
   <div class="term-name">
@@ -565,13 +555,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　直觉上可以这样理解：残差连接是梯度回传的高速公路，Pre-LN 让 \(x_l\) 原封不动地贯穿所有层，反向传播时总有一条"恒等通路"把梯度无损送回浅层；Post-LN 则在这条高速公路上每层设一道关卡（归一化），几十层关卡连乘下来，梯度大小被逐层扭曲。类比高速公路与匝道：Post-LN 把收费站建在主干道上，车流一多就堵；Pre-LN 把收费站挪到匝道入口，主干道一路畅通。</p>
 
-<div class="highlight-box warn">
-  Post-LN 不是原罪。原论文 6 层的编码器-解码器配好 warmup 训得很好，问题出在层数加深之后：梯度失衡被几十层连乘放大。现代 LLM 动辄几十层起步，Pre-LN 因此成为默认选择。
-</div>
+<p>　　注意：Post-LN 不是原罪。原论文 6 层的编码器-解码器配好 warmup 训得很好，问题出在层数加深之后：梯度失衡被几十层连乘放大。现代 LLM 动辄几十层起步，Pre-LN 因此成为默认选择。</p>
 
-<div class="highlight-box info">
-  历史脉络：GPT-2（2019）已把 LayerNorm 挪到每个子层的输入侧，并在最后一个残差块之后补了一个额外归一化，是 Pre-LN 写法的早期主流采用；Xiong 等人 2020 年的论文则从理论上解释了它为什么好训。
-</div>
+<p>　　历史脉络：GPT-2（2019）已把 LayerNorm 挪到每个子层的输入侧，并在最后一个残差块之后补了一个额外归一化，是 Pre-LN 写法的早期主流采用；Xiong 等人 2020 年的论文则从理论上解释了它为什么好训。</p>
 
 <div class="diagram">
   <span class="diagram-tag">原创示意图 · 非论文原图</span>
@@ -668,9 +654,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　同样的参数预算，SwiGLU 买到的是更强的表达能力。论文在 T5 上系统对比了各种 FFN 变体：SwiGLU 与 GEGLU 的预训练困惑度最低，多数下游任务上也最好。有意思的是，作者坦承<strong>给不出理论解释</strong>，原话调侃把成功归因于"divine benevolence"（上天的眷顾）——这是深度学习里典型的"先有效、后解释"的组件。</p>
 
-<div class="highlight-box info">
-  实际工程里 Llama、Qwen、minimind 的 SwiGLU 都用 SiLU 当门控激活，即公式 (7) 中 \(\beta=1\) 的 Swish，与 Shazeer 论文的 \(\mathrm{Swish}_1\) 设定一致，只是名字不同。
-</div>
+<p>　　实际工程里 Llama、Qwen、minimind 的 SwiGLU 都用 SiLU 当门控激活，即公式 (7) 中 \(\beta=1\) 的 Swish，与 Shazeer 论文的 \(\mathrm{Swish}_1\) 设定一致，只是名字不同。</p>
 
 <p>　　<strong>所以这步在干嘛</strong>：FFN 不再是无脑升维再压回，而是一半通道当闸门、一半通道当货物，模型学着按内容决定每个特征放行多少。多出来的第三个矩阵靠缩维把参数账做平，等于不加钱换了套更精密的设备。</p>
 
@@ -684,9 +668,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="concept-card"><h4>加门控：SwiGLU</h4><p>多一个矩阵换门控表达能力，靠缩维三分之二把参数账做平，预算不变、效果更好。</p></div>
 </div>
 
-<div class="highlight-box">
-  这套组合不是理论证明出来的唯一解，而是大规模实验中稳定性、效果、成本三方权衡收敛出的工程共识：每一个改动单独看都不起眼，合起来让几百亿、几千亿参数的模型能够稳定、可复现地训练出来。
-</div>
+<p>　　这套组合不是理论证明出来的唯一解，而是大规模实验中稳定性、效果、成本三方权衡收敛出的工程共识：每一个改动单独看都不起眼，合起来让几百亿、几千亿参数的模型能够稳定、可复现地训练出来。</p>
 
 <p>　　归一化与前馈改造完，下一个被动刀的是注意力本身：5.2 节将看到 GQA、MLA 如何压缩 KV Cache，把多头注意力的显存开销降下来。</p>
 

@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -549,9 +543,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　还有一个反直觉的细节值得记住：崩溃的表现不是“看不到远处”。PI 论文指出，把证据放在位置 2900、问题放在位置 3000——两者相距只有 100 token，是一对近邻，但因为落在了训练窗口（2048）之外，模型照样答错。异常分数污染的是整个注意力机制，近处信息一样读不了。</p>
 
-<div class="highlight-box danger">
-  易错理解：把外推崩溃当成“模型只是感知不到远处的内容”。实际是超出范围的旋转角让注意力分数本身失控（可超 8000，而正常范围是 ±1 量级），整个注意力机制失灵，近处、远处的信息一起报废。
-</div>
+<p>　　易错点：把外推崩溃当成“模型只是感知不到远处的内容”。实际是超出范围的旋转角让注意力分数本身失控（可超 8000，而正常范围是 ±1 量级），整个注意力机制失灵，近处、远处的信息一起报废。</p>
 
 <div class="term-card">
   <div class="term-name">
@@ -616,9 +608,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　改动只有一行缩放，但有两个后续问题要交代。第一，\(m/s\) 通常是小数：原来位置 100 和 101 变成 25.00 和 25.03，相邻 token 的位置间距被挤小了 \(s\) 倍，模型需要适应这种更密的刻度。PI 论文的处方是在新刻度上<strong>少量继续训练</strong>：LLaMA 7B 到 65B，在 Pile 语料上微调约 1000 步（开销只是预训练的零头），窗口就能从 2048 稳定扩到 16384 乃至 32768，最高 16 倍；passkey 检索测试甚至显示，200 步微调后有效窗口就已拉满目标长度。第二，短文本有轻微代价：原窗口内的基准任务平均退化 2% 以内——原本宽裕的 2048 个整数刻度，如今被压进更窄的数值区间，分辨力自然受损。</p>
 
-<div class="highlight-box info">
-  PI 在范式上的贡献比方法本身更大：它确立了“先改刻度、再短训适应”的两步骨架——改编码让长文读得下，少量续训让模型适应新刻度。后面的 NTK 家族、工业界的分阶段扩展，全都沿用这个骨架，只是改刻度的手法越来越精细。
-</div>
+<p>　　PI 在范式上的贡献比方法本身更大：它确立了“先改刻度、再短训适应”的两步骨架——改编码让长文读得下，少量续训让模型适应新刻度。后面的 NTK 家族、工业界的分阶段扩展，全都沿用这个骨架，只是改刻度的手法越来越精细。</p>
 
 <p>　　PI 把外推变成了内插，但它对所有维度一视同仁地压缩，连带压坏了模型区分相邻 token 的能力——就像缩印后的书页，字还是那些字，挤在一起就不好认了。这个代价提示了下一步的方向：位置编码内部其实分工明确，不该一刀切。</p>
 
@@ -742,13 +732,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　天下没有免费的余量。base 调大后慢维度的转角整体变小，相邻位置在慢维度上的朝向差异也随之变小，模型区分“相距很远的两个位置”的精细度被稀释。这是一笔交换：牺牲一点远程分辨力，换外推稳定性。所以目标窗口真拉到 128K 时，单靠大 base 并不够，还要叠加显式缩放与长文续训——Llama 3.1 正是大 base 加分阶段继续训练（约 800B token）才把窗口从 8K 推到 128K，这套流水线 3.5 节已有全景介绍。</p>
 
-<div class="highlight-box warn">
-  训练与推理的 base 必须一致。base 是旋转角的“出厂参数”，预训练用 10⁴、推理时改成 10⁶，等于趁模型不注意换了一把尺子——读数全部错位。想换 base，必须在同一 base 下续训让模型重新适应。
-</div>
+<p>　　注意：训练与推理的 base 必须一致。base 是旋转角的“出厂参数”，预训练用 10⁴、推理时改成 10⁶，等于趁模型不注意换了一把尺子——读数全部错位。想换 base，必须在同一 base 下续训让模型重新适应。</p>
 
-<div class="highlight-box">
-  四种方法同属一张谱系：PI 压位置编号、NTK-aware 改基频、YaRN 分频段插值加温度补偿、调大 base 出厂预留余量——全部服务于同一件事：把位置编码的读数维持在模型见过的范围内，外推变内插。改刻度让长文“读得下”；要“读得懂”，还需长文续训这另一半，正是下一节的主题。
-</div>
+<p>　　四种方法同属一张谱系：PI 压位置编号、NTK-aware 改基频、YaRN 分频段插值加温度补偿、调大 base 出厂预留余量——全部服务于同一件事：把位置编码的读数维持在模型见过的范围内，外推变内插。改刻度让长文“读得下”；要“读得懂”，还需长文续训这另一半，正是下一节的主题。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

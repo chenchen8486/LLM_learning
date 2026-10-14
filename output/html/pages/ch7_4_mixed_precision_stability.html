@@ -273,9 +273,7 @@
 
 <p>　　<strong>FP8</strong> 把 8 个比特掰成两份用（Micikevicius et al., 2022，arXiv:2209.05433）：E4M3 精度优先，给权重与激活；E5M2 范围优先，给梯度。E4M3 还做了个小手术：不表示无穷大、NaN 只留一个编码，把省下的位型换成正常数值，上限从 240 抬到 448。2024 年底的 DeepSeek-V3 首次在 671B 的超大规模 MoE 模型上验证了 FP8 混合精度训练：全程统一用 E4M3，靠细粒度缩放（激活按 1×128 小块、权重按 128×128 方块各自配缩放因子）和更高精度的累加弥补范围不足，敏感算子（Embedding、输出头、归一化）则保留高精度。</p>
 
-<div class="highlight-box info">
-  为什么范围比精度更「要命」？精度不足只是每个数带一点噪声，网络对噪声有免疫力；范围不足是灾难性的——大数变 inf、小数变 0，信息直接清零。这就是 BF16 敢把尾数砍到 7 位、却不敢动指数位的原因。
-</div>
+<p>　　为什么范围比精度更「要命」？精度不足只是每个数带一点噪声，网络对噪声有免疫力；范围不足是灾难性的——大数变 inf、小数变 0，信息直接清零。这就是 BF16 敢把尾数砍到 7 位、却不敢动指数位的原因。</p>
 
 <h2>7.4.2 混合精度三件套：主权重、损失缩放、黑白名单</h2>
 
@@ -303,19 +301,13 @@
   <div class="formula-note">公式 (3)：动态缩放让 \(S\) 贴着「够用且不溢出」的水位自动巡航。符号说明：\(S_t\) 是第 \(t\) 步的缩放因子；\(N\) 是连续无溢出步数的阈值（PyTorch 默认 2000 步，初始 \(S\) 默认 65536）。「跳过本次更新」不是浪费：溢出说明这一步的梯度已经不可信，硬更新反而把参数带飞。</div>
 </div>
 
-<div class="highlight-box info">
-  PyTorch 的 <code>GradScaler</code> 就是这套算法的现成实现：<code>scale</code> → <code>unscale_</code> → <code>step</code> → <code>update</code> 四连调用，溢出检测、减半、翻倍全自动。minimind 里的具体用法见 <code>trainer/train_pretrain.py</code>。
-</div>
+<p>　　PyTorch 的 <code>GradScaler</code> 就是这套算法的现成实现：<code>scale</code> → <code>unscale_</code> → <code>step</code> → <code>update</code> 四连调用，溢出检测、减半、翻倍全自动。minimind 里的具体用法见 <code>trainer/train_pretrain.py</code>。</p>
 
 <p>　　<strong>坑三：不是所有算子都适合半精度。</strong>矩阵乘是吞吐大头、对输入精度不敏感，而且乘加可以用 FP32 累加，适合半精度；softmax、LayerNorm 这类含指数、开方、大归约的算子数值敏感，保留 FP32 才稳。这就是<strong>算子黑白名单</strong>：论文时代要手工指定，今天 PyTorch 的 <code>autocast</code> 内置了名单——<code>with autocast_ctx:</code> 包住的区域里，matmul/conv/linear 自动落到半精度，softmax、layer_norm、cross_entropy 等自动留在 FP32，分流由框架完成。</p>
 
-<div class="highlight-box danger">
-  易错：不要把 <code>model.half()</code> 当混合精度。把整个模型直接转半精度，等于三件套全丢——参数没了 FP32 主副本，敏感算子也掉进半精度，轻则精度掉点，重则 loss 起飞。正确姿势是模型保持 FP32，只用 autocast 包住 forward，让框架按黑白名单自动分流。
-</div>
+<p>　　易错点：不要把 <code>model.half()</code> 当混合精度。把整个模型直接转半精度，等于三件套全丢——参数没了 FP32 主副本，敏感算子也掉进半精度，轻则精度掉点，重则 loss 起飞。正确姿势是模型保持 FP32，只用 autocast 包住 forward，让框架按黑白名单自动分流。</p>
 
-<div class="highlight-box">
-  混合精度的哲学是一笔分工账：计算过程（矩阵乘）用半精度求快求省，落账环节（参数、归一化、概率归一）用 FP32 求稳。算得快与训得稳不矛盾，前提是别让 16 位浮点去碰它处理不了的数值。
-</div>
+<p>　　混合精度的哲学是一笔分工账：计算过程（矩阵乘）用半精度求快求省，落账环节（参数、归一化、概率归一）用 FP32 求稳。算得快与训得稳不矛盾，前提是别让 16 位浮点去碰它处理不了的数值。</p>
 
 <h2>7.4.3 训练稳定性实战：loss spike 与急救手册</h2>
 
@@ -389,13 +381,9 @@
   <li><strong>初始化尺度</strong>：权重初始方差要随层宽缩放，惯例是 fan-in 初始化 \(W \sim \mathcal{N}(0, 1/\sqrt{n_{\mathrm{in}}})\)（\(n_{\mathrm{in}}\) 是该层的输入维度），让前向激活与反向梯度的方差在各层保持稳定。初始方差过大，激活逐层膨胀，训练开局就炸，warmup 也救不回来。</li>
 </ul>
 
-<div class="highlight-box info">
-  PaLM 还用了几个架构级的稳定化手段：所有线性层与 LayerNorm 不用偏置（no biases）；\(\beta_2\) 不取常数 0.99，而是按 \(1 - k^{-0.8}\) 随步数 \(k\) 逐渐变大；外加一项 z_loss 辅助损失（\(10^{-4} \cdot \log^2 Z\)，\(Z\) 是 softmax 的归一化常数），把 logits 的整体尺度往 0 拉，抑制其无节制膨胀。这些细节说明：稳定性是初始化、优化器、架构、数值格式一起凑出来的系统工程。
-</div>
+<p>　　PaLM 还用了几个架构级的稳定化手段：所有线性层与 LayerNorm 不用偏置（no biases）；\(\beta_2\) 不取常数 0.99，而是按 \(1 - k^{-0.8}\) 随步数 \(k\) 逐渐变大；外加一项 z_loss 辅助损失（\(10^{-4} \cdot \log^2 Z\)，\(Z\) 是 softmax 的归一化常数），把 logits 的整体尺度往 0 拉，抑制其无节制膨胀。这些细节说明：稳定性是初始化、优化器、架构、数值格式一起凑出来的系统工程。</p>
 
-<div class="highlight-box">
-  大模型训练的稳定性没有银弹：事前靠初始化尺度、warmup、梯度裁剪压低出事概率，事中靠混合精度的数值纪律不添乱，事后靠勤存 checkpoint 加回滚跳批快速复活。三层合起来，才把「万亿 token 不翻车」从运气变成工程。
-</div>
+<p>　　大模型训练的稳定性没有银弹：事前靠初始化尺度、warmup、梯度裁剪压低出事概率，事中靠混合精度的数值纪律不添乱，事后靠勤存 checkpoint 加回滚跳批快速复活。三层合起来，才把「万亿 token 不翻车」从运气变成工程。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

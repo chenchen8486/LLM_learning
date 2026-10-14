@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -576,9 +570,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box info">
-  原始抓取拿到的是完整 HTML 页面，里面混着导航栏、广告位、页脚模板、乱码和机器生成的垃圾内容。直接把这份“原料”喂给模型，等于让学生照着带错别字的盗版书学习。从 Common Crawl 到可用语料之间的距离，就是本节后面几张术语卡要讲的“精加工”。
-</div>
+<p>　　原始抓取拿到的是完整 HTML 页面，里面混着导航栏、广告位、页脚模板、乱码和机器生成的垃圾内容。直接把这份“原料”喂给模型，等于让学生照着带错别字的盗版书学习。从 Common Crawl 到可用语料之间的距离，就是本节后面几张术语卡要讲的“精加工”。</p>
 
 <div class="term-card">
   <div class="term-name">
@@ -610,9 +602,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box">
-  从 C4 的 750GB，到 RefinedWeb 的 5 万亿 token，再到 FineWeb 的 15 万亿 token，五年间的趋势很清晰：原料没变（都是 Common Crawl），变的是清洗管线越来越细、公开程度越来越高。语料工程的竞争力在加工手艺，不在原料囤积。
-</div>
+<p>　　从 C4 的 750GB，到 RefinedWeb 的 5 万亿 token，再到 FineWeb 的 15 万亿 token，五年间的趋势很清晰：原料没变（都是 Common Crawl），变的是清洗管线越来越细、公开程度越来越高。语料工程的竞争力在加工手艺，不在原料囤积。</p>
 
 <h2>1.1.3 精选语料：The Pile、书籍与中文语料</h2>
 
@@ -630,9 +620,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　书籍子集值得单独说两句。GPT-3 用的 Books1、Books2 从未公开具体构成；The Pile 里的 Books3 约 101GB、含 19.6 万余本电子书，来自 Bibliotik 影子图书馆。书籍是长文叙事与深度写作能力的最佳来源，但来源合法性一直悬而未决。</p>
 
-<div class="highlight-box warn">
-  版权是语料工程的硬伤。Books3 在 2023 年被丹麦版权组织 Rights Alliance 投诉后，先后从各托管渠道下线，多家被认定使用过它的模型厂商卷入诉讼。语料“网上能下载”与“能合法用于训练”是两回事，法律合规已经成为数据清单里必须写明的一栏。
-</div>
+<p>　　注意：版权是语料工程的硬伤。Books3 在 2023 年被丹麦版权组织 Rights Alliance 投诉后，先后从各托管渠道下线，多家被认定使用过它的模型厂商卷入诉讼。语料“网上能下载”与“能合法用于训练”是两回事，法律合规已经成为数据清单里必须写明的一栏。</p>
 
 <p>　　中文侧的公共语料规模整体小于英文，代表性开源项目有两个。智源研究院（BAAI）的中文互联网语料库 CCI 持续迭代：CCI 2.0 约 500GB、含 1.25 亿个网页，CCI 3.0 扩至 1000GB 并附 498GB 高质量子集 CCI3.0-HQ。昆仑万维在开源 Skywork-13B 时配套发布了 Skypile/Chinese-Web-Text-150B，约 600GB、1500 亿 token 的中文网页语料，开放商用。两者都填补了中文高质量网页语料的空白。</p>
 
@@ -665,9 +653,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box">
-  配比是按采样权重而非 token 绝对量设计的训练超参数：高质量小语料多看几遍（Wikipedia 3.4 epoch），海量网页少看几遍（Common Crawl 0.44 epoch）。模型的“食谱结构”和它吃什么同样重要。
-</div>
+<p>　　配比是按采样权重而非 token 绝对量设计的训练超参数：高质量小语料多看几遍（Wikipedia 3.4 epoch），海量网页少看几遍（Common Crawl 0.44 epoch）。模型的“食谱结构”和它吃什么同样重要。</p>
 
 <h2>1.1.5 从原始抓取到训练语料：流水线总览</h2>
 

@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -621,9 +615,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　假设此时词表达到了预设的目标大小，训练停止。最终词表为 <code>[b, g, h, n, p, s, u, ug, un, hug]</code>，合并规则按学习顺序记录为 <code>(u,g)→ug</code>、<code>(u,n)→un</code>、<code>(h,ug)→hug</code>。注意规则的<strong>顺序本身就是训练产物</strong>，编码时要严格按这个顺序应用。</p>
 
-<div class="highlight-box">
-  BPE 学到的词表是频率驱动的：出现得越多的片段越早成为独立 token。这意味着训练语料的构成直接决定词表的长相，换一批语料就要重新训练分词器，不能拿来即用。
-</div>
+<p>　　BPE 学到的词表是频率驱动的：出现得越多的片段越早成为独立 token。这意味着训练语料的构成直接决定词表的长相，换一批语料就要重新训练分词器，不能拿来即用。</p>
 
 <h2>2.2.3 编码阶段：按合并顺序贪心应用</h2>
 
@@ -637,9 +629,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　因为基础词表覆盖了语料中所有字符，这个例子里不存在编码失败的词。经典的 BPE 分词器还会先做预切分（比如按空格和标点把句子切成词），再在每个片段内部跑上述合并流程（不设预切分的 SentencePiece 是例外，见 2.4 节）。</p>
 
-<div class="highlight-box">
-  把 2.2.2 和 2.2.3 合起来看，整条流水线是：分词器训练一次并封存，产出词表和有序合并规则；之后模型训练和推理阶段的所有文本，都按这套冻结的规则切词查 ID，模型只认这套词表。新词永远进不了词表，只是被词表里已有的零件拼出来——词表有限，能表示的词无限。也正因如此，词表一旦封盘就不能换：换词表等于 Embedding 矩阵行数对不上，整个模型要重训。
-</div>
+<p>　　把 2.2.2 和 2.2.3 合起来看，整条流水线是：分词器训练一次并封存，产出词表和有序合并规则；之后模型训练和推理阶段的所有文本，都按这套冻结的规则切词查 ID，模型只认这套词表。新词永远进不了词表，只是被词表里已有的零件拼出来——词表有限，能表示的词无限。也正因如此，词表一旦封盘就不能换：换词表等于 Embedding 矩阵行数对不上，整个模型要重训。</p>
 
 <h2>2.2.4 训练算法伪代码</h2>
 
@@ -684,9 +674,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　工程实现上，OpenAI 开源的 <code>tiktoken</code> 是 GPT 系列模型的官方 byte-level BPE 分词器，用 Rust 实现、速度极快；想读一份短小清晰的教学实现，可以看 Andrej Karpathy 的 <code>minbpe</code>，几百行 Python 完整复现了训练与编码两条路径。</p>
 
-<div class="highlight-box info">
-  词表大小是一个超参数，由人在训练分词器前指定，不是算法学出来的。BPE 学到的是“在这个预算下选哪些合并”。词表越大，平均序列越短、语义越完整，但 Embedding 层参数越多、稀有 token 训练越不充分；主流 LLM 的取值从 3 万到 25 万不等。GPT-2 选了 5 万条合并，只是一个具体的工程取值。
-</div>
+<p>　　词表大小是一个超参数，由人在训练分词器前指定，不是算法学出来的。BPE 学到的是“在这个预算下选哪些合并”。词表越大，平均序列越短、语义越完整，但 Embedding 层参数越多、稀有 token 训练越不充分；主流 LLM 的取值从 3 万到 25 万不等。GPT-2 选了 5 万条合并，只是一个具体的工程取值。</p>
 
 <p>　　BPE 的故事到这里就完整了：一个压缩算法被改造成词表学习器，又在字节层面补上了最后的 OOV 缺口。下一节看另外两条子词路线：WordPiece 和 Unigram，它们换了合并（或剪枝）的评分标准，思路各有千秋。</p>
 

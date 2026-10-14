@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -544,9 +538,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="formula-note">公式 (2)：比值不变性。白话：掩码只决定谁能出场，不干预出场者之间谁更受欢迎。符号说明：\(p_i, p_j\) 是掩码前的概率，\(\tilde{p}_i, \tilde{p}_j\) 是掩码后的概率；归一化相当于给每个幸存者乘同一个倍数，比值里这个倍数被约掉，剩下的就是原来的指数比。12.4 节讨论“约束会不会让模型变笨”时，靠的就是这条性质。</div>
 </div>
 
-<div class="highlight-box">
-  softmax 掩码的全部效果就两条：被屏蔽者概率精确归零；幸存者按同一倍数放大，相对偏好不变。删掉的是选项，不是口味。
-</div>
+<p>　　softmax 掩码的全部效果就两条：被屏蔽者概率精确归零；幸存者按同一倍数放大，相对偏好不变。删掉的是选项，不是口味。</p>
 
 <h2>A.11.3 同一招，四次登场</h2>
 

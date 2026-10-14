@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -525,9 +519,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　注意公式 (1) 中 \(B\) 与 \(h_{kv}\) 成正比：层数、头维度、精度一时半会动不了，想省缓存，最顺手的下刀处就是 K/V 头数。后面两节正是在这个因子上做文章。</p>
 
-<div class="highlight-box info">
-  为什么省缓存等于提速？逐 token 解码时，每生成一个 token 都要把整个 KV 缓存从显存通读一遍，而矩阵计算本身相对快：解码阶段的瓶颈在显存带宽（数据搬运速度）而非算力。缓存越小，每步搬运的数据越少，出字越快。所以 MQA/GQA 的收益是双份的：显存占用下降，解码速度上升。KV Cache 与带宽的系统级展开见第 13 章。
-</div>
+<p>　　为什么省缓存等于提速？逐 token 解码时，每生成一个 token 都要把整个 KV 缓存从显存通读一遍，而矩阵计算本身相对快：解码阶段的瓶颈在显存带宽（数据搬运速度）而非算力。缓存越小，每步搬运的数据越少，出字越快。所以 MQA/GQA 的收益是双份的：显存占用下降，解码速度上升。KV Cache 与带宽的系统级展开见第 13 章。</p>
 
 <p>　　<strong>所以这步在干嘛：</strong>推理时模型靠「翻旧账」（读缓存的历史 K、V）避免重复计算，而缓存大小与 K/V 头数成正比。想省显存、提速度，就得在头数上动刀。</p>
 
@@ -542,9 +534,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　代价在哪？多头设计的初衷是让不同的头学会关注不同表示子空间的信息（第 4 章）：有的头盯语法搭配，有的头盯指代关系。MHA 里每个头有独立的 K、V，「用什么标签索引信息、读出什么内容」可以各不相同；MQA 里大家挤在同一份 K、V 上各取所需，头的表达多样性打了折扣。沿用会议纪要的比方：MHA 是每人各带一名秘书记笔记，MQA 是 8 个人合雇一名秘书，工资省了 8 倍，但这份笔记不再为任何人量身定做。Shazeer 的实验与后来的工程实践都表明：MQA 的速度收益巨大，质量却会出现可测的下降。</p>
 
-<div class="highlight-box warn">
-  MQA 的收益与代价都很直白：缓存与带宽省到 1/h，解码显著加快；但所有查询头共享一份 K/V，模型质量有可测损失。头数越多，共享带来的挤压感越强。
-</div>
+<p>　　注意：MQA 的收益与代价都很直白：缓存与带宽省到 1/h，解码显著加快；但所有查询头共享一份 K/V，模型质量有可测损失。头数越多，共享带来的挤压感越强。</p>
 
 <p>　　MQA 最著名的应用是 Google 的 PaLM（2022，540B），它证明了 MQA 在超大模型上的工程价值。但对质量更敏感的开源社区没有全盘接受这一刀，而是走向了下一节的折中方案。</p>
 
@@ -569,13 +559,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　GQA 论文的关键实验结论是：GQA-8 这一档的质量非常接近 MHA，推理速度接近 MQA，两头的好处几乎全拿到。论文还顺手解决了一个工程问题：已训好的 MHA 检查点可以通过少量继续训练转换成 GQA，不必从头预训练（论文标题里 from Multi-Head Checkpoints 说的就是这件事）。落地方面，Llama 2 最大的 70B 模型采用 GQA-8（64 个查询头分 8 组），Llama 3 全系沿用 8 组 K/V；教学工程 minimind 同样使用 GQA（8 个查询头分 4 组，即 GQA-4），其代码实现见 minimind 工程。</p>
 
-<div class="highlight-box danger">
-  「GQA-8」里的数字是 K/V 组数，不是每组的头数：Llama 2 70B 的 GQA-8 是 64 个查询头分 8 组，每组 8 个头共享一组 K/V。实现上还要求查询头数能被组数整除，h/g 就是每组 K/V 要服务的查询头数。
-</div>
+<p>　　易错点：「GQA-8」里的数字是 K/V 组数，不是每组的头数：Llama 2 70B 的 GQA-8 是 64 个查询头分 8 组，每组 8 个头共享一组 K/V。实现上还要求查询头数能被组数整除，h/g 就是每组 K/V 要服务的查询头数。</p>
 
-<div class="highlight-box info">
-  实现上有个直观细节：计算注意力前，会把每组 K、V 复制 h/g 份，「拼」回与查询头相同的数量再照常计算（minimind 里的 <code>repeat_kv</code> 函数干的就是这件事）。所以 MQA/GQA 不改变注意力公式本身，省的是存储与带宽，注意力分数的计算量并没有减少。
-</div>
+<p>　　实现上有个直观细节：计算注意力前，会把每组 K、V 复制 h/g 份，「拼」回与查询头相同的数量再照常计算（minimind 里的 <code>repeat_kv</code> 函数干的就是这件事）。所以 MQA/GQA 不改变注意力公式本身，省的是存储与带宽，注意力分数的计算量并没有减少。</p>
 
 <p>　　<strong>所以这步在干嘛：</strong>不再问「要不要共享」，而是问「几个头合看一份」，省显存从一道是非题变成了可微调的挡位题。秘书的比方说到这，折中方案自然是每 4 人合雇一名：笔记薄了 4 倍，读起来却和一人一秘差别不大。</p>
 
@@ -685,9 +671,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="diagram-caption">图 2：三种注意力中查询头与 K/V 组的连接关系（以 8 个查询头为例）。K/V 组数就是每个 token 要存进 KV 缓存的份数：MHA 存 8 份，GQA-4 存 4 份，MQA 只存 1 份。右图的 GQA-4 正是 minimind 的实际配置。</div>
 </div>
 
-<div class="highlight-box">
-  MHA、MQA、GQA 是同一种注意力的三种存储档位：KV 缓存与 K/V 组数成正比，质量与组数同向变化。GQA 用约 1/8 的缓存换到接近 MHA 的质量，2023 年以来被 Llama 2/3、minimind 等模型采用，成为主流配置。想继续往下压缓存，就得改变注意力的结构本身：下一节 5.3 的 MLA 走的正是这条路。
-</div>
+<p>　　MHA、MQA、GQA 是同一种注意力的三种存储档位：KV 缓存与 K/V 组数成正比，质量与组数同向变化。GQA 用约 1/8 的缓存换到接近 MHA 的质量，2023 年以来被 Llama 2/3、minimind 等模型采用，成为主流配置。想继续往下压缓存，就得改变注意力的结构本身：下一节 5.3 的 MLA 走的正是这条路。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

@@ -192,9 +192,7 @@ logits[mask.scatter(1, sorted_indices, mask)] = -float('inf')                # 2
   <li><strong>282 行，散回原顺序</strong>：掩码此刻按名次排列，<code>scatter</code> 按 <code>sorted_indices</code> 把每一格散回词表原顺序，核外位置的 logit 置 −∞；之后 softmax 时 \(e^{-\infty} = 0\)（A.3 节），这些候选的概率严格归零。置 −∞ 这手屏蔽技巧在手册里反复登场（注意力因果掩码、约束解码），附录 A.11 统一讲它。</li>
 </ol>
 
-<div class="highlight-box">
-  top-p 的全部数学就是三件事：排队（sort）、累加（cumsum）、找首次越线的名次（分位数）。阈值 p 是「至少留住多少概率」的保证书：p 越高核越大、尾巴越长；p 取 1.0 时一个都不砍（代码里 top_p 小于 1.0 才启用），p 越小核收得越紧。
-</div>
+<p>　　top-p 的全部数学就是三件事：排队（sort）、累加（cumsum）、找首次越线的名次（分位数）。阈值 p 是「至少留住多少概率」的保证书：p 越高核越大、尾巴越长；p 取 1.0 时一个都不砍（代码里 top_p 小于 1.0 才启用），p 越小核收得越紧。</p>
 
 <h3>本书用在哪</h3>
 

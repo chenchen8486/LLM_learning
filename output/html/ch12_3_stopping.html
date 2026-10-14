@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -565,9 +559,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　先看第二道。max_new_tokens 是生成循环的次数上限：minimind 的 generate 把它默认设为 8192（model_minimind.py:262），循环体就是一句 <code>for _ in range(max_new_tokens)</code>（268 行），计满即退。这里有个常见误解必须拆开：<strong>上限不等于能力</strong>。eval_llm.py 的命令行参数注释特意提醒「最大生成长度（注意：并非模型实际长文本能力）」（42 行）——8192 只是「最多转这么多圈」的保险丝，模型能可靠驾驭的长度由训练时的序列长度决定（minimind 的 SFT 序列长度只有 768，位置编码与长度外推见第 3 章）。把上限调到 8192，得到的往往是后半段胡言乱语，而不是更长的靠谱回答。</p>
 
-<div class="highlight-box danger">
-  撞上 max_new_tokens 的回答是半截句子：循环耗尽时没有 EOS，句子在半路被砍断。API 用 finish_reason =「length」标记这种结局，DeepSeek 官方文档明确提醒此时返回内容可能被部分截断。日常聊天里半句话只是难看，结构化输出里半个 JSON 会让解析器直接报错、全盘崩掉——这正是 12.4 节要解决的痛点。调用方务必检查 finish_reason，把「length」当异常处理（加大上限重试或走降级），不能当正常结果交付。
-</div>
+<p>　　易错点：撞上 max_new_tokens 的回答是半截句子：循环耗尽时没有 EOS，句子在半路被砍断。API 用 finish_reason =「length」标记这种结局，DeepSeek 官方文档明确提醒此时返回内容可能被部分截断。日常聊天里半句话只是难看，结构化输出里半个 JSON 会让解析器直接报错、全盘崩掉——这正是 12.4 节要解决的痛点。调用方务必检查 finish_reason，把「length」当异常处理（加大上限重试或走降级），不能当正常结果交付。</p>
 
 <p>　　第三道刹车 stop 序列完全长在模型外面。调用方在请求里附上几个字符串（比如「观察者：」「###」），服务层在生成过程中实时检查已产出文本的尾部，撞上即截断返回。三个关键事实值得记住：</p>
 
@@ -624,9 +616,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<div class="highlight-box">
-  停止与流式是同一条时间线的两端：流式决定「文字何时到达用户」（逐 token，体验锚在 TTFT），停止决定「生成何时收工」（三道刹车，结局写在 finish_reason 里）。流式不改变生成的内容与步数，只改变交付节奏；三道刹车不改变交付方式，只决定循环在哪一步画上句号。
-</div>
+<p>　　停止与流式是同一条时间线的两端：流式决定「文字何时到达用户」（逐 token，体验锚在 TTFT），停止决定「生成何时收工」（三道刹车，结局写在 finish_reason 里）。流式不改变生成的内容与步数，只改变交付节奏；三道刹车不改变交付方式，只决定循环在哪一步画上句号。</p>
 
 <h2>12.3.4 minimind 的停止逻辑：finished 掩码</h2>
 

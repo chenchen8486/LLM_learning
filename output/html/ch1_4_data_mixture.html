@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -566,9 +560,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box info">
-  配比是<strong>相对权重</strong>，不是绝对数据量。同样一批语料，按两种不同配比各训一遍，得到的两个模型能力结构会明显不同。这就是为什么配比能和数据质量、数据量并列成为预训练数据的第三个关键决策。
-</div>
+<p>　　配比是<strong>相对权重</strong>，不是绝对数据量。同样一批语料，按两种不同配比各训一遍，得到的两个模型能力结构会明显不同。这就是为什么配比能和数据质量、数据量并列成为预训练数据的第三个关键决策。</p>
 
 <p>　　偏科的代价是真实的：网页文本管够但代码稀缺，模型就学不会写程序；代码比例拉得太高，通用语料被挤占，日常对话和写作能力又会退化。调配比的目标从来不是让所有能力齐头并进，而是在主分布不掉队的前提下，把关键能力拔上去。</p>
 
@@ -591,9 +583,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　这张表（GPT-3 论文表 2.2）藏着人工配比的全部思路。<strong>采样不按数据量比例来</strong>：Wikipedia 只有 30 亿 token，却给了 3% 的权重，训练中被翻来覆去看了 3.4 遍；Common Crawl 有 4100 亿 token，按 60% 权重采样下来连一遍都没看完。论文说得很直白：这是有意接受少量过拟合，换取更高质量的训练数据。小精料反复吃，大粗粮吃不完，背后全是人的经验判断。</p>
 
-<div class="highlight-box info">
-  表中权重合计为 101%，论文原表如此：各权重是近似的采样比例，没有严格归一。另外注意区分后两列——Books1 的 token 量是 120 亿，权重是 8%，数量与权重是两回事。
-</div>
+<p>　　表中权重合计为 101%，论文原表如此：各权重是近似的采样比例，没有严格归一。另外注意区分后两列——Books1 的 token 量是 120 亿，权重是 8%，数量与权重是两回事。</p>
 
 <p>　　人工配方的问题在于验证成本。一个配比好不好，只有拿它把大模型完整训一遍、再跑下游评测才知道。每试一个候选配方就是一次完整的大模型训练，没人试得起几轮，最后端上桌的配方往往只是拍脑袋加上几轮小规模试探的产物。GPT-3 的 60/22/8/8/3 显著影响了后续许多模型的配方设计，但它本身并没有被系统论证过。有没有办法让配比自己学出来？</p>
 
@@ -653,15 +643,11 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　效果相当亮眼。在 The Pile 语料上的实验显示，DoReMi 学出的配比训出的 8B 模型，相比沿用默认配比的基线模型，少样本下游任务平均准确率提升 6.5 个百分点，达到基线同等准确率所需训练步数减少到约 \(1/2.6\)。更难得的是，DoReMi 全程不知道下游要考什么，却在 GLaM 语料上匹配了拿下游任务人工调出来的配比效果。</p>
 
-<div class="highlight-box">
-  DoReMi 最关键的启示是<strong>配比结论可以跨规模外推</strong>：280M 小模型上学出的域权重，直接搬到 30 倍大的 8B 模型上依然有效。配比研究从此可以放在便宜的小模型上做，这把人工调配比的试错成本降了一到两个数量级。
-</div>
+<p>　　DoReMi 最关键的启示是<strong>配比结论可以跨规模外推</strong>：280M 小模型上学出的域权重，直接搬到 30 倍大的 8B 模型上依然有效。配比研究从此可以放在便宜的小模型上做，这把人工调配比的试错成本降了一到两个数量级。</p>
 
 <h2>1.4.4 实践启示小结</h2>
 
-<div class="highlight-box info">
-  本小节是业界通行经验的归纳，属经验性共识，不对应某一篇论文的精确实验结论；不同团队的具体配方多为商业秘密，公开数字仅供参考方向。
-</div>
+<p>　　本小节是业界通行经验的归纳，属经验性共识，不对应某一篇论文的精确实验结论；不同团队的具体配方多为商业秘密，公开数字仅供参考方向。</p>
 
 <ul>
   <li><strong>代码比例上升有助于推理能力</strong>。代码的结构化、逻辑严密的特点会外溢到通用推理，主流模型普遍在配方中给代码留出不小份额，即使目标场景不是写程序；</li>

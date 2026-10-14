@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -627,9 +621,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　第二层是<strong>难训</strong>，这一点在推理任务上格外尖锐。critic 的职责是对每个中间位置预估「照这么写下去能拿多少分」，但 RLHF 与 RLVR 的奖励是稀疏的：奖励模型或规则只在整段回答的末位 token 给一个分，中间没有任何信号。DeepSeekMath 论文点破了由此产生的错位——通常只有最后一个 token 被奖励模型赋予分数，这让「在每个 token 上都估值准确」的价值函数很难训出来。critic 学不准，优势估计就跟着失真，策略被带偏，10.3.4 节的「脆」有它一份功劳。</p>
 
-<div class="highlight-box warn">
-  PPO 的结构性痛点：价值模型与策略模型同量级，显存与训练状态翻倍；而稀疏奖励（整段答完才一个分）又让它难以训准。critic 贵、难、还牵连策略——它成了简化 PPO 时第一个被开刀的对象。
-</div>
+<p>　　注意：PPO 的结构性痛点：价值模型与策略模型同量级，显存与训练状态翻倍；而稀疏奖励（整段答完才一个分）又让它难以训准。critic 贵、难、还牵连策略——它成了简化 PPO 时第一个被开刀的对象。</p>
 
 <p>　　DeepSeek-R1 的技术报告把动机说得更直白：为了节省 RL 的训练成本，R1 采用 GRPO，它去掉了通常与策略模型同样大小的 critic，改用组分数（group scores）估计基线。问题于是变成一个纯技术问题：没有 critic，「比平均水平好多少」这个基线从哪来？GRPO 的回答是下一节的主题——基线不用学，直接算。</p>
 
@@ -704,9 +696,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　组规模 \(G\) 是这条路线的主要代价：基线是算出来的，代价就是同一道题要采多条。DeepSeekMath 论文的实验每题采 64 条，minimind 教学版默认 6 条（num_generations，train_grpo.py:219）。\(G\) 越大基线越稳，采样开销也越大——第 7 章的算力账在这里换成了一种更温和的形式：不再养一个 critic，而是多跑几遍策略前向。另外，DeepSeekMath 论文还指出一个理论上的契合点：奖励模型本身就是按「同一问题的回答两两比较」的数据训出来的（10.2 节），用组内相对比较来利用它的分数，正好顺应了它的天性。</p>
 
-<div class="highlight-box">
-  组相对优势一句话：同一道题采一组回答，组平均当基线、组标准差做归一，高于平均的加强、低于平均的压制、全组同分的跳过。基线从「学出来的 critic」变成「算出来的平均数」，价值模型与 GAE 就此整个退场。
-</div>
+<p>　　组相对优势一句话：同一道题采一组回答，组平均当基线、组标准差做归一，高于平均的加强、低于平均的压制、全组同分的跳过。基线从「学出来的 critic」变成「算出来的平均数」，价值模型与 GAE 就此整个退场。</p>
 
 <h2>11.3.3 目标函数逐项拆解：clip、KL 罚项、长度归一</h2>
 
@@ -745,9 +735,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<div class="highlight-box">
-  核心结论：GRPO 没有发明新的刹车或新的缰绳——clip 照抄 PPO，KL 照拴 ref。它只换了一件东西：把「估计平均水平的裁判」从学出来的 critic 换成算出来的组平均。少一个要训的模型，多采几条样本，换来的是推理训练可以跑到更大的规模。
-</div>
+<p>　　核心结论：GRPO 没有发明新的刹车或新的缰绳——clip 照抄 PPO，KL 照拴 ref。它只换了一件东西：把「估计平均水平的裁判」从学出来的 critic 换成算出来的组平均。少一个要训的模型，多采几条样本，换来的是推理训练可以跑到更大的规模。</p>
 
 <h2>11.3.4 minimind 实现对照：train_grpo.py 逐段读</h2>
 
@@ -764,9 +752,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　模型台账也与公式 (2) 严丝合缝：全程只有三个模型——策略模型 policy（训练中，267 行）、参考模型 ref（full_sft 再加载一份，<code>eval()</code> 加 <code>requires_grad_(False)</code> 彻底冻结，269–270 行）、外部奖励模型 RM（272 行）。没有 critic，没有 GAE，没有价值损失系数——10.3 节表格里 critic 那一行带的所有旋钮，在这里整行消失。数据侧还有一个值得知道的开关：<code>thinking_ratio = 0.9</code>（232、285 行），RLAIFDataset 按 90% 概率给 prompt 套上带思考段的模板，让模型在 RL 阶段就习惯「先想后答」的格式——这为 11.4 节的长思维链埋下伏笔。</p>
 
-<div class="highlight-box info">
-  注释：minimind 的奖励是「规则 + RM」混合，并非纯规则裁判——作为教学实现，它把奖励模型请回来兜底。严格的 RLVR（如 R1-Zero）可以只靠规则：数学题对答案、代码过测试、格式查标签。另外 train_grpo.py 里还有一个 cispo 变体分支（135–137、221、223 行）：只裁剪概率比的上界（ε_high = 5.0）且截断处不回传梯度，是经典 clip 之外的一种简化选项，默认分支讲解仍以 139–142 行的经典 GRPO clip 为准。
-</div>
+<p>　　注释：minimind 的奖励是「规则 + RM」混合，并非纯规则裁判——作为教学实现，它把奖励模型请回来兜底。严格的 RLVR（如 R1-Zero）可以只靠规则：数学题对答案、代码过测试、格式查标签。另外 train_grpo.py 里还有一个 cispo 变体分支（135–137、221、223 行）：只裁剪概率比的上界（ε_high = 5.0）且截断处不回传梯度，是经典 clip 之外的一种简化选项，默认分支讲解仍以 139–142 行的经典 GRPO clip 为准。</p>
 
 <p>　　至此，RLVR 回路（11.2 节）与配套算法 GRPO（本节）都已就位：同一题采一组、规则打分、组内定基线、clip 更新。这套装置在 DeepSeek-R1-Zero 身上跑出了意想不到的东西——模型自己长出了自我检查与反思，思考越写越长。长思维链是怎么被「养」出来的，是 11.4 节的故事。</p>
 

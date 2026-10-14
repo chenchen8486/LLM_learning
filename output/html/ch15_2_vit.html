@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -513,9 +507,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="diagram-caption">图 1：ViT-B/16 的输入制造流水线。图像被切成 14×14=196 个 16×16 的图块，每块展平成 768 维后经可学习线性投影 E 映射为 768 维向量，得到 196×768 的矩阵——形态上与一句话的嵌入序列完全同构。后续还要加上 [CLS] 与位置嵌入（图 2、公式 (1)），序列长度变为 197。</div>
 </div>
 
-<div class="highlight-box info">
-  切块是 ViT 唯一「手工」的地方。选 16×16 而非更小，是精度与算力的折中：序列长度与块边长的平方成反比（块边长减半，序列长度变 4 倍），而自注意力成本随序列长度平方增长（第 4 章），小块会让计算量陡增。ViT-B/16 的「/16」就是指块边长 16 像素。
-</div>
+<p>　　切块是 ViT 唯一「手工」的地方。选 16×16 而非更小，是精度与算力的折中：序列长度与块边长的平方成反比（块边长减半，序列长度变 4 倍），而自注意力成本随序列长度平方增长（第 4 章），小块会让计算量陡增。ViT-B/16 的「/16」就是指块边长 16 像素。</p>
 
 <h2>15.2.2 模型全貌：公式 (1)–(4) 逐项拆解</h2>
 

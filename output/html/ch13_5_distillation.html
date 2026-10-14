@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -621,9 +615,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box">
-  蒸馏的本质是换一种监督信号：硬标签只回答「正确答案是什么」，软标签还回答「各个错误答案谁更接近正确」。小模型从头训练只能学到前者，跟着教师蒸馏能学到后者——这正是同样的小模型，蒸馏后通常比直接训练效果好的根本原因。Hinton 给出的机制（升温、对齐、混合）是 13.5.2 的主题。
-</div>
+<p>　　蒸馏的本质是换一种监督信号：硬标签只回答「正确答案是什么」，软标签还回答「各个错误答案谁更接近正确」。小模型从头训练只能学到前者，跟着教师蒸馏能学到后者——这正是同样的小模型，蒸馏后通常比直接训练效果好的根本原因。Hinton 给出的机制（升温、对齐、混合）是 13.5.2 的主题。</p>
 
 <h2>13.5.2 Hinton 原始机制：温度 T、KL 散度与 T² 因子</h2>
 
@@ -652,9 +644,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　温度的取值有分寸：\(T = 1\) 时软目标退化为教师的原始分布，暗知识埋没在尾巴里（图 2 中间一档）；\(T\) 太大则分布趋近均匀，连「正确答案是 3」的信息也被磨平。实战温度通常取个位数的小值：minimind 默认 \(T = 1.5\)，帮助文本推荐 1.0–2.0（train_distillation.py:164）。\(\alpha\) 的取舍同理：\(\alpha\) 大则学生更信硬标签、更像直接训练，\(\alpha\) 小则更信教师；minimind 默认 0.5，两路各占一半（163 行）。</p>
 
-<div class="highlight-box info">
-  注释：公式 (3) 用的是前向 KL（教师 ‖ 学生）。LLM 蒸馏研究里也有故意反过来用反向 KL 的工作，代表是 MiniLLM（Gu et al., 2023，arXiv:2306.08543）：反向 KL 促使学生把概率集中到教师的高概率区域，避免摊得太开。这属于进阶选项，minimind 与 Hinton 配方一致，用前向 KL。
-</div>
+<p>　　注释：公式 (3) 用的是前向 KL（教师 ‖ 学生）。LLM 蒸馏研究里也有故意反过来用反向 KL 的工作，代表是 MiniLLM（Gu et al., 2023，arXiv:2306.08543）：反向 KL 促使学生把概率集中到教师的高概率区域，避免摊得太开。这属于进阶选项，minimind 与 Hinton 配方一致，用前向 KL。</p>
 
 <h2>13.5.3 minimind 代码印证：train_distillation.py 逐行对照</h2>
 
@@ -669,9 +659,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <li><strong>合并与回传</strong>（90–93 行）：<code>loss = alpha * ce_loss + (1 - alpha) * distill_loss</code>，默认 \(\alpha = 0.5\)（163 行）、\(T = 1.5\)（164 行）；backward、梯度裁剪、step 全部作用在学生参数上，教师一个梯度都不收。</li>
 </ol>
 
-<div class="highlight-box info">
-  注释：第 3 步的截断揭示了一个隐含前提——这套实现要求教师与学生共用同一套分词器（词表 6400），截断只是把输出头宽度对齐到学生词表。若教师与学生的词表不同（跨分词器蒸馏），logits 逐位对齐本身就不成立，需要更复杂的映射方案，不在 minimind 的演示范围内。读开源蒸馏代码时，先确认这一点能避开不少困惑。
-</div>
+<p>　　注释：第 3 步的截断揭示了一个隐含前提——这套实现要求教师与学生共用同一套分词器（词表 6400），截断只是把输出头宽度对齐到学生词表。若教师与学生的词表不同（跨分词器蒸馏），logits 逐位对齐本身就不成立，需要更复杂的映射方案，不在 minimind 的演示范围内。读开源蒸馏代码时，先确认这一点能避开不少困惑。</p>
 
 <h2>13.5.4 LLM 时代的蒸馏：从蒸 logits 到蒸数据</h2>
 

@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -597,9 +591,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　落到实践上，这条捷径的收益是实打实的。DPO 论文的实验显示：训练过程不需要从模型采样、不需要大规模调参，就稳定达到甚至超过 PPO 版 RLHF 的水平——在情感控制任务上超过 PPO，在 Reddit TL;DR 摘要与 Anthropic HH 单轮对话上持平或更好，而实现复杂度大幅下降。RLHF 那条「四模型同台、边采样边更新」的重装流水线，被压缩成「两次前向 + 一个分类损失」。</p>
 
-<div class="highlight-box">
-  核心结论：DPO 没有换目标，只是换了参数化。KL 约束下的最优策略有闭式解，把奖励反解成策略与参考模型的对数比之后，Bradley-Terry 偏好建模里的配分函数自动抵消，奖励模型与强化学习循环一起被消掉，训练退化为一个分类损失。
-</div>
+<p>　　核心结论：DPO 没有换目标，只是换了参数化。KL 约束下的最优策略有闭式解，把奖励反解成策略与参考模型的对数比之后，Bradley-Terry 偏好建模里的配分函数自动抵消，奖励模型与强化学习循环一起被消掉，训练退化为一个分类损失。</p>
 
 <h2>10.4.2 DPO 损失逐项拆解：含 minimind 实现对照</h2>
 
@@ -626,9 +618,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　对照下来可以看到，实现里没有任何强化学习部件：没有采样、没有价值网络、没有优势估计，只有两次前向（策略一次、参考一次）加一个损失。这正是 DPO「 computationally lightweight（计算轻量）」这一主张在代码层面的样子。</p>
 
-<div class="highlight-box">
-  DPO 损失与 10.2 节奖励模型的 Bradley-Terry 损失同形，都是 \(-\log\sigma(\text{分差})\)。区别在于分差的来源：奖励模型用单独网络给两个分数相减，DPO 直接用「策略相对参考的抬升量之差」。训练 DPO 时盯着损失从 \(\ln 2\approx 0.693\) 往下走，就是在看模型学会分辨好坏的进度条。
-</div>
+<p>　　DPO 损失与 10.2 节奖励模型的 Bradley-Terry 损失同形，都是 \(-\log\sigma(\text{分差})\)。区别在于分差的来源：奖励模型用单独网络给两个分数相减，DPO 直接用「策略相对参考的抬升量之差」。训练 DPO 时盯着损失从 \(\ln 2\approx 0.693\) 往下走，就是在看模型学会分辨好坏的进度条。</p>
 
 <h2>10.4.3 β 与参考模型：DPO 的两个旋钮</h2>
 
@@ -662,9 +652,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　两个旋钮之外还有一个隐形搭档：学习率。minimind 的 DPO 默认学习率是 4e-8，代码注释直言「建议 ≤5e-8 避免遗忘」（trainer/train_dpo.py 第 128 行）。对照 9.3 节 SFT 的 1e-5，又小了两个多量级。原因一脉相承：DPO 阶段的模型已经会对话，参数里压着预训练与 SFT 两站攒下的全部成果，大步更新最容易把它们冲刷掉——这正是 9.3.3 灾难性遗忘的对策在对齐阶段的延续。</p>
 
-<div class="highlight-box warn">
-  β 与学习率都影响「走多远」，但作用层次不同：β 写在目标函数里，决定「离参考多远开始受罚」。学习率写在优化器里，决定「每步实际迈多大」。两者同向收紧是保守配方，同时放开则是双重激进，最容易把模型训退化。调参时先固定学习率在一个小量级，再按验证集表现调 β。
-</div>
+<p>　　注意：β 与学习率都影响「走多远」，但作用层次不同：β 写在目标函数里，决定「离参考多远开始受罚」。学习率写在优化器里，决定「每步实际迈多大」。两者同向收紧是保守配方，同时放开则是双重激进，最容易把模型训退化。调参时先固定学习率在一个小量级，再按验证集表现调 β。</p>
 
 <h2>10.4.4 家族图谱：IPO / KTO / SimPO</h2>
 

@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -577,9 +571,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　四条路线的演进逻辑，是「少量参数安放位置」的三次迁移。Adapter 把新参数塞进网络结构内部，问题随之暴露：推理时多出一层串行计算，延迟降不下去。Prefix 系干脆把参数挪出权重，移到输入空间里——模型权重彻底不动，代价是软提示要吃掉一段上下文窗口，而且学出来的是一段人读不懂的连续向量。LoRA 换了第三种思路：不加结构、不改输入，改的是权重更新的<strong>参数化方式</strong>，更新量写成两个低秩矩阵的乘积；更关键的是它能合并，训练完成后 \(BA\) 直接加回原权重，推理架构与基座一模一样，延迟归零。QLoRA 与前三者不在同一维度上：它不改变「训练什么」，改变的是「基座怎么存放」，因此能与 LoRA 正交叠加。</p>
 
-<div class="highlight-box">
-  LoRA 成为事实标准，靠的不是某一个指标的领先，而是三样东西同时占全：可训练参数省到 1% 量级、合并后推理零额外延迟、实现只需给线性层挂一条旁路。Adapter 输在第一项的代价（延迟），Prefix 系输在后两项。
-</div>
+<p>　　LoRA 成为事实标准，靠的不是某一个指标的领先，而是三样东西同时占全：可训练参数省到 1% 量级、合并后推理零额外延迟、实现只需给线性层挂一条旁路。Adapter 输在第一项的代价（延迟），Prefix 系输在后两项。</p>
 
 <p>　　这个家族至今仍在扩张，每年都有新变体出现。读新论文时不必逐个记名字，用三问归类即可：少量参数放在哪里（结构内、输入前、权重旁路）、训完能不能无损合并回原权重、推理时有没有引入额外计算。三问答完，新路线在家族地图上的位置就定了，优劣也能对照四条老路线推出来。</p>
 
@@ -610,15 +602,11 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　显存占用不是平稳曲线，处理超长序列、大批次的检查点时会突然冒尖，尖峰时刻最容易 OOM（显存耗尽）。<strong>分页优化器</strong>（Paged Optimizers）借用操作系统的统一内存机制：平时优化器状态住在显存里，尖峰来临时把这部分状态临时换页到内存（RAM），峰过了再换回来，用时间换空间，把偶发的尖峰削平。</p>
 
-<div class="highlight-box">
-  QLoRA 的关键认知：梯度只流向 bf16 精度的 LoRA 旁路，基座全程冻结，只是个被量化压缩存放的「只读仓库」——前向时临时解压出来参与计算，反向时一个梯度都不收。可训练部分（旁路、优化器、梯度）与纯 LoRA 完全一样，QLoRA 省下的全是基座存放那一笔。
-</div>
+<p>　　QLoRA 的关键认知：梯度只流向 bf16 精度的 LoRA 旁路，基座全程冻结，只是个被量化压缩存放的「只读仓库」——前向时临时解压出来参与计算，反向时一个梯度都不收。可训练部分（旁路、优化器、梯度）与纯 LoRA 完全一样，QLoRA 省下的全是基座存放那一笔。</p>
 
 <p>　　三件零件合起来的效果，论文用一组数字做了广告：Guanaco 65B（QLoRA 论文配套的微调模型）在<strong>单张 48GB 显卡</strong>上完成微调，且在论文评测的基准上与 16bit 全量微调的效果持平。量化反压缩会不会掉点，是这类方法最自然的疑问，QLoRA 的回答落在 NF4 的刻度设计上——刻度按权重分布量身定做，压缩损失被压到可忽略区间。</p>
 
-<div class="highlight-box info">
-  本节只给量化的最小够用版：知道 NF4 是「按正态分布分位数摆刻度」、双重量化是「常量再量化」、分页优化器是「尖峰换页到内存」，就够读懂 QLoRA 了。量化的系统讲解——int8、fp8、GPTQ、AWQ、KV Cache 量化——在第 13 章推理部署里展开。
-</div>
+<p>　　本节只给量化的最小够用版：知道 NF4 是「按正态分布分位数摆刻度」、双重量化是「常量再量化」、分页优化器是「尖峰换页到内存」，就够读懂 QLoRA 了。量化的系统讲解——int8、fp8、GPTQ、AWQ、KV Cache 量化——在第 13 章推理部署里展开。</p>
 
 <h2>9.5.3 LoRA 超参实战：rank、alpha 与学习率</h2>
 
@@ -645,9 +633,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　LoRA 的学习率通常比全量微调高约一个数量级。minimind 的两个默认值的对比很典型：LoRA 训练默认 1e-4（minimind（Apache 2.0），trainer/train_lora.py:75），全量 SFT 默认 1e-5（minimind（Apache 2.0），trainer/train_full_sft.py:81），正好差十倍。原因有两层：一是可训练参数只有一个小子集，每一步更新集中砸在旁路上，步子可以更大；二是旁路从零初始化起步（\(BA\) 初始为零，基座输出不受扰动），与预训练权重「已经在好解附近」的全量微调处境不同，需要更大的步长赶路。</p>
 
-<div class="highlight-box warn">
-  LoRA 一样会过拟合。小数据集上常见的误区是以为参数少就免疫：旁路参数虽少，照样能把几千条样本背下来。对策与全量一致——少跑几个 epoch、盯住验证集 loss 早停，不要因为「只是 LoRA」就放松监控。
-</div>
+<p>　　注意：LoRA 一样会过拟合。小数据集上常见的误区是以为参数少就免疫：旁路参数虽少，照样能把几千条样本背下来。对策与全量一致——少跑几个 epoch、盯住验证集 loss 早停，不要因为「只是 LoRA」就放松监控。</p>
 
 <h2>9.5.4 选型决策：全量、LoRA、QLoRA</h2>
 

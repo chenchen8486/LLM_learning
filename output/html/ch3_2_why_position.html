@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -718,9 +712,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　对比一下前代架构就明白这有多特殊：RNN 一个词一个词按顺序读进来，顺序天然烙在计算过程里；CNN 的卷积核也有固定的左右结构。Transformer 为了追求并行效率，让所有位置同时计算，代价就是把顺序信息弄丢了。位置编码的任务，就是把这块信息补回来。</p>
 
-<div class="highlight-box info">
-  有研究（Kazemnejad et al., 2023）发现，GPT 类模型的因果掩码会泄露少量先后信息：第 \(i\) 个位置只能看到前 \(i\) 个 token，这本身已是一种位置线索，所以 decoder-only 模型不加显式位置编码也能学到部分语序。但「相距多远」它依然感知不到，主流模型仍离不开专门的位置编码，这一点 3.4 节再展开。
-</div>
+<p>　　有研究（Kazemnejad et al., 2023）发现，GPT 类模型的因果掩码会泄露少量先后信息：第 \(i\) 个位置只能看到前 \(i\) 个 token，这本身已是一种位置线索，所以 decoder-only 模型不加显式位置编码也能学到部分语序。但「相距多远」它依然感知不到，主流模型仍离不开专门的位置编码，这一点 3.4 节再展开。</p>
 
 <h2>3.2.4 两条解决路线：绝对位置 vs 相对位置</h2>
 
@@ -741,9 +733,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　两派的分歧不只是工程口味。绝对位置编码把「第 512 位」这样的信息写死在向量里，训练时没见过第 513 位，推理时就没有现成的表示可用（可学习编码是表里少了这一行，正弦编码虽能算出数值、模型却没学过怎么用）；相对位置编码只学「距离 3 是什么意思」，这条规律不随序列变长而失效。这就是为什么位置编码的选择会一路影响模型的长度外推能力，也就是第 3.5 节的主线。</p>
 
-<div class="highlight-box">
-  自注意力天生是个「脸盲」：认得出每个 token，认不出 token 的顺序，位置编码是 Transformer 唯一的位置信息来源。绝对位置编码发「门牌号」，相对位置编码量「间距」。当代主流 LLM（LLaMA、Qwen、DeepSeek 等）几乎一边倒地选择了相对阵营的 RoPE，3.4 节细讲原因。
-</div>
+<p>　　自注意力天生是个「脸盲」：认得出每个 token，认不出 token 的顺序，位置编码是 Transformer 唯一的位置信息来源。绝对位置编码发「门牌号」，相对位置编码量「间距」。当代主流 LLM（LLaMA、Qwen、DeepSeek 等）几乎一边倒地选择了相对阵营的 RoPE，3.4 节细讲原因。</p>
 
 <h2>3.2.5 本章地图</h2>
 

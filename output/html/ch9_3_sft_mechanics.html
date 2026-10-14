@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -608,9 +602,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　把这套机制落到一条具体对话上看。用 minimind 分词器实测：用户问「中国的首都是哪里？」切成 7 个 token <code>[1405, 296, 1408, 2462, 1742, 852, 776]</code>（中国/的/首/都是/哪/里/？），助手答「中国的首都是北京。」切成 6 个 token <code>[1405, 296, 1408, 2462, 5412, 302]</code>（中国/的/首/都是/北京/。）。掩码之后的完整序列，就是本节开头的图 2：灰底段（提问与角色标记）的 label 全是 -100，紫底段（回答与收尾 eos）计入损失。</p>
 
-<div class="highlight-box danger">
-  一个容易漏掉的细节：回答段末尾的 &lt;|im_end|&gt;（eos）必须计入损失。它教模型「答完就停」；如果被掩掉，模型学不到收尾，生成时会一直续写直到撞上长度上限。minimind 的实现把 eos 包含在恢复区间里（lm_dataset.py 第 102 行的 <code>range(start, min(end + len(self.eos_id), ...))</code>），正是为了这一点。
-</div>
+<p>　　易错点：一个容易漏掉的细节：回答段末尾的 &lt;|im_end|&gt;（eos）必须计入损失。它教模型「答完就停」；如果被掩掉，模型学不到收尾，生成时会一直续写直到撞上长度上限。minimind 的实现把 eos 包含在恢复区间里（lm_dataset.py 第 102 行的 <code>range(start, min(end + len(self.eos_id), ...))</code>），正是为了这一点。</p>
 
 <h2>9.3.2 与预训练同与不同</h2>
 
@@ -633,9 +625,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　序列长度从 340 拉长到 768 好理解：SFT 样本要完整装下一问一答（多轮对话更长），窗口太短会把回答拦腰截断，损失掩码也就无从谈起。真正值得琢磨的是学习率：1e-5 对 5e-4，小了约两个量级。原因要从训练起点看。预训练从随机权重出发，参数离「会语言」还很远，需要大步赶路；SFT 从预训练权重出发，模型已经会语言、有知识，缺的只是「按指令格式作答」这一层行为。此时每一步梯度都由一小批指令数据驱动，步子一大，参数就会为了迁就这批数据而大幅移动，预训练攒下的通用能力随之被冲刷。微调的要义是小步修正：只动该动的，不动已有的。这直接引出下一节的主题。</p>
 
-<div class="highlight-box">
-  核心结论：SFT 没有新的训练技术。它 = 预训练的训练器 + 带损失掩码的指令数据 + 一套全面收小的保守配方（学习率小约两个量级、轮数寥寥、从预训练权重出发）。配方的保守不是随手定的，是在给预训练成果上保险。
-</div>
+<p>　　核心结论：SFT 没有新的训练技术。它 = 预训练的训练器 + 带损失掩码的指令数据 + 一套全面收小的保守配方（学习率小约两个量级、轮数寥寥、从预训练权重出发）。配方的保守不是随手定的，是在给预训练成果上保险。</p>
 
 <h2>9.3.3 灾难性遗忘：微调的头号风险</h2>
 
@@ -664,9 +654,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　这些对策与 9.1 节的表层对齐假说（Superficial Alignment Hypothesis）互相印证。假说认为模型的知识与能力几乎全部来自预训练，对齐做的只是调整「与人对话」的表层格式。若对齐真是表层调整，本就无需大动干戈——小学习率、少量数据、一两轮 epoch 就该够用；反过来，大动干戈反而会把表层之下的地基震松。9.3.2 那张保守配方表，正是这个假说在工程上的样子。</p>
 
-<div class="highlight-box warn">
-  模型越小、容量越紧，新旧知识挤占同一批参数的冲突越直接，配方就越要保守。minimind 这类小模型的 SFT 默认配方收得很紧，原因即在此；给大模型做 SFT 时同样从保守起步，再按验证集表现逐步放开。
-</div>
+<p>　　注意：模型越小、容量越紧，新旧知识挤占同一批参数的冲突越直接，配方就越要保守。minimind 这类小模型的 SFT 默认配方收得很紧，原因即在此；给大模型做 SFT 时同样从保守起步，再按验证集表现逐步放开。</p>
 
 <h2>9.3.4 工程细节速览</h2>
 

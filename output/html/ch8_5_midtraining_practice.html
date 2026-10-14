@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -584,9 +578,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box">
-  四份方案，骨架惊人一致：主训阶段用短上下文把算力花在刀刃上，中期再花小钱扩长度；长上下文一律靠「改 RoPE ＋ 长数据短训」获得，没有一家为此从头重训；收尾一律上高质量数据（退火），并用 checkpoint 复用或平均榨干主训价值。差异只在工程取舍：扩多长、分几段、混多少长数据、退火多陡。
-</div>
+<p>　　四份方案，骨架惊人一致：主训阶段用短上下文把算力花在刀刃上，中期再花小钱扩长度；长上下文一律靠「改 RoPE ＋ 长数据短训」获得，没有一家为此从头重训；收尾一律上高质量数据（退火），并用 checkpoint 复用或平均榨干主训价值。差异只在工程取舍：扩多长、分几段、混多少长数据、退火多陡。</p>
 
 <h2>8.5.2 minimind 视角：小模型要不要中间训练</h2>
 
@@ -653,9 +645,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　回到小节标题的问题：小模型要不要中间训练？答案是「看需求，但随时能做」。minimind 这类几十 M 的玩具模型，预训练一共就跑几个小时，「主训省钱、中期补强」的分阶段收益本来就不大；但真遇到长文本需求，它的中期训练也简单——不用分六轮、不用算 YaRN 参数，换一份长数据、低学习率续训几百步就完事。</p>
 
-<div class="highlight-box info">
-  中间训练的本质是资源约束下的分阶段策略：主训承担最贵的通用能力养成，中期用小钱补长上下文、领域配比与数据质量收尾。规模越小，要补的课越少、流程越可以简化——minimind 扩 2K 连 RoPE 都不用碰。这正是 6.2 节「模型越小、配方越可以粗放」在中期训练上的翻版。
-</div>
+<p>　　中间训练的本质是资源约束下的分阶段策略：主训承担最贵的通用能力养成，中期用小钱补长上下文、领域配比与数据质量收尾。规模越小，要补的课越少、流程越可以简化——minimind 扩 2K 连 RoPE 都不用碰。这正是 6.2 节「模型越小、配方越可以粗放」在中期训练上的翻版。</p>
 
 <h2>8.5.3 风险与监控清单</h2>
 
@@ -680,13 +670,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<div class="highlight-box warn">
-  别拿训练 loss 当验收标准。中期训练换了数据分布，新 loss 和主训 loss 没有可比性——长文数据上 loss 低，可能只是数据好猜。唯一可信的验收是上面这套评测组合。
-</div>
+<p>　　注意：别拿训练 loss 当验收标准。中期训练换了数据分布，新 loss 和主训 loss 没有可比性——长文数据上 loss 低，可能只是数据好猜。唯一可信的验收是上面这套评测组合。</p>
 
-<div class="highlight-box danger">
-  去污染是红线，退火段尤其要命：好数据常和评测题同源。Qwen2.5 的做法可作参考——训练序列与任一评测序列的最长公共子序列达到 13 token 且占较短一侧的 60% 以上，整条剔除。退火数据里混进评测集，分数再高也是自欺欺人。
-</div>
+<p>　　易错点：去污染是红线，退火段尤其要命：好数据常和评测题同源。Qwen2.5 的做法可作参考——训练序列与任一评测序列的最长公共子序列达到 13 token 且占较短一侧的 60% 以上，整条剔除。退火数据里混进评测集，分数再高也是自欺欺人。</p>
 
 <h2>8.5.4 全章收束与下一站</h2>
 
@@ -694,9 +680,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　走完这一章，手里的模型已经今非昔比：上下文长度达标、领域配比修正、高质量数据收尾，checkpoint 还做了平均。但请冷静——它依然只会「续写」：给它半句话它接下半句，可你对它说「请帮我总结这段话」，它很可能把你的指令也当成待续写的文本，自顾自往下编。会知识与会听话是两回事，中间训练管的是前者。</p>
 
-<div class="highlight-box">
-  第 8 章一句话：中间训练是大模型流水线的补强带——花预训练零头的算力，把上下文长度、领域配比、数据质量收尾三件事补齐，为后训练交出一个更值钱的 base model。
-</div>
+<p>　　第 8 章一句话：中间训练是大模型流水线的补强带——花预训练零头的算力，把上下文长度、领域配比、数据质量收尾三件事补齐，为后训练交出一个更值钱的 base model。</p>
 
 <p>　　让模型从「会续写」变成「听指挥」，靠的是下一章的主角：监督微调（SFT）。第 9 章会讲指令数据怎么构造、对话模板怎么套，以及个人玩家的救星 LoRA——只训百分之几的参数就能完成微调，让 minimind 这样的小模型在单张消费级显卡上也能学会听指令。</p>
 

@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -499,9 +493,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　<strong>阶段二：视觉指令微调。</strong>投影层与 LLM 一起解冻（视觉塔仍冻结），数据换成 158K 指令样本，任务升级为按指令回答图像相关问题、进行多轮对话。这一步就是第 9 章 SFT 的多模态版：让模型从「会描述」变成「会按人的要求看图说话」。</p>
 
-<div class="highlight-box danger">
-  放权顺序为什么不能反？若一开始就端到端训练，随机初始化的投影层输出的是「乱码视觉 token」，错误的梯度会顺着上下文灌进 LLM，把预训练好的语言能力带崩（灾难性遗忘的视觉版，参第 9 章）。先冻结 LLM、单独校准投影层，等于先把翻译官培训合格再放他进会议室——这正是阶段化放权的稳定性逻辑。Flamingo 的零初始化门控（15.4 节）是同一种担忧的另一种解法。
-</div>
+<p>　　易错点：放权顺序为什么不能反？若一开始就端到端训练，随机初始化的投影层输出的是「乱码视觉 token」，错误的梯度会顺着上下文灌进 LLM，把预训练好的语言能力带崩（灾难性遗忘的视觉版，参第 9 章）。先冻结 LLM、单独校准投影层，等于先把翻译官培训合格再放他进会议室——这正是阶段化放权的稳定性逻辑。Flamingo 的零初始化门控（15.4 节）是同一种担忧的另一种解法。</p>
 
 <p>　　三家的阶段与冻结策略对比，能看出同一条原则的不同取舍：BLIP-2 把「冻结」推到极致——两个阶段全程冻结 LLM，只训约 188M 的 Q-Former，靠三目标（ITC/ITM/ITG）在冻结骨架上做对齐与生成适配，成本最低但 LLM 行为完全不可塑；Flamingo 冻结视觉塔与 LM，但新插入的门控交叉注意力层（约 10B）从零训练，投入最大以换取交错图文能力；LLaVA 居中——阶段二解冻 LLM，用最小的数据成本换取「会对话」的行为塑造。今天的共识落在 LLaVA 一侧：指令微调阶段放开 LLM 是「会聊天」的必要条件，但视觉塔通常继续冻结（它已是 CLIP 对齐过的成品）。</p>
 
@@ -548,9 +540,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <li><strong>数据质量与配比大于数量</strong>：158K 精选数据足以训练出强 VLM，堆量不如精选与混配——与第 1.4 节文本配比、第 9 章指令数据一章的结论如出一辙。</li>
 </ul>
 
-<div class="highlight-box">
-  本节核心：VLM 训练没有新的学习范式，全是旧配方的迁移与组合——自回归语言建模（阶段一）+ 指令微调（阶段二）+ 合成数据（GPT-4 生产）+ LLM-as-judge（评测）。真正的工程智慧在「分阶段放权」的次序与数据配方的精选，幻觉则是这套流水线至今未能根治的副产品。
-</div>
+<p>　　本节核心：VLM 训练没有新的学习范式，全是旧配方的迁移与组合——自回归语言建模（阶段一）+ 指令微调（阶段二）+ 合成数据（GPT-4 生产）+ LLM-as-judge（评测）。真正的工程智慧在「分阶段放权」的次序与数据配方的精选，幻觉则是这套流水线至今未能根治的副产品。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -447,9 +441,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　为什么敢这么简单？底气来自 15.3 节的结论：CLIP 特征空间已经按语言语义组织，与词嵌入空间「度量同构」，剩下的差异大概率只是一个线性变换能弥合的。LLaVA 的成功（15.5 节给出训练配方与成绩）证明了这个判断，也立下了此后两年开源 VLM 的默认骨架。后续 LLaVA-1.5 只做了两处保守升级：线性层换成<strong>两层 MLP</strong>（翻译表达力更强），输入分辨率从 224 提到 336（视觉 token 变为 24×24=576 个，细节更多）——主干思路一字未改。</p>
 
-<div class="highlight-box info">
-  为什么取「倒数第二层」的特征？Transformer 最后一层的表示会高度向 [CLS] 位置的全局任务目标收束，逐图块的局部细节反而在倒数第二层保留得更完整。VLM 要的是整幅图的结构化理解而非一个全局判断，所以多数实现取中间偏末层的网格特征。这属于经验做法，非定理。
-</div>
+<p>　　为什么取「倒数第二层」的特征？Transformer 最后一层的表示会高度向 [CLS] 位置的全局任务目标收束，逐图块的局部细节反而在倒数第二层保留得更完整。VLM 要的是整幅图的结构化理解而非一个全局判断，所以多数实现取中间偏末层的网格特征。这属于经验做法，非定理。</p>
 
 <h2>15.4.2 可学习查询压缩：BLIP-2 的 Q-Former</h2>
 
@@ -572,9 +564,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　怎么选？回到 token 数量这个第一变量：<strong>视觉 token 是 LLM 的「视力分辨率」</strong>——给得越多，细节（小字、小物体、空间关系）保留越全，但上下文成本与训练开销同步上涨；压得越少，效率越高，但细节在经过瓶颈时被强制丢弃，且丢什么由连接器学出来的「提问策略」决定，不可控。LLaVA 路线赌「LLM 足够强，信息全给它自己挑」，Q-Former 路线赌「32 个学出来的问题足以覆盖大部分任务」，Flamingo 路线则为多图交错与稳定注入付出了最大训练成本。今天开源社区的主流选择是 LLaVA 式的投影直通（细节时代分辨率水涨船高，token 数从 256 涨到 576 乃至上千），而 Q-Former 的思想仍在视频、多图等「token 预算紧张」的场景延续。</p>
 
-<div class="highlight-box">
-  本节核心：连接器是 VLM 的咽喉——视觉编码器与 LLM 都可以冻结现成，真正决定系统能力边界的，是中间这层「给多少 token、怎么给」的设计。三世代不是替代关系，而是「保真度—效率—侵入性」三角上的三个顶点。
-</div>
+<p>　　本节核心：连接器是 VLM 的咽喉——视觉编码器与 LLM 都可以冻结现成，真正决定系统能力边界的，是中间这层「给多少 token、怎么给」的设计。三世代不是替代关系，而是「保真度—效率—侵入性」三角上的三个顶点。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

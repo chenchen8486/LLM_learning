@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -537,9 +531,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　原始网页抓取结果里混着大量「脏数据」：导航栏、页脚版权声明、“请开启 JavaScript”的提示、为了搜索排名堆砌关键词的 SEO 页面、机器翻译生成的病句、反复转载的同一篇文章，全都混在一起。如果不加挑拣地照单全收，模型就可能把广告词当成课文学进去。</p>
 
-<div class="highlight-box info">
-  Common Crawl 是一个非营利项目，每月公开发布一次全网网页快照，每次抓取数十亿网页，原始数据达 PB 级。它免费、海量，但完全不替使用者挑拣：把里面什么该学、什么该扔分清楚，是每个语料工程自己的责任。
-</div>
+<p>　　Common Crawl 是一个非营利项目，每月公开发布一次全网网页快照，每次抓取数十亿网页，原始数据达 PB 级。它免费、海量，但完全不替使用者挑拣：把里面什么该学、什么该扔分清楚，是每个语料工程自己的责任。</p>
 
 <p>　　过滤还有一笔经济账。预训练要消耗的算力极其昂贵，而 token 就是计价单位：喂给模型的每一个垃圾 token，都在白白烧掉显卡时间和电。把预算花在有营养的文本上，是花同样多的钱把模型练得更好的最直接手段。</p>
 
@@ -564,9 +556,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　这套规则的共同点是直白、便宜、可解释：不需要任何模型，普通服务器就能给整个语料库过一遍筛子，出了问题也知道是哪条规则干的。C4 之后，几乎所有主流语料工程都沿用了类似的规则打底。</p>
 
-<div class="highlight-box warn">
-  启发式规则的问题在于一刀切：写诗的行可能故意不用句号，代码教程里的花括号恰恰是正文，精炼的短公告会被“不足 5 句”误杀。规则看不懂内容，只认表面特征，必然误伤一部分好文本。
-</div>
+<p>　　注意：启发式规则的问题在于一刀切：写诗的行可能故意不用句号，代码教程里的花括号恰恰是正文，精炼的短公告会被“不足 5 句”误杀。规则看不懂内容，只认表面特征，必然误伤一部分好文本。</p>
 
 <h2>1.2.3 让模型当评委：困惑度与分类器</h2>
 
@@ -641,9 +631,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box">
-  三代方法回答的问题各不相同：启发式规则问“这像不像垃圾”，困惑度问“这像不像维基”，分类器问“这值不值得学”。问题问得越深入，单条成本越高，筛出的数据对模型能力的提升也越直接。
-</div>
+<p>　　三代方法回答的问题各不相同：启发式规则问“这像不像垃圾”，困惑度问“这像不像维基”，分类器问“这值不值得学”。问题问得越深入，单条成本越高，筛出的数据对模型能力的提升也越直接。</p>
 
 <h2>1.2.4 三种方法对比与取舍</h2>
 

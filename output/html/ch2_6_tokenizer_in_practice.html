@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -621,9 +615,7 @@ enc.encode("Tokenization is fun.")
 
 <p>　　模型做加法时，列竖式要从个位开始逐位对齐、处理进位。人按数位对齐是天然的，因为数字符号本身逐位排列；而模型读到的是 <code>123</code>、<code>456</code> 这样的整块 token，它要先在内部把每个 token 拆回数位，再判断每个 token 跨了哪几位，进位时边界还可能正好卡在 token 中间。token 边界随数值长度漂移，模型就很难学出一个稳定的“个位对个位”的对齐模式。算术对位关系的输入表示不一致，是 LLM 算术能力弱的公认解释之一。</p>
 
-<div class="highlight-box warn">
-  注意一个反直觉的细节：<code>537</code> 恰好整体是一个 token（ID 19038），说明三位以内的常见数字组合在词表里大多有独立词条。麻烦出在更长数字的分段漂移上——位数一变，切分点对齐的数位就变了，模型看到的“数”不再以位为单位。
-</div>
+<p>　　注意：一个反直觉的细节：<code>537</code> 恰好整体是一个 token（ID 19038），说明三位以内的常见数字组合在词表里大多有独立词条。麻烦出在更长数字的分段漂移上——位数一变，切分点对齐的数位就变了，模型看到的“数”不再以位为单位。</p>
 
 <p>　　这个坑的启示不止于算术：凡是需要字符级精确操作的任务（数单词里有几个字母、字符串反转、校验码核对），分词都在给模型制造障碍，因为模型看到的根本不是字符。</p>
 
@@ -671,9 +663,7 @@ enc.encode("Tokenization is fun.")
   <li>做 prompt 模板拼接时，模板与变量之间的空格归属（空格留在模板尾巴还是变量开头）会影响切分，值得留意。</li>
 </ul>
 
-<div class="highlight-box info">
-  一个自查习惯：怀疑模型“莫名其妙”表现异常时，先把实际输入丢进 tiktoken 数一遍。尾部空格、全角半角混用、不可见字符，都能在这步现形。
-</div>
+<p>　　一个自查习惯：怀疑模型“莫名其妙”表现异常时，先把实际输入丢进 tiktoken 数一遍。尾部空格、全角半角混用、不可见字符，都能在这步现形。</p>
 
 <h2>2.6.7 实践建议清单</h2>
 

@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -562,9 +556,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　minimind 仓库（Apache 2.0）没有实现投机采样：它的 generate 函数（model/model_minimind.py:262 起）是标准的逐 token 解码循环，268 行的 <code>for _ in range(max_new_tokens)</code> 每圈只推进一个 token。本节的描述全部以两篇原始论文为准。不过 minimind 的一个配置可以拿来理解工程约束：它的词表是 6400，草案模型必须与目标模型共享同一套分词与词表，否则「第 \(i\) 个候选 token」在两个模型里根本不是同一个单位，逐 token 验收无从谈起。这也是实践中草案模型常取自同一家族小号成员的原因——13.5 节蒸馏出的小模型就是现成候选。</p>
 
-<div class="highlight-box warn">
-  词表一致性是硬约束：验收准则要逐 token 比较两个模型对同一个 token 的概率打分，词表不同则单位都对不上。即便词表相同，草案模型的训练数据风格也应尽量贴近目标模型——接受率 \(\alpha\) 直接决定加速比（公式 (1)），风格差得远，草案就白写了。
-</div>
+<p>　　注意：词表一致性是硬约束：验收准则要逐 token 比较两个模型对同一个 token 的概率打分，词表不同则单位都对不上。即便词表相同，草案模型的训练数据风格也应尽量贴近目标模型——接受率 \(\alpha\) 直接决定加速比（公式 (1)），风格差得远，草案就白写了。</p>
 
 <div class="term-card">
   <div class="term-name">
@@ -653,13 +645,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　为什么接受加重采之后分布恰好是 \(p\)，两篇原论文都给了严格证明（核心是对每个 token 验证「经接受通道来的概率 + 经重采通道来的概率 = \(p(x)\)」）。本节按手册惯例只讲直觉不证定理，想读证明的读者可对照 Leviathan et al. 附录 A 与 Chen et al. 第 3 节。</p>
 
-<div class="highlight-box">
-  无损的确切含义：投机采样不改模型、不改参数、不改输出分布——同一个大模型、同一套采样参数，开与不开投机采样，产出序列服从完全相同的分布；贪心模式下输出逐 token 相同。代价只有草案模型的额外显存与计算，以及实现复杂度。这与量化（13.4 节）形成鲜明对照：量化用可控的精度损失换带宽，投机采样是纯粹的系统侧免费午餐。
-</div>
+<p>　　无损的确切含义：投机采样不改模型、不改参数、不改输出分布——同一个大模型、同一套采样参数，开与不开投机采样，产出序列服从完全相同的分布；贪心模式下输出逐 token 相同。代价只有草案模型的额外显存与计算，以及实现复杂度。这与量化（13.4 节）形成鲜明对照：量化用可控的精度损失换带宽，投机采样是纯粹的系统侧免费午餐。</p>
 
-<div class="highlight-box info">
-  注释：「无损」是分布层面的数学结论，落地时有三个折扣。其一，浮点运算的非结合性会让并行验收的 logits 与逐 token 解码有尾数级差异，实际输出可能个别分叉；其二，投机采样不省 KV Cache 显存（13.2 节），也不解决多用户调度（13.3 节），三者是正交、可叠加的优化；其三，接受率随任务波动——代码、格式化问答这类结构化程度高的文本接受率高，开放式创作接受率低，\(\gamma\) 宜调小。
-</div>
+<p>　　注释：「无损」是分布层面的数学结论，落地时有三个折扣。其一，浮点运算的非结合性会让并行验收的 logits 与逐 token 解码有尾数级差异，实际输出可能个别分叉；其二，投机采样不省 KV Cache 显存（13.2 节），也不解决多用户调度（13.3 节），三者是正交、可叠加的优化；其三，接受率随任务波动——代码、格式化问答这类结构化程度高的文本接受率高，开放式创作接受率低，\(\gamma\) 宜调小。</p>
 
 <h2>13.6.3 推理时扩展：用更多计算换更好答案</h2>
 
@@ -724,9 +712,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="diagram-caption">图 3：推理时扩展的两种花法与一个实测阶梯。两条实线为趋势示意：多花推理计算（更多采样、更长思考）通常单调提升准确率、但边际递减，曲线不对应具体数值；三个红点与灰色虚线是真实数字——o1 官方博客公布的 AIME 2024 结果：GPT-4o 仅 12%，o1 单样本 74%、64 样本多数投票 83%、1000 样本经学习打分器重排 93%（博客口径，无技术报告）。横轴为对数刻度：从 74% 到 93%，靠的是三个数量级的额外采样。</div>
 </div>
 
-<div class="highlight-box info">
-  注释：o1 的全部数字来自官方博客口径——OpenAI 未发布 o1 的技术报告，模型细节、训练方法与评测设置均不公开，外界无法独立复现。读这组数字的正确姿势是把它当方向性证据（推理时计算量确实能换准确率），而不当可复现的基准结论。另外，推理时扩展不改模型权重，是纯粹的部署侧旋钮，与第 11 章「把长思考能力训进权重」分工明确：第 11 章负责「会不会想」，本节负责「愿意想多久」。
-</div>
+<p>　　注释：o1 的全部数字来自官方博客口径——OpenAI 未发布 o1 的技术报告，模型细节、训练方法与评测设置均不公开，外界无法独立复现。读这组数字的正确姿势是把它当方向性证据（推理时计算量确实能换准确率），而不当可复现的基准结论。另外，推理时扩展不改模型权重，是纯粹的部署侧旋钮，与第 11 章「把长思考能力训进权重」分工明确：第 11 章负责「会不会想」，本节负责「愿意想多久」。</p>
 
 <div class="term-card">
   <div class="term-name">

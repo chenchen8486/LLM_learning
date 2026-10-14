@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -603,9 +597,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <h2>4.5.2 为什么 decoder-only 赢下了生成赛道</h2>
 
-<div class="highlight-box info">
-  本节讲的是业界多年复盘形成的主流解释（共识性解释），几条理由互相强化，并不存在某一篇「宣判胜负」的论文，请不要把它当作单一实验结论。
-</div>
+<p>　　本节讲的是业界多年复盘形成的主流解释（共识性解释），几条理由互相强化，并不存在某一篇「宣判胜负」的论文，请不要把它当作单一实验结论。</p>
 
 <p>　　<strong>理由一：生成天然是自回归的。</strong>写答案就是一个词一个词往外蹦，写到第 \(t\) 个词时，能依据的只有前面 \(t-1\) 个词。用概率语言写出来就是链式分解：</p>
 
@@ -624,9 +616,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box warn">
-  反过来想就明白 BERT 为什么不擅生成：双向注意力在训练时让每个位置都能看到右侧内容，一旦拿来做自回归生成，等于考试时偷看还没写出的答案，这称为信息泄漏。掩码填空的目标决定了它擅长「补全中间」，不擅长「续写结尾」。
-</div>
+<p>　　注意：反过来想就明白 BERT 为什么不擅生成：双向注意力在训练时让每个位置都能看到右侧内容，一旦拿来做自回归生成，等于考试时偷看还没写出的答案，这称为信息泄漏。掩码填空的目标决定了它擅长「补全中间」，不擅长「续写结尾」。</p>
 
 <p>　　<strong>理由二：纯生成场景里没有「另一段输入」，编码器失业了。</strong>交叉注意力存在的唯一理由，是让解码器在写每个词时能回头查阅编码器整理好的另一段文本。聊天、续写、创作时根本没有这样一段输入，编码器和交叉注意力一起失去存在意义。删掉它们，解码器每层立刻从 3 个子层瘦身为 2 个。算一笔具体的账：每层 3 子层变 2 子层，同样 6 层就是从 18 个子层瘦身为 12 个，省出的参数预算可以直接换成更多层数——GPT-1 正是把塔加深到了 12 层（每层 2 子层，共 24 个子层）。</p>
 
@@ -644,9 +634,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　<strong>理由四：Prompt 范式抹平了理解与生成的边界。</strong>分类、匹配、抽取这些理解任务，如今都能改写成「给一段提示，让模型续写答案」的形式（第 14 章细讲）。理解的饭碗也能用续写的方式吃，encoder-only 最后的护城河随之消失。</p>
 
-<div class="highlight-box">
-  四条理由合流成一个结论：decoder-only = 掩码自注意力 + FFN 的单塔重复堆叠。生成任务的第一性原理（自回归）选了它，极简结构给了它最低的扩展成本，Prompt 范式又让它通吃理解任务。这就是 2019 年之后主流 LLM 几乎全部倒向 decoder-only 的原因。
-</div>
+<p>　　四条理由合流成一个结论：decoder-only = 掩码自注意力 + FFN 的单塔重复堆叠。生成任务的第一性原理（自回归）选了它，极简结构给了它最低的扩展成本，Prompt 范式又让它通吃理解任务。这就是 2019 年之后主流 LLM 几乎全部倒向 decoder-only 的原因。</p>
 
 <p>　　所以这步在干嘛：把两座塔拆成一座，是因为人们发现「写东西」这件事一座塔就够用；塔越简单越能往大里盖，盖得越大越什么都会。顺带说明，encoder-decoder 没有消亡：T5、BART 这一脉在翻译、摘要等「有明确输入要转换」的场景里至今活跃，只是生成的主赛道让给了 decoder-only。</p>
 
@@ -797,9 +785,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　这套定型后的形态，在本工程配套的 minimind 小模型里看得最清楚：词嵌入之后是 8 个完全相同的 MiniMindBlock 串成一座塔，塔顶过一个 RMSNorm，再接输出头，训练方式就是自回归预测下一个 token。没有编码器，没有交叉注意力，每个 block 里只有掩码自注意力和 FFN 两个子层。它同时用上了表里的全部现代零件：RMSNorm、Pre-Norm、RoPE、SiLU 门控 FFN、GQA（8 个 Q 头共享 4 组 K、V 头）。</p>
 
-<div class="highlight-box">
-  本节最重要的结论：现代 LLM 的一层 block = 掩码多头自注意力 + FFN + 残差 + 归一化。它是原论文 decoder 层删掉交叉注意力后的直系后代，骨架七年没变，零件全面升级。
-</div>
+<p>　　本节最重要的结论：现代 LLM 的一层 block = 掩码多头自注意力 + FFN + 残差 + 归一化。它是原论文 decoder 层删掉交叉注意力后的直系后代，骨架七年没变，零件全面升级。</p>
 
 <p>　　第 5 章的任务就是把这张零件清单逐件拆开：RMSNorm 为什么敢简化 LayerNorm，Pre-Norm 为什么让训练更稳，SwiGLU 凭什么换掉 ReLU，GQA 和 MLA 如何给 KV 缓存瘦身，MoE 又如何在不增加计算量的前提下扩大参数量。学完第 5 章再回看 4.5.3 的对照表，每一格都会有一个完整的答案。</p>
 

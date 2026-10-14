@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -524,9 +518,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box info">
-  MoE 说的“稀疏”是<strong>激活稀疏</strong>：每次前向只动用一部分参数。它和模型剪枝的“参数稀疏”（把大量权重置零）不是一回事——MoE 的每个专家本身都是一个完完整整的稠密小网络。
-</div>
+<p>　　MoE 说的“稀疏”是<strong>激活稀疏</strong>：每次前向只动用一部分参数。它和模型剪枝的“参数稀疏”（把大量权重置零）不是一回事——MoE 的每个专家本身都是一个完完整整的稠密小网络。</p>
 
 <p>　　<strong>一句话白话</strong>：这一步做的事，是把“模型有多大”和“每步算多少”这两本账分开记——参数随便加，计算只按出诊的专家算。</p>
 
@@ -632,9 +624,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="diagram-caption">图 2：8 选 2 的打分现场（Mixtral 风格，结构同图 1 右栏）。token「咳嗽」的 \(x\) [1, 768] 乘路由器 \(W_g\) [768, 8]，softmax 打出 8 个分数（横条按真实分数成比例，数值出自 5.4.2 正文示例）；top-2 选中专家 2（0.35）与专家 6（0.28），两个分数归一化为 0.56、0.44 后加权求和，输出仍是 [1, 768]。未选中的 6 个专家本轮完全不计算；每个专家内部就是图 1 那套 FFN。</div>
 </div>
 
-<div class="highlight-box info">
-  专家的分工不是人工指定的，而是训练中自发涌现的，而且未必符合人类直觉的“科室”。Mixtral 论文的路由分析就发现：专家分配<strong>没有</strong>表现出明显的话题规律（生物、哲学类文本的路由分布几乎一样），分化更多体现在句法层面。所以“呼吸科专家”只是帮助我们理解的类比，真实专家学到的分工要微妙得多。
-</div>
+<p>　　专家的分工不是人工指定的，而是训练中自发涌现的，而且未必符合人类直觉的“科室”。Mixtral 论文的路由分析就发现：专家分配<strong>没有</strong>表现出明显的话题规律（生物、哲学类文本的路由分布几乎一样），分化更多体现在句法层面。所以“呼吸科专家”只是帮助我们理解的类比，真实专家学到的分工要微妙得多。</p>
 
 <p>　　<strong>一句话白话</strong>：路由器就是分诊台，给每个 token 挂最对口的 \(k\) 个科室，其余医生本轮休息——这就是“稀疏激活”的全部秘密。</p>
 
@@ -663,15 +653,11 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<div class="highlight-box danger">
-  易错：Mixtral 8x7B 不是 \(8 \times 7 = 56\)B。被复制成 8 份的只有 FFN，注意力、Embedding 等参数是全体专家共享的。按公开配置（隐藏维度 4096、32 层、FFN 中间维 14336）估算：每个专家 FFN 约 5.6B，8 份共约 45B，加共享部分约 1.6B，合计约 46.7B；每 token 激活则是“共享 1.6B + 2 个专家约 11.3B”，约 12.9B。
-</div>
+<p>　　易错点：Mixtral 8x7B 不是 \(8 \times 7 = 56\)B。被复制成 8 份的只有 FFN，注意力、Embedding 等参数是全体专家共享的。按公开配置（隐藏维度 4096、32 层、FFN 中间维 14336）估算：每个专家 FFN 约 5.6B，8 份共约 45B，加共享部分约 1.6B，合计约 46.7B；每 token 激活则是“共享 1.6B + 2 个专家约 11.3B”，约 12.9B。</p>
 
 <p>　　这笔账的现实意义非常直接：Mixtral 8x7B 在论文评测的全部基准上达到或超过 Llama 2 70B，而推理时每个 token 只按约 13B 参数的规模花钱。显存占用对标 47B 级模型，计算开销对标 13B 级模型，效果对标 70B 级模型——三个数字各管各的。</p>
 
-<div class="highlight-box">
-  核心结论：显存看总参数，算力看激活参数。MoE 是一笔“拿显存换计算”的交易——只要显存装得下全部专家，就能用小模型的计算账单，跑大模型的知识容量。
-</div>
+<p>　　核心结论：显存看总参数，算力看激活参数。MoE 是一笔“拿显存换计算”的交易——只要显存装得下全部专家，就能用小模型的计算账单，跑大模型的知识容量。</p>
 
 <p>　　<strong>一句话白话</strong>：大楼要按全院的规模盖（显存），出诊只出两位医生（算力）——MoE 用空间换时间。</p>
 
@@ -679,9 +665,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　路由器是学出来的，这就埋下一个隐患：<strong>马太效应</strong>。训练早期如果某几个专家碰巧起步稍好，路由器会把越来越多的 token 派给它们；被派得越多，它们得到的梯度训练就越充分，表现就更好，于是更容易被选中。恶性循环下去，少数“明星专家”被挤爆，多数专家从头到尾没接到几个病人，永远得不到训练，沦为摆设——模型名义上的大容量名存实亡。工程上还有一层麻烦：专家通常分布在不同 GPU 上，token 挤向同一个专家，等于挤爆同一张卡，其他卡干等。</p>
 
-<div class="highlight-box warn">
-  不加干预的 MoE 训练几乎必然出现路由“追星”：少量专家过载、多数专家闲置退化。负载均衡不是锦上添花，是 MoE 能训练成功的前提条件。
-</div>
+<p>　　注意：不加干预的 MoE 训练几乎必然出现路由“追星”：少量专家过载、多数专家闲置退化。负载均衡不是锦上添花，是 MoE 能训练成功的前提条件。</p>
 
 <p>　　经典解法是 Switch Transformer 使用的<strong>辅助负载均衡损失</strong>：在一个 batch 里，统计每个专家实际分到的 token 比例 \(f_i\)，以及路由器输出给它的平均概率 \(P_i\)，把两者乘积之和加进总损失里惩罚：</p>
 

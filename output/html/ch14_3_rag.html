@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -589,9 +583,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box">
-  分工原则一句话：知识与能力分开存放——语言与推理能力留在参数里，靠训练获得（第 6–11 章）；事实知识放进外部资料库，靠检索取用。模型不必把全世界背下来，会查就行。
-</div>
+<p>　　分工原则一句话：知识与能力分开存放——语言与推理能力留在参数里，靠训练获得（第 6–11 章）；事实知识放进外部资料库，靠检索取用。模型不必把全世界背下来，会查就行。</p>
 
 <h2>14.3.2 RAG 原论文结构：检索器 DPR 与生成器</h2>
 
@@ -604,9 +596,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="formula-note">公式 (1)：检索分布——文档块与问题的向量内积越大，被检索到的概率越高。符号说明：\(x\) 是用户问题；\(z\) 是资料库中的一个文档块；\(q(\cdot)\) 是问题编码器，输出 768 维向量；\(d(\cdot)\) 是文档编码器，与 \(q\) 互相独立；\(d(z)^{\top} q(x)\) 是两个向量的内积，语义越相近分越高；\(\eta\) 代表检索器的参数。分母是对全库文档的归一化，实际系统不算它——内积本身就能排序，直接取前 \(k\) 名即可（这一步叫最大内积搜索 MIPS，由 FAISS 这类向量索引加速）。</div>
 </div>
 
-<div class="highlight-box info">
-  注释：BM25 是关键词时代的主流检索算法（Lucene / Elasticsearch 的默认打分），靠词频与逆文档频率做字面匹配，不懂语义——「猫」和「喵星人」在它眼里是两个无关词。DPR 这类稠密检索把文本压进语义向量空间（3.1 节的词嵌入思想从词推广到段落），措辞不同但意思相近也能匹配上。DPR 论文报告：在多个开放域问答数据集上，top-20 命中率比 BM25 高 9–19 个点。开放域问答指不限定依据文档、直接对大语料库提问的问答形式。
-</div>
+<p>　　注释：BM25 是关键词时代的主流检索算法（Lucene / Elasticsearch 的默认打分），靠词频与逆文档频率做字面匹配，不懂语义——「猫」和「喵星人」在它眼里是两个无关词。DPR 这类稠密检索把文本压进语义向量空间（3.1 节的词嵌入思想从词推广到段落），措辞不同但意思相近也能匹配上。DPR 论文报告：在多个开放域问答数据集上，top-20 命中率比 BM25 高 9–19 个点。开放域问答指不限定依据文档、直接对大语料库提问的问答形式。</p>
 
 <p>　　RAG 论文的资料库是 2018 年 12 月的英文维基百科，切成 2100 万个互不重叠的 100 词块，每块经文档编码器得到一个 768 维向量，全部向量用 FAISS 建成索引。生成器是 BART-large（约 4 亿参数的编码器-解码器结构，第 4 章架构家族的成员）：把问题与检索到的文档块拼在一起作为输入，逐 token 生成答案。有一个工程取舍值得记住：训练时文档编码器与索引冻结不动——2100 万个向量重算一遍太贵；被训练的只有问题编码器与生成器，两者端到端联训。索引建成后，资料库对训练而言就是一张只读大表。</p>
 
@@ -788,9 +778,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　最后一步说穿了就是拼字符串，模型端毫无感知。minimind（Apache 2.0）的 eval_llm.py 把这一事实写得很直白：base 模型是把 bos_token 与 prompt 直接拼成一个字符串（74 行），chat 模型则用 apply_chat_template 拼出带角色标记的字符串（76 行）——不管内容来路如何，模型看到的永远只是拼好的一串 token。RAG 无非在拼接之前多备了一份资料。这也是「RAG 不改权重」的另一种讲法：它只是改变了 prompt 的内容（呼应 14.1，prompt 是模型唯一的输入通道）。代价是上下文变长：第 8 章的长上下文扩展让模型塞得下更多文档块，第 13 章的 KV Cache 与推理优化让长输入算得起。</p>
 
-<div class="highlight-box warn">
-  切块大小是召回质量的第一道关口：切小了断语义，切大了稀释信号、烧上下文预算。拿不准时先用带重叠的固定长度切块打底，再按资料结构（标题层级、表格、代码块）逐步换成语义边界切块，并以召回效果为准迭代。
-</div>
+<p>　　注意：切块大小是召回质量的第一道关口：切小了断语义，切大了稀释信号、烧上下文预算。拿不准时先用带重叠的固定长度切块打底，再按资料结构（标题层级、表格、代码块）逐步换成语义边界切块，并以召回效果为准迭代。</p>
 
 <h2>14.3.4 RAG 的失效模式</h2>
 
@@ -815,9 +803,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　第三类里有一种值得单独警惕：检索到的文本混进「忽略之前的指令」这类恶意句子，模型可能照做——这叫提示注入，14.4 讲工具调用时还会正面碰上。更根本的提醒是：RAG 没有消灭幻觉，只是把「回答对不对」换成了两个新问题——检索准不准、模型忠不忠于检索到的资料。评估一个 RAG 系统也因此要分两侧打分：检索侧看召回质量，生成侧看答案是否被资料支持。</p>
 
-<div class="highlight-box info">
-  注释：上下文窗口变大之后，「不如把全文直接塞进去」的议论一直没停。RAG 仍有它的位置：全库塞入的成本随库规模失控，检索则把每次推理的输入控制在窗口预算内，且天然带来出处可追溯的好处。综述（arXiv:2312.10997）对这场争论有系统梳理。
-</div>
+<p>　　注释：上下文窗口变大之后，「不如把全文直接塞进去」的议论一直没停。RAG 仍有它的位置：全库塞入的成本随库规模失控，检索则把每次推理的输入控制在窗口预算内，且天然带来出处可追溯的好处。综述（arXiv:2312.10997）对这场争论有系统梳理。</p>
 
 <p>　　至此，模型已经能「开口前先翻书」。但翻书只是单向的读——下一节 Function Calling 让模型反向「打电话」，把请求递出给外部世界执行；14.5 的 Agent 则会把 RAG 当作一件可被调用的工具，组装进多步执行循环。</p>
 

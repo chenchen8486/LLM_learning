@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -572,13 +566,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　图 2 里最值得盯住的一点是「生成」与「执行」的严格分离：模型从头到尾只做一件事——生成文本；解析、调用、回注、重试全是外部代码的活。理解了这一层，Agent 的神秘感就消失了：它不是新物种，而是把旧零件装进了新循环。</p>
 
-<div class="highlight-box">
-  Agent 的本质是组装：一次解码（第 12 章）、一段思维链（14.2 节）、一次检索（14.3 节）、一次工具调用（14.4 节），每一步都是旧动作；新的是外部脚手架把它们串成闭环，让模型能看到自己行动的后果再决定下一步。本章开头那句「不改权重，只在模型外面搭脚手架」，在 Agent 这里走到了极致。
-</div>
+<p>　　Agent 的本质是组装：一次解码（第 12 章）、一段思维链（14.2 节）、一次检索（14.3 节）、一次工具调用（14.4 节），每一步都是旧动作；新的是外部脚手架把它们串成闭环，让模型能看到自己行动的后果再决定下一步。本章开头那句「不改权重，只在模型外面搭脚手架」，在 Agent 这里走到了极致。</p>
 
-<div class="highlight-box info">
-  注释：minimind（Apache 2.0）没有 Agent 实现，它的 eval_llm.py 恰好展示了「没有 Agent 时」长什么样：base 模型把 <code>bos_token</code> 与 prompt 直接拼接（74 行），chat 模型用 <code>apply_chat_template</code> 拼成对话格式（76 行），然后一次性 generate 出整段回复——下一步问什么由人决定。Agent 脚手架做的正是把「下一步做什么」从人手里接过来，交给代码与模型自己；但每一次生成仍是同样的一次前向解码。
-</div>
+<p>　　注释：minimind（Apache 2.0）没有 Agent 实现，它的 eval_llm.py 恰好展示了「没有 Agent 时」长什么样：base 模型把 <code>bos_token</code> 与 prompt 直接拼接（74 行），chat 模型用 <code>apply_chat_template</code> 拼成对话格式（76 行），然后一次性 generate 出整段回复——下一步问什么由人决定。Agent 脚手架做的正是把「下一步做什么」从人手里接过来，交给代码与模型自己；但每一次生成仍是同样的一次前向解码。</p>
 
 <h2>14.5.2 ReAct：推理与行动交替（Thought/Action/Observation 循环）</h2>
 
@@ -748,9 +738,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　效果上，论文给出的代表性数字来自代码生成基准 HumanEval：带 Reflexion 的 Agent 把 pass@1（只生成一次、通过全部测试用例的概率）推到 91%，超过 GPT-4 裸跑基线；在 ALFWorld 决策任务与 HotpotQA 问答上同样有稳定提升（论文摘要）。值得再强调一次：这些提升没有更新任何参数，「学习」完全发生在上下文层面。</p>
 
-<div class="highlight-box info">
-  注释：Reflexion 不是免费的午餐，它有两个前提。其一，Evaluator 得给得出可靠的成败信号——有单元测试的代码任务信号最干净，开放式任务（写一份好报告）没有明确判据，反思就失去方向。其二，反思本身也是模型生成的，可能反思错重点，把下一轮带偏。两个前提都不满足时，加反思未必比直接重试强。
-</div>
+<p>　　注释：Reflexion 不是免费的午餐，它有两个前提。其一，Evaluator 得给得出可靠的成败信号——有单元测试的代码任务信号最干净，开放式任务（写一份好报告）没有明确判据，反思就失去方向。其二，反思本身也是模型生成的，可能反思错重点，把下一轮带偏。两个前提都不满足时，加反思未必比直接重试强。</p>
 
 <h2>14.5.4 Agent 的可靠性与局限：错误累积、上下文膨胀、评估难</h2>
 
@@ -778,9 +766,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<div class="highlight-box danger">
-  论文里的 Agent 环境（ALFWorld、WebShop）全部可以回滚重来，真实世界不行。把 Agent 接到能删数据、转账、发邮件的接口上时，公式 (1) 里的 \(p\) 就不再只是性能指标，而是事故概率——不可逆操作的执行权必须留在人手里，或加上硬门槛（14.4 节「执行权在外部」是最后的防线）。
-</div>
+<p>　　易错点：论文里的 Agent 环境（ALFWorld、WebShop）全部可以回滚重来，真实世界不行。把 Agent 接到能删数据、转账、发邮件的接口上时，公式 (1) 里的 \(p\) 就不再只是性能指标，而是事故概率——不可逆操作的执行权必须留在人手里，或加上硬门槛（14.4 节「执行权在外部」是最后的防线）。</p>
 
 <p>　　收尾看一眼全景：Agent 是本章五个零件里集成度最高的一个——Prompt 工程（14.1）给它定格式，思维链（14.2）给它思考，RAG（14.3）给它资料，Function Calling（14.4）给它双手，本节给它循环与记忆。下一章（第 15 章）会把同样的「外挂与组装」思路推广到文字之外的模态：给模型接上眼睛。</p>
 

@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -517,9 +511,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box info">
-  注释：让模型借外部系统补能力的想法早于 ChatGPT。WebGPT（Nakano et al., 2021）让模型边浏览网页边回答问题，SayCan（Ahn et al., 2022）把语言模型接到机器人上按可行性挑选动作。本节以 2023 年的两个节点为主线：Toolformer（2023 年 2 月）证明调工具的能力可以被训练出来，OpenAI function calling（2023 年 6 月）把它定型为工业界通用的接口形态。
-</div>
+<p>　　注释：让模型借外部系统补能力的想法早于 ChatGPT。WebGPT（Nakano et al., 2021）让模型边浏览网页边回答问题，SayCan（Ahn et al., 2022）把语言模型接到机器人上按可行性挑选动作。本节以 2023 年的两个节点为主线：Toolformer（2023 年 2 月）证明调工具的能力可以被训练出来，OpenAI function calling（2023 年 6 月）把它定型为工业界通用的接口形态。</p>
 
 <h2>14.4.2 机制拆解：schema 进 prompt、结构化请求、外部执行、结果回注</h2>
 
@@ -608,9 +600,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="diagram-caption">图 2：Function Calling 一轮闭环的三泳道视图。模型侧（紫色虚线框）只产生产生调用的 JSON 文本（②）与最终回答（⑤）；拼装输入、解析校验、调用真实 API、结果回注（①③④）全部发生在模型之外（红色虚线框）。「工具被调用」是脚手架把模型写下的特定格式文本解释成调用的结果。</div>
 </div>
 
-<div class="highlight-box">
-  Function Calling 的第一性原理：模型本身永远不会「执行」任何操作，它只生成文本。一次工具调用里，模型的全部工作是写下一张格式正确的「调用单」；把单子变成真实动作的，是模型之外的脚手架。记住这一条，后半节的安全讨论全是它的推论。
-</div>
+<p>　　Function Calling 的第一性原理：模型本身永远不会「执行」任何操作，它只生成文本。一次工具调用里，模型的全部工作是写下一张格式正确的「调用单」；把单子变成真实动作的，是模型之外的脚手架。记住这一条，后半节的安全讨论全是它的推论。</p>
 
 <h2>14.4.3 训练侧：Toolformer 自学调工具、Gorilla 与 ToolLLM 微调路线</h2>
 
@@ -706,9 +696,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<div class="highlight-box">
-  三条路线的共同结论：调用工具是一种可以训练的普通能力，本质是学会在合适的位置、以合适的格式，生成调用文本。训练不改变机制本身——训练过的模型输出的依旧只是文本，执行仍然发生在模型外部。训练解决的是「写不写得好这张单子」，不是「谁来执行」。
-</div>
+<p>　　三条路线的共同结论：调用工具是一种可以训练的普通能力，本质是学会在合适的位置、以合适的格式，生成调用文本。训练不改变机制本身——训练过的模型输出的依旧只是文本，执行仍然发生在模型外部。训练解决的是「写不写得好这张单子」，不是「谁来执行」。</p>
 
 <h2>14.4.4 边界与安全：模型只发请求，执行权在外部</h2>
 
@@ -721,9 +709,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <li><strong>结果可信性</strong>：工具也会错——API 超时、返回脏数据、检索到过期货。结果回注时带来源与时间戳，让模型有条件在回答里说明依据，而不是把任何返回都当成事实转述。</li>
 </ul>
 
-<div class="highlight-box info">
-  注释：边界设计还有一层正面意义。正因为模型只发请求，审计与回放变得容易——每次调用的请求与结果都是明文文本，可以落日志、做合规检查、事后追责。把执行权交进模型内部（比如直接生成可执行代码并运行）会同时失去这道闸门与这份可查性。
-</div>
+<p>　　注释：边界设计还有一层正面意义。正因为模型只发请求，审计与回放变得容易——每次调用的请求与结果都是明文文本，可以落日志、做合规检查、事后追责。把执行权交进模型内部（比如直接生成可执行代码并运行）会同时失去这道闸门与这份可查性。</p>
 
 <p>　　至此，单轮调用的拼图齐了：模型写单子，脚手架执行，结果回注，模型作答。下一节（14.5）把这个回合连成多步循环——模型在「思考、调用、观察、再思考」里走上十几步，自己规划路线，就是 Agent。它没有引入新机制，全是本章零件的组装。</p>
 

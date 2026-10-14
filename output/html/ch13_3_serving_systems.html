@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -450,13 +444,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="formula-note">公式 (1)：静态批处理的槽位利用率——真正产出 token 的槽位步数占总槽位步数的比例。符号说明：\(B\) 是批内请求数；\(L_i\) 是第 \(i\) 条请求实际生成的长度（token 数）；\(L_{\max}\) 是批内最长生成长度，整批要跑满这么多步才散场；分母 \(B \cdot L_{\max}\) 是这批占用的槽位步总数（槽位 × 步数）。代入小例：\(B = 3\)，长度 \([2, 4, 6]\)，得 \(\eta = 12 / 18 \approx 67\%\)。本例的长度差还算温和，真实负载里几十 token 与几千 token 的请求同批并不稀奇，\(\eta\) 掉到两三成很常见。</div>
 </div>
 
-<div class="highlight-box info">
-  注释：工程实现里，静态批通常要把批内序列补齐（padding）到同一长度才能拼成大张量，补齐部分的计算随后被丢弃。这与「陪跑空转」是同一种浪费的两种记账口径：算力花在了注定不用的 token 上。
-</div>
+<p>　　注释：工程实现里，静态批通常要把批内序列补齐（padding）到同一长度才能拼成大张量，补齐部分的计算随后被丢弃。这与「陪跑空转」是同一种浪费的两种记账口径：算力花在了注定不用的 token 上。</p>
 
-<div class="highlight-box">
-  静态批处理的两个窟窿可以记成一句话：批内等最慢的（长度不齐 → 空转），批外等整批的（队头阻塞 → 排队）。两个窟窿指向同一个病根——调度决策整批只做一次，而做决策的时候，谁也不知道各条请求会写多长。
-</div>
+<p>　　静态批处理的两个窟窿可以记成一句话：批内等最慢的（长度不齐 → 空转），批外等整批的（队头阻塞 → 排队）。两个窟窿指向同一个病根——调度决策整批只做一次，而做决策的时候，谁也不知道各条请求会写多长。</p>
 
 <h2>13.3.2 连续批处理：token 级调度，谁结束谁走</h2>
 
@@ -703,9 +693,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="diagram-caption">图 2：KV Cache 显存管理的两种方案对照。左栏传统做法按最大长度连续预留：请求 A 实写 200 token 却占着 8192 token 的空间（内部碎片 97.6%），长短不一的预留释放后留下拼不起来的空洞（外部碎片）；右栏 PagedAttention 把 KV 切成固定大小的块，经块表映射到散落的物理块，内部碎片以一块封顶、外部碎片归零、相同前缀的块可共享。</div>
 </div>
 
-<div class="highlight-box">
-  一句话记住 PagedAttention：它是 KV Cache 的虚拟内存。逻辑块连续、物理块散落、块表做翻译，碎片与重复副本被一并吃掉。省下的显存全部换成更大的批——这就绕回了 13.3.1 的主题：批越大，权重搬运摊得越薄，吞吐越高。
-</div>
+<p>　　一句话记住 PagedAttention：它是 KV Cache 的虚拟内存。逻辑块连续、物理块散落、块表做翻译，碎片与重复副本被一并吃掉。省下的显存全部换成更大的批——这就绕回了 13.3.1 的主题：批越大，权重搬运摊得越薄，吞吐越高。</p>
 
 <h2>13.3.4 vLLM 的实测声明</h2>
 
@@ -713,13 +701,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　如今连续批处理加分页 KV Cache 已是现代推理框架的标配，两者的组合构成 LLM 服务化的地基。本章后面三节的主题——量化（13.4）、蒸馏（13.5）、投机采样与推理时扩展（13.6）——都是在这块地基上继续压成本、提速度。</p>
 
-<div class="highlight-box info">
-  注释：网上流传更广的数字是「24 倍」，它出自 vLLM 团队 2023 年 6 月的发布博客（Easy, Fast, and Cheap LLM Serving with PagedAttention），对照对象是 HuggingFace Transformers 的朴素 generate 用法，不是 SOSP 论文的实验口径。论文与更强的基线（FasterTransformer、Orca）对比，数字落在 2–4 倍。引用时务必说清是哪个口径，别把博客数字当论文结论。
-</div>
+<p>　　注释：网上流传更广的数字是「24 倍」，它出自 vLLM 团队 2023 年 6 月的发布博客（Easy, Fast, and Cheap LLM Serving with PagedAttention），对照对象是 HuggingFace Transformers 的朴素 generate 用法，不是 SOSP 论文的实验口径。论文与更强的基线（FasterTransformer、Orca）对比，数字落在 2–4 倍。引用时务必说清是哪个口径，别把博客数字当论文结论。</p>
 
-<div class="highlight-box warn">
-  所有吞吐倍数都强依赖硬件型号、模型规模与负载分布（请求长度、到达速率），换一套场景数字就会变。本节的 36.9 倍与 2–4 倍一律按论文报告的原样引用并注明对照基线；拿它们估算自家部署的收益之前，先核对实验条件是否对得上。
-</div>
+<p>　　注意：所有吞吐倍数都强依赖硬件型号、模型规模与负载分布（请求长度、到达速率），换一套场景数字就会变。本节的 36.9 倍与 2–4 倍一律按论文报告的原样引用并注明对照基线；拿它们估算自家部署的收益之前，先核对实验条件是否对得上。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

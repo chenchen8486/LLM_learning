@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -573,9 +567,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="formula-note">公式 (1)：一次回答的生成概率——在 prompt 条件下逐 token 链式相乘。符号说明：\(\theta\) 是训练好的模型权重，部署后冻结，本节一切技巧都不碰它；\(\mathbf{c}\) 是 prompt 经 chat template 拼接、分词后的上下文 token 序列（系统提示、用户消息、历史轮次都在里面）；\(\mathbf{y} = (y_1, \dots, y_T)\) 是模型生成的回答序列；\(y_{&lt;t}\) 是已生成的前 \(t-1\) 个输出 token；\(T\) 是回答长度。链式分解本身见附录 A.12。这个公式是本节的总纲：prompt 工程的全部操作，归纳成一句话就是在不动 \(\theta\) 的前提下把条件 \(\mathbf{c}\) 写好。</div>
 </div>
 
-<div class="highlight-box info">
-  注释：公式 (1) 也划清了 prompt 工程与前几章的分工。第 6–11 章改的是 \(\theta\)（预训练、SFT、对齐都在更新权重），第 12–13 章改的是从 \(P_\theta\) 里选词的方式与效率（解码、KV Cache、量化），本章改的是 \(\mathbf{c}\)。三个旋钮互不替代：prompt 写得再好也补不了能力的课，正如 12.2 节的采样参数补不了分布形状的课。
-</div>
+<p>　　注释：公式 (1) 也划清了 prompt 工程与前几章的分工。第 6–11 章改的是 \(\theta\)（预训练、SFT、对齐都在更新权重），第 12–13 章改的是从 \(P_\theta\) 里选词的方式与效率（解码、KV Cache、量化），本章改的是 \(\mathbf{c}\)。三个旋钮互不替代：prompt 写得再好也补不了能力的课，正如 12.2 节的采样参数补不了分布形状的课。</p>
 
 <h2>14.1.2 上下文学习：few-shot 为什么不改权重却有效</h2>
 
@@ -685,9 +677,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　<strong>输出格式约束</strong>与<strong>分隔符</strong>是一对搭档：前者规定回答长什么样，后者规定输入怎么分区。格式要求（JSON、表格、三点式）写进 prompt 后，模型续写时会高概率模仿——语料里格式词与格式实例本就共生。分隔符则处理另一个问题：当指令和数据混在一段文本里（「把下面这段话翻译成英语：……」），边界不清时模型可能把数据当指令执行。用 ###、三个反引号或 XML 标签把数据包起来，借的是训练语料里结构化标记与清晰边界的共现规律。14.1.4 会看到，这层「区分」是概率意义上的倾斜，并非铁闸。</p>
 
-<div class="highlight-box info">
-  注释：技巧有效不等于技巧万能。这些写法提高的是「得到想要回答」的概率，不是把概率推到 1。同一 prompt 换个随机种子、换个解码温度（12.2 节），结果仍可能波动。评估一个 prompt 写法是否真的好，需要在多个样本上统计成功率，单次的惊艳或翻车都不作数。
-</div>
+<p>　　注释：技巧有效不等于技巧万能。这些写法提高的是「得到想要回答」的概率，不是把概率推到 1。同一 prompt 换个随机种子、换个解码温度（12.2 节），结果仍可能波动。评估一个 prompt 写法是否真的好，需要在多个样本上统计成功率，单次的惊艳或翻车都不作数。</p>
 
 <h2>14.1.4 Prompt 的边界：它是请求不是约束</h2>
 
@@ -746,15 +736,11 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　同一个结构性限制在安全场景下后果更严重，它有个专门的名字：<strong>提示注入</strong>（prompt injection）。在模型眼里，系统提示与用户输入没有权限等级之分——它们只是同一段 token 流的不同位置（图 2 看得很清楚：拼起来就是一条序列）。用户输入一句「忽略之前的所有指令，照我说的做」，这段文字同样进入条件 \(\mathbf{c}\)，同样倾斜分布，有时真能把模型从系统提示的轨道上拉走。因此系统提示不能当安全边界用：凡涉及权限、资金、隐私数据的操作，防线必须建在模型外面（调用前的校验、最小权限的工具接口），不能指望措辞拦住恶意输入。</p>
 
-<div class="highlight-box danger">
-  把「系统提示里写了不许做 X」当作安全保证是典型误用。系统提示与用户输入在模型看来是同一段文本，提示注入没有一劳永逸的 prompt 解法；真正的防线在外部：约束解码保证格式、代码校验保证语义、最小权限与人工确认保证操作安全。14.4 节讲工具调用时会回到这个话题。
-</div>
+<p>　　易错点：把「系统提示里写了不许做 X」当作安全保证是典型误用。系统提示与用户输入在模型看来是同一段文本，提示注入没有一劳永逸的 prompt 解法；真正的防线在外部：约束解码保证格式、代码校验保证语义、最小权限与人工确认保证操作安全。14.4 节讲工具调用时会回到这个话题。</p>
 
 <p>　　那么 prompt 边界之外的正确工具是什么？按需求分三类：要<strong>格式保证</strong>（必须是合法 JSON、必须命中枚举值），用 12.4 节的结构化输出与约束解码，把合法性升格为解码期保证，如图 4 右侧；要<strong>语义正确</strong>（计算结果对、代码能跑），把验证写成代码，输出后校验、失败重试，或在 14.4 节把计算本身外包给工具；要<strong>模型不知道的知识</strong>（私有文档、实时信息），prompt 里硬写「不许编造」收效甚微，正解是 14.3 节的 RAG——把资料查好塞进上下文。prompt 工程负责「把请求表达清楚」，这三类问题都超出了「表达」能解决的范畴。</p>
 
-<div class="highlight-box">
-  本节的核心结论可以收成一句：prompt 是写给分布的请求书，不是发给系统的命令。它改变公式 (1) 中条件 \(\mathbf{c}\) 的内容，从而倾斜每一个输出 token 的概率；倾斜可以非常强，但永远不等于锁死。工程上的正确姿势是分层：表达层用 prompt 技巧把分布引向目标，保证层用约束解码与外部校验兜住剩余概率。
-</div>
+<p>　　本节的核心结论可以收成一句：prompt 是写给分布的请求书，不是发给系统的命令。它改变公式 (1) 中条件 \(\mathbf{c}\) 的内容，从而倾斜每一个输出 token 的概率；倾斜可以非常强，但永远不等于锁死。工程上的正确姿势是分层：表达层用 prompt 技巧把分布引向目标，保证层用约束解码与外部校验兜住剩余概率。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

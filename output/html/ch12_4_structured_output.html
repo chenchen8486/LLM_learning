@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -516,9 +510,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="concept-card"><h4>硬约束：解码时屏蔽非法 token</h4><p>在解码每一步从机制上把不合格式的 token 概率归零，模型想违规也违规不了。优点是格式有严格保证；缺点是需要额外的编译与运行时设施，这正是本节的主角。</p></div>
 </div>
 
-<div class="highlight-box">
-  判断用哪条路线，看输出的第一消费者是谁：交给人看，软约束通常够用；交给程序看，「错一个字符就全盘崩」决定了需要硬约束把概率性合规换成机制性合规。结构化输出要解决的从来不是「让模型更听话」，而是「让违规在物理上不可能发生」。
-</div>
+<p>　　判断用哪条路线，看输出的第一消费者是谁：交给人看，软约束通常够用；交给程序看，「错一个字符就全盘崩」决定了需要硬约束把概率性合规换成机制性合规。结构化输出要解决的从来不是「让模型更听话」，而是「让违规在物理上不可能发生」。</p>
 
 <h2>12.4.2 约束解码原理：每步给词表加掩码</h2>
 
@@ -616,9 +608,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　从实现侧看，这套手法一点也不新。minimind 的 generate 里，top-k 把低于第 k 名的 logit 置 −∞、top-p 把累计概率越线的置 −∞（model_minimind.py:276–282），用的正是同一个「置 −∞」动作；约束解码只是把掩码的来源从「概率排名」换成了「语法合法性」。理解了 12.2 节的修正链，就理解了约束解码的一半——它不过是给这条链再添一个修正站。</p>
 
-<div class="highlight-box">
-  约束解码 = 编译期建表（格式 → 状态机 / 文法 → 各状态的合法 token 集合）+ 解码期查表（每步给词表加掩码）。它把「请求模型守规矩」变成「模型没法不守规矩」，且不改合法集合内的相对概率形状——模型对内容的偏好被完整保留。
-</div>
+<p>　　约束解码 = 编译期建表（格式 → 状态机 / 文法 → 各状态的合法 token 集合）+ 解码期查表（每步给词表加掩码）。它把「请求模型守规矩」变成「模型没法不守规矩」，且不改合法集合内的相对概率形状——模型对内容的偏好被完整保留。</p>
 
 <h2>12.4.3 工程方案：Outlines、GBNF 与 Structured Outputs</h2>
 
@@ -642,9 +632,7 @@ item ::= [^\n]+ "\n"</code></pre>
 
 <p>　　这是 llama.cpp 官方 GBNF 文档里的真实示例：root 规则规定输出整体必须是一行或多行「- 项目」，item 规则规定每行是不含换行的任意字符加换行收尾。不想手写语法时，llama.cpp 也能把 JSON Schema 的一个子集自动转成 GBNF。官方文档还特意提醒：schema 只用于约束输出，<strong>不会注入 prompt</strong>——模型自己看不见这份格式约定，想让它理解结构，还得在 prompt 里照常说明（工具调用场景除外）。OpenAI 的 Structured Outputs 则把整套机制收进服务端：开发者只传 JSON Schema 与 strict: true，约束解码在服务端完成；官方公告（2024-08-06）给出的口径是，复杂 schema 场景下的格式可靠性从旧模型的不足四成提升到百分之百。代价是 schema 只能用一个子集——所有字段必须列入 required、对象必须声明 additionalProperties: false、嵌套不超过 10 层等（官方文档的 supported schemas 清单），超出就直接报错。</p>
 
-<div class="highlight-box warn">
-  三套方案共享同一个工程难点：<strong>token 对齐</strong>。语法是字符级的，模型是 token 级的，两者粒度天然错位——一个 token 可能横跨语法边界（比如 <code>"age":</code> 恰好被切成一个 token，一口气走完「键名串内 → 键名之后 → 值位置」三个状态），一个语法符号也可能要多个 token 拼出来。掩码判定必须逐个 token 模拟「它喂进状态机后走到哪里、会不会走进死路」，这是约束解码实现的主要复杂度，也是各家方案性能差异的来源。
-</div>
+<p>　　注意：三套方案共享同一个工程难点：<strong>token 对齐</strong>。语法是字符级的，模型是 token 级的，两者粒度天然错位——一个 token 可能横跨语法边界（比如 <code>"age":</code> 恰好被切成一个 token，一口气走完「键名串内 → 键名之后 → 值位置」三个状态），一个语法符号也可能要多个 token 拼出来。掩码判定必须逐个 token 模拟「它喂进状态机后走到哪里、会不会走进死路」，这是约束解码实现的主要复杂度，也是各家方案性能差异的来源。</p>
 
 <p>　　对照 minimind 可以看清这条光谱的位置：它的 generate（model_minimind.py:261–293）只实现了概率侧的修正——温度、重复惩罚、top-k、top-p，没有内置任何语法约束。这不奇怪：约束解码的全部增量只是「再往修正链上加一个来自语法的掩码站」，理解了现有那几站的置 −∞，加上去只是工程量的差别。</p>
 
@@ -656,9 +644,7 @@ item ::= [^\n]+ "\n"</code></pre>
 
 <p>　　第二重边界更要记牢：<strong>约束管格式，不管内容</strong>。schema 能保证 age 字段一定是整数，保证不了这个整数填得对；输入与 schema 不匹配时，模型照样会在完全合法的格式里编造内容——OpenAI 官方文档自己就提示了这一点。还有两个机制外的破口：模型因安全原因拒答时输出不再遵循 schema（文档要求调用方检查 refusal 字段），以及撞上 max_tokens 上限时 JSON 被拦腰截断（12.3 节的截断风险在这里兑现）。所以工程上仍要兜底：校验、重试、截断检测一个都不能省。</p>
 
-<div class="highlight-box danger">
-  格式必对 ≠ 内容必对。约束解码消灭的是「解析失败」这一类错误，对「填得不对」「合法地胡说」无能为力；拒答与截断两种情形还会绕过约束本身。拿到结构化输出的正确姿势是：信任它的形状，核验它的内容。
-</div>
+<p>　　易错点：格式必对 ≠ 内容必对。约束解码消灭的是「解析失败」这一类错误，对「填得不对」「合法地胡说」无能为力；拒答与截断两种情形还会绕过约束本身。拿到结构化输出的正确姿势是：信任它的形状，核验它的内容。</p>
 
 <p>　　把机制与实证合起来，实践建议就清楚了：<strong>约束骨架，放开内容</strong>。键名、类型、括号、枚举这类骨架交给硬约束，它们没有发挥余地，约束只有收益；字符串字段里的自由文本、推理过程则尽量留在宽松的位置，不要用格式卡死。推理比重大的任务，更好的安排是让模型先自由生成、再二次结构化抽取；若必须一次输出结构化推理，可以学 OpenAI 官方文档的链式思考示例——把 steps 字段放在 final_answer 之前（Structured Outputs 按 schema 声明的键顺序输出），让模型先在宽松字段里想完，再填结论。格式之外的事——prompt 里怎么写格式指令、与 CoT 和 RAG 怎么组合——属于第 14 章的应用层话题；掩码计算与 KV Cache、量化、投机采样的开销账，则一并留给第 13 章。</p>
 

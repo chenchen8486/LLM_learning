@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -597,9 +591,7 @@ logits[mask.scatter(1, sorted_indices, mask)] = -float('inf')                # 2
   <li><strong>282 行，散回原顺序</strong>：掩码此刻按名次排列，<code>scatter</code> 按 <code>sorted_indices</code> 把每一格散回词表原顺序，核外位置的 logit 置 −∞；之后 softmax 时 \(e^{-\infty} = 0\)（A.3 节），这些候选的概率严格归零。置 −∞ 这手屏蔽技巧在手册里反复登场（注意力因果掩码、约束解码），附录 A.11 统一讲它。</li>
 </ol>
 
-<div class="highlight-box">
-  top-p 的全部数学就是三件事：排队（sort）、累加（cumsum）、找首次越线的名次（分位数）。阈值 p 是「至少留住多少概率」的保证书：p 越高核越大、尾巴越长；p 取 1.0 时一个都不砍（代码里 top_p 小于 1.0 才启用），p 越小核收得越紧。
-</div>
+<p>　　top-p 的全部数学就是三件事：排队（sort）、累加（cumsum）、找首次越线的名次（分位数）。阈值 p 是「至少留住多少概率」的保证书：p 越高核越大、尾巴越长；p 取 1.0 时一个都不砍（代码里 top_p 小于 1.0 才启用），p 越小核收得越紧。</p>
 
 <h3>本书用在哪</h3>
 

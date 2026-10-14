@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -1008,9 +1002,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box info">
-  两个容易忽略的工程细节：原论文在“词向量 + 位置编码”相加之后还会施加一次 dropout（基础模型 \(P_{drop} = 0.1\)），再送入第一层子层；另外位置编码必须与词向量同为 \(d_{\mathrm{model}}\) 维，否则无法逐维相加。
-</div>
+<p>　　两个容易忽略的工程细节：原论文在“词向量 + 位置编码”相加之后还会施加一次 dropout（基础模型 \(P_{drop} = 0.1\)），再送入第一层子层；另外位置编码必须与词向量同为 \(d_{\mathrm{model}}\) 维，否则无法逐维相加。</p>
 
 <h2>3.3.2 正弦位置编码：给每个维度配一把不同刻度的尺子</h2>
 
@@ -1162,9 +1154,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<div class="highlight-box">
-  两种绝对位置编码在建模能力上没有实质差距。原论文最终选正弦，不是因为它效果更好，而是因为它不增加任何参数，且有望外推到比训练时更长的序列；GPT 系选可学习，是因为它零设计成本、实现最简单，而当时的上下文长度（GPT-1 为 512 个 token）根本用不到外推。
-</div>
+<p>　　两种绝对位置编码在建模能力上没有实质差距。原论文最终选正弦，不是因为它效果更好，而是因为它不增加任何参数，且有望外推到比训练时更长的序列；GPT 系选可学习，是因为它零设计成本、实现最简单，而当时的上下文长度（GPT-1 为 512 个 token）根本用不到外推。</p>
 
 <h2>3.3.4 共同的局限：绝对位置的天花板</h2>
 

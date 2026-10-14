@@ -150,20 +150,20 @@
 
 <p>　　词表里的每个 token 都要在 Embedding 层占一行向量（第 3 章详述）。词表有 \(V\) 个条目、模型维度为 \(d_{\text{model}}\) 时，仅 Embedding 层就要占用：</p>
 
-<div class="highlight-box info">
-  先把两个概念说清楚。词表就是一张“token 到编号”的对照表，形如 <code>'import' -> 2851</code>、<code>'Ġreleased' -> 4113</code>，minimind 的词表共 6400 条。Embedding 层是一张大矩阵，行数等于词表条数，列数等于模型维度，每一行是若干浮点数，这一行就是那个 token 的向量表示。查表动作很直白：拿编号当行号取那一行，输入 2851 就取第 2851 行的 768 个数。所以“每个 token 占一行”是字面意思，词表 6400 条，矩阵就是 6400 行。同一维度下（以 768 列计）对照：
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>词表</th><th>矩阵规模</th><th>Embedding 参数</th></tr></thead>
-      <tbody>
-        <tr><td>minimind 6400</td><td>6400 × 768</td><td>约 491 万</td></tr>
-        <tr><td>GPT-2 50257</td><td>50257 × 768</td><td>约 3859 万</td></tr>
-        <tr><td>o200k 200019</td><td>200019 × 768</td><td>约 1.54 亿</td></tr>
-      </tbody>
-    </table>
-  </div>
-  同一套模型结构，只把词表从 6400 换成 20 万，Embedding 参数就从 491 万涨到 1.54 亿，这就是“词表膨胀”的代价。
+<p>　　先把两个概念说清楚。词表就是一张“token 到编号”的对照表，形如 <code>'import' -> 2851</code>、<code>'Ġreleased' -> 4113</code>，minimind 的词表共 6400 条。Embedding 层是一张大矩阵，行数等于词表条数，列数等于模型维度，每一行是若干浮点数，这一行就是那个 token 的向量表示。查表动作很直白：拿编号当行号取那一行，输入 2851 就取第 2851 行的 768 个数。所以“每个 token 占一行”是字面意思，词表 6400 条，矩阵就是 6400 行。同一维度下（以 768 列计）对照：</p>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>词表</th><th>矩阵规模</th><th>Embedding 参数</th></tr></thead>
+    <tbody>
+      <tr><td>minimind 6400</td><td>6400 × 768</td><td>约 491 万</td></tr>
+      <tr><td>GPT-2 50257</td><td>50257 × 768</td><td>约 3859 万</td></tr>
+      <tr><td>o200k 200019</td><td>200019 × 768</td><td>约 1.54 亿</td></tr>
+    </tbody>
+  </table>
 </div>
+
+<p>　　同一套模型结构，只把词表从 6400 换成 20 万，Embedding 参数就从 491 万涨到 1.54 亿，这就是“词表膨胀”的代价。</p>
 
 <div class="formula-card">
   \[ N_{\text{embed}} = V \times d_{\text{model}} \tag{1} \]
@@ -194,9 +194,7 @@
   </table>
 </div>
 
-<div class="highlight-box">
-  从 GPT-2 的 5 万到 o200k_base 的 20 万，主流词表的整体趋势是越来越大。背后的驱动力有两个：一是模型本身变大，Embedding 多占的参数相对不再显眼；二是多语言与代码场景要求更完整的语义单元。词表大小没有标准答案，它是模型设计者在序列长度与参数量之间做的一次显式交换。
-</div>
+<p>　　从 GPT-2 的 5 万到 o200k_base 的 20 万，主流词表的整体趋势是越来越大。背后的驱动力有两个：一是模型本身变大，Embedding 多占的参数相对不再显眼；二是多语言与代码场景要求更完整的语义单元。词表大小没有标准答案，它是模型设计者在序列长度与参数量之间做的一次显式交换。</p>
 
 <h2>2.5.2 特殊 Token：词表里的控制字符</h2>
 
@@ -251,13 +249,9 @@
 
 <p>　　<code>&lt;|begin_of_text|&gt;</code> 相当于 BOS，<code>&lt;|start_header_id|&gt;</code> 与 <code>&lt;|end_header_id|&gt;</code> 包住角色名，<code>&lt;|eot_id|&gt;</code> 标记一轮结束。模型在微调时见过成千上万条按这个格式拼好的样本，于是学会了只在 assistant 段落里生成回答、说完就输出结束标记。</p>
 
-<div class="highlight-box warn">
-  微调或推理时用错模板是常见 bug：训练用 ChatML、推理却按 LLaMA-3 格式拼，或者漏了结尾的 assistant 起始标记，模型就会答非所问、把用户的下一句也编出来，或者干脆不会停止。模板必须与模型训练时见过的格式严格一致，一个字符都不能差。稳妥做法是直接使用分词器自带的 apply_chat_template 接口，不要手工拼字符串。
-</div>
+<p>　　注意：微调或推理时用错模板是常见 bug：训练用 ChatML、推理却按 LLaMA-3 格式拼，或者漏了结尾的 assistant 起始标记，模型就会答非所问、把用户的下一句也编出来，或者干脆不会停止。模板必须与模型训练时见过的格式严格一致，一个字符都不能差。稳妥做法是直接使用分词器自带的 apply_chat_template 接口，不要手工拼字符串。</p>
 
-<div class="highlight-box">
-  Chat Template 的本质是一次“协议约定”：特殊 token 本身没有魔力，是训练数据里成千上万次按同一格式出现，让模型把这套标记和“角色”“轮次”“该谁说话”绑定在了一起。换一套模型没见过的标记，等于对它说了一门没学过的方言。
-</div>
+<p>　　Chat Template 的本质是一次“协议约定”：特殊 token 本身没有魔力，是训练数据里成千上万次按同一格式出现，让模型把这套标记和“角色”“轮次”“该谁说话”绑定在了一起。换一套模型没见过的标记，等于对它说了一门没学过的方言。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -591,13 +585,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </div>
 </div>
 
-<div class="highlight-box warn">
-  把 temperature 设为 0 指望贪心解码是不可靠的：minimind 直接拿它当除数（<code>logits / temperature</code>，model/model_minimind.py:272），\(T = 0\) 就是除零。想要确定性的贪心输出，正确开关是 <code>do_sample=False</code>——第 283 行会改走 argmax 分支，与温度彻底无关。
-</div>
+<p>　　注意：把 temperature 设为 0 指望贪心解码是不可靠的：minimind 直接拿它当除数（<code>logits / temperature</code>，model/model_minimind.py:272），\(T = 0\) 就是除零。想要确定性的贪心输出，正确开关是 <code>do_sample=False</code>——第 283 行会改走 argmax 分支，与温度彻底无关。</p>
 
-<div class="highlight-box">
-  温度的职责边界：只改形状，不砍候选。无论温度多低，6400 个候选都在候选席上，尾巴上的低概率 token 仍有非零机会被抽中。真正把候选踢出场的，是下一小节的两种截断刀法。
-</div>
+<p>　　温度的职责边界：只改形状，不砍候选。无论温度多低，6400 个候选都在候选席上，尾巴上的低概率 token 仍有非零机会被抽中。真正把候选踢出场的，是下一小节的两种截断刀法。</p>
 
 <h2>12.2.2 top-k 与 top-p：截断尾巴的两种刀法</h2>
 
@@ -729,9 +719,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   </table>
 </div>
 
-<div class="highlight-box">
-  top-p 把「留几个候选」从一个写死的超参数，变成了分布形状的函数：模型自信时核小、困惑时核大。这一自适应正是它取代 top-k 成为主流默认的原因——minimind 两个旋钮都保留了（默认 top_k = 50、top_p = 0.85 同时生效），实战中真正起截断作用的一般是 top-p。
-</div>
+<p>　　top-p 把「留几个候选」从一个写死的超参数，变成了分布形状的函数：模型自信时核小、困惑时核大。这一自适应正是它取代 top-k 成为主流默认的原因——minimind 两个旋钮都保留了（默认 top_k = 50、top_p = 0.85 同时生效），实战中真正起截断作用的一般是 top-p。</p>
 
 <h2>12.2.3 三件套的联合使用：顺序与相互作用</h2>
 
@@ -751,9 +739,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　默认值层面，minimind 留了两套口径，读代码时别混淆：generate 函数签名（262 行）是 <code>temperature=0.85, top_p=0.85, top_k=50, max_new_tokens=8192, eos_token_id=2</code>；而交互脚本 eval_llm.py 的命令行参数（42–44 行）是 <code>temperature 0.85, top_p 0.95, max_new_tokens 8192</code>，且实际调用时把 <code>repetition_penalty</code> 固定为 1（即关闭惩罚，86 行）。函数签名是兜底默认，脚本参数是推荐手感，两者并存是开源项目的常态。</p>
 
-<div class="highlight-box info">
-  注释：修正链的顺序没有统一标准，各框架不尽相同。换框架（vLLM、Hugging Face、llama.cpp）时，值得先翻一眼文档或源码确认温度、惩罚、截断的相对顺序——同一组参数值在不同顺序下产出不同分布，「参数照抄却换了味道」多半由此而来。
-</div>
+<p>　　注释：修正链的顺序没有统一标准，各框架不尽相同。换框架（vLLM、Hugging Face、llama.cpp）时，值得先翻一眼文档或源码确认温度、惩罚、截断的相对顺序——同一组参数值在不同顺序下产出不同分布，「参数照抄却换了味道」多半由此而来。</p>
 
 <h2>12.2.4 进阶抽样：min-p、重复惩罚与对比搜索</h2>
 
@@ -770,9 +756,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　<strong>对比搜索：退回确定性解码</strong>。采样三件套都在「随机抽样」的框架里打转，Su et al. 2022（arXiv:2202.06417）走了反方向：对比搜索（contrastive search）是确定性解码，每步在高概率候选中挑「与上文表示差异最大」的那个，用表示层面的对比度同时压住重复与跑题。论文把退化的根源之一归于 token 表示的各向异性（embedding 挤在狭窄锥形区域，语义区分度差），并配套了对比训练目标 SimCTG。这里只需记住它的存在：当场景要求输出完全可复现时，确定性解码是一条与采样平行的路。</p>
 
-<div class="highlight-box info">
-  注释：无论三件套还是进阶补丁，改变的都只是「从分布里怎么挑」，分布本身的形状是训练（第 6–11 章）定下的。采样参数补不了能力的课，好模型却可能被烂参数毁掉——这条结论的完整展开放在 12.5 节。采样之外的系统工程（KV Cache、量化、投机采样）则全部留给第 13 章。
-</div>
+<p>　　注释：无论三件套还是进阶补丁，改变的都只是「从分布里怎么挑」，分布本身的形状是训练（第 6–11 章）定下的。采样参数补不了能力的课，好模型却可能被烂参数毁掉——这条结论的完整展开放在 12.5 节。采样之外的系统工程（KV Cache、量化、投机采样）则全部留给第 13 章。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

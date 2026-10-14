@@ -130,9 +130,7 @@
   <div class="diagram-caption">图 1：重复计算对比（prompt 为 x₁x₂x₃，生成 x₄、x₅）。左：无缓存时第 2 轮把前 3 个位置原样重算（红色），两轮共处理 7 个位置；右：有缓存时第 1 轮 prefill 把 3 个位置的 K/V 写入缓存，第 2 轮 decode 只处理 x₄ 这 1 个新位置，历史 K/V 从缓存读取，两轮共 4 个位置。序列越长，两种做法的差距越大（公式 (1)）。</div>
 </div>
 
-<div class="highlight-box info">
-  注释：有一笔计算 KV Cache 省不掉——新 token 的注意力分数本身。新位置必须「看」全部历史位置，\(q_t\) 与全部 \(n\) 个键的点积每步都得现算，这部分随序列长度线性增长。缓存省掉的是历史位置的 K/V 投影与它们的全部中间层结果，不是注意力里的「看」这个动作。
-</div>
+<p>　　注释：有一笔计算 KV Cache 省不掉——新 token 的注意力分数本身。新位置必须「看」全部历史位置，\(q_t\) 与全部 \(n\) 个键的点积每步都得现算，这部分随序列长度线性增长。缓存省掉的是历史位置的 K/V 投影与它们的全部中间层结果，不是注意力里的「看」这个动作。</p>
 
 <h2>13.2.2 缓存机制：只算新 token 的 Q，K/V 从缓存读</h2>
 
@@ -229,9 +227,7 @@
 
 <p>　　这套机制里有两个名词值得记住，它们把推理分成性格迥异的两段。第一趟：prompt 的全部位置并行处理一遍，顺手把每层缓存填满，叫 <strong>prefill（预填充）</strong>——这是一次大批量矩阵乘，算力吃得满，属于计算受限（compute-bound）。之后的每一趟：只处理 1 个新 token，计算量小得可怜，但每步仍要把全部权重和整个缓存从显存里读一遍，属于带宽受限（memory-bound），这正是 13.1 节「解码的瓶颈是带宽」的具体现场。Pope et al.（arXiv:2211.05102）对这两段做了系统的成本分析，是服务端调优的标准参照。</p>
 
-<div class="highlight-box">
-  KV Cache 的本质是一笔交易：显存里存一份随序列长度线性增长的 K/V 档案，换掉随长度平方增长的重复计算。它与全量重算在数学上严格等价（至多差浮点累加的次序），输出分布一个数都不变——这和量化（13.4 节）那类以精度换效率的近似手段有本质区别，也是所有主流推理框架默认开启它的原因。
-</div>
+<p>　　KV Cache 的本质是一笔交易：显存里存一份随序列长度线性增长的 K/V 档案，换掉随长度平方增长的重复计算。它与全量重算在数学上严格等价（至多差浮点累加的次序），输出分布一个数都不变——这和量化（13.4 节）那类以精度换效率的近似手段有本质区别，也是所有主流推理框架默认开启它的原因。</p>
 
 <h2>13.2.3 minimind 代码印证：缓存的拼、切、写</h2>
 
@@ -254,9 +250,7 @@ past_key_values = outputs.past_key_values if use_cache else None       # 286 行
 
 <p>　　<strong>写</strong>（286 行）：每层拼好的完整 K/V 装进 <code>outputs.past_key_values</code> 带回，赋给 <code>past_key_values</code> 供下一轮接着拼。若 <code>use_cache=False</code>，这里直接置 <code>None</code>，下一轮 <code>past_len</code> 归零、整段重切，退回 13.2.1 的全量重算模式——输出结果不变，只是更慢。默认情况是开着的：generate 的函数签名（262 行）写明 <code>use_cache=True</code>。</p>
 
-<div class="highlight-box info">
-  注释：KV Cache 没有一篇「提出它」的专门论文，它是随自回归解码器落地的工程共识：Fairseq 的增量解码状态、Hugging Face Transformers 的 <code>use_cache</code> / <code>past_key_values</code> 接口都是这一传统的代表，minimind 的变量命名与 Hugging Face 完全一致。系统层面把这笔账算清楚的权威分析是 Pope et al.（arXiv:2211.05102）。
-</div>
+<p>　　注释：KV Cache 没有一篇「提出它」的专门论文，它是随自回归解码器落地的工程共识：Fairseq 的增量解码状态、Hugging Face Transformers 的 <code>use_cache</code> / <code>past_key_values</code> 接口都是这一传统的代表，minimind 的变量命名与 Hugging Face 完全一致。系统层面把这笔账算清楚的权威分析是 Pope et al.（arXiv:2211.05102）。</p>
 
 <h2>13.2.4 缓存的显存代价与 GQA 的省法</h2>
 
@@ -307,13 +301,9 @@ past_key_values = outputs.past_key_values if use_cache else None       # 286 行
 
 <p>　　MQA 的提出动机恰恰就是这笔账：Shazeer 2019 的论文标题即「Fast Transformer Decoding: One Write-Head is All You Need」，目标是把增量解码时要存、要搬的 K/V 缩到最小，用微小的质量损失换解码提速；GQA 是 MHA 与 MQA 之间的折中，质量与开销各让一步。质量一侧的对比（困惑度、训练稳定性）5.2 节已经讲过，本节只强调系统侧结论：<strong>减少 KV 头是缩放缓存显存最直接的手段</strong>。再往上还有两条路：MLA 把 K/V 压成低秩潜向量再缓存（5.3 节），以及换精度——缓存同样可以从 FP16 压到更低比特，思路与权重量化相通（13.4 节）。</p>
 
-<div class="highlight-box warn">
-  注意缓存随「并发数 × 上下文长度」双重线性放大：batch = 8、各 8192 token 时，minimind 的缓存约 800 MB，已是权重（约 128 MB）的 6 倍以上。且每条会话的缓存随生成不断变长，显存的分配与回收本身也成了难题——13.3 节的 PagedAttention 要解决的就是这个管理问题。
-</div>
+<p>　　注意：缓存随「并发数 × 上下文长度」双重线性放大：batch = 8、各 8192 token 时，minimind 的缓存约 800 MB，已是权重（约 128 MB）的 6 倍以上。且每条会话的缓存随生成不断变长，显存的分配与回收本身也成了难题——13.3 节的 PagedAttention 要解决的就是这个管理问题。</p>
 
-<div class="highlight-box danger">
-  易错点：KV Cache 缓存的是每个位置的 K、V 向量，不是注意力分数矩阵。分数矩阵是 \(n \times n\) 级别且每步形状都在变，存它既贵又没用；真正会被未来反复使用的只有 K/V 档案（每层 \(n \times 384\) 量级），分数每步现算现扔。把「缓存注意力」理解成缓存分数矩阵，是初学时最常见的误解。
-</div>
+<p>　　易错点：KV Cache 缓存的是每个位置的 K、V 向量，不是注意力分数矩阵。分数矩阵是 \(n \times n\) 级别且每步形状都在变，存它既贵又没用；真正会被未来反复使用的只有 K/V 档案（每层 \(n \times 384\) 量级），分数每步现算现扔。把「缓存注意力」理解成缓存分数矩阵，是初学时最常见的误解。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>

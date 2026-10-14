@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -564,9 +558,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　对比 BPE 只数 <code>freq(ab)</code>，WordPiece 多除了一个分母。效果是：两个各自都极其高频的片段，哪怕常一起出现，得分也会被拉低；而一对“离开对方就很少单独出现”的片段会被优先合并。比如 <code>hu</code> 和 <code>##gging</code> 几乎都只在 hugging 里成对出现、很少各奔东西，得分就高，容易被优先合并；反过来，<code>##ing</code> 这类高频后缀能跟成千上万种词根搭配，自身频次太大，得分反而被分母拉低。</p>
 
-<div class="highlight-box info">
-  公式 (1) 是帮助理解的近似写法。原始实现（GNMT 论文）按语言模型似然的实际增益来选择合并对象，两者的偏好方向一致：都偏爱互信息高的强绑定组合。
-</div>
+<p>　　公式 (1) 是帮助理解的近似写法。原始实现（GNMT 论文）按语言模型似然的实际增益来选择合并对象，两者的偏好方向一致：都偏爱互信息高的强绑定组合。</p>
 
 <p>　　词表构造好之后，编码阶段的做法也不同。BPE 按合并记录的顺序重放规则，WordPiece 则用<strong>贪心最长匹配</strong>（longest-match-first）：从词的开头起，在词表里找能匹配的最长片段，切下来，再对剩下的部分重复这个动作，直到切完。任何环节匹配不上，整词判为 <code>[UNK]</code>。</p>
 
@@ -605,9 +597,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　Viterbi 算法是做这件事的标准工具：按字符位置从左往右推进，每到一个位置，只保留“以该位置结尾的最优前缀切分”，不必真的枚举指数级的全部方案。直觉上它和走迷宫时“每个路口只记到当前为止的最短路径”是同一个思路。</p>
 
-<div class="highlight-box">
-  Unigram 的概率本质带来一个 BPE 和 WordPiece 都没有的能力：<strong>subword regularization</strong>。训练时不一定用概率最大的切分，而是按概率采样一种切分——同一个词这次切成 <code>play + ##ing</code>、下次切成 <code>pl + ##ay + ##ing</code>。模型在训练时见到同一个词的不同切法，相当于免费的数据增强，鲁棒性更好。
-</div>
+<p>　　Unigram 的概率本质带来一个 BPE 和 WordPiece 都没有的能力：<strong>subword regularization</strong>。训练时不一定用概率最大的切分，而是按概率采样一种切分——同一个词这次切成 <code>play + ##ing</code>、下次切成 <code>pl + ##ay + ##ing</code>。模型在训练时见到同一个词的不同切法，相当于免费的数据增强，鲁棒性更好。</p>
 
 <p>　　Unigram 的代表使用者是 XLNet、ALBERT 和 T5，三者都通过 SentencePiece 工具包的 Unigram 后端来训练分词器。SentencePiece 这套工程化封装是下一节 2.4 的主题。</p>
 

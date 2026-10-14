@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -564,9 +558,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <li><strong>思维链推理</strong>：Chain-of-Thought prompting 只在约 100B 量级以上的模型上带来稳定增益，小模型用了反而可能更差（Wei et al., 2022）——连“怎么提问才有效”都会随规模切换。</li>
 </ul>
 
-<div class="highlight-box info">
-  “涌现”一词在科学史上有悠长谱系：物理学的相变、生物学的蚁群协作、神经科学的意识研究，都用它描述“整体大于部分之和”的现象。Anderson 1972 年的 "More Is Different" 是这套思想的经典出处，Wei 等人的论文正是站在这一传统上发问。
-</div>
+<p>　　“涌现”一词在科学史上有悠长谱系：物理学的相变、生物学的蚁群协作、神经科学的意识研究，都用它描述“整体大于部分之和”的现象。Anderson 1972 年的 "More Is Different" 是这套思想的经典出处，Wei 等人的论文正是站在这一传统上发问。</p>
 
 <p>　　这批曲线成了 GPT-3 时代以来规模叙事的核心证据：如果能力会不可预测地涌现，那么继续扩大规模就可能“意外解锁”谁也没料到的新能力。下一节看其中最具颠覆性的一类。</p>
 
@@ -587,9 +579,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　ICL 被视为涌现叙事的招牌，原因有二。一是<strong>增益随规模拉开</strong>：GPT-3 论文的曲线显示，few-shot 相对 zero-shot 的提升在小模型上很有限，模型越大提升越明显——小模型给了例子也学不会，大模型才能从例子中读出任务规律。二是<strong>曲线形态本身</strong>：一大批 few-shot 任务的表现曲线正是 6.5.1 描述的相变形态。换句话说，随规模质变的似乎不只是“会做题”，而是“会了一种新的学习方式”。</p>
 
-<div class="highlight-box info">
-  GPT-3 的算术实验是 ICL 涌现的教科书案例：175B 模型 few-shot 达到两位数加法 100%、三位数加法 80.2%、三位数减法 94.2%，而 13B 及以下的家族成员在三位数运算上几乎全错。此外，175B 在部分 NLP 任务上的 few-shot 成绩已逼近当时微调模型的最佳水平（Brown et al., 2020）。
-</div>
+<p>　　GPT-3 的算术实验是 ICL 涌现的教科书案例：175B 模型 few-shot 达到两位数加法 100%、三位数加法 80.2%、三位数减法 94.2%，而 13B 及以下的家族成员在三位数运算上几乎全错。此外，175B 在部分 NLP 任务上的 few-shot 成绩已逼近当时微调模型的最佳水平（Brown et al., 2020）。</p>
 
 <p>　　不改参数为何也能“学”？这至今是活跃的研究问题。一种有影响力的机制解释是归纳头（induction heads）：Transformer 内部会自然形成一类负责“复制前文出现过的模式”的注意力头，其形成过程恰好也呈相变式（Olsson et al., 2022）。机制细节留待架构与可解释性的讨论展开，这里只需记住：ICL 的存在与强度都强烈依赖规模。</p>
 
@@ -670,9 +660,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="diagram-caption">图 3：同一批模型在 0-1 指标（左）与连续指标（右）下的表现曲线。左侧呈“相变”，右侧呈渐进——曲线形状为示意，非真实实验数据。</div>
 </div>
 
-<div class="highlight-box danger">
-  “小模型表现接近随机”不等于“小模型一无所知”。0-1 指标下，小模型把四位数加法的前三位都写对了，得分依然是 0——进步被尺子整个抹掉。把“测不出来”读成“不存在”，是涌现叙事流传最广的误读。
-</div>
+<p>　　易错点：“小模型表现接近随机”不等于“小模型一无所知”。0-1 指标下，小模型把四位数加法的前三位都写对了，得分依然是 0——进步被尺子整个抹掉。把“测不出来”读成“不存在”，是涌现叙事流传最广的误读。</p>
 
 <h2>6.5.4 我们该怎么看</h2>
 
@@ -686,9 +674,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <li><strong>要预测，不要惊叹</strong>：工程上真正有用的问题是“下一代模型能不能做这件事”。连续指标下的平滑曲线可以外推，0-1 指标下的悬崖不能——这是 Scaling Law 与涌现之争给实践者最实在的启示。</li>
 </ul>
 
-<div class="highlight-box">
-  规模与能力的关系，在损失曲线上是幂律（可外推），在任务曲线上可能表现为相变（难外推）；而相变感相当一部分是 0-1 度量对平滑进步的非线性放大。规模可靠地解锁新用法成立；把涌现当神秘突变来敬畏，没有必要。
-</div>
+<p>　　规模与能力的关系，在损失曲线上是幂律（可外推），在任务曲线上可能表现为相变（难外推）；而相变感相当一部分是 0-1 度量对平滑进步的非线性放大。规模可靠地解锁新用法成立；把涌现当神秘突变来敬畏，没有必要。</p>
 
 <p>　　度量口径的问题不会到此为止。评测指标怎么设计，直接决定我们“看见”什么样的能力。</p>
 

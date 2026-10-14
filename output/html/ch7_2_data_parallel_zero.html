@@ -126,14 +126,8 @@ tr:last-child td{border-bottom:none}
 .doc-meta-card .keywords{display:flex;flex-wrap:wrap;gap:6px}
 .doc-meta-card .keywords span{display:inline-block;background:#fff;border:1px solid #c4b5fd;border-radius:999px;padding:2px 10px;font-size:12px;color:var(--primary-dark)}
 
-/* ─── 重点框 ─── */
-.highlight-box{background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-left:4px solid var(--success);padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:16px 0}
-.highlight-box.warn{background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-left-color:var(--warning)}
-.highlight-box.danger{background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);border-left-color:var(--danger)}
-.highlight-box.info{background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border-left-color:#ea580c}
-.highlight-box.info::before{content:'注释';display:block;font-weight:700;font-size:13px;color:#ea580c;margin-bottom:6px}
-.highlight-box.warn::before{content:'警告';display:block;font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px}
-.highlight-box.danger::before{content:'易错';display:block;font-weight:700;font-size:13px;color:var(--danger);margin-bottom:6px}
+/* ─── 重点框（2026-10-14 起去框化：只保留段落间距，不再用颜色与边框，标注交由读者自己的高亮工具）─── */
+.highlight-box{margin:16px 0}
 .highlight-box p:last-child{margin-bottom:0}
 
 /* ─── 苏格拉底问答卡片 ─── */
@@ -737,9 +731,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="diagram-caption">图 3：DDP 一个训练步的完整流程。数据被切成互不重叠的分片，各卡持完整模型副本独立前向反向，梯度经 all-reduce 求平均后各自更新，参数保持一致。</div>
 </div>
 
-<div class="highlight-box">
-  DDP 的通信节奏：前向、反向各算各的，零通信；一步训练只在反向时同步一次梯度，通信量约两倍梯度大小，且与卡数近似无关。这就是它能从 8 卡一路扩到上万卡的原因。
-</div>
+<p>　　DDP 的通信节奏：前向、反向各算各的，零通信；一步训练只在反向时同步一次梯度，通信量约两倍梯度大小，且与卡数近似无关。这就是它能从 8 卡一路扩到上万卡的原因。</p>
 
 <h2>7.2.2 显存冗余：N 张卡存 N 份相同的家当</h2>
 
@@ -758,9 +750,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　三样合计每参数 16 字节。关键问题是：<strong>DDP 里这 16 字节在每张卡上各存一份，且内容完全相同</strong>。N 张卡的集群，模型状态总占用是 \(16\Psi N\) 字节（\(\Psi\) 是参数量），其中真正互不相同的有效信息只有 \(1/N\)——其余全是为维持「一致性不变式」付出的复制税。拿 70B 模型、64 卡算账：每卡 1120 GB，集群合计约 71.7 TB，其中 70.6 TB 是冗余。</p>
 
-<div class="highlight-box warn">
-  DP 的扩展瓶颈是显存而不是算力。ZeRO 论文给过一个直观的观察：混合精度训练下，超过约 1.4B 参数的模型（16 字节账约 22.4 GB），在 32 GB 显卡上用基本 DP 就已经装不下了——这还没算激活值。模型越大，DDP 越先被自己的冗余卡死。
-</div>
+<p>　　注意：DP 的扩展瓶颈是显存而不是算力。ZeRO 论文给过一个直观的观察：混合精度训练下，超过约 1.4B 参数的模型（16 字节账约 22.4 GB），在 32 GB 显卡上用基本 DP 就已经装不下了——这还没算激活值。模型越大，DDP 越先被自己的冗余卡死。</p>
 
 <div class="term-card">
   <div class="term-name">
@@ -862,17 +852,11 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　显存省得漂亮，通信代价呢？这正是 ZeRO 设计最巧妙的地方。回忆 ring all-reduce 的两个阶段：reduce-scatter 加 all-gather。DDP 的梯度 all-reduce 本来就是这两步的组合，通信量 \(2\Psi\)。Stage 1 和 Stage 2 只是把这两步拆开重新点名——梯度用 reduce-scatter 各取所属切片（\(\Psi\)），参数更新后用 all-gather 拼回全员（\(\Psi\)），总量仍是 \(2\Psi\)，<strong>与 DDP 一字不差</strong>。Stage 3 因为参数不在手边，前向、反向各要多做一次参数 all-gather，总量升到 \(3\Psi\)，即多花 50% 通信。</p>
 
-<div class="highlight-box">
-  ZeRO 的账本：Stage 1、Stage 2 的显存节省（最高约 8 倍）是白赚的，通信量与 DDP 完全相同；只有 Stage 3 才付通信税（+50%），换来显存随卡数线性下降。工程上 DeepSpeed 把三级做成配置开关，按显存缺口逐级加码即可。
-</div>
+<p>　　ZeRO 的账本：Stage 1、Stage 2 的显存节省（最高约 8 倍）是白赚的，通信量与 DDP 完全相同；只有 Stage 3 才付通信税（+50%），换来显存随卡数线性下降。工程上 DeepSpeed 把三级做成配置开关，按显存缺口逐级加码即可。</p>
 
-<div class="highlight-box info">
-  切分还能再往外卸。ZeRO-Offload（Ren et al., 2021）把优化器状态和梯度卸到 CPU 内存、参数更新放在 CPU 上算；ZeRO-Infinity（Rajbhandari et al., 2021）基于 Stage 3 进一步把状态卸到 NVMe 硬盘，打通 GPU—CPU—NVMe 三级存储，让单台机器也能撬动超大模型的微调。它们换的是更便宜的容量，付的是更慢的带宽。
-</div>
+<p>　　切分还能再往外卸。ZeRO-Offload（Ren et al., 2021）把优化器状态和梯度卸到 CPU 内存、参数更新放在 CPU 上算；ZeRO-Infinity（Rajbhandari et al., 2021）基于 Stage 3 进一步把状态卸到 NVMe 硬盘，打通 GPU—CPU—NVMe 三级存储，让单台机器也能撬动超大模型的微调。它们换的是更便宜的容量，付的是更慢的带宽。</p>
 
-<div class="highlight-box info">
-  本页显存数字用十进制 GB（1 GB = \(10^9\) 字节），与 ZeRO 论文口径一致；若按二进制 GiB（\(2^{30}\) 字节）计，1120 GB 约等于 1043 GiB。另外所有对比只算模型状态，激活值显存另计——长序列、大 batch 时激活同样可观，由激活重计算等技术负责。
-</div>
+<p>　　本页显存数字用十进制 GB（1 GB = \(10^9\) 字节），与 ZeRO 论文口径一致；若按二进制 GiB（\(2^{30}\) 字节）计，1120 GB 约等于 1043 GiB。另外所有对比只算模型状态，激活值显存另计——长序列、大 batch 时激活同样可观，由激活重计算等技术负责。</p>
 
 <h2>7.2.4 梯度累积：把大 batch 摊到时间轴上</h2>
 
@@ -885,9 +869,7 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
   <div class="formula-note">公式 (4)：大 batch 的均值损失梯度，等于各 micro-batch 均值损失梯度的平均——所以累积时每步 loss 先除 k，k 步累加出来的梯度才与大 batch 严格一致。符号说明：\(\mathcal{L}_{i}\) 是第 \(i\) 个 micro-batch 的均值损失；\(k\) 是累积步数；\(\nabla \mathcal{L}_{\text{大 batch}}\) 是把 k 份数据合成一个大 batch 算出的梯度；⇔ 右边是工程实现写法，两边数学等价。</div>
 </div>
 
-<div class="highlight-box danger">
-  梯度累积忘了给 loss 除以 k，是真实高发的静默错误：不报错、loss 曲线照降，但每步实际梯度大了 k 倍。对 SGD 这类直接拿梯度乘学习率的优化器，这等效于学习率偷偷放大 k 倍，轻则收敛变差，重则训练发散；Adam 家族按梯度量级做归一化，对这种整体缩放近似免疫，但工程上没人会把训练押在「近似免疫」上。检查清单里永远要有这一项。
-</div>
+<p>　　易错点：梯度累积忘了给 loss 除以 k，是真实高发的静默错误：不报错、loss 曲线照降，但每步实际梯度大了 k 倍。对 SGD 这类直接拿梯度乘学习率的优化器，这等效于学习率偷偷放大 k 倍，轻则收敛变差，重则训练发散；Adam 家族按梯度量级做归一化，对这种整体缩放近似免疫，但工程上没人会把训练押在「近似免疫」上。检查清单里永远要有这一项。</p>
 
 <p>　　叠上 DDP，等效全局 batch 的完整公式是三个数的连乘：</p>
 
@@ -898,13 +880,9 @@ document.documentElement.classList.add(on?'nav-on':'nav-off');})();
 
 <p>　　以 minimind 的预训练默认配置为例：单卡 batch 32、累积 8 步，单卡等效 batch 就是 256 条；若铺到 64 卡 DDP，全局等效 batch 达 16384 条——而每张卡任一时刻只需为 32 条样本存激活值。要特别提醒一句边界：梯度累积省的是<strong>激活</strong>显存，模型状态（参数、梯度、优化器状态）一分不少，那块要找 ZeRO；两者解决的显存互不重叠，所以总是搭配使用。</p>
 
-<div class="highlight-box info">
-  工程细节：梯度累积的中间 k−1 步，梯度只在本地攒着，并不需要跨卡同步，PyTorch 提供 <code>model.no_sync()</code> 上下文关掉这些步的 all-reduce，省下一截通信。minimind 没有做这层优化——它的每次 backward 都会触发 DDP 同步，结果完全正确，只是多通信了几趟，小模型上无伤大雅。
-</div>
+<p>　　工程细节：梯度累积的中间 k−1 步，梯度只在本地攒着，并不需要跨卡同步，PyTorch 提供 <code>model.no_sync()</code> 上下文关掉这些步的 all-reduce，省下一截通信。minimind 没有做这层优化——它的每次 backward 都会触发 DDP 同步，结果完全正确，只是多通信了几趟，小模型上无伤大雅。</p>
 
-<div class="highlight-box">
-  三根支柱各管一摊、彼此正交：DDP 把数据摊到多卡（算力），ZeRO 把模型状态切到多卡（状态显存），梯度累积把 batch 摊到时间轴（激活显存）。真实的大模型训练永远是三者的组合，再叠上 7.1 的混合精度——比如「ZeRO-2 + bf16 + 累积 8 步 + 64 卡」。
-</div>
+<p>　　三根支柱各管一摊、彼此正交：DDP 把数据摊到多卡（算力），ZeRO 把模型状态切到多卡（状态显存），梯度累积把 batch 摊到时间轴（激活显存）。真实的大模型训练永远是三者的组合，再叠上 7.1 的混合精度——比如「ZeRO-2 + bf16 + 累积 8 步 + 64 卡」。</p>
 
 <div class="socratic-card">
   <div class="sc-head"><span class="sc-icon">🧭</span><span>本节要点回顾</span></div>
