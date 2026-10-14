@@ -798,25 +798,26 @@ function toggleSidebar(){
 
 // 图片点击放大/拖拽/滚轮缩放
 (function(){
-  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0;
+  let overlay=null, img=null, scale=1, isDragging=false, startX=0, startY=0, translateX=0, translateY=0, dragDist=0;
   function openZoom(src){
     if(overlay) return;
     overlay=document.createElement('div'); overlay.className='img-zoom-overlay';
     img=document.createElement('img'); img.src=src; img.draggable=false;
     overlay.appendChild(img); document.body.appendChild(overlay);
-    scale=1; translateX=0; translateY=0; updateTransform();
-    overlay.addEventListener('click', closeZoom);
+    scale=1; translateX=0; translateY=0; dragDist=0; updateTransform();
+    overlay.addEventListener('click', onClick);
     overlay.addEventListener('wheel', onWheel, {passive:false});
     overlay.addEventListener('mousedown', onMouseDown);
     overlay.addEventListener('mousemove', onMouseMove);
     overlay.addEventListener('mouseup', onMouseUp);
     overlay.addEventListener('mouseleave', onMouseUp);
   }
+  function onClick(){ if(dragDist>6){ dragDist=0; return; } closeZoom(); }  // 拖拽松手也会补发 click，距离超阈值不视为单击
   function closeZoom(){ if(!overlay) return; overlay.remove(); overlay=null; img=null; }
   function updateTransform(){ img.style.transform='translate('+translateX+'px,'+translateY+'px) scale('+scale+')'; }
   function onWheel(e){ e.preventDefault(); scale *= e.deltaY<0 ? 1.1 : 0.9; scale=Math.min(Math.max(scale,0.5),5); updateTransform(); }
-  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
-  function onMouseMove(e){ if(!isDragging) return; translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
+  function onMouseDown(e){ if(e.target!==img) return; isDragging=true; dragDist=0; startX=e.clientX-translateX; startY=e.clientY-translateY; img.classList.add('is-dragging'); }
+  function onMouseMove(e){ if(!isDragging) return; dragDist+=Math.abs(e.movementX)+Math.abs(e.movementY); translateX=e.clientX-startX; translateY=e.clientY-startY; updateTransform(); }
   function onMouseUp(){ isDragging=false; if(img) img.classList.remove('is-dragging'); }
   document.addEventListener('DOMContentLoaded', function(){
     document.querySelectorAll('.img-block img').forEach(function(el){ el.addEventListener('click', function(){ openZoom(el.src); }); });
